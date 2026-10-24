@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0]
+
 ### Added
 
 - Language with Haskell syntax: clauses with pattern matching and guards,
