@@ -29,7 +29,7 @@ static Map gmap, cmap, tmap;
 static int level;
 static int tvid;
 static VEC(Type *) numvars;
-static const char *s_int, *s_float, *s_char, *s_bool, *s_list, *s_arrow, *s_unit, *s_string;
+static const char *s_int, *s_float, *s_char, *s_bool, *s_list, *s_arrow, *s_unit, *s_string, *s_otherwise;
 
 static const struct { const char *cname, *type; } prim_info[] = {
 #define P(c, name, ar, ty) {#c, ty},
@@ -652,7 +652,10 @@ static Type *infer(Expr *e, Env *env) {
       if (x->name == e->name) return inst(x->t, false);
     int g = map_get(&gmap, e->name);
     if (g < 0) cerror(e->line, e->col, "variable not in scope: `%s`", e->name);
-    return inst(globals.a[g].type, false);
+    Type *t = inst(globals.a[g].type, false);
+    int p = globals.a[g].prim;
+    if (p >= 0 && (fk_prims[p].code == fk_p_show || fk_prims[p].code == fk_p_print)) e->ty = t;
+    return t;
   }
   case E_CON:
     e->idx = con_lookup(e->name, e->line, e->col);
@@ -752,6 +755,248 @@ static void default_nums(void) {
   numvars.n = 0;
 }
 
+/* ------------------------------------------------------ show descriptors */
+
+typedef struct { VEC(Type *) ty; VEC(const char *) txt; } DescTab;
+
+static bool type_eq(Type *a, Type *b) {
+  a = repr(a);
+  b = repr(b);
+  if (a == b) return true;
+  if (a->k != TY_CON || b->k != TY_CON || a->name != b->name || a->n != b->n) return false;
+  for (int i = 0; i < a->n; i++)
+    if (!type_eq(a->args[i], b->args[i])) return false;
+  return true;
+}
+
+static Type *subst(Type *t, Type **from, Type **to, int n) {
+  t = repr(t);
+  if (t->k == TY_VAR) {
+    for (int i = 0; i < n; i++)
+      if (repr(from[i]) == t) return to[i];
+    return t;
+  }
+  if (!t->n) return t;
+  Type **args = xmalloc((size_t)t->n * sizeof *args);
+  for (int i = 0; i < t->n; i++) args[i] = subst(t->args[i], from, to, n);
+  return tcon(t->name, t->n, args);
+}
+
+/* One entry per distinct type, so recursive types refer back to their
+   own entry. Non-regular types stop at 64 entries with `?`. */
+static int desc_entry(DescTab *d, Type *t) {
+  t = repr(t);
+  for (int i = 0; i < d->ty.n; i++)
+    if (type_eq(d->ty.a[i], t)) return i;
+  int i = d->ty.n, ti = t->k == TY_CON ? map_get(&tmap, t->name) : -1;
+  VPUSH(d->ty, t);
+  VPUSH(d->txt, "?");
+  if (ti < 0) return i;
+  if (t->name == s_int) d->txt.a[i] = "I";
+  else if (t->name == s_float) d->txt.a[i] = "F";
+  else if (t->name == s_char) d->txt.a[i] = "C";
+  if (!tydefs.a[ti].ncons || i >= 64) return i;
+  int first = 0, nc = tydefs.a[ti].ncons;
+  while (condefs.a[first].tydef != ti) first++;
+  SB b = {0};
+  sb_printf(&b, "D%d,%d", first, nc);
+  for (int c = first; c < first + nc; c++) {
+    Type *res = repr(condefs.a[c].scheme);
+    for (int f = 0; f < condefs.a[c].arity; f++) res = repr(res->args[1]);
+    Type *f = repr(condefs.a[c].scheme);
+    for (int k = 0; k < condefs.a[c].arity; k++, f = repr(f->args[1]))
+      sb_printf(&b, ",%d", desc_entry(d, subst(f->args[0], res->args, t->args, res->n)));
+  }
+  d->txt.a[i] = b.s;
+  return i;
+}
+
+/* Runtime descriptor of t for show (format in rt.c), or NULL when t has
+   no Float or Char, since structural show is then exact. */
+const char *show_desc(Type *t) {
+  DescTab d = {0};
+  desc_entry(&d, t);
+  bool need = false;
+  SB b = {0};
+  for (int i = 0; i < d.txt.n; i++) {
+    need |= d.txt.a[i][0] == 'F' || d.txt.a[i][0] == 'C';
+    sb_printf(&b, "%s%s", i ? ";" : "", d.txt.a[i]);
+  }
+  free(d.ty.a);
+  free(d.txt.a);
+  return need ? b.s : NULL;
+}
+
+/* -------------------------------------------------------- exhaustiveness */
+
+/* Maranget's usefulness algorithm, extended to return a witness: a row of
+   patterns that no row of the matrix matches, or NULL if the rows are
+   exhaustive. Int and Char literals are treated as infinite domains. */
+static Pat wild_pat = {.k = P_WILD};
+
+static bool is_wild(Pat *p) { return p->k == P_VAR || p->k == P_WILD; }
+
+static Pat **missing(Pat ***rows, int nr, int n) {
+  if (n == 0) return nr ? NULL : xmalloc(1);
+  int td = -1;
+  for (int r = 0; r < nr; r++)
+    if (rows[r][0]->k == P_CON) td = condefs.a[rows[r][0]->con].tydef;
+  int first = 0, nc = 0, unseen = -1;
+  if (td >= 0) {
+    while (condefs.a[first].tydef != td) first++;
+    nc = tydefs.a[td].ncons;
+    for (int c = first; c < first + nc && unseen < 0; c++) {
+      unseen = c;
+      for (int r = 0; r < nr; r++)
+        if (rows[r][0]->k == P_CON && rows[r][0]->con == c) unseen = -1;
+    }
+  }
+  Pat ***sub = xmalloc((size_t)nr * sizeof *sub + 1);
+  if (td >= 0 && unseen < 0) { /* every constructor appears: split on each */
+    for (int c = first; c < first + nc; c++) {
+      int ar = condefs.a[c].arity, ns = 0;
+      for (int r = 0; r < nr; r++) {
+        Pat *h = rows[r][0];
+        if (!is_wild(h) && h->con != c) continue;
+        Pat **row = xmalloc((size_t)(ar + n - 1) * sizeof *row + 1);
+        for (int k = 0; k < ar; k++) row[k] = is_wild(h) ? &wild_pat : h->args[k];
+        memcpy(row + ar, rows[r] + 1, (size_t)(n - 1) * sizeof *row);
+        sub[ns++] = row;
+      }
+      Pat **w = missing(sub, ns, ar + n - 1);
+      if (!w) continue;
+      Pat *p = NEW(Pat);
+      p->k = P_CON;
+      p->con = c;
+      p->n = ar;
+      p->args = w;
+      Pat **out = xmalloc((size_t)n * sizeof *out);
+      out[0] = p;
+      memcpy(out + 1, w + ar, (size_t)(n - 1) * sizeof *out);
+      return out;
+    }
+    return NULL;
+  }
+  int ns = 0; /* default matrix: rows that match any head */
+  for (int r = 0; r < nr; r++)
+    if (is_wild(rows[r][0])) sub[ns++] = rows[r] + 1;
+  Pat **w = missing(sub, ns, n - 1);
+  if (!w) return NULL;
+  Pat *p = &wild_pat;
+  if (unseen >= 0) {
+    p = NEW(Pat);
+    p->k = P_CON;
+    p->con = unseen;
+    p->n = condefs.a[unseen].arity;
+    p->args = xmalloc((size_t)p->n * sizeof *p->args + 1);
+    for (int k = 0; k < p->n; k++) p->args[k] = &wild_pat;
+  }
+  Pat **out = xmalloc((size_t)n * sizeof *out);
+  out[0] = p;
+  memcpy(out + 1, w, (size_t)(n - 1) * sizeof *out);
+  return out;
+}
+
+static void pat_str(SB *b, Pat *p, bool atom) {
+  if (p->k != P_CON) { sb_puts(b, "_"); return; }
+  const char *name = condefs.a[p->con].name;
+  if (!p->n) { sb_puts(b, name); return; }
+  if (is_tuple_name(name)) {
+    for (int i = 0; i < p->n; i++) {
+      sb_puts(b, i ? ", " : "(");
+      pat_str(b, p->args[i], false);
+    }
+    sb_puts(b, ")");
+    return;
+  }
+  if (atom) sb_puts(b, "(");
+  if (p->con == FK_C_CONS) {
+    pat_str(b, p->args[0], true);
+    sb_puts(b, ":");
+    pat_str(b, p->args[1], false);
+  } else {
+    sb_puts(b, name);
+    for (int i = 0; i < p->n; i++) {
+      sb_puts(b, " ");
+      pat_str(b, p->args[i], true);
+    }
+  }
+  if (atom) sb_puts(b, ")");
+}
+
+static bool always(Expr *g) {
+  return !g || (g->k == E_CON && g->idx == FK_C_TRUE) ||
+         (g->k == E_VAR && g->vk == VK_GLOBAL && globals.a[g->idx].name == s_otherwise);
+}
+
+static int warn_line, warn_col; /* pattern bindings share one case location */
+
+/* An alternative covers its patterns only if one of its guards cannot fail. */
+static void check_case(Expr *e, const char *fn) {
+  VEC(Pat **) rows = {0};
+  for (int a = 0; a < e->na; a++) {
+    Rhs *r = &e->alts[a]->rhs;
+    bool total = false;
+    for (int i = 0; i < r->ng; i++) total |= always(r->guards[i]);
+    if (total) VPUSH(rows, e->alts[a]->pats);
+  }
+  Pat **w = missing(rows.a, rows.n, e->ns);
+  free(rows.a);
+  if (!w || (e->line == warn_line && e->col == warn_col)) return;
+  warn_line = e->line;
+  warn_col = e->col;
+  const char *in = fn && fn[0] != '$' ? xsprintf(" in `%s`", fn) : "";
+  if (!e->ns) {
+    cwarning(e->line, e->col, "guards%s may all fail", in);
+    return;
+  }
+  SB b = {0};
+  for (int i = 0; i < e->ns; i++) {
+    if (i) sb_puts(&b, " ");
+    pat_str(&b, w[i], e->ns > 1);
+  }
+  cwarning(e->line, e->col, "non-exhaustive patterns%s; not matched: %s", in, b.s);
+}
+
+static void cover_expr(Expr *e, const char *fn);
+
+static void cover_group(Group *g) {
+  for (int i = 0; i < g->n; i++) cover_expr(g->b[i]->e, g->b[i]->name);
+}
+
+static void cover_expr(Expr *e, const char *fn) {
+  switch (e->k) {
+  case E_APP:
+    cover_expr(e->fn, fn);
+    for (int i = 0; i < e->n; i++) cover_expr(e->args[i], fn);
+    return;
+  case E_LAM: cover_expr(e->lam->body, e->lam->name ? e->lam->name : fn); return;
+  case E_LET:
+    cover_group(&e->g);
+    cover_expr(e->body, fn);
+    return;
+  case E_IF:
+    cover_expr(e->cond, fn);
+    cover_expr(e->then_, fn);
+    cover_expr(e->else_, fn);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) cover_expr(e->scruts[i], fn);
+    check_case(e, fn);
+    for (int a = 0; a < e->na; a++) {
+      Rhs *r = &e->alts[a]->rhs;
+      for (int i = 0; i < r->nwg; i++) cover_group(&r->wg[i]);
+      for (int i = 0; i < r->ng; i++) {
+        if (r->guards[i]) cover_expr(r->guards[i], fn);
+        cover_expr(r->bodies[i], fn);
+      }
+    }
+    return;
+  case E_ANN: cover_expr(e->body, fn); return;
+  default: return;
+  }
+}
+
 /* ---------------------------------------------------------------- driver */
 
 static void add_tydef(const char *name, int arity, int ncons) {
@@ -773,6 +1018,7 @@ void compiler_init(void) {
   s_arrow = intern("->");
   s_unit = intern("()");
   s_string = intern("String");
+  s_otherwise = intern("otherwise");
   static const char *tuples[] = {"(,)", "(,,)", "(,,,)", "(,,,,)", "(,,,,,)", "(,,,,,,)"};
   add_tydef(s_int, 0, 0);
   add_tydef(s_float, 0, 0);
@@ -798,7 +1044,7 @@ void compiler_init(void) {
     for (int j = 0; j < n; j++) vs[j] = gvar(false);
     Type *t = tcon(intern(tuples[i]), n, vs);
     for (int j = n; j-- > 0;) t = tarrow(vs[j], t);
-    add_con(intern(tuples[i]), t, n, tuples[i]);
+    add_con(intern(tuples[i]), t, n, intern(tuples[i]));
   }
   for (int i = 0; i < fk_nprims; i++) {
     Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL};
@@ -852,6 +1098,8 @@ bool compile_chunk(Module *m, Chunk *out) {
     break;
   }
   for (int i = 0; i < m->nb; i++) resolve_top(m->binds[i]);
+  warn_line = warn_col = 0;
+  for (int i = 0; i < m->nb; i++) cover_expr(m->binds[i]->e, m->binds[i]->name);
   out->groups = gs;
   out->ng = ng;
   cerr_jmp = saved;

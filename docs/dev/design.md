@@ -28,7 +28,7 @@ Consequences:
 
 - `&&` and `||` short-circuit only when written infix: the parser turns them into `if`. `(&&)` as a value is a strict prelude function.
 
-- `where` bindings are evaluated before guards. Haskell code that relies on an unused `where` binding never being computed can fail. See [TODO.md](../../TODO.md) item 1.
+- Exception: non-recursive `let` and `where` value bindings are memoized thunks, forced on first use. Without this, a `where` binding runs before the guards that protect it. Only bindings already in value form (lambda, literal, constructor) skip the thunk. The cost is one allocation per evaluated binding. A `where` binding in a 5M-iteration loop costs 24% interpreted and 6x compiled (0.01 s to 0.06 s). Effects bound by `let` now run at first use rather than in binding order.
 
 - Infinite lists, `iterate` and `cycle` do not exist.
 
@@ -56,19 +56,19 @@ Polymorphic literals cover most mixed cases: `x * 2` and `2.5 + 1` check.
 
 At runtime every number carries a tag. Primitives dispatch on it: Int with Int gives Int, anything with a Float gives Float. Polymorphic code needs no dictionaries this way.
 
-The cost is that a literal inside a function that stays polymorphic is built as an `Int`, even when a caller uses the result as a `Float`. Arithmetic stays correct because Float primitives accept Int tags. Printing does not: such a value prints without `.0`.
+The cost is that a literal inside a function that stays polymorphic is built as an `Int`, even when a caller uses the result as a `Float`. Arithmetic stays correct because Float primitives accept Int tags. Type-directed `show` (below) prints such a value as a Float wherever the call site's type is known.
 
 ### Monomorphism restriction
 
 A binding that is not syntactically a lambda does not generalize its `Num` variables. Later uses fix them, else they default to `Int` at the end of the module. Without this, `n = 1` would be polymorphic and stored as an `Int` even when every use is `Float`. GHC applies the same restriction for a related reason (sharing).
 
-## Equality, ordering and `show`: structural
+## Equality, ordering and `show`: structural, with static types for `show`
 
 `==`, `<`, `compare`, `show` and `print` have types like `a -> a -> Bool` and walk the runtime representation. Comparing functions is a runtime error. This replaces derived `Eq`/`Ord`/`Show` instances. `deriving` is parsed and ignored so Haskell sources still load.
 
 Constructor order defines ordering: `False < True` and `[] < (x:xs)`, matching Haskell's derived `Ord`.
 
-`show` cannot see static types. An empty `[Char]` therefore prints `[]`.
+Where the argument type of `show` or `print` is known at the call site, the checker passes a type descriptor, and `show` walks the value and the descriptor together. An `Int`-tagged value at a `Float` position then prints with `.0`, and an empty `[Char]` prints `""`. In polymorphic code the descriptor is absent and `show` stays structural. Type classes would remove this gap. A descriptor was chosen over them for size: about 100 lines.
 
 ## Syntax choices
 
@@ -78,7 +78,7 @@ Constructor order defines ordering: `False < True` and `[] < (x:xs)`, matching H
 
 - `|>` is infixl 1, like Haskell's `&`, so `xs |> map f |> sum` associates to the left.
 
-- Fixities of built-in operators are fixed in a table. User operators are `infixl 9`, and `infixl`/`infixr` declarations are not yet supported.
+- Fixities of built-in operators are fixed in a table. `infixl`, `infixr` and `infix` declarations are top-level only, and an operator keeps its fixity for the rest of the session. The parser installs them by pre-scanning the module's tokens before parsing. The alternative was to parse operator chains flat and re-associate them after the module is read. That supports local fixity declarations, but it needs a second pass over every expression. Haskell programs rarely declare fixities locally.
 
 - The layout rule follows Haskell 2010 section 10.3. The standard's `parse-error(t)` clause is approximated by fixed tokens: `in`, closing brackets, `,`, `then` and `else` close implicit blocks. This covers the forms in `tests/`; other forms that depend on `parse-error(t)` need explicit braces.
 

@@ -1,0 +1,7 @@
+<repl>:2:1: warning: non-exhaustive patterns in `name`; not matched: Blue
+runtime error: non-exhaustive patterns at <repl>:2:1
+<repl>:1:1: warning: guards in `sign` may all fail
+<repl>:1:1: warning: non-exhaustive patterns in `firstTwo`; not matched: _:[]
+<repl>:1:1: warning: non-exhaustive patterns in `both`; not matched: (Just _) Nothing
+<repl>:1:5: warning: non-exhaustive patterns in `v`; not matched: Nothing
+3

@@ -147,8 +147,10 @@ static void eval_input(const char *src) {
   if (decl < 0) { fk_error_jmp = NULL; return; }
   Chunk c;
   if (decl) {
+    int mark = undo_mark(); /* fixities installed by the parser */
     Module *m = parse_caught(src, len);
     if (m && compile_chunk(m, &c)) interp_install(&c);
+    else undo_to(mark);
   } else {
     Expr *e = parse_expr_caught(src, len);
     if (!e) { fk_error_jmp = NULL; return; }
@@ -163,7 +165,7 @@ static void eval_input(const char *src) {
       global_alias(intern("it"), b->gidx);
       V v = interp_global(b->gidx);
       if (v != fk_unit) {
-        char *s = fk_show_cstr(v);
+        char *s = fk_show_typed_cstr(show_desc(globals.a[b->gidx].type), v);
         puts(s);
         free(s);
       }
@@ -175,10 +177,15 @@ static void eval_input(const char *src) {
 static void load(const char *path) {
   jmp_buf rt;
   Chunk c;
+  int mark = undo_mark();
   fk_error_jmp = &rt;
-  if (!setjmp(rt) && compile_file(path, &c)) {
-    interp_install(&c);
-    printf("loaded %s\n", path);
+  if (!setjmp(rt)) {
+    if (compile_file(path, &c)) {
+      interp_install(&c);
+      printf("loaded %s\n", path);
+    } else {
+      undo_to(mark);
+    }
   }
   fk_error_jmp = NULL;
   cur_file = "<repl>";

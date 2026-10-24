@@ -20,15 +20,17 @@ static V interp_entry(V self, V *args) { return run(FK_INFO(self), self, args); 
 V interp_global(int gidx) { return gvals[gidx]; }
 
 static V load(Expr *e, V *fr, V self) {
+  V v;
   switch (e->vk) {
-  case VK_LOCAL: return fr[e->idx];
-  case VK_FREE: return FK_FREE(self, e->idx);
-  default: {
-    V v = gvals[e->idx];
+  case VK_LOCAL: v = fr[e->idx]; break;
+  case VK_FREE: v = FK_FREE(self, e->idx); break;
+  default:
+    v = gvals[e->idx];
     if (!v) fk_error("`%s` is undefined (its definition failed)", e->name);
+    if (e->tdesc) return fk_typed_show_fn(fk_prims[globals.a[e->idx].prim].code == fk_p_print, e->tdesc);
     return v;
   }
-  }
+  return e->lazy ? fk_force(v) : v;
 }
 
 static V alloc_closure(Lambda *L) { return fk_closure(interp_entry, L->n, L->nfree, L); }
@@ -42,7 +44,14 @@ static V eval(Expr *e, V *fr, V self, Tail *tc);
 
 static void eval_group(Group *g, V *fr, V self) {
   if (!g->rec) {
-    fr[g->b[0]->slot] = eval(g->b[0]->e, fr, self, NULL);
+    Lambda *L = g->b[0]->thunk;
+    if (!L) {
+      fr[g->b[0]->slot] = eval(g->b[0]->e, fr, self, NULL);
+      return;
+    }
+    V t = fk_thunk(interp_entry, L->nfree, L);
+    fill_closure(t, L, fr, self);
+    fr[g->b[0]->slot] = t;
     return;
   }
   for (int i = 0; i < g->n; i++) fr[g->b[i]->slot] = alloc_closure(g->b[i]->e->lam);

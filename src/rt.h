@@ -16,11 +16,12 @@ typedef uintptr_t V;
 typedef V (*FkCode)(V self, V *args);
 
 typedef struct { uint8_t kind, pad; uint16_t n; uint32_t aux; } FkHdr;
-enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP };
+enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP, K_THUNK };
 /* K_CON:     n = field count, aux = constructor id, fields follow
    K_FLOAT:   double follows
    K_CLOSURE: n = free count, aux = arity; then code, info, free vars
-   K_PAP:     aux = held arg count; then closure, args */
+   K_PAP:     aux = held arg count; then closure, args
+   K_THUNK:   closure layout, arity 0; once forced, code = 0 and info = value */
 typedef struct { FkHdr h; double d; } FkFloat;
 
 #define FK_ISINT(v)    ((v) & 1)
@@ -61,12 +62,18 @@ V fk_mkcon(uint32_t id, int n, V *fields);
 V fk_con_value(uint32_t id);
 V fk_closure(FkCode code, int arity, int nfree, void *info);
 V fk_apply(V f, int n, V *args);
+V fk_thunk(FkCode code, int nfree, void *info);
+V fk_force(V t);
 uint32_t fk_register_con(const char *name, int arity);
 void fk_truncate_cons(uint32_t n);
 
 V fk_string(const char *s, size_t n);
 char *fk_cstring(V list, size_t *len);
 char *fk_show_cstr(V v);
+char *fk_show_typed_cstr(const char *desc, V v); /* desc NULL: structural */
+V fk_show_typed(const char *desc, V v);
+V fk_print_typed(const char *desc, V v);
+V fk_typed_show_fn(int print, const char *desc);
 int fk_compare(V a, V b);
 int fk_num_eq_int(V v, long long i);
 

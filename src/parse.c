@@ -8,7 +8,7 @@
 
 typedef struct { Token *t; int n, pos; } P;
 
-enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA };
+enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY };
 typedef struct {
   int k, line, col;
   const char *name;
@@ -16,7 +16,7 @@ typedef struct {
   Pat **pats;
   Rhs rhs;
   Pat *pat;
-  const char **names; /* D_SIG */
+  const char **names; /* D_SIG, D_FIXITY */
   int nn;
   Sig *sig;
   DataDecl *data;
@@ -73,7 +73,13 @@ static const Fixity fixities[] = {
     {"elem", 4, 'n'}, {"&&", 3, 'r'},  {"||", 2, 'r'},   {">>", 1, 'l'},  {"|>", 1, 'l'},
     {">>>", 1, 'r'}, {"$", 0, 'r'}};
 
+/* Declared fixities, as prec * 3 + index in "lrn". Global so that later
+   REPL inputs see them; main.c rolls them back with a failed input. */
+static Map user_fixities;
+
 static Fixity fixity(const char *op) {
+  int v = map_get(&user_fixities, op);
+  if (v >= 0) return (Fixity){op, v / 3, "lrn"[v % 3]};
   for (size_t i = 0; i < sizeof fixities / sizeof fixities[0]; i++)
     if (strcmp(fixities[i].op, op) == 0) return fixities[i];
   return (Fixity){op, 9, 'l'};
@@ -95,6 +101,42 @@ static Token *take_op(P *p) {
   Token *t = n == 3 ? ahead(p, 1) : cur(p);
   p->pos += n;
   return t;
+}
+
+typedef VEC(const char *) Names;
+
+/* infixl N op, `name`, ... with N defaulting to 9. Appends the operators
+   to names, which spans the module so duplicates are caught; with reg,
+   also installs their fixity. */
+static void parse_fixity(P *p, bool reg, Names *names) {
+  Token *t = next(p);
+  int prec = 9, assoc = t->k == T_INFIXL ? 0 : t->k == T_INFIXR ? 1 : 2;
+  if (is(p, T_INT)) {
+    Token *n = next(p);
+    if (n->ival > 9) cerror(n->line, n->col, "precedence must be between 0 and 9");
+    prec = (int)n->ival;
+  }
+  do {
+    int ol = op_len(p, 0);
+    if (!(ol == 1 && is(p, T_VARSYM)) && !(ol == 3 && ahead(p, 1)->k == T_VARID)) unexpected(p, "an operator");
+    Token *op = take_op(p);
+    for (int i = 0; i < names->n; i++)
+      if (names->a[i] == op->s) cerror(op->line, op->col, "duplicate fixity declaration for `%s`", op->s);
+    VPUSH(*names, op->s);
+    if (reg) map_put(&user_fixities, op->s, prec * 3 + assoc);
+  } while (accept(p, T_COMMA));
+}
+
+static bool is_fixity(P *p) { return is(p, T_INFIXL) || is(p, T_INFIXR) || is(p, T_INFIX); }
+
+/* Operator expressions may use a fixity declared later in the module, so
+   all declarations are installed before parsing. Local ones are rejected
+   later by parse_decl, so scanning ignores scope. */
+static void prescan_fixities(P p) {
+  Names names = {0};
+  for (p.pos = 0; p.pos < p.n - 1; p.pos++)
+    if (is_fixity(&p)) parse_fixity(&p, true, &names);
+  free(names.a);
 }
 
 /* ----------------------------------------------------------------- nodes */
@@ -780,8 +822,18 @@ static void parse_decl(P *p, Decls *out, bool top) {
     VPUSH(*out, d);
     return;
   }
+  if (is_fixity(p)) {
+    if (!top) cerror(t->line, t->col, "fixity declarations are only allowed at top level");
+    Names names = {0};
+    parse_fixity(p, false, &names);
+    d.k = D_FIXITY;
+    d.names = names.a;
+    d.nn = names.n;
+    VPUSH(*out, d);
+    return;
+  }
   if (sig_start(p)) {
-    VEC(const char *) names = {0};
+    Names names = {0};
     do {
       if (accept(p, T_LPAREN)) {
         VPUSH(names, take_op(p)->s);
@@ -862,7 +914,7 @@ static void build_binds(Decls *ds, Binds *out, Datas *datas) {
       i++;
       continue;
     }
-    if (d->k == D_SIG) { i++; continue; }
+    if (d->k == D_SIG || d->k == D_FIXITY) { i++; continue; }
     if (d->k == D_PATBIND) {
       const char *tmp = fresh("p");
       VPUSH(*out, mkbind(tmp, rhs_expr(&d->rhs, d->line, d->col), d->line, d->col));
@@ -908,6 +960,11 @@ static void build_binds(Decls *ds, Binds *out, Datas *datas) {
   }
   for (int i = 0; i < ds->n; i++) {
     Decl *d = &ds->a[i];
+    for (int n = 0; d->k == D_FIXITY && n < d->nn; n++) {
+      bool found = false;
+      for (int j = start; j < out->n; j++) found |= out->a[j]->name == d->names[n];
+      if (!found) cerror(d->line, d->col, "fixity declaration for `%s` lacks a binding", d->names[n]);
+    }
     if (d->k != D_SIG) continue;
     for (int n = 0; n < d->nn; n++) {
       Bind *b = NULL;
@@ -937,6 +994,7 @@ static P start(const char *src, size_t len) {
 
 Module *parse_module(const char *src, size_t len) {
   P p = start(src, len);
+  prescan_fixities(p);
   Decls ds = {0};
   while (!is(&p, T_EOF)) {
     if (accept(&p, T_SEMI)) continue;
@@ -974,7 +1032,8 @@ Sig *parse_sig_text(const char *src) {
 bool is_decl_text(const char *src, size_t len) {
   int n;
   Token *t = lex(src, len, &n);
-  if (t[0].k == T_DATA || sig_start(&(P){t, n, 0})) return true;
+  if (t[0].k == T_DATA || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || sig_start(&(P){t, n, 0}))
+    return true;
   int depth = 0;
   for (int i = 0; i < n; i++) {
     switch (t[i].k) {

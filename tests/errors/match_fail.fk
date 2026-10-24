@@ -1,4 +1,4 @@
--- expect: non-exhaustive patterns
+-- expect: runtime error: non-exhaustive patterns at
 data T = A | B
 f A = 1
 main = print (f B)

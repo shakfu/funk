@@ -189,3 +189,13 @@ _Noreturn void cerror(int line, int col, const char *fmt, ...) {
   if (cerr_jmp) longjmp(*cerr_jmp, 1);
   exit(1);
 }
+
+void cwarning(int line, int col, const char *fmt, ...) {
+  va_list ap;
+  fflush(stdout);
+  fprintf(stderr, "%s:%d:%d: warning: ", cur_file, line, col);
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  fputc('\n', stderr);
+}

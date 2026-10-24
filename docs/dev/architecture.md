@@ -18,16 +18,16 @@ Both backends link the same runtime, `rt.c`.
 
 | File | Lines | Role |
 |-|-|-|
-| `src/lex.c` | 328 | tokenizer, layout rule |
-| `src/parse.c` | 989 | recursive-descent parser, desugaring |
-| `src/check.c` | 879 | data types, SCC analysis, type inference, chunk driver |
-| `src/resolve.c` | 137 | closure conversion |
-| `src/interp.c` | 160 | interpreter |
-| `src/cgen.c` | 293 | C generator |
-| `src/rt.c`, `rt.h` | 842 | values, GC, apply, `show`, compare, primitives |
+| `src/lex.c` | 329 | tokenizer, layout rule |
+| `src/parse.c` | 1048 | recursive-descent parser, desugaring |
+| `src/check.c` | 1127 | data types, SCC analysis, type inference, chunk driver |
+| `src/resolve.c` | 159 | closure conversion |
+| `src/interp.c` | 169 | interpreter |
+| `src/cgen.c` | 315 | C generator |
+| `src/rt.c`, `rt.h` | 909 | values, GC, apply, `show`, compare, primitives |
 | `src/prims.def` | 39 | primitive table: C name, funk name, arity, type |
-| `src/main.c` | 284 | CLI, REPL, `cc` invocation |
-| `src/util.c`, `funk.h` | 436 | allocation, interning, maps with undo, AST types |
+| `src/main.c` | 291 | CLI, REPL, `cc` invocation |
+| `src/util.c`, `funk.h` | 452 | allocation, interning, maps with undo, AST types |
 | `lib/prelude.fk` | 180 | standard functions in funk |
 | `tools/embed.c` | 35 | embeds `rt.c` and the prelude into the binary |
 
@@ -47,7 +47,7 @@ Virtual braces (`T_VLBRACE`, `T_VRBRACE`) are distinct token kinds, so an explic
 
 ## Parsing and desugaring (`parse.c`)
 
-Expressions use precedence climbing over the fixity table `fixities`. The parser emits a small core:
+Expressions use precedence climbing. Fixities come from the built-in table `fixities`, overridden by `user_fixities`. Before parsing a module, `prescan_fixities` installs every fixity declaration in it, so an operator can be used above its declaration. `main.c` undoes them with a failed REPL input. The parser emits a small core:
 
 | Source | Core |
 |-|-|
@@ -80,6 +80,8 @@ Generated names start with `$`, which user identifiers cannot contain.
 
 6. Run `resolve_top` on each binding.
 
+7. Warn about each `case` whose alternatives do not cover every constructor. This uses Maranget's usefulness algorithm, extended to return an unmatched pattern. An alternative counts only if one of its guards cannot fail. Int and Char literals count as infinite domains.
+
 On any error the chunk rolls back: name maps through an undo log, and global, constructor and type tables by truncation. A failed REPL line leaves no trace.
 
 Inference:
@@ -92,6 +94,8 @@ Inference:
 
 - Every integer literal records its type. Resolution later rewrites literals whose type is `Float` into float literals.
 
+- A reference to the `show` or `print` primitive records its instantiated type. Resolution turns the argument type into a descriptor string (`show_desc`; the format is documented in `rt.c`). It has one entry per distinct type, so recursive types refer to themselves. The descriptor is omitted when the type contains no `Float` or `Char`.
+
 ## Closure conversion (`resolve.c`)
 
 Every lambda gets a flat frame: parameters in slots `0..n-1`, then one slot per variable bound by `let`, `where` or a pattern in its body. A variable of an enclosing lambda becomes a free variable. It is copied into the closure at creation, and lambdas in between capture it too.
@@ -99,6 +103,8 @@ Every lambda gets a flat frame: parameters in slots `0..n-1`, then one slot per 
 Each variable reference resolves to `LOCAL slot`, `FREE index` or `GLOBAL index`. A reference to a binding whose right side is a lambda also records that `Lambda` (`known`), so backends can call it directly.
 
 Frames never outlive their call, so both backends keep them on the C stack. Top-level values become zero-parameter lambdas (`Bind.init`), run once.
+
+A non-recursive local binding that is not a lambda, literal or constructor also gets a zero-parameter lambda (`Bind.thunk`). Backends allocate a `K_THUNK` in its slot, and references to it (`Expr.lazy`) call `fk_force`.
 
 ## Runtime (`rt.c`)
 
@@ -118,6 +124,7 @@ Objects start with an 8-byte header `{kind, n, aux}`:
 | `K_FLOAT` | one `double` |
 | `K_CLOSURE` | `aux` = arity; code pointer, info pointer, `n` free variables |
 | `K_PAP` | `aux` = held argument count; closure, held arguments |
+| `K_THUNK` | closure layout, arity 0; after forcing, code is 0, info holds the value, free variables are cleared |
 
 Nullary constructors, constructor functions and primitive closures are static objects outside the GC heap, so `b == fk_true` tests a Bool.
 

@@ -1,0 +1,24 @@
+:{
+data Color = Red | Green | Blue
+name Red = "red"
+name Green = "green"
+:}
+name Blue
+:{
+sign x
+  | x > 0 = 1
+  | x < 0 = -1
+:}
+:{
+firstTwo (x:y:_) = (x, y)
+firstTwo [] = (0, 0)
+:}
+:{
+both (Just a) (Just b) = a + b
+both Nothing _ = 0
+:}
+:{
+total (Just x) | x > 0 = x
+total _ = 0
+:}
+let Just v = Just 3 in v

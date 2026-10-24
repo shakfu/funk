@@ -72,7 +72,12 @@ Function operators:
 | `a >> b` | evaluate `a`, then `b` | infixl 1 |
 | `f $ x` | `f x` | infixr 0 |
 
-Other built-in operators have Haskell's fixities. User-defined operators are `infixl 9`. Fixity declarations are not supported.
+Other built-in operators have Haskell's fixities. User-defined operators default to `infixl 9`. A top-level declaration sets the fixity of operators bound in the same module:
+
+```haskell
+infixr 5 +++
+infixl 7 `times`
+```
 
 Not supported:
 
@@ -114,7 +119,11 @@ Hindley-Milner inference with let-polymorphism. Signatures are optional and chec
 
 - Recursive bindings must be functions; `xs = 1 : xs` is rejected.
 
-- `where` bindings are evaluated before guards. Here `y` is computed, and divides by zero, even when `x == 0`: `f x | x == 0 = 0 | otherwise = y where y = div 1 x`.
+- Local value bindings in `let` and `where` are evaluated on first use, at most once. `f x | x == 0 = 0 | otherwise = y where y = div 1 x` returns 0 for `x == 0`. An effect bound this way runs when the binding is first used, not where it is defined.
+
+- Constructor fields are strict: `let (a, b) = (head [], 1) in b` fails.
+
+- A `case` or function that does not cover every constructor gets a compile-time warning naming an unmatched value. A guarded alternative counts as covering only if one of its guards is `otherwise` or `True`.
 
 - Tail calls use constant stack in the interpreter. Compiled code turns self tail calls into loops.
 
@@ -122,9 +131,7 @@ Hindley-Milner inference with let-polymorphism. Signatures are optional and chec
 
 ## Known limitations
 
-- A literal returned from a polymorphic function and used as a `Float` is stored as an `Int`. It computes correctly but prints without `.0`. For example, with `one _ = 1`, `print (one () :: Float)` prints `1`.
-
-- `show ""` prints `[]`.
+- `show` and `print` use the static type at the call site. Inside a polymorphic function they cannot. There, a literal used as a `Float` prints without `.0`, and `""` prints `[]`. With `one _ = 1` and `sh x = show x`, `sh (one () :: Float)` gives `"1"`, but `show (one () :: Float)` gives `"1.0"`.
 
 - `Int` is 63 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
 

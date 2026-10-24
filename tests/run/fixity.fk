@@ -1,0 +1,10 @@
+-- Fixity declarations apply to the whole module, including earlier uses.
+main = print (1 <+> 2 <.> 3, 2 ^^ 3 ^^ 2, 10 `minus` 3 `minus` 2, 1 <+> 2 == 3)
+infixl 6 <+>
+infixl 7 <.>
+infixr 8 ^^
+infixl 6 `minus`
+a <+> b = a + b
+a <.> b = a * b
+a ^^ b = a ^ b
+minus a b = a - b

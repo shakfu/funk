@@ -4,7 +4,11 @@
    per let/where/pattern variable in its body. A variable from an enclosing
    lambda becomes a free variable, copied into the closure when it is
    created; intermediate lambdas capture it too. Frames therefore never
-   outlive their call, so both backends keep them on the C stack. */
+   outlive their call, so both backends keep them on the C stack.
+
+   A non-recursive local binding whose right side is not already a value
+   becomes a thunk: its body is a zero-parameter lambda, and references
+   to it force the thunk. */
 #include "funk.h"
 
 typedef struct { void *owner; int slot; FreeSrc src; } Cap;
@@ -14,14 +18,15 @@ typedef struct Scope {
   Fn *fn;
   int slot;
   Lambda *known;
+  bool lazy;
   struct Scope *next;
 } Scope;
 
 static int lam_counter;
 
-static Scope *push(Scope *sc, const char *name, Fn *fn, int slot, Lambda *known) {
+static Scope *push(Scope *sc, const char *name, Fn *fn, int slot, Lambda *known, bool lazy) {
   Scope *s = NEW(Scope);
-  *s = (Scope){name, fn, slot, known, sc};
+  *s = (Scope){name, fn, slot, known, lazy, sc};
   return s;
 }
 
@@ -37,20 +42,35 @@ static FreeSrc capture(Fn *f, Fn *owner, int slot) {
 static void expr(Expr *e, Fn *f, Scope *sc);
 static void lambda(Lambda *L, Fn *parent, Scope *sc);
 
+static bool is_value(Expr *e) {
+  return e->k == E_LAM || e->k == E_CON || e->k == E_INT || e->k == E_FLOAT || e->k == E_CHAR || e->k == E_STR;
+}
+
 static Scope *group(Group *g, Fn *f, Scope *sc) {
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
     b->slot = f->nslots++;
-    sc = push(sc, b->name, f, b->slot, b->e->k == E_LAM ? b->e->lam : NULL);
+    if (!g->rec && !is_value(b->e)) {
+      Lambda *L = NEW(Lambda);
+      L->body = b->e;
+      L->line = b->line;
+      L->col = b->col;
+      L->name = b->name;
+      b->thunk = L;
+    }
+    sc = push(sc, b->name, f, b->slot, b->e->k == E_LAM ? b->e->lam : NULL, b->thunk != NULL);
   }
-  for (int i = 0; i < g->n; i++) expr(g->b[i]->e, f, sc);
+  for (int i = 0; i < g->n; i++) {
+    if (g->b[i]->thunk) lambda(g->b[i]->thunk, f, sc);
+    else expr(g->b[i]->e, f, sc);
+  }
   return sc;
 }
 
 static Scope *pat(Pat *p, Fn *f, Scope *sc) {
   if (p->k == P_VAR) {
     p->slot = f->nslots++;
-    return push(sc, p->name, f, p->slot, NULL);
+    return push(sc, p->name, f, p->slot, NULL, false);
   }
   for (int i = 0; i < p->n; i++) sc = pat(p->args[i], f, sc);
   return sc;
@@ -65,11 +85,13 @@ static void expr(Expr *e, Fn *f, Scope *sc) {
         e->vk = src.vk;
         e->idx = src.idx;
         e->known = s->known;
+        e->lazy = s->lazy;
         return;
       }
     e->vk = VK_GLOBAL;
     e->idx = global_lookup(e->name);
     e->known = globals.a[e->idx].lam;
+    if (e->ty) e->tdesc = show_desc(repr(e->ty)->args[0]);
     return;
   }
   case E_INT: {
@@ -113,7 +135,7 @@ static void lambda(Lambda *L, Fn *parent, Scope *sc) {
   Fn fn = {L, parent, L->n, {0}};
   L->id = lam_counter++;
   VPUSH(all_lambdas, L);
-  for (int i = 0; i < L->n; i++) sc = push(sc, L->params[i], &fn, i, NULL);
+  for (int i = 0; i < L->n; i++) sc = push(sc, L->params[i], &fn, i, NULL, false);
   expr(L->body, &fn, sc);
   L->nslots = fn.nslots;
   L->nfree = fn.free.n;

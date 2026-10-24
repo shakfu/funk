@@ -1,0 +1,6 @@
+-- expect: fixity declarations are only allowed at top level
+f x = y
+  where
+    infixl 6 <+>
+    y = x
+main = print (f 1)

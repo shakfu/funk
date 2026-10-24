@@ -1,0 +1,22 @@
+-- Local value bindings are evaluated on first use, at most once.
+safeRecip x
+  | x == 0 = 0
+  | otherwise = y
+  where y = div 100 x
+
+unused x = let boom = error "never forced" in x + 1
+
+-- `k` is captured by `go` unevaluated, then forced once.
+count n = go 0
+  where
+    k = n * 2
+    go i = if i >= k then i else go (i + 1)
+
+shared () = let a = putStrLn "forced once" >> 21 in a + a
+
+main =
+  print (safeRecip 0, safeRecip 4) >>
+  print (unused 1) >>
+  print (count 5) >>
+  print (shared ()) >>
+  (let late = putStrLn "second" in putStrLn "first" >> late)

@@ -48,6 +48,7 @@ void undo_to(int mark);
 extern const char *cur_file;
 extern jmp_buf *cerr_jmp;
 _Noreturn void cerror(int line, int col, const char *fmt, ...);
+void cwarning(int line, int col, const char *fmt, ...);
 
 /* ---------------------------------------------------------------- tokens */
 
@@ -57,6 +58,7 @@ typedef enum {
   T_LBRACE, T_RBRACE, T_VLBRACE, T_VRBRACE,
   T_EQ, T_BAR, T_ARROW, T_LAMBDA, T_DCOLON, T_DOTDOT, T_DARROW, T_UNDERSCORE,
   T_CASE, T_OF, T_LET, T_IN, T_WHERE, T_IF, T_THEN, T_ELSE, T_DATA, T_DERIVING,
+  T_INFIXL, T_INFIXR, T_INFIX,
 } TokKind;
 
 typedef struct {
@@ -129,8 +131,10 @@ struct Expr {
   int slen;
   long long ival;
   double fval;
-  Type *ty;       /* INT: literal type, decides Int vs Float */
+  Type *ty;       /* INT: literal type, decides Int vs Float; VAR: type of show/print */
   int vk, idx;    /* VAR: resolved location; CON: constructor id */
+  bool lazy;      /* VAR: bound to a thunk, forced on load */
+  const char *tdesc; /* VAR: show/print with a known argument type */
   Lambda *known;  /* VAR bound to a known lambda: direct calls */
   Expr *fn;       /* APP */
   int n;
@@ -167,6 +171,7 @@ struct Bind {
   int slot;     /* local frame slot */
   int gidx;     /* global index, for top-level binds */
   Lambda *init; /* top-level value: zero-arity body evaluated once */
+  Lambda *thunk; /* local value: zero-arity body evaluated on first use */
 };
 
 typedef struct { const char *name; int nfields; TypeExpr **fields; int line, col; } ConDecl;
@@ -228,6 +233,7 @@ int global_lookup(const char *name);
 void global_alias(const char *name, int gidx);
 Type *repr(Type *t);
 const char *type_str(Type *t);
+const char *show_desc(Type *t);
 
 /* --------------------------------------------------------------- backends */
 

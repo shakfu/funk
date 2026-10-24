@@ -45,6 +45,12 @@ static void c_string(SB *b, const char *s, int n) {
   sb_puts(b, "\"");
 }
 
+static const char *desc_lit(const char *d) {
+  SB b = {0};
+  c_string(&b, d, (int)strlen(d));
+  return b.s;
+}
+
 static const char *arg_array(const char **a, int n) {
   SB b = {0};
   sb_puts(&b, "(V[]){");
@@ -65,7 +71,15 @@ static void closure_fill(CG *c, const char *v, Lambda *L) {
 
 static void cg_group(CG *c, Group *g) {
   if (!g->rec) {
-    const char *v = cg_expr(c, g->b[0]->e);
+    Lambda *L = g->b[0]->thunk;
+    const char *v;
+    if (L) {
+      v = newtmp(c);
+      sb_printf(c->out, "  V %s = fk_thunk(fn_%d, %d, 0);\n", v, L->id, L->nfree);
+      closure_fill(c, v, L);
+    } else {
+      v = cg_expr(c, g->b[0]->e);
+    }
     sb_printf(c->out, "  l%d = %s;\n", g->b[0]->slot, v);
     return;
   }
@@ -94,7 +108,8 @@ static const char *cg_call(CG *c, Expr *e) {
   } else if (prim >= 0) {
     arity = fk_prims[prim].arity;
     if (n < arity) return xsprintf("fk_apply(G[%d], %d, %s)", g, n, arg_array(a, n));
-    call = xsprintf("fk_p_%s(0, %s)", prim_cname(prim), arg_array(a, arity));
+    if (f->tdesc) call = xsprintf("fk_%s_typed(%s, %s)", prim_cname(prim), desc_lit(f->tdesc), a[0]);
+    else call = xsprintf("fk_p_%s(0, %s)", prim_cname(prim), arg_array(a, arity));
   } else if (direct) {
     arity = f->known->n;
     if (n < arity) return xsprintf("fk_apply(%s, %d, %s)", var_ref(f), n, arg_array(a, n));
@@ -178,7 +193,14 @@ static const char *cg_case(CG *c, Expr *e, bool tail) {
 static const char *cg_expr(CG *c, Expr *e) {
   const char *t;
   switch (e->k) {
-  case E_VAR: return var_ref(e);
+  case E_VAR:
+    if (e->tdesc)
+      return xsprintf("fk_typed_show_fn(%d, %s)", fk_prims[globals.a[e->idx].prim].code == fk_p_print,
+                      desc_lit(e->tdesc));
+    if (!e->lazy) return var_ref(e);
+    t = newtmp(c); /* a temporary keeps forcing in evaluation order */
+    sb_printf(c->out, "  V %s = fk_force(%s);\n", t, var_ref(e));
+    return t;
   case E_CON: return xsprintf("fk_con_value(%d)", e->idx);
   case E_INT: return xsprintf("FK_MKINT(%lldLL)", e->ival);
   case E_CHAR: return xsprintf("FK_MKCHAR(%lld)", e->ival);

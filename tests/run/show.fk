@@ -1,0 +1,16 @@
+-- show and print follow the static type where it is known.
+data Tree a = Leaf | Node (Tree a) a (Tree a)
+
+one _ = 1
+
+main =
+  print (one () :: Float) >>
+  print (show (one () :: Float)) >>
+  print "" >>
+  print ["", "a"] >>
+  print ([] :: [Float]) >>
+  print (Just (one ()) :: Maybe Float) >>
+  print (Node Leaf (one ()) (Node Leaf 2.5 Leaf) :: Tree Float) >>
+  print (negate (one ()) :: Float, Left (one ()) :: Either Float Int) >>
+  mapM_ print ([one (), 2.5] :: [Float]) >>
+  print (map show [[], "x"])
