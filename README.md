@@ -1,7 +1,6 @@
 # funk
 
-A minimal strict functional language with Haskell syntax, written in C11.
-It has a REPL interpreter and a compiler to C.
+A minimal strict functional language with Haskell syntax, written in C11. It has a REPL interpreter and a compiler to C.
 
 ```haskell
 data Shape = Circle Float | Rect Float Float
@@ -20,7 +19,7 @@ main =
 
 Output:
 
-```
+```text
 90
 [3.14159,7.0]
 "42"
@@ -53,14 +52,15 @@ REPL commands:
 
 Syntax follows Haskell 2010 where a feature exists:
 
-- Equations with pattern matching and guards; `where`, `let ... in`,
-  `case ... of`, `if ... then ... else`, `\x y -> e`.
+- Equations with pattern matching and guards; `where`, `let ... in`, `case ... of`, `if ... then ... else`, `\x y -> e`.
+
 - Layout (indentation) rule, or explicit `{ ; }`.
+
 - `data T a = A a | B deriving (...)`. `deriving` is accepted and ignored.
+
 - Optional signatures: `f :: Num a => a -> a`, `(e :: Int)`.
-- Lists `[1, 2]`, ranges `[1..n]` and `[1, 3..n]`, tuples up to 7, strings
-  as `[Char]`, sections `(+ 1)`, `(1 +)` and `` (`div` 2) ``, operator
-  definitions `x <+> y = ...`.
+
+- Lists `[1, 2]`, ranges `[1..n]` and `[1, 3..n]`, tuples up to 7, strings as `[Char]`, sections `(+ 1)`, `(1 +)` and `` (`div` 2) ``, operator definitions `x <+> y = ...`.
 
 Function operators:
 
@@ -72,60 +72,63 @@ Function operators:
 | `a >> b` | evaluate `a`, then `b` | infixl 1 |
 | `f $ x` | `f x` | infixr 0 |
 
-Other built-in operators have Haskell's fixities. User-defined operators
-are `infixl 9`. Fixity declarations are not supported.
+Other built-in operators have Haskell's fixities. User-defined operators are `infixl 9`. Fixity declarations are not supported.
 
 Not supported:
 
 - type classes, apart from the `Num` constraint
+
 - records
+
 - modules and imports
+
 - list comprehensions
+
 - `do`
+
 - as-patterns
+
 - laziness
 
 ## Types
 
-Hindley-Milner inference with let-polymorphism. Signatures are optional
-and checked against the inferred type.
+Hindley-Milner inference with let-polymorphism. Signatures are optional and checked against the inferred type.
 
-`Num a` restricts `a` to `Int` or `Float`. It replaces type classes for
-arithmetic:
+`Num a` restricts `a` to `Int` or `Float`. It replaces type classes for arithmetic:
 
-- `+ - *`, `negate`, `abs` have type `Num a => a -> a -> a`. Both operands
-  have one type, so `Int` + `Float` is a type error; write `toFloat n + x`.
+- `+ - *`, `negate`, `abs` have type `Num a => a -> a -> a`. Both operands have one type, so `Int` + `Float` is a type error; write `toFloat n + x`.
+
 - Integer literals are polymorphic: `x + 1` and `2.5 * 2` both check.
-- `/` is `Float` only; `div`, `mod`, `quot` and `rem` are `Int` only.
-- A binding that is not a function (`n = 1`) gets its number type from its
-  uses, or defaults to `Int`.
 
-`==`, `<`, `compare`, `show` and `print` work on every type except
-functions.
+- `/` is `Float` only; `div`, `mod`, `quot` and `rem` are `Int` only.
+
+- A binding that is not a function (`n = 1`) gets its number type from its uses, or defaults to `Int`.
+
+`==`, `<`, `compare`, `show` and `print` work on every type except functions.
 
 ## Semantics
 
-- Strict, left-to-right evaluation. `print`, `putStrLn` and `getLine ()`
-  act when evaluated. `a >> b` orders effects.
+- Strict, left-to-right evaluation. `print`, `putStrLn` and `getLine ()` act when evaluated. `a >> b` orders effects.
+
 - Top-level values are evaluated in dependency order, with `main` last.
+
 - Recursive bindings must be functions; `xs = 1 : xs` is rejected.
-- `where` bindings are evaluated before guards. Here `y` is computed, and
-  divides by zero, even when `x == 0`:
-  `f x | x == 0 = 0 | otherwise = y where y = div 1 x`.
-- Tail calls use constant stack in the interpreter. Compiled code turns
-  self tail calls into loops.
+
+- `where` bindings are evaluated before guards. Here `y` is computed, and divides by zero, even when `x == 0`: `f x | x == 0 = 0 | otherwise = y where y = div 1 x`.
+
+- Tail calls use constant stack in the interpreter. Compiled code turns self tail calls into loops.
+
 - Deep non-tail recursion has a 4 GiB stack. Overflow is a runtime error.
 
 ## Known limitations
 
-- A literal returned from a polymorphic function and used as a `Float` is
-  stored as an `Int`. It computes correctly but prints without `.0`. For
-  example, with `one _ = 1`, `print (one () :: Float)` prints `1`.
+- A literal returned from a polymorphic function and used as a `Float` is stored as an `Int`. It computes correctly but prints without `.0`. For example, with `one _ = 1`, `print (one () :: Float)` prints `1`.
+
 - `show ""` prints `[]`.
-- `Int` is 63 bits and wraps on overflow. `Char` is a byte; strings are not
-  UTF-8 aware.
-- The interpreter is about 6x slower than compiled code on
-  allocation-heavy loops.
+
+- `Int` is 63 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
+
+- The interpreter is about 6x slower than compiled code on allocation-heavy loops.
 
 ## Documentation
 
