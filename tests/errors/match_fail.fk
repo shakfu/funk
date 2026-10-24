@@ -1,0 +1,4 @@
+-- expect: non-exhaustive patterns
+data T = A | B
+f A = 1
+main = print (f B)

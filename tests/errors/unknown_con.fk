@@ -1,0 +1,2 @@
+-- expect: unknown constructor `Foo`
+main = print (Foo 1)

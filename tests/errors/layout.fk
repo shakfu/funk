@@ -1,0 +1,6 @@
+-- expect: expected 'in', found 'z'
+f x =
+  let y = 1
+   z = 2
+  in y
+main = 1

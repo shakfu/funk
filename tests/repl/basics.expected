@@ -1,0 +1,25 @@
+\x -> x + 1 :: Num a => a -> a
+map :: (a -> b) -> [a] -> [b]
+(.) :: (a -> b) -> (c -> a) -> c -> b
+(|>) :: a -> (a -> b) -> b
+(>>>) :: (a -> b) -> (b -> c) -> a -> c
+\f g x -> g (f x) :: (a -> b) -> (b -> c) -> a -> c
+1 + 2.5 :: Float
+\x y -> x == y :: a -> a -> Bool
+foldr :: (a -> b -> b) -> b -> [a] -> b
+(,) 1 :: Num b => a -> (b, a)
+f :: Num a => a -> a
+3.5
+20
+"1 2 3"
+insert :: a -> Tree a -> Tree a
+[1,2,5,8]
+<repl>:1:5: error: no Num instance for `Bool` (numbers are Int or Float)
+runtime error: head: empty list
+7.0
+h :: Num a => a -> a
+25
+1
+2
+10
+11

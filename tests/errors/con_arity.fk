@@ -1,0 +1,3 @@
+-- expect: constructor `Just` takes 1 argument, pattern has 2
+f (Just a b) = a
+main = 1

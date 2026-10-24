@@ -1,0 +1,43 @@
+-- Mutual recursion, closures, over-application, GC churn, deep recursion.
+
+isEven 0 = True
+isEven n = isOdd (n - 1)
+isOdd 0 = False
+isOdd n = isEven (n - 1)
+
+adder a = \b -> \c -> a + b + c
+compose3 f g h = f . g . h
+pick b = if b then (+) else (*)
+pair = let ident x = x in (ident 1, ident 'c')
+
+collatz n = steps n 0
+  where
+    steps 1 acc = acc
+    steps m acc = if even m then down m acc else up m acc
+    down m acc = steps (div m 2) (acc + 1)
+    up m acc = steps (3 * m + 1) (acc + 1)
+
+data Tree = Leaf | Node Tree Int Tree
+
+build 0 = Leaf
+build d = Node (build (d - 1)) d (build (d - 1))
+total Leaf = 0
+total (Node l v r) = total l + v + total r
+
+-- a live tree must survive many collections triggered by garbage
+keep = build 16
+churn n = foldl (+) 0 (map (\x -> x * 2) [1..n])
+floats n = foldl (+) 0.0 (map toFloat [1..n])
+
+main =
+  print (isEven 100001) >>
+  print (adder 1 2 3) >>
+  print (compose3 (+ 1) (* 2) (subtract 3) 10) >>
+  print (pick True 3 4, pick False 3 4) >>
+  print pair >>
+  print (maximum (map collatz [1..10000])) >>
+  print (total keep) >>
+  print (churn 3000000) >>
+  print (floats 1000000) >>
+  print (total keep) >>
+  print (length (foldr (:) [] [1..1000000]))

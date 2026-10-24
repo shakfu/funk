@@ -1,0 +1,2 @@
+-- expect: infinite type
+main = print (\x -> x x)

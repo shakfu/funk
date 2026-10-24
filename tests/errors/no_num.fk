@@ -1,0 +1,2 @@
+-- expect: no Num instance for `Bool`
+main = print (True + 1)

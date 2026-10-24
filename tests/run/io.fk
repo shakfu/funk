@@ -1,0 +1,6 @@
+-- getLine, readInt, readFloat, and sequencing with >>.
+main =
+  let name = getLine ()
+      n = readInt (getLine ())
+      x = readFloat (getLine ())
+  in putStr "hello, " >> putStrLn name >> print (n * 2) >> print (x / 2.0) >> mapM_ print [1, 2]

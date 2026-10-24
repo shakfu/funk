@@ -1,0 +1,2 @@
+-- expect: variable not in scope: `nope`
+main = print nope

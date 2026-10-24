@@ -1,0 +1,42 @@
+:t \x -> x + 1
+:t map
+:t (.)
+:t (|>)
+:t (>>>)
+:t \f g x -> g (f x)
+:t 1 + 2.5
+:t \x y -> x == y
+:t foldr
+:t (,) 1
+f x = x + 1
+:t f
+f 2.5
+twice f = f . f
+twice (* 2) 5
+xs = [1, 2, 3]
+xs |> map show |> unwords
+:{
+data Tree a = Leaf | Node (Tree a) a (Tree a)
+insert x Leaf = Node Leaf x Leaf
+insert x (Node l v r)
+  | x < v = Node (insert x l) v r
+  | x > v = Node l v (insert x r)
+  | otherwise = Node l v r
+toList Leaf = []
+toList (Node l v r) = toList l ++ [v] ++ toList r
+:}
+:t insert
+foldr insert Leaf [5, 2, 8, 1] |> toList
+1 + True
+head []
+:{
+h :: Num a => a -> a
+h x = x * 2
+:}
+h 3.5
+:t h
+let y = 5 in y * y
+print 1 >> print 2
+f = 10
+f
+it + 1

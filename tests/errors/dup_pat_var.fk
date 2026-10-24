@@ -1,0 +1,3 @@
+-- expect: variable `x` is bound twice in one pattern
+f (x, x) = x
+main = 1

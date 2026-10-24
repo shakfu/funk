@@ -1,0 +1,52 @@
+#!/bin/sh
+# Run the funk test suite. Exit status is the number of failures (capped).
+#   tests/run/NAME.fk      interpreted and compiled output must equal NAME.expected
+#                          (stdin from NAME.stdin if present)
+#   tests/errors/NAME.fk   must exit non-zero; stderr must contain the text
+#                          after "-- expect: " on line 1
+#   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
+cd "$(dirname "$0")/.." || exit 1
+FUNK=./funk
+tmp=$(mktemp -d) || exit 1
+trap 'rm -rf "$tmp"' EXIT
+pass=0
+fail=0
+
+ok() { pass=$((pass + 1)); }
+bad() { fail=$((fail + 1)); echo "FAIL $1"; [ -n "$2" ] && sed 's/^/    /' "$2" | head -20; }
+
+for f in tests/run/*.fk; do
+  n=$(basename "$f" .fk)
+  in=/dev/null
+  [ -f "tests/run/$n.stdin" ] && in="tests/run/$n.stdin"
+  "$FUNK" "$f" <"$in" >"$tmp/$n.interp" 2>&1
+  if diff "tests/run/$n.expected" "$tmp/$n.interp" >"$tmp/diff" 2>&1; then ok; else bad "$n (interpreter)" "$tmp/diff"; fi
+  if "$FUNK" build "$f" -o "$tmp/$n.exe" >"$tmp/cc" 2>&1; then
+    "$tmp/$n.exe" <"$in" >"$tmp/$n.compiled" 2>&1
+    if diff "tests/run/$n.expected" "$tmp/$n.compiled" >"$tmp/diff" 2>&1; then ok; else bad "$n (compiled)" "$tmp/diff"; fi
+  else
+    bad "$n (build)" "$tmp/cc"
+  fi
+done
+
+for f in tests/errors/*.fk; do
+  n=$(basename "$f" .fk)
+  want=$(head -n 1 "$f" | sed 's/^-- expect: //')
+  if "$FUNK" "$f" </dev/null >"$tmp/out" 2>&1; then
+    bad "$n (expected failure, got success)" "$tmp/out"
+  elif grep -qF -- "$want" "$tmp/out"; then
+    ok
+  else
+    echo "    want: $want" >>"$tmp/out"
+    bad "$n" "$tmp/out"
+  fi
+done
+
+for f in tests/repl/*.in; do
+  n=$(basename "$f" .in)
+  "$FUNK" <"$f" >"$tmp/$n.repl" 2>&1
+  if diff "tests/repl/$n.expected" "$tmp/$n.repl" >"$tmp/diff" 2>&1; then ok; else bad "$n (repl)" "$tmp/diff"; fi
+done
+
+echo "$pass passed, $fail failed"
+[ "$fail" -eq 0 ]

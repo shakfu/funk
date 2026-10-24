@@ -1,0 +1,3 @@
+-- expect: `xs` is defined recursively but is not a function
+xs = 1 : xs
+main = print 1

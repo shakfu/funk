@@ -1,0 +1,4 @@
+-- expect: expected `Int -> Bool`, found `Int -> Int`
+f :: Int -> Bool
+f x = x
+main = f 1

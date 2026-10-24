@@ -1,0 +1,6 @@
+-- expect: too general
+f x = g
+  where
+    g :: a -> a
+    g y = x
+main = 1

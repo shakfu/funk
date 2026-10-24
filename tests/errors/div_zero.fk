@@ -1,0 +1,2 @@
+-- expect: divide by zero
+main = print (div 1 0)

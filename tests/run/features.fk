@@ -1,0 +1,46 @@
+data Shape = Circle Float | Rect Float Float deriving (Show, Eq)
+
+area :: Shape -> Float
+area (Circle r) = 3.0 * r * r
+area (Rect w h) = w * h
+
+f x = x + 1
+add x y = x + y
+inc = add 1
+
+fact :: Int -> Int
+fact 0 = 1
+fact n = n * fact (n - 1)
+
+sumTo n = go n 0
+  where
+    go 0 acc = acc
+    go k acc = go (k - 1) (acc + k)
+
+classify n
+  | n < 0 = "neg"
+  | n == 0 = "zero"
+  | otherwise = "pos"
+
+main =
+  print (f 41) >>
+  print (f 1.5) >>
+  print (inc 10) >>
+  print (fact 20) >>
+  print (map area [Circle 1.0, Rect 2.0 3.5]) >>
+  print ([1..10] |> filter even |> map (* 3) |> sum) >>
+  print ((show . (+ 1) . (* 2)) 5) >>
+  print ((length >>> (* 2)) "hello") >>
+  print (sumTo 1000000) >>
+  print (map classify [-5, 0, 7]) >>
+  print (Just (Circle 2.0), Left 3 :: Either Int Bool) >>
+  print (sort [5, 3, 9, 1, 2]) >>
+  print (words "  the quick  brown fox ") >>
+  print (let (a, b) = (10, 20) in a * b) >>
+  print (case lookup 2 [(1, "one"), (2, "two")] of
+           Just s -> s
+           Nothing -> "none") >>
+  print (2 ^ 10, 1.5 ^ 2, 10 / 4, div 7 2, mod (-7) 2) >>
+  print (zip [1, 2, 3] "abc") >>
+  putStrLn (unwords ["a", "b"]) >>
+  print [0.1, 1.0e7, 1.0e-2, 123.456, -2.5]

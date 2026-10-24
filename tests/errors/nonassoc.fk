@@ -1,0 +1,2 @@
+-- expect: cannot chain non-associative operators
+main = print (1 == 2 == True)

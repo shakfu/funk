@@ -1,0 +1,4 @@
+-- expect: no Num instance for rigid type variable `a`
+g :: a -> a
+g x = x + 1
+main = g 1

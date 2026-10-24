@@ -1,0 +1,180 @@
+-- prelude.fk -- compiled before every program. Primitives live in src/prims.def.
+
+data Maybe a = Nothing | Just a
+data Either a b = Left a | Right b
+data Ordering = LT | EQ | GT
+
+-- functions
+
+id x = x
+const x _ = x
+flip f x y = f y x
+f . g = \x -> f (g x)
+f >>> g = \x -> g (f x)
+x |> f = f x
+f $ x = f x
+until p f x = if p x then x else until p f (f x)
+
+-- infix && and || short-circuit in the parser; these serve (&&) and (||)
+a && b = if a then b else False
+a || b = if a then True else b
+not True = False
+not False = True
+otherwise = True
+
+fst (a, _) = a
+snd (_, b) = b
+curry f a b = f (a, b)
+uncurry f (a, b) = f a b
+
+-- numbers
+
+subtract x y = y - x
+even n = mod n 2 == 0
+odd n = mod n 2 /= 0
+min a b = if a <= b then a else b
+max a b = if a >= b then a else b
+
+compare a b
+  | a < b = LT
+  | a == b = EQ
+  | otherwise = GT
+
+gcd a b = if b == 0 then abs a else gcd b (mod a b)
+
+-- x * 0 + 1 rather than 1, so a Float base yields a Float at runtime
+x ^ n
+  | n < 0 = error "^: negative exponent"
+  | n == 0 = x * 0 + 1
+  | even n = let h = x ^ div n 2 in h * h
+  | otherwise = x * x ^ (n - 1)
+
+-- lists
+
+head (x:_) = x
+head [] = error "head: empty list"
+tail (_:xs) = xs
+tail [] = error "tail: empty list"
+last [x] = x
+last (_:xs) = last xs
+last [] = error "last: empty list"
+init [x] = []
+init (x:xs) = x : init xs
+init [] = error "init: empty list"
+null [] = True
+null _ = False
+length xs = foldl (\n _ -> n + 1) 0 xs
+
+(x:xs) !! n = if n == 0 then x else xs !! (n - 1)
+[] !! _ = error "!!: index too large"
+
+map f [] = []
+map f (x:xs) = f x : map f xs
+filter p [] = []
+filter p (x:xs) = if p x then x : filter p xs else filter p xs
+foldl f z [] = z
+foldl f z (x:xs) = foldl f (f z x) xs
+foldr f z [] = z
+foldr f z (x:xs) = f x (foldr f z xs)
+foldl1 f (x:xs) = foldl f x xs
+foldl1 _ [] = error "foldl1: empty list"
+
+sum xs = foldl (+) 0 xs
+product xs = foldl (*) 1 xs
+maximum xs = foldl1 max xs
+minimum xs = foldl1 min xs
+reverse xs = foldl (flip (:)) [] xs
+
+[] ++ ys = ys
+(x:xs) ++ ys = x : (xs ++ ys)
+concat xss = foldr (++) [] xss
+concatMap f xs = concat (map f xs)
+
+any p [] = False
+any p (x:xs) = p x || any p xs
+all p [] = True
+all p (x:xs) = p x && all p xs
+and xs = all id xs
+or xs = any id xs
+elem x xs = any (== x) xs
+notElem x xs = not (elem x xs)
+
+take n xs | n <= 0 = []
+take _ [] = []
+take n (x:xs) = x : take (n - 1) xs
+drop n xs | n <= 0 = xs
+drop _ [] = []
+drop n (_:xs) = drop (n - 1) xs
+splitAt n xs = (take n xs, drop n xs)
+takeWhile p [] = []
+takeWhile p (x:xs) = if p x then x : takeWhile p xs else []
+dropWhile p [] = []
+dropWhile p (x:xs) = if p x then dropWhile p xs else x : xs
+span p xs = (takeWhile p xs, dropWhile p xs)
+break p xs = span (not . p) xs
+
+zip (x:xs) (y:ys) = (x, y) : zip xs ys
+zip _ _ = []
+zipWith f (x:xs) (y:ys) = f x y : zipWith f xs ys
+zipWith _ _ _ = []
+unzip ps = (map fst ps, map snd ps)
+replicate n x = if n <= 0 then [] else x : replicate (n - 1) x
+
+enumFromTo a b = if a > b then [] else a : enumFromTo (a + 1) b
+enumFromThenTo a b c = go a
+  where
+    step = b - a
+    go x
+      | step == 0 = error "enumFromThenTo: zero step"
+      | step > 0 && x > c = []
+      | step < 0 && x < c = []
+      | otherwise = x : go (x + step)
+
+lookup _ [] = Nothing
+lookup k ((k2, v):rest) = if k == k2 then Just v else lookup k rest
+
+sort xs = sortBy compare xs
+sortBy cmp xs = mergeAll (map (\x -> [x]) xs)
+  where
+    mergeAll [] = []
+    mergeAll [x] = x
+    mergeAll xss = mergeAll (mergePairs xss)
+    mergePairs (a:b:rest) = merge a b : mergePairs rest
+    mergePairs xss = xss
+    merge [] ys = ys
+    merge xs [] = xs
+    merge (x:xs) (y:ys) = if cmp x y == GT then y : merge (x:xs) ys else x : merge xs (y:ys)
+
+-- Maybe, Either
+
+maybe d _ Nothing = d
+maybe _ f (Just x) = f x
+fromMaybe d Nothing = d
+fromMaybe _ (Just x) = x
+either f _ (Left a) = f a
+either _ g (Right b) = g b
+
+-- characters and strings
+
+isSpace c = c == ' ' || c == '\n' || c == '\t' || c == '\r'
+isDigit c = c >= '0' && c <= '9'
+isUpper c = c >= 'A' && c <= 'Z'
+isLower c = c >= 'a' && c <= 'z'
+isAlpha c = isUpper c || isLower c
+toUpper c = if isLower c then chr (ord c - 32) else c
+toLower c = if isUpper c then chr (ord c + 32) else c
+
+words s = case dropWhile isSpace s of
+  [] -> []
+  s2 -> let (w, rest) = break isSpace s2 in w : words rest
+unwords [] = ""
+unwords [w] = w
+unwords (w:ws) = w ++ " " ++ unwords ws
+lines s = case break (== '\n') s of
+  (l, []) -> if null l then [] else [l]
+  (l, _:rest) -> l : lines rest
+unlines ls = concatMap (\l -> l ++ "\n") ls
+
+-- effects run left to right; `>>` sequences them
+
+mapM_ f xs = foldl (\_ x -> f x) () xs
