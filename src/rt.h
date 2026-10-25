@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 /* A value is a tagged word:
      ...1   63-bit Int (shifted left 1)
@@ -17,18 +18,27 @@ typedef uintptr_t V;
 typedef V (*FkCode)(V self, V *args);
 
 typedef struct { uint8_t kind, pad; uint16_t n; uint32_t aux; } FkHdr;
-enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP, K_THUNK, K_STR };
+enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP, K_THUNK, K_STR, K_INT64 };
 /* K_CON:     n = field count, aux = constructor id, fields follow
    K_FLOAT:   double follows
    K_CLOSURE: n = free count, aux = arity; then code, info, free vars
    K_PAP:     aux = held arg count; then closure, args
    K_THUNK:   closure layout, arity 0; once forced, code = 0 and info = value
-   K_STR:     aux = byte length; the bytes follow, NUL-terminated */
+   K_STR:     aux = byte length; the bytes follow, NUL-terminated
+   K_INT64:   an Int outside the 63 bits a tagged word holds follows */
 typedef struct { FkHdr h; double d; } FkFloat;
+typedef struct { FkHdr h; int64_t i; } FkInt64;
 
-#define FK_ISINT(v)    ((v) & 1)
-#define FK_MKINT(i)    ((((V)(intptr_t)(i)) << 1) | 1)
-#define FK_INT(v)      (((intptr_t)(v)) >> 1)
+/* Int is 64 bits in both backends. A value that fits in 63 bits is a
+   tagged word; others are boxed, so the common case does not allocate. */
+#define FK_ISSMALL(v)  ((v) & 1)
+#define FK_ISINT(v)    (FK_ISSMALL(v) || (FK_ISPTR(v) && FK_HDR(v)->kind == K_INT64))
+V fk_int64_box(int64_t i);
+static inline V FK_MKINT(int64_t i) {
+  V w = ((V)(uint64_t)i << 1) | 1;
+  return ((int64_t)w >> 1) == i ? w : fk_int64_box(i);
+}
+static inline int64_t FK_INT(V v) { return FK_ISSMALL(v) ? (int64_t)v >> 1 : ((FkInt64 *)v)->i; }
 #define FK_ISCHAR(v)   (((v) & 3) == 2)
 #define FK_MKCHAR(c)   ((((V)(unsigned char)(c)) << 2) | 2)
 #define FK_CHAR(v)     ((int)((v) >> 2))
@@ -41,6 +51,9 @@ typedef struct { FkHdr h; double d; } FkFloat;
 #define FK_CODE(c)     ((FkCode)FK_W(c)[1])
 #define FK_INFO(c)     ((void *)FK_W(c)[2])
 #define FK_FREE(c, i)  (FK_W(c)[3 + (i)])
+/* A double's bits in a closure slot, and back (typed-backend.md, step 4). */
+static inline V fk_fraw(double d) { V v; memcpy(&v, &d, sizeof v); return v; }
+static inline double fk_rawf(V v) { double d; memcpy(&d, &v, sizeof d); return d; }
 #define FK_ARITY(c)    (FK_HDR(c)->aux)
 #define FK_STRLEN(s)   ((size_t)FK_HDR(s)->aux)
 #define FK_STRBYTES(s) ((char *)&FK_W(s)[1])
@@ -50,7 +63,13 @@ enum { FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL, FK_C_CONS, FK_C_TUP2 };
 #define FK_MAXTUPLE 7
 #define FK_NBUILTIN_CONS (FK_C_TUP2 + FK_MAXTUPLE - 1)
 
-typedef struct { const char *name; int arity; V nullary, fn; const char *const *labels; } FkCon;
+typedef struct {
+  const char *name;
+  int arity;
+  V nullary, fn;
+  const char *const *labels;
+  uint32_t raw; /* bit i: field i holds a raw double, in compiled code (typed-backend.md, step 5) */
+} FkCon;
 extern FkCon *fk_cons;
 extern uint32_t fk_ncons;
 extern V fk_true, fk_false, fk_unit, fk_nil;
@@ -70,6 +89,7 @@ V fk_apply(V f, int n, V *args);
 V fk_thunk(FkCode code, int nfree, void *info);
 V fk_force(V t);
 uint32_t fk_register_con(const char *name, int arity);
+void fk_con_raw(uint32_t id, uint32_t mask);
 void fk_con_labels(uint32_t id, const char *const *labels); /* show as a record */
 void fk_truncate_cons(uint32_t n);
 

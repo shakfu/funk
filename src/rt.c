@@ -150,7 +150,7 @@ static void mark_word(uintptr_t w) {
   if (!o || *m) return;
   *m = 1;
   int k = ((FkHdr *)o)->kind;
-  if (k == K_FLOAT || k == K_STR) return; /* a double or bytes: no pointers */
+  if (k == K_FLOAT || k == K_STR || k == K_INT64) return; /* a number or bytes: no pointers */
   if (msp + 2 > mcap) {
     mcap = mcap ? 2 * mcap : 4096;
     mstack = rt_realloc(mstack, mcap * sizeof *mstack);
@@ -293,16 +293,23 @@ uint32_t fk_register_con(const char *name, int arity) {
     fk_cons = rt_realloc(fk_cons, capcons * sizeof *fk_cons);
   }
   uint32_t id = fk_ncons++;
-  fk_cons[id] = (FkCon){name, arity, arity == 0 ? static_obj(1, K_CON, 0, id) : 0, 0, NULL};
+  fk_cons[id] = (FkCon){name, arity, arity == 0 ? static_obj(1, K_CON, 0, id) : 0, 0, NULL, 0};
   return id;
 }
 
 void fk_con_labels(uint32_t id, const char *const *labels) { fk_cons[id].labels = labels; }
+void fk_con_raw(uint32_t id, uint32_t mask) { fk_cons[id].raw = mask; }
+
+static bool raw_field(V v, int i) { return i < 32 && (fk_cons[FK_CONID(v)].raw >> i & 1); }
 
 void fk_truncate_cons(uint32_t n) { fk_ncons = n; }
 
+/* A constructor applied as a function value gets boxed arguments. */
 static V con_code(V self, V *a) {
-  return fk_mkcon((uint32_t)(uintptr_t)FK_INFO(self), (int)FK_ARITY(self), a);
+  V o = fk_mkcon((uint32_t)(uintptr_t)FK_INFO(self), (int)FK_ARITY(self), a);
+  for (int i = 0; i < FK_HDR(o)->n; i++)
+    if (raw_field(o, i)) FK_FIELD(o, i) = fk_fraw(FK_FLOATV(a[i]));
+  return o;
 }
 
 V fk_con_value(uint32_t id) {
@@ -320,6 +327,12 @@ V fk_mkcon(uint32_t id, int n, V *fields) {
   if (n == 0) return fk_cons[id].nullary;
   V o = alloc(1 + (size_t)n, K_CON, n, id);
   memcpy(&FK_W(o)[1], fields, (size_t)n * sizeof(V));
+  return o;
+}
+
+V fk_int64_box(int64_t i) {
+  V o = alloc(2, K_INT64, 0, 0);
+  ((FkInt64 *)o)->i = i;
   return o;
 }
 
@@ -489,12 +502,19 @@ static void show_float(Buf *b, double d, int prec) {
   if (paren) buf_putc(b, ')');
 }
 
+static void show(Buf *b, V v, int prec);
+
+static void show_field(Buf *b, V v, int i, int prec) {
+  if (raw_field(v, i)) show_float(b, fk_rawf(FK_FIELD(v, i)), prec);
+  else show(b, FK_FIELD(v, i), prec);
+}
+
 static void show(Buf *b, V v, int prec) {
   FK_STACK_CHECK();
   char tmp[32];
   if (FK_ISINT(v)) {
-    intptr_t i = FK_INT(v);
-    snprintf(tmp, sizeof tmp, prec > 6 && i < 0 ? "(%ld)" : "%ld", (long)i);
+    long long i = FK_INT(v);
+    snprintf(tmp, sizeof tmp, prec > 6 && i < 0 ? "(%lld)" : "%lld", i);
     buf_puts(b, tmp);
     return;
   }
@@ -551,7 +571,7 @@ static void show(Buf *b, V v, int prec) {
       buf_puts(b, i ? ", " : " {");
       buf_puts(b, ls[i]);
       buf_puts(b, " = ");
-      show(b, FK_FIELD(v, i), 0);
+      show_field(b, v, i, 0);
     }
     buf_putc(b, '}');
     if (prec > 10) buf_putc(b, ')');
@@ -561,7 +581,7 @@ static void show(Buf *b, V v, int prec) {
   buf_puts(b, fk_cons[id].name);
   for (int i = 0; i < h->n; i++) {
     buf_putc(b, ' ');
-    show(b, FK_FIELD(v, i), 11);
+    show_field(b, v, i, 11);
   }
   if (prec > 10) buf_putc(b, ')');
 }
@@ -605,10 +625,15 @@ int fk_compare(V a, V b) {
     if (ia != ib) return ia < ib ? -1 : 1;
     int n = FK_HDR(a)->n;
     if (n == 0) return 0;
-    for (int i = 0; i < n - 1; i++) {
-      int c = fk_compare(FK_FIELD(a, i), FK_FIELD(b, i));
-      if (c) return c;
-    }
+    for (int i = 0; i < n; i++)
+      if (raw_field(a, i)) {
+        double x = fk_rawf(FK_FIELD(a, i)), y = fk_rawf(FK_FIELD(b, i));
+        if (x != y) return x < y ? -1 : 1;
+      } else if (i < n - 1) {
+        int c = fk_compare(FK_FIELD(a, i), FK_FIELD(b, i));
+        if (c) return c;
+      }
+    if (raw_field(a, n - 1)) return 0;
     a = FK_FIELD(a, n - 1);
     b = FK_FIELD(b, n - 1);
   }
@@ -625,9 +650,9 @@ int fk_num_eq_int(V v, long long i) {
 /* Typed primitives as inline functions on tagged words. Generated C calls
    the fk_i_ forms directly, so the C compiler inlines them; the fk_p_
    wrappers serve the interpreter and function values. Int arithmetic
-   wraps (unsigned in C, so defined). Tagged Ints and Chars are ordered
-   like their values, so they compare as words. Float follows IEEE:
-   NaN /= NaN. */
+   wraps at 64 bits (unsigned in C, so defined). Tagged Ints and Chars are
+   ordered like their values, so they compare as words unless an Int is
+   boxed. Float follows IEEE: NaN /= NaN. */
 static inline int64_t fk_s_absi(int64_t x) { return x < 0 ? (int64_t)(0 - (uint64_t)x) : x; }
 
 #define I2(name, expr)                                                         \
@@ -636,7 +661,7 @@ static inline int64_t fk_s_absi(int64_t x) { return x < 0 ? (int64_t)(0 - (uint6
 #define I1(name, expr)                                                         \
   static inline V fk_i_##name(V x) { return expr; }                          \
   V fk_p_##name(V self, V *a) { return fk_i_##name(a[0]); }
-#define IWRAP(op) FK_MKINT((intptr_t)((uintptr_t)FK_INT(x) op (uintptr_t)FK_INT(y)))
+#define IWRAP(op) FK_MKINT((int64_t)((uint64_t)FK_INT(x) op (uint64_t)FK_INT(y)))
 
 I2(addi, IWRAP(+))
 I2(subi, IWRAP(-))
@@ -644,7 +669,7 @@ I2(muli, IWRAP(*))
 I2(addf, fk_float(FK_FLOATV(x) + FK_FLOATV(y)))
 I2(subf, fk_float(FK_FLOATV(x) - FK_FLOATV(y)))
 I2(mulf, fk_float(FK_FLOATV(x) * FK_FLOATV(y)))
-I1(negi, FK_MKINT((intptr_t)(0 - (uintptr_t)FK_INT(x))))
+I1(negi, FK_MKINT((int64_t)(0 - (uint64_t)FK_INT(x))))
 I1(negf, fk_float(-FK_FLOATV(x)))
 I1(absi, FK_MKINT(fk_s_absi(FK_INT(x))))
 I1(absf, fk_float(fabs(FK_FLOATV(x))))
@@ -655,12 +680,14 @@ I2(fdiv, fk_float(FK_FLOATV(x) / FK_FLOATV(y)))
   static inline bool fk_b_##name(V x, V y) { return expr; }                  \
   I2(name, FK_BOOL(fk_b_##name(x, y)))
 
-B2(eqw, x == y) /* Int, Char */
-B2(new, x != y)
-B2(ltw, (intptr_t)x < (intptr_t)y)
-B2(lew, (intptr_t)x <= (intptr_t)y)
-B2(gtw, (intptr_t)x > (intptr_t)y)
-B2(gew, (intptr_t)x >= (intptr_t)y)
+/* Int and Char: as words, unless one is a boxed Int. */
+#define WORDS(x, y) (!FK_ISPTR(x) && !FK_ISPTR(y))
+B2(eqw, x == y || (!WORDS(x, y) && FK_INT(x) == FK_INT(y)))
+B2(new, !fk_b_eqw(x, y))
+B2(ltw, WORDS(x, y) ? (intptr_t)x < (intptr_t)y : FK_INT(x) < FK_INT(y))
+B2(lew, WORDS(x, y) ? (intptr_t)x <= (intptr_t)y : FK_INT(x) <= FK_INT(y))
+B2(gtw, WORDS(x, y) ? (intptr_t)x > (intptr_t)y : FK_INT(x) > FK_INT(y))
+B2(gew, WORDS(x, y) ? (intptr_t)x >= (intptr_t)y : FK_INT(x) >= FK_INT(y))
 B2(eqf, FK_FLOATV(x) == FK_FLOATV(y))
 B2(nef, FK_FLOATV(x) != FK_FLOATV(y))
 B2(ltf, FK_FLOATV(x) < FK_FLOATV(y))
@@ -671,7 +698,7 @@ B2(gef, FK_FLOATV(x) >= FK_FLOATV(y))
 _Noreturn static void div_zero(void) { fk_error("divide by zero"); }
 
 /* Scalar forms, fk_s_NAME, for typed generated code. div and mod round
-   toward negative infinity, quot and rem toward zero. INT64_MIN / -1
+   toward negative infinity, quot and rem toward zero. minBound / -1
    wraps instead of trapping. */
 static inline int64_t fk_s_div(int64_t x, int64_t y) {
   if (y == 0) div_zero();
@@ -711,7 +738,7 @@ V fk_p_rem(V self, V *a) { return fk_i_rem(a[0], a[1]); }
 V fk_p_tofloat(V self, V *a) { return fk_float((double)FK_INT(a[0])); }
 
 static V to_int(double d) {
-  if (!(d > -4.6e18 && d < 4.6e18)) fk_error("float out of Int range");
+  if (!(d >= -0x1p63 && d < 0x1p63)) fk_error("float out of Int range"); /* NaN fails too */
   return FK_MKINT((intptr_t)d);
 }
 V fk_p_floor(V self, V *a) { return to_int(floor(num_d(a[0]))); }

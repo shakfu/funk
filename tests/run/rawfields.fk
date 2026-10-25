@@ -1,0 +1,25 @@
+-- Constructor fields declared Float are stored raw in compiled code
+-- (typed-backend.md, step 5). Every path that reads or writes such a field.
+data Vec = Vec Float Float deriving (Eq, Ord, Show)
+data Mixed = Mixed Int Float String Float deriving (Eq, Ord, Show)
+data P = P { px :: Float, tag :: Int, py :: Float } deriving (Eq, Show)
+data Shape = Dot Float | Seg Float Float Vec deriving (Show)
+
+norm2 (Vec a b) = a * a + b * b
+origin (Vec 0 0) = True
+origin _ = False
+flipY :: P -> P
+flipY p = p { py = negate p.py }
+spine (Seg a _ v) = a : (case v of Vec c _ -> [c])
+spine (Dot a) = [a]
+build 0 = []
+build n = Vec (toFloat n) 0.5 : build (n - 1)
+
+main = do
+  print (Vec 1.5 (-2.0), norm2 (Vec 3.0 4.0), origin (Vec 0.0 0.0), origin (Vec 0.0 1.0e-300))
+  print (map (Vec 1.0) [2.0, 3.0], zipWith Vec [1.0] [2.0], map (\f -> f 9.0) [Vec 1.0, Vec 2.0])
+  print (sort [Vec 2.0 1.0, Vec 1.0 5.0, Vec 1.0 (-1.0)], compare (Vec 1.0 2.0) (Vec 1.0 2.0), Vec 1.0 2.0 == Vec 1.0 2.0)
+  print (Mixed 1 2.5 "s" 1.0e300 < Mixed 1 2.5 "s" 1.0e301, maximum [Mixed 0 1.0 "a" 0.0, Mixed 0 1.0 "a" 0.25])
+  print (P 1.0 2 3.0, flipY (P 1.0 2 3.0), (P 0.125 0 0.0).px, P 1.0 1 1.0 == P 1.0 1 1.0)
+  print (spine (Seg 1.0 2.0 (Vec 3.0 4.0)), spine (Dot 7.5), build 2)
+  print (show (Seg 0.1 0.2 (Vec 0.3 0.4)), [Vec (-0.0) 1.0e-5])

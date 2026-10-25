@@ -188,7 +188,7 @@ The prelude defines:
 
 - `String` is a packed type, not `[Char]` as in Haskell. `++`, `length`, `show`, `words`, `lines`, `unwords` and `unlines` work on it; for list functions, convert with `unpack :: String -> [Char]` and `pack :: [Char] -> String`. A string literal in a pattern matches an equal `String`.
 
-- `Int` is 63 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
+- `Int` is 64 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
 
 - The interpreter is about 6x slower than compiled code on allocation-heavy loops.
 

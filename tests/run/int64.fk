@@ -1,0 +1,25 @@
+-- Int is 64 bits in both backends and wraps on overflow. Values beyond
+-- 63 bits are boxed at run time; every operation must treat them as Ints:
+-- typed locals, tagged list elements, and passing between the two.
+big = 4611686018427387904        -- 2^62: the first value that needs a box
+maxI = 9223372036854775807
+minI = negate maxI - 1
+
+bump :: Int -> Int
+bump n = n + 1
+
+loopT :: Int -> Int -> Int
+loopT k acc = if k == 0 then acc else loopT (k - 1) (acc * 3 + 1)
+
+main = do
+  print (big, big - 1, negate big, negate big - 1, maxI, minI)
+  print (maxI + 1 == minI, minI - 1 == maxI, maxI * 2, abs minI, negate minI, bump maxI)
+  print ([big, maxI, 3], map bump [big - 1, maxI, -1], sum [maxI, 1], product [maxI, 3])
+  print (big == 2 * 2305843009213693952, big /= big + 0, compare big (big - 1), big < maxI, minI < negate big)
+  print (sort [maxI, 0, minI, big, negate big, 1], maximum [1, big, 2], minimum [minI, 0])
+  print (div minI (-1), quot minI (-1), mod minI 7, quot maxI 2, rem minI 10, div big 3)
+  print (case big of { 4611686018427387904 -> "match"; _ -> "no" }, case 5 of { 4611686018427387904 -> "no"; _ -> "ok" })
+  print (show maxI, readInt "-9223372036854775808", readInt "4611686018427387904" + 0)
+  print (toFloat big, round (toFloat big), Just maxI, (big, [minI]))
+  print (length (filter (> big) [big - 1, big, big + 1, maxI]), foldl max minI [big, 7])
+  print (loopT 43 1, loopT 43 1 == foldl (\acc _ -> acc * 3 + 1) 1 (enumFromTo 1 43))

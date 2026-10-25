@@ -158,6 +158,7 @@ Objects start with an 8-byte header `{kind, n, aux}`:
 | `K_PAP` | `aux` = held argument count; closure, held arguments |
 | `K_THUNK` | closure layout, arity 0; after forcing, code is 0, info holds the value, free variables are cleared |
 | `K_STR` | `aux` = byte length; the bytes follow, NUL-terminated. Not scanned by the collector |
+| `K_INT64` | an `Int` that does not fit in a 63-bit tagged word follows. Not scanned by the collector |
 
 Nullary constructors, constructor functions and primitive closures are static objects outside the GC heap, so `b == fk_true` tests a Bool.
 

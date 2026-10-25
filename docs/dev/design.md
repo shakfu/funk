@@ -104,7 +104,7 @@ Compiling REPL input with `cc` and loading it with `dlopen` was rejected: it add
 
 ## Runtime representation: uniform tagged words
 
-All values are one machine word: tagged 63-bit Int, tagged Char, or a pointer to a header-prefixed object. This was chosen over type-specialized unboxed code because one representation lets both backends share the runtime and its primitives, and lets the GC scan without type information. The costs are a boxed `Float` for every float result and 63-bit `Int`.
+All values are one machine word: a tagged Int that fits in 63 bits, a tagged Char, or a pointer to a header-prefixed object, which includes the rare Int beyond 63 bits. This was chosen over type-specialized unboxed code because one representation lets both backends share the runtime and its primitives, and lets the GC scan without type information. The costs are a boxed `Float` for every float result in polymorphic code, and a range check wherever an `Int` enters a value word ([typed-backend.md](typed-backend.md#integers)).
 
 ## Memory: conservative mark-sweep
 

@@ -12,6 +12,8 @@
    position becomes a jump back to the top of the function. Arguments are
    evaluated left to right into temporaries before each call, since C
    leaves argument order unspecified. */
+#include <math.h>
+
 #include "funk.h"
 
 const char *prim_cname(int i);
@@ -76,17 +78,62 @@ static TV hold(CG *c, TV v) {
   return tv(t, v.r);
 }
 
+/* Representations of each lambda's free variables, by lambda id. A
+   scalar is stored raw in its closure slot, so capturing a Float does not
+   allocate. Set before generation, from the slots of the function that
+   creates the closure; stores and reads both use this table. */
+static Rep **freps;
+
+static Rep frep(Lambda *L, int i) { return freps[L->id] ? freps[L->id][i] : R_V; }
+
+static TV raw_read(const char *w, Rep r) {
+  static const char *const fmt[] = {"%s", "((int64_t)%s)", "fk_rawf(%s)", "((int32_t)%s)", "((bool)%s)"};
+  return tv(xsprintf(fmt[r], w), r);
+}
+
+static const char *raw_word(TV v, Rep r) {
+  const char *s = conv(v, r);
+  if (r == R_V) return s;
+  return r == R_F ? xsprintf("fk_fraw(%s)", s) : xsprintf("((V)(int64_t)%s)", s);
+}
+
+/* Fields declared `Float` hold a raw double (typed-backend.md, step 5).
+   Bit i of the mask: field i of constructor con. The runtime learns the
+   masks from fk_con_raw calls at startup. */
+static uint32_t con_raw(int con) {
+  Type *t = condefs.a[con].scheme;
+  uint32_t m = 0;
+  for (int i = 0; t && i < 32; i++) {
+    t = repr(t);
+    if (t->k != TY_CON || strcmp(t->name, "->") != 0) break;
+    if (rep_of(t->args[0]) == R_F) m |= 1u << i;
+    t = t->args[1];
+  }
+  return m;
+}
+
+/* Field i of con at path, with its representation; and a value as the
+   word to store there. */
+static TV field_read(int con, int i, const char *path) {
+  const char *w = xsprintf("FK_FIELD(%s, %d)", path, i);
+  return i < 32 && (con_raw(con) >> i & 1) ? tv(xsprintf("fk_rawf(%s)", w), R_F) : tv(w, R_V);
+}
+
+static const char *field_word(int con, int i, TV v) {
+  return i < 32 && (con_raw(con) >> i & 1) ? xsprintf("fk_fraw(%s)", conv(v, R_F)) : as_v(v);
+}
+
 static TV var_ref(CG *c, Expr *e) {
   switch (e->vk) {
   case VK_LOCAL: return tv(xsprintf("l%d", e->idx), c->slot[e->idx]);
-  case VK_FREE: return tv(xsprintf("FK_FREE(self, %d)", e->idx), R_V);
+  case VK_FREE: return raw_read(xsprintf("FK_FREE(self, %d)", e->idx), frep(c->lam, e->idx));
   default: return tv(xsprintf("G[%d]", e->idx), R_V);
   }
 }
 
-static const char *src_ref(CG *c, FreeSrc s) {
-  if (s.vk == VK_LOCAL) return as_v(tv(xsprintf("l%d", s.idx), c->slot[s.idx]));
-  return xsprintf("FK_FREE(self, %d)", s.idx);
+static TV src_ref(CG *c, FreeSrc s) {
+  if (s.vk == VK_LOCAL) return tv(xsprintf("l%d", s.idx), c->slot[s.idx]);
+  return raw_read(xsprintf("FK_FREE(self, %d)", s.idx), frep(c->lam, s.idx));
 }
 
 static void c_string(SB *b, const char *s, int n) {
@@ -114,7 +161,8 @@ static const char *closure_new(CG *c, Lambda *L) {
 }
 
 static void closure_fill(CG *c, const char *v, Lambda *L) {
-  for (int i = 0; i < L->nfree; i++) sb_printf(c->out, "  FK_FREE(%s, %d) = %s;\n", v, i, src_ref(c, L->free[i]));
+  for (int i = 0; i < L->nfree; i++)
+    sb_printf(c->out, "  FK_FREE(%s, %d) = %s;\n", v, i, raw_word(src_ref(c, L->free[i]), frep(L, i)));
 }
 
 static void cg_group(CG *c, Group *g) {
@@ -197,14 +245,20 @@ static TV cg_call(CG *c, Expr *e) {
     Rep ar = sc->arg >= 0 ? (Rep)sc->arg : rep_of(e->args[0]->ty);
     if (ar == R_V) ar = rep_of(e->args[1 % n]->ty); /* an untyped first argument */
     const char *a0 = conv(x[0], ar), *a1 = n > 1 ? conv(x[1], ar) : NULL;
+    if (ar == R_V && sc->arg < 0) /* tagged words: a boxed Int compares by value */
+      return tv(xsprintf("fk_b_%s(%s, %s)", sc->name, a0, a1), R_B);
     return tv(n == 1 ? xsprintf(sc->fmt, a0) : xsprintf(sc->fmt, a0, a1), sc->res);
   }
   bool direct = f->k == E_CON || prim >= 0 || (f->k == E_VAR && f->known);
   const char *fv = direct ? NULL : as_v(cg_expr(c, f));
   Lambda *K = f->k == E_VAR && prim < 0 ? f->known : NULL;
   bool worker = K && n >= K->n;
+  bool con = f->k == E_CON && n >= fk_cons[f->idx].arity; /* a partial application takes boxed fields */
   const char **a = xmalloc((size_t)n * sizeof *a);
-  for (int i = 0; i < n; i++) a[i] = conv(cg_expr(c, e->args[i]), worker && i < K->n ? param_rep(K, i) : R_V);
+  for (int i = 0; i < n; i++) {
+    TV x = cg_expr(c, e->args[i]);
+    a[i] = con ? field_word(f->idx, i, x) : conv(x, worker && i < K->n ? param_rep(K, i) : R_V);
+  }
   int arity;
   const char *call;
   if (f->k == E_CON) {
@@ -258,14 +312,19 @@ static void pat_cond(SB *cond, Pat *p, const char *path, Rep r) {
       return;
     }
     if (tydefs.a[condefs.a[p->con].tydef].ncons > 1) sb_printf(cond, " && FK_CONID(%s) == %d", path, p->con);
-    for (int i = 0; i < p->n; i++) pat_cond(cond, p->args[i], xsprintf("FK_FIELD(%s, %d)", path, i), R_V);
+    for (int i = 0; i < p->n; i++) {
+      TV f = field_read(p->con, i, path);
+      pat_cond(cond, p->args[i], f.s, f.r);
+    }
   }
 }
 
 static void pat_bind(CG *c, Pat *p, const char *path, Rep r) {
   if (p->k == P_VAR) sb_printf(c->out, "  l%d = %s;\n", p->slot, conv(tv(path, r), c->slot[p->slot]));
-  for (int i = 0; p->k == P_CON && r == R_V && i < p->n; i++)
-    pat_bind(c, p->args[i], xsprintf("FK_FIELD(%s, %d)", path, i), R_V);
+  for (int i = 0; p->k == P_CON && r == R_V && i < p->n; i++) {
+    TV f = field_read(p->con, i, path);
+    pat_bind(c, p->args[i], f.s, f.r);
+  }
 }
 
 /* Alternatives are tried in order; a failed pattern or a fallthrough
@@ -341,7 +400,9 @@ static TV cg_expr(CG *c, Expr *e) {
     if (rep_of(e->ty) == R_I) return tv(xsprintf("%lldLL", e->ival), R_I);
     return tv(xsprintf("FK_MKINT(%lldLL)", e->ival), R_V);
   case E_CHAR: return tv(xsprintf("%lld", e->ival), R_C);
-  case E_FLOAT: return tv(xsprintf("((double)%.17g)", e->fval), R_F); /* 0.0 must not print as the int 0 */
+  case E_FLOAT: /* a hex float literal is exact, and keeps the sign of -0.0; %g printed it as the int -0 */
+    if (isinf(e->fval)) return tv(e->fval > 0 ? "INFINITY" : "(-INFINITY)", R_F);
+    return tv(xsprintf("%a", e->fval), R_F);
   case E_STR: { /* a static String, made on first use */
     static int nstr;
     SB s = {0};
@@ -431,7 +492,7 @@ static void cg_tail(CG *c, Expr *e) {
     if (c->trmc && cons_self(c->lam, e)) {
       int n = e->n;
       const char **a = xmalloc((size_t)n * sizeof *a);
-      for (int i = 0; i < n - 1; i++) a[i] = as_v(cg_expr(c, e->args[i]));
+      for (int i = 0; i < n - 1; i++) a[i] = field_word(e->fn->idx, i, cg_expr(c, e->args[i]));
       a[n - 1] = "fk_unit"; /* the placeholder */
       const char *cell = newtmp(c);
       if (c->reuse && e->fn->idx == FK_C_CONS) /* the old tail stays until *dst overwrites it */
@@ -519,10 +580,67 @@ static const char *wrapper_call(Lambda *L) {
   return b.s;
 }
 
-static void cg_lambda(SB *out, Lambda *L) {
+static Rep *lam_slots(Lambda *L) {
   Rep *slot = xcalloc((size_t)L->nslots + 1, sizeof *slot);
   for (int i = 0; i < L->n; i++) slot[i] = L->ptypes ? rep_of(L->ptypes[i]) : R_V;
   slots_expr(slot, L->body);
+  return slot;
+}
+
+/* freps for the closures created in e, a part of P's body. */
+static void freps_lambda(Lambda *L, Lambda *P, Rep *pslot);
+static void freps_expr(Expr *e, Lambda *P, Rep *slot);
+
+static void freps_group(Group *g, Lambda *P, Rep *slot) {
+  for (int i = 0; i < g->n; i++) {
+    if (g->b[i]->thunk) freps_lambda(g->b[i]->thunk, P, slot);
+    else freps_expr(g->b[i]->e, P, slot);
+  }
+}
+
+static void freps_expr(Expr *e, Lambda *P, Rep *slot) {
+  switch (e->k) {
+  case E_APP:
+    freps_expr(e->fn, P, slot);
+    for (int i = 0; i < e->n; i++) freps_expr(e->args[i], P, slot);
+    return;
+  case E_LAM: freps_lambda(e->lam, P, slot); return;
+  case E_LET:
+    freps_group(&e->g, P, slot);
+    freps_expr(e->body, P, slot);
+    return;
+  case E_IF:
+    freps_expr(e->cond, P, slot);
+    freps_expr(e->then_, P, slot);
+    freps_expr(e->else_, P, slot);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) freps_expr(e->scruts[i], P, slot);
+    for (int a = 0; a < e->na; a++) {
+      Rhs *r = &e->alts[a]->rhs;
+      for (int i = 0; i < r->nwg; i++) freps_group(&r->wg[i], P, slot);
+      for (int i = 0; i < r->ng; i++) {
+        if (r->guards[i]) freps_expr(r->guards[i], P, slot);
+        freps_expr(r->bodies[i], P, slot);
+      }
+    }
+    return;
+  case E_ANN: freps_expr(e->body, P, slot); return;
+  default: return;
+  }
+}
+
+static void freps_lambda(Lambda *L, Lambda *P, Rep *pslot) {
+  if (L->nfree) {
+    Rep *r = xmalloc((size_t)L->nfree * sizeof *r);
+    for (int i = 0; i < L->nfree; i++) r[i] = L->free[i].vk == VK_LOCAL ? pslot[L->free[i].idx] : frep(P, L->free[i].idx);
+    freps[L->id] = r;
+  }
+  freps_expr(L->body, L, lam_slots(L));
+}
+
+static void cg_lambda(SB *out, Lambda *L) {
+  Rep *slot = lam_slots(L);
   SB body = {0};
   sb_puts(&body, "");
   bool trmc = has_trmc(L, L->body);
@@ -645,11 +763,17 @@ char *cgen_program(Chunk *chunks, int nchunks) {
       sb_puts(&out, ");\n");
     }
   sb_puts(&out, "\n");
+  int maxid = 0;
+  for (int i = 0; i < all_lambdas.n; i++) maxid = all_lambdas.a[i]->id > maxid ? all_lambdas.a[i]->id : maxid;
+  freps = xcalloc((size_t)maxid + 1, sizeof *freps);
+  for (int i = 0; i < all_lambdas.n; i++) /* the outermost functions; nested ones from their creators */
+    if (r.lam[all_lambdas.a[i]->id] && !all_lambdas.a[i]->nfree) freps_lambda(all_lambdas.a[i], NULL, NULL);
   for (int i = 0; i < all_lambdas.n; i++)
     if (r.lam[all_lambdas.a[i]->id]) cg_lambda(&out, all_lambdas.a[i]);
   sb_puts(&out, "static void program(void *arg) {\n  static V *roots = G;\n  fk_add_roots(&roots, &G_n);\n");
   for (uint32_t i = FK_NBUILTIN_CONS; i < fk_ncons; i++) {
     sb_printf(&out, "  fk_register_con(\"%s\", %d);\n", fk_cons[i].name, fk_cons[i].arity);
+    if (con_raw((int)i)) sb_printf(&out, "  fk_con_raw(%u, %uu);\n", i, con_raw((int)i));
     if (!fk_cons[i].labels) continue;
     sb_puts(&out, "  { static const char *const ls[] = {");
     for (int j = 0; j < fk_cons[i].arity; j++) sb_printf(&out, "%s\"%s\"", j ? ", " : "", fk_cons[i].labels[j]);

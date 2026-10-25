@@ -1,0 +1,2 @@
+-- expect: readInt: no parse: "9223372036854775808"
+main = print (readInt "9223372036854775808")

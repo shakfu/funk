@@ -64,8 +64,17 @@ The conservative collector stays correct. It may read a raw `int64_t` or `double
 
 Typed code computes in `int64_t`, so `Int` becomes 64 bits in compiled code. The interpreter keeps 63-bit tagged integers, and the two backends then disagree on overflow: `2^62` is `-2^62` interpreted and `2^62` compiled. Two ways to settle it:
 
-- **Decided:** `Int` is 64 bits, and the interpreter boxes the rare values that do not fit in 63 bits, using a `K_INT64` object. Both backends then agree. The interpreter's integer primitives check for overflow, which matches the "fast compiled code, correct interpreter" split decided above.
-- Keep 63-bit semantics in compiled code by sign-extending after each `+`, `-` and `*`: two shifts per operation, and a permanent cost to compiled code for the interpreter's sake. Rejected under the performance goal.
+- **Decided:** `Int` is 64 bits, and values that do not fit in 63 bits are boxed in a `K_INT64` object. Both backends then agree.
+- Keep 63-bit semantics in compiled code by sign-extending after each `+`, `-` and `*`. Rejected under the performance goal.
+
+Implemented in step 6, both were measured, A/B against the tree before the step, 11 benchmarks:
+
+| | Geometric mean | Largest costs |
+|-|-|-|
+| 64-bit, boxed beyond 63 bits | +5.4% | `pipeline` +28%, `lists` +15%, `queens` +7%, `closures` +7% |
+| 63-bit wrap in typed code | +29.3% | `pipeline` +133%, `loop` +118%, `lazywhere` +76%, `fib` +50% |
+
+The decision assumed only the interpreter would box. The runtime is shared, so compiled code boxes too, wherever an `Int` enters a `V`: list elements, polymorphic calls, closures. Every such crossing now checks the range, and every exit from a `V` branches on the tag. The 63-bit wrap is one instruction (`sbfx` on ARM64), but it stops clang from reasoning about integer loops: `loop` is no longer vectorized and `fib` loses accumulator recursion elimination. A first measurement of the 63-bit option showed 0%; its build had not picked up the change, because the source was edited within the same second as the copy it was built from.
 
 ## Steps
 
@@ -79,9 +88,9 @@ Each step is measured with `bench/bench.py report` before the next.
    - Copies made by `ho_specialize` keep the original's generic parameter types, so `flip@{0=primMulInt}` still takes `V`.
 
    The original expectation was `fib` near C. A hand prototype (2026-10-25) shows they also give the effect of an inliner: with `even`, `flip (*) 3` and `compare` at `Int` as typed C functions, clang inlines them. `pipeline` at n = 30M went from 192 ms to 97 ms, which is C's 96 ms. `sort` went from 77 ms to 70 ms; inlining by hand gave the same. A funk-level inliner is therefore not needed for these. Matching on the inlined `compare`'s result without building the `Ordering` (case-of-case) gave a further 5% on `sort` (66 ms). clang cannot do that itself, because `fk_con_value` is an out-of-line call.
-4. Typed closure captures.
-5. Unboxed scalar fields in constructors whose field types are concrete.
-6. 64-bit `Int` in the interpreter (`K_INT64`), with tests at the 63-bit boundary in both backends.
+4. ~~Typed closure captures.~~ Done. A free variable of scalar type is stored raw in its closure slot; a table computed before generation gives each lambda's free-variable representations, from the slots of the function creating the closure. Building 2M closures that capture a `Float` went from 83 to 77 ms. The benchmarks do not move: they capture three `Int`s in total, and boxing an `Int` is a shift.
+5. ~~Unboxed scalar fields in constructors whose field types are concrete.~~ Done, for `Float`: `Int`, `Char` and `Bool` are immediate words already. A field declared `Float` holds the double's bits. The generated program registers each constructor's mask with `fk_con_raw` at startup, and `show`, `fk_compare` and constructors applied as function values consult it; the interpreter never registers one, so it keeps boxed fields. Building, keeping and summing 2M `Vec Float Float` values went from 67 to 24 ms. The benchmarks have no such type and do not move (A/B within 1%).
+6. ~~64-bit `Int` in both backends (`K_INT64`), with tests at the 63-bit boundary.~~ Done; see "Integers". `tests/run/int64.fk` crosses the boundary in typed code, in list elements and between the two; the compiled code before this step got 10 of its 11 lines wrong. Geometric mean 1.37x to 1.48x.
 
 Size: about 700-1,000 lines in `cgen.c`, which is 435 today, and about 150 in `check.c` and `elab.c`. These are estimates.
 

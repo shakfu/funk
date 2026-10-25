@@ -2,11 +2,12 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.37x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.48x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
-- [ ] **Typed backend.** C scalars (`int64_t`, `double`, `bool`) in monomorphic code, `V` at polymorphic boundaries, workers with typed parameters, unboxed scalar fields. Design: [docs/dev/typed-backend.md](docs/dev/typed-backend.md). Steps 1-3 (types on every expression, typed locals, workers) are done: 1.37x. Next, typed closure captures.
+- [ ] **Typed backend.** C scalars (`int64_t`, `double`, `bool`) in monomorphic code, `V` at polymorphic boundaries, workers with typed parameters, unboxed scalar fields. Design: [docs/dev/typed-backend.md](docs/dev/typed-backend.md). Steps 1-6 are done.
+- [ ] 64-bit `Int` costs 5.4% at `V` boundaries (`lists` +15%, `pipeline` +28%): the range check in `FK_MKINT` and the branch in `FK_INT`. Typed list heads or `__builtin_expect` may recover part; [docs/dev/typed-backend.md](docs/dev/typed-backend.md#integers).
 - [ ] Copies made by `ho_specialize` keep generic parameter types: `flip@{0=primMulInt}` takes `V` where `Int` is known.
 - [ ] Nullary constructors as constants in generated C, so clang can resolve a `case` on an inlined `compare` (5% on `sort` in a hand prototype).
 
@@ -25,4 +26,5 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Low
 
+- [ ] `showPrec` for `Float` omits the parentheses around `-0.0` (`Vec -0.0 1.0`); Haskell prints `Vec (-0.0) 1.0`. Needs an `isNegativeZero` check in the prelude instance.
 - [ ] The interpreter spends 26% of its time in `eval`'s prologue and epilogue; split out the hot cases. Interpreter speed is not part of the primary goal.

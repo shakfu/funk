@@ -157,7 +157,7 @@ static void raw_lex(Lexer *L) {
         t.k = T_INT;
         errno = 0;
         t.ival = strtoll(num, NULL, 10);
-        if (errno || t.ival > ((1LL << 62) - 1)) cerror(t.line, t.col, "integer literal too large");
+        if (errno) cerror(t.line, t.col, "integer literal too large");
       }
       free(num);
     } else if (c == '\'') {

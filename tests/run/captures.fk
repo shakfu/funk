@@ -1,0 +1,27 @@
+-- Closures and thunks capturing scalars, which compiled code stores raw in
+-- the closure (typed-backend.md, step 4).
+scaleAll :: Float -> [Float] -> [Float]
+scaleAll k xs = map (\x -> x * k) xs
+
+shifted :: Int -> Char -> Bool -> [Int] -> [(Int, Char, Bool)]
+shifted d c b xs = map (\x -> (x + d, c, not b)) xs
+
+-- a closure capturing a captured variable
+adder :: Float -> Float -> Float
+adder a = let f = \b -> let g = \c -> a + b + c in g 1.0 in f
+
+-- a where thunk capturing a Float
+area :: Float -> Float -> Float
+area r t = if t > 0.0 then big else 0.0 where big = 3.25 * r * r
+
+-- recursive local closures over an Int
+countdown :: Int -> [Int]
+countdown n = go n
+  where
+    go k = if k == 0 then [] else k * m : go (k - 1)
+    m = n + 1
+
+main = do
+  print (scaleAll 2.5 [1.0, -2.0, 0.5], shifted 10 'q' True [1, 2])
+  print (adder 0.25 2.0, area 2.0 1.0, area 2.0 0.0, countdown 3)
+  print (map (\f -> f 1.5) (map (\k -> \x -> x - k) [0.5, -1.0e300, 1.0e-300]))
