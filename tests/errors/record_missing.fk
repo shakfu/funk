@@ -1,0 +1,3 @@
+-- expect: missing field `y` in construction of `P`
+data P = P { x, y :: Int }
+main = print (P { x = 1 })

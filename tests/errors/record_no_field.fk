@@ -1,0 +1,3 @@
+-- expect: runtime error: constructor `B` has no field `v`
+data S = A { v :: Int } | B
+main = print (B { }).v

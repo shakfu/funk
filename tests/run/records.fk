@@ -1,0 +1,49 @@
+-- Records: fields scoped to their type, dot access, update, type namespaces.
+data Point = Point { x, y :: Float }
+data Shape = Circle { center :: Point, radius :: Float }
+           | Rect { center :: Point, w, h :: Float }
+
+-- `length` is a field here and the prelude function elsewhere.
+data Item = Item { name :: String, length :: Int }
+
+Shape.area (Circle _ r) = 3.0 * r * r
+Shape.area Rect { w = a, h = b } = a * b
+
+Shape.scale :: Shape -> Float -> Shape
+Shape.scale s k = case s of
+  Circle {} -> s { radius = s.radius * k }
+  Rect {} -> s { w = s.w * k, h = s.h * k }
+
+Shape.unit = Circle { radius = 1.0, center = origin }
+
+origin = Point { y = 0.0, x = 0.0 }
+
+-- Any type has a namespace; a literal receiver defaults to Int.
+Int.double n = n * 2
+
+norm1 :: Point -> Float
+norm1 p = abs p.x + abs p.y
+
+-- An object: state in closures, `incr` returns the next object.
+data Counter = Counter { get :: () -> Int, incr :: () -> Counter }
+counter n = Counter { get = \_ -> n, incr = \_ -> counter (n + 1) }
+
+main =
+  let c = Circle { radius = 2.0, center = origin }
+      r = Rect (Point 1.0 2.0) 3.0 4.0
+      shapes = [c, r, Shape.unit]
+      it = Item { name = "pen", length = 3 }
+  in print c >>
+     print r.center.x >>
+     print (map (.radius) [c]) >>
+     print (map Shape.area shapes, map (.area) shapes) >>
+     print (c.scale 2.0) >>
+     print (r.scale 2.0).area >>
+     print (map Shape.center shapes |> map (.y)) >>
+     print (norm1 (Point (-1.0) 2.0)) >>
+     print (r { center = origin { x = 5.0 } }) >>
+     print (((counter 0).incr ()).get ()) >>
+     print (Just origin, (c.center { y = 1.0 }).y) >>
+     print (it.length, length it.name) >>
+     print (case it of Item { name = "pen" } -> "a pen"; _ -> "other") >>
+     print (21.double, (3 + 4).double)

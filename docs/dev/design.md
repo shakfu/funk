@@ -76,6 +76,8 @@ Where the argument type of `show` or `print` is known at the call site, the chec
 
 - Forward composition is `>>>` (infixr 1, as in `Control.Arrow`), since `>>` is sequencing.
 
+- `p.x` is field access and `f . g` is composition; whitespace decides, as in GHC's `OverloadedRecordDot`. Fields belong to their type, chosen over Haskell 98's global selectors so that types can share field names. See [records.md](records.md).
+
 - `|>` is infixl 1, like Haskell's `&`, so `xs |> map f |> sum` associates to the left.
 
 - Fixities of built-in operators are fixed in a table. `infixl`, `infixr` and `infix` declarations are top-level only, and an operator keeps its fixity for the rest of the session. The parser installs them by pre-scanning the module's tokens before parsing. The alternative was to parse operator chains flat and re-associate them after the module is read. That supports local fixity declarations, but it needs a second pass over every expression. Haskell programs rarely declare fixities locally.

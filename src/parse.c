@@ -3,7 +3,9 @@
      x op y                   -> op x y   (&& and || become `if`)
      (op e), (e op)           -> flip op e, op e
      [a, b], [a..b], "str"    -> cons chains, enumFromTo
-     (p1, p2) = e             -> one binding per pattern variable */
+     (p1, p2) = e             -> one binding per pattern variable
+   Record syntax (p.x, C { f = e }, r { f = e }) is kept as E_FIELD and
+   E_RECORD; check.c lowers it once constructor fields are known. */
 #include "funk.h"
 
 typedef struct { Token *t; int n, pos; } P;
@@ -61,6 +63,14 @@ static Token *expect(P *p, TokKind k, const char *what) {
 
 static int fresh_counter;
 static const char *fresh(const char *prefix) { return intern(xsprintf("$%s%d", prefix, fresh_counter++)); }
+
+/* Type.name: a constructor token directly followed by a field token. */
+static bool qual_start(P *p, int off) { return ahead(p, off)->k == T_CONID && ahead(p, off + 1)->k == T_FIELD; }
+
+static const char *take_qual(P *p) {
+  Token *c = next(p);
+  return intern(xsprintf("%s.%s", c->s, next(p)->s));
+}
 
 /* ------------------------------------------------------------ operators */
 
@@ -424,7 +434,24 @@ static Pat *parse_apat(P *p) {
     return pt;
   }
   case T_UNDERSCORE: next(p); return mkpat(P_WILD, t->line, t->col);
-  case T_CONID: next(p); return pcon(t->s, 0, NULL, t->line, t->col);
+  case T_CONID: {
+    next(p);
+    if (!accept(p, T_LBRACE)) return pcon(t->s, 0, NULL, t->line, t->col);
+    VEC(Pat *) ps = {0};
+    VEC(const char *) fs = {0};
+    if (!is(p, T_RBRACE)) {
+      do {
+        VPUSH(fs, expect(p, T_VARID, "a field name")->s);
+        expect(p, T_EQ, NULL);
+        VPUSH(ps, parse_pat(p));
+      } while (accept(p, T_COMMA));
+    }
+    expect(p, T_RBRACE, "',' or '}'");
+    Pat *pt = pcon(t->s, ps.n, ps.a, t->line, t->col);
+    pt->rec = true;
+    pt->fields = fs.a;
+    return pt;
+  }
   case T_INT: {
     next(p);
     Pat *pt = mkpat(P_INT, t->line, t->col);
@@ -474,7 +501,7 @@ static Pat *parse_lpat(P *p) {
     pt->ival = -next(p)->ival;
     return pt;
   }
-  if (t->k == T_CONID) {
+  if (t->k == T_CONID && ahead(p, 1)->k != T_LBRACE) {
     next(p);
     VEC(Pat *) args = {0};
     while (apat_start(p)) VPUSH(args, parse_apat(p));
@@ -508,6 +535,20 @@ static Expr *parse_op(P *p, int minprec);
 static Expr *parse_paren(P *p) {
   Token *lp = expect(p, T_LPAREN, NULL);
   if (accept(p, T_RPAREN)) return mkcon("()", lp->line, lp->col);
+  if (is(p, T_FIELD)) { /* (.x.y) is \r -> r.x.y */
+    const char **param = xmalloc(sizeof *param);
+    param[0] = fresh("r");
+    Expr *e = mkvar(param[0], lp->line, lp->col);
+    while (is(p, T_FIELD)) {
+      Token *f = next(p);
+      Expr *fe = mk(E_FIELD, f->line, f->col);
+      fe->body = e;
+      fe->name = f->s;
+      e = fe;
+    }
+    expect(p, T_RPAREN, NULL);
+    return mklam(1, param, e, lp->line, lp->col);
+  }
   int ol = op_len(p, 0);
   bool neg = cur(p)->k == T_VARSYM && cur(p)->s == intern("-");
   if (ol && !(neg && ahead(p, 1)->k != T_RPAREN)) {
@@ -573,12 +614,15 @@ static Expr *parse_list(P *p) {
   return e;
 }
 
-static Expr *parse_aexp(P *p) {
+static Expr *parse_aexp0(P *p) {
   Token *t = cur(p);
   Expr *e;
   switch (t->k) {
   case T_VARID: next(p); return mkvar(t->s, t->line, t->col);
-  case T_CONID: next(p); return mkcon(t->s, t->line, t->col);
+  case T_CONID:
+    if (qual_start(p, 0)) return mkvar(take_qual(p), t->line, t->col);
+    next(p);
+    return mkcon(t->s, t->line, t->col);
   case T_INT:
     next(p);
     e = mk(E_INT, t->line, t->col);
@@ -603,6 +647,45 @@ static Expr *parse_aexp(P *p) {
   case T_LPAREN: return parse_paren(p);
   case T_LBRACKET: return parse_list(p);
   default: unexpected(p, "an expression");
+  }
+}
+
+/* `{ f = e, ... }` after base: construction if base is a constructor. */
+static Expr *parse_record(P *p, Expr *base) {
+  Token *t = expect(p, T_LBRACE, NULL);
+  VEC(Expr *) es = {0};
+  VEC(const char *) fs = {0};
+  if (!is(p, T_RBRACE)) {
+    do {
+      VPUSH(fs, expect(p, T_VARID, "a field name")->s);
+      expect(p, T_EQ, NULL);
+      VPUSH(es, parse_expr(p));
+    } while (accept(p, T_COMMA));
+  }
+  expect(p, T_RBRACE, "',' or '}'");
+  Expr *e = mk(E_RECORD, t->line, t->col);
+  e->fn = base;
+  e->n = es.n;
+  e->args = es.a;
+  e->fields = fs.a;
+  return e;
+}
+
+/* Field access and record braces bind tighter than application. */
+static Expr *parse_aexp(P *p) {
+  Expr *e = parse_aexp0(p);
+  for (;;) {
+    Token *t = cur(p);
+    if (accept(p, T_FIELD)) {
+      Expr *f = mk(E_FIELD, t->line, t->col);
+      f->body = e;
+      f->name = t->s;
+      e = f;
+    } else if (is(p, T_LBRACE)) {
+      e = parse_record(p, e);
+    } else {
+      return e;
+    }
   }
 }
 
@@ -775,9 +858,23 @@ static DataDecl *parse_data(P *p) {
   VEC(ConDecl) cs = {0};
   do {
     Token *c = expect(p, T_CONID, "a constructor name");
-    ConDecl cd = {c->s, 0, NULL, c->line, c->col};
+    ConDecl cd = {c->s, 0, NULL, NULL, c->line, c->col};
     VEC(TypeExpr *) fs = {0};
-    while (atype_start(p)) VPUSH(fs, parse_atype(p));
+    if (accept(p, T_LBRACE)) { /* C { a, b :: T, c :: U } */
+      VEC(const char *) ls = {0};
+      if (!is(p, T_RBRACE)) {
+        do {
+          do VPUSH(ls, expect(p, T_VARID, "a field name")->s);
+          while (accept(p, T_COMMA));
+          expect(p, T_DCOLON, NULL);
+          TypeExpr *ty = parse_type(p);
+          while (fs.n < ls.n) VPUSH(fs, ty);
+        } while (accept(p, T_COMMA));
+      }
+      expect(p, T_RBRACE, "',' or '}'");
+      cd.labels = ls.n ? ls.a : NULL;
+    }
+    while (!cd.labels && atype_start(p)) VPUSH(fs, parse_atype(p));
     cd.nfields = fs.n;
     cd.fields = fs.a;
     VPUSH(cs, cd);
@@ -802,6 +899,7 @@ static bool sig_start(P *p) {
   int i = 0;
   for (;;) {
     if (ahead(p, i)->k == T_VARID) i++;
+    else if (qual_start(p, i)) i += 2;
     else if (ahead(p, i)->k == T_LPAREN && op_len(p, i + 1) == 1 && ahead(p, i + 2)->k == T_RPAREN) i += 3;
     else return false;
     if (ahead(p, i)->k == T_DCOLON) return true;
@@ -838,6 +936,8 @@ static void parse_decl(P *p, Decls *out, bool top) {
       if (accept(p, T_LPAREN)) {
         VPUSH(names, take_op(p)->s);
         expect(p, T_RPAREN, NULL);
+      } else if (qual_start(p, 0)) {
+        VPUSH(names, take_qual(p));
       } else {
         VPUSH(names, expect(p, T_VARID, NULL)->s);
       }
@@ -863,6 +963,10 @@ static void parse_decl(P *p, Decls *out, bool top) {
   } else if (t->k == T_VARID) {
     next(p);
     d.name = t->s;
+    while (apat_start(p)) VPUSH(ps, parse_apat(p));
+  } else if (qual_start(p, 0)) { /* Type.name args = ... */
+    if (!top) cerror(t->line, t->col, "functions of a type must be defined at top level");
+    d.name = take_qual(p);
     while (apat_start(p)) VPUSH(ps, parse_apat(p));
   } else {
     Pat *l = parse_lpat(p);

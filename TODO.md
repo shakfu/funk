@@ -3,9 +3,7 @@
 Next steps, highest value first. Phases beyond these are in
 [docs/dev/roadmap.md](docs/dev/roadmap.md).
 
-1. [ ] **Records.** Fields scoped to their type, `p.x` access; see [docs/dev/records.md](docs/dev/records.md).
-
-2. [ ] **Type classes.** Dictionary passing, phase 1; see [docs/dev/type-classes.md](docs/dev/type-classes.md). Resolve its open questions first.
+1. [ ] **Type classes.** Dictionary passing, phase 1; see [docs/dev/type-classes.md](docs/dev/type-classes.md). Resolve its open questions first.
 
 Smaller items:
 

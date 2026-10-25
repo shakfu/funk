@@ -1,0 +1,13 @@
+:{
+data V = V
+  { vx :: Float
+  , vy :: Float
+  }
+:}
+V.len v = sqrt (v.vx * v.vx + v.vy * v.vy)
+(V 3.0 4.0).len
+:t V.len
+:t V.vx
+v = V { vy = 2.0, vx = 1.0 }
+v { vx = 0.0 }
+v.nope

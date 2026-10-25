@@ -1,0 +1,5 @@
+5.0
+V.len :: V -> Float
+V.vx :: V -> Float
+V {vx = 0.0, vy = 2.0}
+<repl>:1:2: error: type `V` has no field or function `nope`

@@ -1,6 +1,6 @@
 # Records: design note
 
-Status: proposal for 0.4, not implemented. Type classes are in [type-classes.md](type-classes.md).
+Status: implemented (unreleased), except where marked. Type classes are in [type-classes.md](type-classes.md).
 
 ## Problem
 
@@ -62,6 +62,11 @@ The lexer separates field access from composition by whitespace, as GHC's `Overl
 
 A signature is unified before the group is generalized, so `getX :: Point -> Float; getX p = p.x` resolves. `let f q = q.x in f p` fails without a signature for `f`, because `q`'s type would be generalized.
 
+Two defaults apply before step 3 reports an error, because each depends only on the binding itself:
+
+- In `Type.f p ... = e` without a signature, a first parameter used with dot access and otherwise unconstrained has type `Type`. `V.len v = sqrt (v.vx * v.vx)` needs no signature.
+- A record type that is still a `Num` variable defaults to `Int`, as it would at the end of the chunk. `21.double` calls `Int.double`.
+
 Step 3 has no fallback that picks the only type with field `x`. Such a fallback would make a program stop compiling when an unrelated type later adds a field `x`, which in the REPL can be any later input.
 
 Once resolved, `p.x` becomes a `case` on `p` with one alternative per constructor that has `x`. The backends see only `case`.
@@ -82,7 +87,7 @@ Shape.scale (Circle r) k = Circle (r * k)
 Shape.scale (Rect w h) k = Rect (w * k) (h * k)
 ```
 
-- **Definition.** A top-level clause whose name is `Type.name` adds `name` to `Type`'s namespace. `Type` must be declared in the same module. A field and an associated function of one type cannot share a name.
+- **Definition.** A top-level clause whose name is `Type.name` adds `name` to `Type`'s namespace. `Type` may be any declared type, including `Int` and types from earlier REPL inputs. A field and an associated function of one type cannot share a name.
 - **Qualified use.** `Shape.area` and `Shape.radius` are ordinary functions, so `map Shape.area shapes` needs no inference.
 - **Method call.** `s.name` looks up a field `name` in `s`'s type, then an associated function, and applies the function to `s`: `s.area` is `Shape.area s`, and `s.scale 2.0` is `Shape.scale s 2.0`. Resolution uses the pending check above. Calls are static; there is no runtime dispatch.
 - **Argument order.** Method calls need the receiver first. Pipelines and the prelude put data last (`s |> scale 2.0`). Associated functions take the receiver first; ordinary functions keep data last.
@@ -104,7 +109,10 @@ Modules are not designed yet (see [roadmap.md](roadmap.md)). Reserved syntax:
 - **Checker.** `register_datas` stores field names and types per constructor in `ConDef`. Construction and patterns are lowered after `register_datas`, since a `data` declaration may appear after its use. Field access and update are lowered after resolution (above). In the REPL, a failed input truncates the pending list with the other tables.
 - **Runtime.** `fk_register_con` also takes field names (NULL for positional), so structural `show` and `cgen.c`'s constructor table can print record syntax.
 
-My estimate is 300-400 lines for fields, mostly in `parse.c` and `check.c`, about 100 more than option A. Associated functions and method calls add about 100. Neither figure is measured.
+- **Update with several matching constructors** binds each new value with a `let` first, so the value is written once; with one matching constructor it is inlined.
+- **Errors in lowered code** call the `error` primitive through the alias `$error`, which user code cannot shadow.
+
+The implementation added about 630 lines: 456 in `check.c`, 111 in `parse.c`. The estimate was 400-500.
 
 ## Objects
 

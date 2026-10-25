@@ -18,16 +18,16 @@ Both backends link the same runtime, `rt.c`.
 
 | File | Lines | Role |
 |-|-|-|
-| `src/lex.c` | 329 | tokenizer, layout rule |
-| `src/parse.c` | 1048 | recursive-descent parser, desugaring |
-| `src/check.c` | 1127 | data types, SCC analysis, type inference, chunk driver |
+| `src/lex.c` | 348 | tokenizer, layout rule |
+| `src/parse.c` | 1152 | recursive-descent parser, desugaring |
+| `src/check.c` | 1578 | data types, SCC analysis, type inference, chunk driver |
 | `src/resolve.c` | 159 | closure conversion |
 | `src/interp.c` | 169 | interpreter |
-| `src/cgen.c` | 315 | C generator |
-| `src/rt.c`, `rt.h` | 909 | values, GC, apply, `show`, compare, primitives |
+| `src/cgen.c` | 320 | C generator |
+| `src/rt.c`, `rt.h` | 926 | values, GC, apply, `show`, compare, primitives |
 | `src/prims.def` | 39 | primitive table: C name, funk name, arity, type |
 | `src/main.c` | 291 | CLI, REPL, `cc` invocation |
-| `src/util.c`, `funk.h` | 452 | allocation, interning, maps with undo, AST types |
+| `src/util.c`, `funk.h` | 464 | allocation, interning, maps with undo, AST types |
 | `lib/prelude.fk` | 180 | standard functions in funk |
 | `tools/embed.c` | 35 | embeds `rt.c` and the prelude into the binary |
 
@@ -43,7 +43,9 @@ The tokenizer marks each token that starts a line. A second pass applies the lay
 
 - whether it is a `let` block, plus a count of `let` blocks closed before their `in` arrived. This stops `in` from closing an enclosing block after indentation already closed the `let`.
 
-Virtual braces (`T_VLBRACE`, `T_VRBRACE`) are distinct token kinds, so an explicit `}` cannot close a layout block.
+Virtual braces (`T_VLBRACE`, `T_VRBRACE`) are distinct token kinds, so an explicit `}` cannot close a layout block. A `{` that does not follow `let`, `where` or `of` is a record brace and nests like `(`.
+
+A `.` with no space before it and a lowercase name directly after it is one `T_FIELD` token: `p.x`, `(.x)`, `Shape.area`.
 
 ## Parsing and desugaring (`parse.c`)
 
@@ -74,7 +76,7 @@ Generated names start with `$`, which user identifiers cannot contain.
 
 3. Split top-level, `let` and `where` binding groups into strongly connected components (Tarjan) in dependency order. Free-name analysis respects shadowing. A recursive component that contains a non-lambda is an error.
 
-4. Infer each component.
+4. Infer each component. Record construction and record patterns are rewritten to positional form here. Field access and record update wait until the record's type is known, then become `case` (see [records.md](records.md#resolution)); backends never see them.
 
 5. Default remaining `Num` variables to `Int`, and move `main` last.
 

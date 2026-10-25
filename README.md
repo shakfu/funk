@@ -63,6 +63,24 @@ Syntax follows Haskell 2010 where a feature exists:
 
 - Lists `[1, 2]`, ranges `[1..n]` and `[1, 3..n]`, tuples up to 7, strings as `[Char]`, sections `(+ 1)`, `(1 +)` and `` (`div` 2) ``, operator definitions `x <+> y = ...`.
 
+Records have named fields, which belong to their type:
+
+```haskell
+data Shape = Circle { radius :: Float } | Rect { w, h :: Float }
+
+Shape.area (Circle r) = 3.14159 * r * r   -- a function in Shape's namespace
+Shape.area (Rect w h) = w * h
+
+main =
+  let r = Rect { w = 2.0, h = 3.0 }
+  in print r.w >>                     -- field access
+     print r.area >>                  -- Shape.area r
+     print (map (.area) [r]) >>       -- (.x) is \s -> s.x
+     print (r { h = 1.0 })            -- update: Rect {w = 2.0, h = 1.0}
+```
+
+`p.x` needs the type of `p`. A function like `getW s = s.w` needs a signature, except inside `Shape.f`, where an unconstrained first parameter is a `Shape`. Details are in [docs/dev/records.md](docs/dev/records.md).
+
 Function operators:
 
 | Operator | Meaning | Fixity |
@@ -83,8 +101,6 @@ infixl 7 `times`
 Not supported:
 
 - type classes, apart from the `Num` constraint
-
-- records
 
 - modules and imports
 
@@ -131,6 +147,8 @@ Hindley-Milner inference with let-polymorphism. Signatures are optional and chec
 - Deep non-tail recursion has a 4 GiB stack. Overflow is a runtime error.
 
 ## Known limitations
+
+- `.` without spaces is field access: `f.g` is no longer composition. Write `f . g`.
 
 - `show` and `print` use the static type at the call site. Inside a polymorphic function they cannot. There, a literal used as a `Float` prints without `.0`, and `""` prints `[]`. With `one _ = 1` and `sh x = show x`, `sh (one () :: Float)` gives `"1"`, but `show (one () :: Float)` gives `"1.0"`.
 

@@ -27,7 +27,7 @@ const char *tok_name(TokKind k) {
       "character", "string", "'('", "')'", "'['", "']'", "','", "';' or new line", "'`'",
       "'{'", "'}'", "start of block", "end of block (check indentation)", "'='", "'|'", "'->'",
       "'\\'", "'::'", "'..'", "'=>'", "'_'", "'case'", "'of'", "'let'", "'in'", "'where'",
-      "'if'", "'then'", "'else'", "'data'", "'deriving'", "'infixl'", "'infixr'", "'infix'"};
+      "'if'", "'then'", "'else'", "'data'", "'deriving'", "'infixl'", "'infixr'", "'infix'", "field access"};
   return names[k];
 }
 
@@ -192,6 +192,13 @@ static void raw_lex(Lexer *L) {
       t.k = T_STRING;
       t.s = b.s;
       t.len = (int)n;
+    } else if (c == '.' && (islower(peekc(L, 1)) || peekc(L, 1) == '_') && start > 0 &&
+               (is_idc(L->src[start - 1]) || strchr(")](", L->src[start - 1]))) {
+      adv(L); /* p.x, (f p).x, Shape.area, (.x): no space before or after '.' */
+      size_t s0 = L->pos;
+      while (is_idc(peekc(L, 0))) adv(L);
+      t.k = T_FIELD;
+      t.s = intern_n(L->src + s0, L->pos - s0);
     } else if (is_sym(c)) {
       while (is_sym(peekc(L, 0))) adv(L);
       t.s = intern_n(L->src + start, L->pos - start);
@@ -231,6 +238,7 @@ typedef struct {
   VEC(Ctx) st;
   VEC(Token) out;
   int depth;
+  VEC(bool) braces; /* per open '{': true if a record brace, which nests like '(' */
 } Layout;
 
 static Ctx *top(Layout *Y) { return &Y->st.a[Y->st.n - 1]; }
@@ -275,6 +283,7 @@ Token *lex(const char *src, size_t len, int *ntok) {
         }
       } else {
         VPUSH(Y.st, ((Ctx){CX_EXPLICIT, 0, Y.depth, open_let, 0, 0}));
+        VPUSH(Y.braces, false);
         VPUSH(Y.out, *t);
         continue;
       }
@@ -305,7 +314,16 @@ Token *lex(const char *src, size_t len, int *ntok) {
     case T_IF: top(&Y)->ifs++; break;
     case T_LPAREN:
     case T_LBRACKET: Y.depth++; break;
+    case T_LBRACE: /* not after let/where/of: a record */
+      VPUSH(Y.braces, true);
+      Y.depth++;
+      break;
     case T_RBRACE:
+      if (Y.braces.n && Y.braces.a[--Y.braces.n]) {
+        while (implicit(&Y) && top(&Y)->depth == Y.depth) pop(&Y, t);
+        Y.depth--;
+        break;
+      }
       while (implicit(&Y)) pop(&Y, t);
       if (top(&Y)->kind != CX_EXPLICIT) cerror(t->line, t->col, "unmatched '}'");
       Y.st.n--;
@@ -324,6 +342,7 @@ Token *lex(const char *src, size_t len, int *ntok) {
   }
   free(L.out.a);
   free(Y.st.a);
+  free(Y.braces.a);
   *ntok = Y.out.n;
   return Y.out.a;
 }

@@ -272,9 +272,11 @@ uint32_t fk_register_con(const char *name, int arity) {
     fk_cons = rt_realloc(fk_cons, capcons * sizeof *fk_cons);
   }
   uint32_t id = fk_ncons++;
-  fk_cons[id] = (FkCon){name, arity, arity == 0 ? static_obj(1, K_CON, 0, id) : 0, 0};
+  fk_cons[id] = (FkCon){name, arity, arity == 0 ? static_obj(1, K_CON, 0, id) : 0, 0, NULL};
   return id;
 }
+
+void fk_con_labels(uint32_t id, const char *const *labels) { fk_cons[id].labels = labels; }
 
 void fk_truncate_cons(uint32_t n) { fk_ncons = n; }
 
@@ -526,6 +528,20 @@ static void show(Buf *b, V v, int prec, const char *const *ent, int e) {
     return;
   }
   if (h->n == 0) { buf_puts(b, fk_cons[id].name); return; }
+  const char *const *ls = fk_cons[id].labels;
+  if (ls) { /* Rect {w = 1.0, h = 2.0} */
+    if (prec > 10) buf_putc(b, '(');
+    buf_puts(b, fk_cons[id].name);
+    for (int i = 0; i < h->n; i++) {
+      buf_puts(b, i ? ", " : " {");
+      buf_puts(b, ls[i]);
+      buf_puts(b, " = ");
+      show(b, FK_FIELD(v, i), 0, ent, desc_field(ent, e, id, i));
+    }
+    buf_putc(b, '}');
+    if (prec > 10) buf_putc(b, ')');
+    return;
+  }
   if (prec > 10) buf_putc(b, '(');
   buf_puts(b, fk_cons[id].name);
   for (int i = 0; i < h->n; i++) {

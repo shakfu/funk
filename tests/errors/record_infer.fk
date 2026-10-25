@@ -1,0 +1,4 @@
+-- expect: cannot infer the record type for `.x`; add a type signature
+data P = P { x :: Int }
+getX p = p.x
+main = print (getX (P 1))

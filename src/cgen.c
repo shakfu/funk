@@ -296,8 +296,13 @@ char *cgen_program(Chunk *chunks, int nchunks) {
   sb_puts(&out, "\n");
   for (int i = 0; i < all_lambdas.n; i++) cg_lambda(&out, all_lambdas.a[i]);
   sb_puts(&out, "static void program(void *arg) {\n  static V *roots = G;\n  fk_add_roots(&roots, &G_n);\n");
-  for (uint32_t i = FK_NBUILTIN_CONS; i < fk_ncons; i++)
+  for (uint32_t i = FK_NBUILTIN_CONS; i < fk_ncons; i++) {
     sb_printf(&out, "  fk_register_con(\"%s\", %d);\n", fk_cons[i].name, fk_cons[i].arity);
+    if (!fk_cons[i].labels) continue;
+    sb_puts(&out, "  { static const char *const ls[] = {");
+    for (int j = 0; j < fk_cons[i].arity; j++) sb_printf(&out, "%s\"%s\"", j ? ", " : "", fk_cons[i].labels[j]);
+    sb_printf(&out, "}; fk_con_labels(%u, ls); }\n", i);
+  }
   for (int i = 0; i < globals.n; i++)
     if (globals.a[i].prim >= 0) sb_printf(&out, "  G[%d] = fk_prim_value(%d);\n", i, globals.a[i].prim);
   for (int k = 0; k < nchunks; k++)

@@ -59,6 +59,7 @@ typedef enum {
   T_EQ, T_BAR, T_ARROW, T_LAMBDA, T_DCOLON, T_DOTDOT, T_DARROW, T_UNDERSCORE,
   T_CASE, T_OF, T_LET, T_IN, T_WHERE, T_IF, T_THEN, T_ELSE, T_DATA, T_DERIVING,
   T_INFIXL, T_INFIXR, T_INFIX,
+  T_FIELD, /* .name directly after a token: field access or qualified name */
 } TokKind;
 
 typedef struct {
@@ -107,6 +108,8 @@ struct Pat {
   Pat **args;
   int con;  /* constructor id, set by check */
   int slot; /* frame slot of a variable, set by resolve */
+  bool rec; /* C { f = p, ... }: args match fields, until check reorders them */
+  const char **fields;
 };
 
 typedef struct { Bind **b; int n; bool rec; } Group;
@@ -122,7 +125,9 @@ typedef struct {
 
 struct Alt { int np; Pat **pats; Rhs rhs; };
 
-enum { E_VAR, E_CON, E_INT, E_FLOAT, E_CHAR, E_STR, E_APP, E_LAM, E_LET, E_IF, E_CASE, E_ANN };
+enum { E_VAR, E_CON, E_INT, E_FLOAT, E_CHAR, E_STR, E_APP, E_LAM, E_LET, E_IF, E_CASE, E_ANN,
+       E_FIELD,   /* body.name; check lowers it to a case */
+       E_RECORD }; /* fn { fields = args }: construction if fn is E_CON, else update */
 enum { VK_NONE, VK_LOCAL, VK_FREE, VK_GLOBAL };
 
 struct Expr {
@@ -136,12 +141,13 @@ struct Expr {
   bool lazy;      /* VAR: bound to a thunk, forced on load */
   const char *tdesc; /* VAR: show/print with a known argument type */
   Lambda *known;  /* VAR bound to a known lambda: direct calls */
-  Expr *fn;       /* APP */
+  Expr *fn;       /* APP, RECORD */
   int n;
   Expr **args;
+  const char **fields; /* RECORD */
   Lambda *lam;    /* LAM */
   Group g;        /* LET */
-  Expr *body;     /* LET, ANN */
+  Expr *body;     /* LET, ANN, FIELD */
   Expr *cond, *then_, *else_;
   int ns, na;     /* CASE */
   Expr **scruts;
@@ -174,7 +180,13 @@ struct Bind {
   Lambda *thunk; /* local value: zero-arity body evaluated on first use */
 };
 
-typedef struct { const char *name; int nfields; TypeExpr **fields; int line, col; } ConDecl;
+typedef struct {
+  const char *name;
+  int nfields;
+  TypeExpr **fields;
+  const char **labels; /* field names, or NULL if positional */
+  int line, col;
+} ConDecl;
 typedef struct {
   const char *name;
   int np;
@@ -216,7 +228,7 @@ typedef struct {
   Lambda *lam;
 } Global;
 
-typedef struct { const char *name; int arity; Type *scheme; int tydef; } ConDef;
+typedef struct { const char *name; int arity; Type *scheme; int tydef; const char **labels; } ConDef;
 typedef struct { const char *name; int arity, ncons; } TyDef;
 
 typedef struct { Group *groups; int ng; } Chunk;

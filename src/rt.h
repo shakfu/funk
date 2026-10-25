@@ -46,7 +46,7 @@ enum { FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL, FK_C_CONS, FK_C_TUP2 };
 #define FK_MAXTUPLE 7
 #define FK_NBUILTIN_CONS (FK_C_TUP2 + FK_MAXTUPLE - 1)
 
-typedef struct { const char *name; int arity; V nullary, fn; } FkCon;
+typedef struct { const char *name; int arity; V nullary, fn; const char *const *labels; } FkCon;
 extern FkCon *fk_cons;
 extern uint32_t fk_ncons;
 extern V fk_true, fk_false, fk_unit, fk_nil;
@@ -65,6 +65,7 @@ V fk_apply(V f, int n, V *args);
 V fk_thunk(FkCode code, int nfree, void *info);
 V fk_force(V t);
 uint32_t fk_register_con(const char *name, int arity);
+void fk_con_labels(uint32_t id, const char *const *labels); /* show as a record */
 void fk_truncate_cons(uint32_t n);
 
 V fk_string(const char *s, size_t n);

@@ -13,7 +13,15 @@
    does not generalize its num variables. They stay open until a later use
    fixes them, else default to Int at the end of the chunk. Without this,
    `x = 1` would be polymorphic and its runtime value would be an Int even
-   where it is used as a Float. */
+   where it is used as a Float.
+
+   Records: construction and record patterns name their constructor, so
+   inference lowers them to positional form directly. Field access `p.x`
+   and update `p { x = e }` need the type of `p`, which may be fixed only
+   later in the group (`map (.x) ps`). They wait in `pending` and are
+   lowered to `case` before the group is generalized; one still open then
+   is an error. See docs/dev/records.md. */
+#include <ctype.h>
 #include <limits.h>
 
 #include "funk.h"
@@ -348,6 +356,10 @@ static Type *sig_scheme(Sig *s) {
 
 /* ----------------------------------------------------------------- data */
 
+static bool type_eq(Type *a, Type *b);
+
+typedef struct { const char *label, *con; Type *t; } FieldSeen;
+
 static void register_datas(Module *m) {
   for (int i = 0; i < m->nd; i++) {
     DataDecl *d = m->datas[i];
@@ -368,6 +380,7 @@ static void register_datas(Module *m) {
       VPUSH(tv.types, gvar(false));
     }
     Type *res = tcon(d->name, d->np, tv.types.a);
+    VEC(FieldSeen) seen = {0};
     for (int c = 0; c < d->nc; c++) {
       ConDecl *cd = &d->cons[c];
       int prev = map_get(&cmap, cd->name);
@@ -376,12 +389,27 @@ static void register_datas(Module *m) {
       if (prev >= 0 && prev < (int)FK_NBUILTIN_CONS)
         cerror(cd->line, cd->col, "cannot redefine builtin constructor `%s`", cd->name);
       Type *t = res;
-      for (int f = cd->nfields; f-- > 0;) t = tarrow(te_type(cd->fields[f], &tv, NULL), t);
+      for (int f = cd->nfields; f-- > 0;) {
+        Type *ft = te_type(cd->fields[f], &tv, NULL);
+        t = tarrow(ft, t);
+        if (!cd->labels) continue;
+        for (int k = 0; k < seen.n; k++) {
+          if (seen.a[k].label != cd->labels[f]) continue;
+          if (seen.a[k].con == cd->name)
+            cerror(cd->line, cd->col, "duplicate field `%s` in `%s`", cd->labels[f], cd->name);
+          if (!type_eq(seen.a[k].t, ft))
+            cerror(cd->line, cd->col, "field `%s` has different types in `%s` and `%s`", cd->labels[f],
+                   seen.a[k].con, cd->name);
+        }
+        VPUSH(seen, ((FieldSeen){cd->labels[f], cd->name, ft}));
+      }
       uint32_t id = fk_register_con(cd->name, cd->nfields);
       if ((int)id != condefs.n) abort();
-      VPUSH(condefs, ((ConDef){cd->name, cd->nfields, t, map_get(&tmap, d->name)}));
+      fk_con_labels(id, cd->labels);
+      VPUSH(condefs, ((ConDef){cd->name, cd->nfields, t, map_get(&tmap, d->name), cd->labels}));
       map_put(&cmap, cd->name, (int)id);
     }
+    free(seen.a);
   }
 }
 
@@ -452,6 +480,18 @@ static void deps_expr(Expr *e, Sh *sh, Deps *d) {
     }
     return;
   case E_ANN: deps_expr(e->body, sh, d); return;
+  case E_FIELD: /* p.x may call any Type.x defined in this group */
+    deps_expr(e->body, sh, d);
+    for (int i = 0; i < d->n; i++) {
+      const char *dot = strchr(d->b[i]->name, '.');
+      if (isupper((unsigned char)d->b[i]->name[0]) && dot && strcmp(dot + 1, e->name) == 0)
+        d->adj[d->cur * d->n + i] = true;
+    }
+    return;
+  case E_RECORD:
+    deps_expr(e->fn, sh, d);
+    for (int i = 0; i < e->n; i++) deps_expr(e->args[i], sh, d);
+    return;
   default: return;
   }
 }
@@ -579,7 +619,12 @@ static void split_expr(Expr *e) {
     for (int i = 0; i < e->ns; i++) split_expr(e->scruts[i]);
     for (int a = 0; a < e->na; a++) split_rhs(&e->alts[a]->rhs);
     return;
-  case E_ANN: split_expr(e->body); return;
+  case E_ANN:
+  case E_FIELD: split_expr(e->body); return;
+  case E_RECORD:
+    split_expr(e->fn);
+    for (int i = 0; i < e->n; i++) split_expr(e->args[i]);
+    return;
   default: return;
   }
 }
@@ -605,6 +650,378 @@ static int con_lookup(const char *name, int line, int col) {
   return id;
 }
 
+/* ---------------------------------------------------------------- records */
+
+typedef struct { Expr *e; Type *rec, *res; Type **vals; } Pending;
+static VEC(Pending) pending;
+static int rec_counter;
+
+static int first_con(int ti) {
+  int c = 0;
+  while (condefs.a[c].tydef != ti) c++;
+  return c;
+}
+
+static int label_index(int con, const char *name) {
+  const char **ls = condefs.a[con].labels;
+  for (int i = 0; ls && i < condefs.a[con].arity; i++)
+    if (ls[i] == name) return i;
+  return -1;
+}
+
+static bool has_label(int ti, const char *name) {
+  for (int c = first_con(ti), k = 0; k < tydefs.a[ti].ncons; k++)
+    if (label_index(c + k, name) >= 0) return true;
+  return false;
+}
+
+/* Type of field i of constructor con, for a value of type rec. */
+static Type *field_type(int con, int i, Type *rec, int line, int col) {
+  Type *t = inst(condefs.a[con].scheme, false), *fi = NULL;
+  for (int k = 0; k < condefs.a[con].arity; k++) {
+    t = repr(t);
+    if (k == i) fi = t->args[0];
+    t = t->args[1];
+  }
+  unify(t, rec, line, col);
+  return fi;
+}
+
+static Expr *ex_new(int k, int line, int col) {
+  Expr *e = NEW(Expr);
+  e->k = k;
+  e->line = line;
+  e->col = col;
+  return e;
+}
+
+static Expr *ex_var(const char *name, int line, int col) {
+  Expr *e = ex_new(E_VAR, line, col);
+  e->name = name;
+  return e;
+}
+
+static Expr *ex_app(Expr *f, int n, Expr **args) {
+  Expr *e = ex_new(E_APP, f->line, f->col);
+  e->fn = f;
+  e->n = n;
+  e->args = args;
+  return e;
+}
+
+/* error msg; `$error` is an alias that user code cannot shadow. */
+static Expr *ex_error(const char *msg, int line, int col) {
+  Expr *s = ex_new(E_STR, line, col);
+  s->name = msg;
+  s->slen = (int)strlen(msg);
+  Expr **a = xmalloc(sizeof *a);
+  a[0] = s;
+  return ex_app(ex_var(intern("$error"), line, col), 1, a);
+}
+
+/* Constructor pattern with wildcard arguments. */
+static Pat *con_pat(int con, int line, int col) {
+  Pat *p = NEW(Pat);
+  *p = (Pat){.k = P_CON, .line = line, .col = col, .name = condefs.a[con].name, .con = con};
+  p->n = condefs.a[con].arity;
+  p->args = xmalloc((size_t)p->n * sizeof *p->args + 1);
+  for (int i = 0; i < p->n; i++) {
+    p->args[i] = NEW(Pat);
+    *p->args[i] = (Pat){.k = P_WILD, .line = line, .col = col};
+  }
+  return p;
+}
+
+static Pat *var_pat(const char *name, int line, int col) {
+  Pat *p = NEW(Pat);
+  *p = (Pat){.k = P_VAR, .line = line, .col = col, .name = name};
+  return p;
+}
+
+static Alt *alt1(Pat *p, Expr *body) {
+  Alt *a = NEW(Alt);
+  a->np = 1;
+  a->pats = xmalloc(sizeof *a->pats);
+  a->pats[0] = p;
+  a->rhs.ng = 1;
+  a->rhs.guards = xcalloc(1, sizeof(Expr *));
+  a->rhs.bodies = xmalloc(sizeof(Expr *));
+  a->rhs.bodies[0] = body;
+  return a;
+}
+
+/* Overwrite e with `case scrut of alts`. */
+static void make_case(Expr *e, Expr *scrut, int na, Alt **alts) {
+  Expr **sc = xmalloc(sizeof *sc);
+  sc[0] = scrut;
+  e->k = E_CASE;
+  e->name = cur_file;
+  e->ns = 1;
+  e->scruts = sc;
+  e->na = na;
+  e->alts = alts;
+}
+
+/* C { f = e, ... } -> C e1 .. en */
+static void lower_construction(Expr *e) {
+  Expr *fn = e->fn;
+  int c = con_lookup(fn->name, fn->line, fn->col);
+  ConDef *cd = &condefs.a[c];
+  Expr **args = xcalloc((size_t)cd->arity + 1, sizeof *args);
+  for (int k = 0; k < e->n; k++) {
+    int i = label_index(c, e->fields[k]);
+    if (i < 0) cerror(e->args[k]->line, e->args[k]->col, "constructor `%s` has no field `%s`", cd->name, e->fields[k]);
+    if (args[i]) cerror(e->args[k]->line, e->args[k]->col, "field `%s` is given twice", e->fields[k]);
+    args[i] = e->args[k];
+  }
+  for (int i = 0; i < cd->arity; i++) {
+    if (args[i]) continue;
+    if (!cd->labels) cerror(e->line, e->col, "constructor `%s` has no field names; give its arguments in order", cd->name);
+    cerror(e->line, e->col, "missing field `%s` in construction of `%s`", cd->labels[i], cd->name);
+  }
+  if (!cd->arity) {
+    *e = *fn;
+    return;
+  }
+  e->k = E_APP;
+  e->n = cd->arity;
+  e->args = args;
+  e->fields = NULL;
+}
+
+/* C { f = p } -> C _ .. p .. _ */
+static void lower_rec_pat(Pat *p, int con) {
+  ConDef *cd = &condefs.a[con];
+  Pat **args = xcalloc((size_t)cd->arity + 1, sizeof *args);
+  for (int k = 0; k < p->n; k++) {
+    int i = label_index(con, p->fields[k]);
+    if (i < 0) cerror(p->args[k]->line, p->args[k]->col, "constructor `%s` has no field `%s`", cd->name, p->fields[k]);
+    if (args[i]) cerror(p->args[k]->line, p->args[k]->col, "field `%s` is matched twice", p->fields[k]);
+    args[i] = p->args[k];
+  }
+  for (int i = 0; i < cd->arity; i++) {
+    if (args[i]) continue;
+    args[i] = NEW(Pat);
+    *args[i] = (Pat){.k = P_WILD, .line = p->line, .col = p->col};
+  }
+  p->n = cd->arity;
+  p->args = args;
+  p->rec = false;
+}
+
+/* p.x on type ti: one alternative per constructor. */
+static void lower_field(Pending *pd, int ti) {
+  Expr *e = pd->e;
+  const char *x = e->name, *v = intern("$f");
+  int first = first_con(ti), nc = tydefs.a[ti].ncons;
+  Alt **alts = xmalloc((size_t)nc * sizeof *alts);
+  Type *ft = NULL;
+  for (int c = first; c < first + nc; c++) {
+    Pat *p = con_pat(c, e->line, e->col);
+    int i = label_index(c, x);
+    Expr *body;
+    if (i >= 0) {
+      p->args[i] = var_pat(v, e->line, e->col);
+      body = ex_var(v, e->line, e->col);
+      if (!ft) ft = field_type(c, i, pd->rec, e->line, e->col);
+    } else {
+      body = ex_error(xsprintf("constructor `%s` has no field `%s`", condefs.a[c].name, x), e->line, e->col);
+    }
+    alts[c - first] = alt1(p, body);
+  }
+  unify(pd->res, ft, e->line, e->col);
+  make_case(e, e->body, nc, alts);
+}
+
+/* r { f = v, ... }: rebuild each constructor that has every field; bind the
+   values first when several constructors would each mention them. */
+static void lower_update(Pending *pd, int ti) {
+  Expr *e = pd->e;
+  int first = first_con(ti), nc = tydefs.a[ti].ncons, nok = 0, ok1 = -1;
+  for (int k = 0; k < e->n; k++) {
+    if (!has_label(ti, e->fields[k]))
+      cerror(e->args[k]->line, e->args[k]->col, "type `%s` has no field `%s`", tydefs.a[ti].name, e->fields[k]);
+    for (int j = 0; j < k; j++)
+      if (e->fields[j] == e->fields[k]) cerror(e->args[k]->line, e->args[k]->col, "field `%s` is given twice", e->fields[k]);
+  }
+  const char **missing = xcalloc((size_t)nc, sizeof *missing);
+  for (int c = first; c < first + nc; c++) {
+    for (int k = 0; k < e->n && !missing[c - first]; k++)
+      if (label_index(c, e->fields[k]) < 0) missing[c - first] = e->fields[k];
+    if (missing[c - first]) continue;
+    nok++;
+    if (ok1 < 0) ok1 = c;
+  }
+  if (!nok) cerror(e->line, e->col, "no constructor of `%s` has all of the updated fields", tydefs.a[ti].name);
+  for (int k = 0; k < e->n; k++)
+    unify(field_type(ok1, label_index(ok1, e->fields[k]), pd->rec, e->line, e->col), pd->vals[k], e->args[k]->line,
+          e->args[k]->col);
+  Expr **vals = xmalloc((size_t)e->n * sizeof *vals + 1);
+  Bind **binds = xmalloc((size_t)e->n * sizeof *binds + 1);
+  for (int k = 0; k < e->n; k++) {
+    vals[k] = e->args[k];
+    if (nok == 1) continue;
+    Bind *b = NEW(Bind);
+    *b = (Bind){.name = intern(xsprintf("$v%d", rec_counter++)), .e = e->args[k], .line = e->line, .col = e->col};
+    binds[k] = b;
+  }
+  Alt **alts = xmalloc((size_t)nc * sizeof *alts);
+  for (int c = first; c < first + nc; c++) {
+    Pat *p = con_pat(c, e->line, e->col);
+    Expr *body;
+    if (missing[c - first]) {
+      body = ex_error(xsprintf("constructor `%s` has no field `%s`", condefs.a[c].name, missing[c - first]), e->line,
+                      e->col);
+    } else {
+      int ar = condefs.a[c].arity;
+      Expr **args = xmalloc((size_t)ar * sizeof *args);
+      for (int i = 0; i < ar; i++) {
+        int k = 0;
+        while (k < e->n && label_index(c, e->fields[k]) != i) k++;
+        if (k < e->n) {
+          args[i] = nok == 1 ? vals[k] : ex_var(binds[k]->name, e->line, e->col);
+        } else {
+          const char *u = intern(xsprintf("$u%d", i));
+          p->args[i] = var_pat(u, e->line, e->col);
+          args[i] = ex_var(u, e->line, e->col);
+        }
+      }
+      Expr *con = ex_new(E_CON, e->line, e->col);
+      con->name = condefs.a[c].name;
+      con->idx = c;
+      body = ex_app(con, ar, args);
+    }
+    alts[c - first] = alt1(p, body);
+  }
+  Expr *cs = ex_new(E_CASE, e->line, e->col);
+  make_case(cs, e->fn, nc, alts);
+  for (int k = nok == 1 ? 0 : e->n; k-- > 0;) {
+    Expr *let = ex_new(E_LET, e->line, e->col);
+    let->g = (Group){xmalloc(sizeof(Bind *)), 1, false};
+    let->g.b[0] = binds[k];
+    let->body = cs;
+    cs = let;
+  }
+  *e = *cs;
+  free(missing);
+}
+
+/* p.x where x is not a field: a function Type.x applied to p. */
+static bool lower_method(Pending *pd, Type *r) {
+  Expr *e = pd->e;
+  const char *q = intern(xsprintf("%s.%s", r->name, e->name));
+  int g = map_get(&gmap, q);
+  if (g < 0 || !globals.a[g].type) return false;
+  unify(inst(globals.a[g].type, false), tarrow(pd->rec, pd->res), e->line, e->col);
+  Expr **a = xmalloc(sizeof *a);
+  a[0] = e->body;
+  *e = *ex_app(ex_var(q, e->line, e->col), 1, a);
+  return true;
+}
+
+static void lower_pending(Pending *pd) {
+  Expr *e = pd->e;
+  Type *r = repr(pd->rec);
+  int ti = map_get(&tmap, r->name);
+  if (e->k == E_RECORD) {
+    if (ti < 0 || !tydefs.a[ti].ncons) {
+      Names nm = {0};
+      cerror(e->line, e->col, "record update on `%s`, which has no fields", tstr(r, &nm));
+    }
+    lower_update(pd, ti);
+    return;
+  }
+  if (ti >= 0 && tydefs.a[ti].ncons && has_label(ti, e->name)) {
+    lower_field(pd, ti);
+    return;
+  }
+  if (lower_method(pd, r)) return;
+  Names nm = {0};
+  cerror(e->line, e->col, "type `%s` has no field or function `%s`%s", tstr(r, &nm), e->name,
+         r->name == s_arrow ? "; write `f . g` with spaces for composition" : "");
+}
+
+/* Lower every pending access whose record type is now known. */
+static void lower_known(void) {
+  for (bool progress = true; progress;) {
+    progress = false;
+    for (int i = 0; i < pending.n; i++) {
+      if (repr(pending.a[i].rec)->k != TY_CON) continue;
+      Pending pd = pending.a[i];
+      pending.a[i--] = pending.a[--pending.n];
+      lower_pending(&pd);
+      progress = true;
+    }
+  }
+}
+
+static bool is_pending_rec(Type *t) {
+  for (int i = 0; i < pending.n; i++)
+    if (repr(pending.a[i].rec) == t) return true;
+  return false;
+}
+
+/* In `Type.f p ... = e` without a signature, a first parameter used with
+   dot access but otherwise unconstrained has type Type. */
+static void default_receivers(Group *g, Type **mono, Type **sch) {
+  for (int i = 0; i < g->n; i++) {
+    Bind *b = g->b[i];
+    const char *dot = strchr(b->name, '.');
+    if (sch[i] || !dot || !isupper((unsigned char)b->name[0]) || b->e->k != E_LAM) continue;
+    Type *p0 = repr(repr(mono[i])->args[0]);
+    if (p0->k != TY_VAR || !is_pending_rec(p0)) continue;
+    const char *tn = intern_n(b->name, (size_t)(dot - b->name));
+    int ti = map_get(&tmap, tn);
+    Type **vs = xmalloc((size_t)tydefs.a[ti].arity * sizeof *vs + 1);
+    for (int k = 0; k < tydefs.a[ti].arity; k++) vs[k] = newvar();
+    unify(p0, tcon(tn, tydefs.a[ti].arity, vs), b->line, b->col);
+  }
+}
+
+/* One pending access still open is an error if its type would be
+   generalized at this level. */
+static void resolve_fields(bool final) {
+  lower_known();
+  for (int i = 0; i < pending.n; i++) { /* 21.double: a number defaults to Int, as at the end of a chunk */
+    Type *r = repr(pending.a[i].rec);
+    if (r->k == TY_VAR && r->num && !r->skolem && (final || r->level >= level)) r->link = tcon0(s_int);
+  }
+  lower_known();
+  for (int i = 0; i < pending.n; i++) {
+    Expr *e = pending.a[i].e;
+    if (!final && repr(pending.a[i].rec)->level < level) continue;
+    if (e->k == E_FIELD) cerror(e->line, e->col, "cannot infer the record type for `.%s`; add a type signature", e->name);
+    cerror(e->line, e->col, "cannot infer the record type for this update; add a type signature");
+  }
+}
+
+/* Type.x where x is a field: \r -> r.x with r of type Type. */
+static Type *infer_qualified_field(Expr *e, Env *env) {
+  const char *dot = strchr(e->name, '.');
+  const char *tn = intern_n(e->name, (size_t)(dot - e->name)), *x = intern(dot + 1);
+  int ti = map_get(&tmap, tn);
+  if (ti < 0) cerror(e->line, e->col, "unknown type `%s`", tn);
+  if (!tydefs.a[ti].ncons || !has_label(ti, x))
+    cerror(e->line, e->col, "type `%s` has no field or function `%s`", tn, x);
+  Expr *f = ex_new(E_FIELD, e->line, e->col);
+  f->name = x;
+  f->body = ex_var(intern("$r"), e->line, e->col);
+  Lambda *L = NEW(Lambda);
+  L->n = 1;
+  L->params = xmalloc(sizeof *L->params);
+  L->params[0] = f->body->name;
+  L->body = f;
+  L->line = e->line;
+  L->col = e->col;
+  e->k = E_LAM;
+  e->lam = L;
+  Type *t = infer(e, env);
+  Type **vs = xmalloc((size_t)tydefs.a[ti].arity * sizeof *vs + 1);
+  for (int i = 0; i < tydefs.a[ti].arity; i++) vs[i] = newvar();
+  unify(repr(t)->args[0], tcon(tn, tydefs.a[ti].arity, vs), e->line, e->col);
+  return t;
+}
+
 static Type *infer_pat(Pat *p, Env **env, Env *stop) {
   switch (p->k) {
   case P_VAR: {
@@ -620,6 +1037,7 @@ static Type *infer_pat(Pat *p, Env **env, Env *stop) {
   case P_CON: {
     int id = con_lookup(p->name, p->line, p->col);
     ConDef *c = &condefs.a[id];
+    if (p->rec) lower_rec_pat(p, id);
     if (p->n != c->arity)
       cerror(p->line, p->col, "constructor `%s` takes %d argument%s, pattern has %d", p->name, c->arity,
              c->arity == 1 ? "" : "s", p->n);
@@ -651,6 +1069,7 @@ static Type *infer(Expr *e, Env *env) {
     for (Env *x = env; x; x = x->next)
       if (x->name == e->name) return inst(x->t, false);
     int g = map_get(&gmap, e->name);
+    if (g < 0 && isupper((unsigned char)e->name[0])) return infer_qualified_field(e, env);
     if (g < 0) cerror(e->line, e->col, "variable not in scope: `%s`", e->name);
     Type *t = inst(globals.a[g].type, false);
     int p = globals.a[g].prim;
@@ -717,6 +1136,21 @@ static Type *infer(Expr *e, Env *env) {
     unify(inst(sig_scheme(e->sig), false), t, e->line, e->col);
     return t;
   }
+  case E_FIELD: {
+    Pending pd = {e, infer(e->body, env), newvar(), NULL};
+    VPUSH(pending, pd);
+    return pd.res;
+  }
+  case E_RECORD: {
+    if (e->fn->k == E_CON) {
+      lower_construction(e);
+      return infer(e, env);
+    }
+    Pending pd = {e, infer(e->fn, env), NULL, xmalloc((size_t)e->n * sizeof(Type *) + 1)};
+    for (int i = 0; i < e->n; i++) pd.vals[i] = infer(e->args[i], env);
+    VPUSH(pending, pd);
+    return pd.rec;
+  }
   }
   abort();
 }
@@ -740,6 +1174,9 @@ static void infer_group(Group *g, Env **env, bool top) {
     if (sch[i]) unify(inst(sch[i], true), t, b->line, b->col);
     else unify(mono[i], t, b->line, b->col);
   }
+  lower_known();
+  default_receivers(g, mono, sch);
+  resolve_fields(false);
   level--;
   for (int i = 0; i < g->n; i++)
     if (!sch[i]) gen(mono[i], g->b[i]->e->k != E_LAM);
@@ -1005,7 +1442,7 @@ static void add_tydef(const char *name, int arity, int ncons) {
 }
 
 static void add_con(const char *name, Type *scheme, int arity, const char *ty) {
-  VPUSH(condefs, ((ConDef){name, arity, scheme, map_get(&tmap, ty)}));
+  VPUSH(condefs, ((ConDef){name, arity, scheme, map_get(&tmap, ty), NULL}));
   map_put(&cmap, name, condefs.n - 1);
 }
 
@@ -1051,6 +1488,7 @@ void compiler_init(void) {
     VPUSH(globals, g);
     map_put(&gmap, g.name, globals.n - 1);
   }
+  map_put(&gmap, intern("$error"), global_lookup(intern("error")));
 }
 
 bool compile_chunk(Module *m, Chunk *out) {
@@ -1066,13 +1504,23 @@ bool compile_chunk(Module *m, Chunk *out) {
     tydefs.n = nt0;
     fk_truncate_cons((uint32_t)nc0);
     numvars.n = 0;
+    pending.n = 0;
     level = 0;
     return false;
   }
   cerr_jmp = &jb;
+  pending.n = 0;
   register_datas(m);
   for (int i = 0; i < m->nb; i++) {
     Bind *b = m->binds[i];
+    const char *dot = strchr(b->name, '.');
+    if (isupper((unsigned char)b->name[0]) && dot) { /* Type.name */
+      const char *tn = intern_n(b->name, (size_t)(dot - b->name));
+      int ti = map_get(&tmap, tn);
+      if (ti < 0) cerror(b->line, b->col, "unknown type `%s`", tn);
+      if (tydefs.a[ti].ncons && has_label(ti, intern(dot + 1)))
+        cerror(b->line, b->col, "type `%s` already has a field `%s`", tn, dot + 1);
+    }
     if (b->e->k == E_LAM) b->e->lam->name = b->name;
     b->gidx = globals.n;
     VPUSH(globals, ((Global){b->name, NULL, -1, b->e->k == E_LAM ? b->e->lam : NULL}));
@@ -1111,14 +1559,17 @@ const char *infer_type_text(Expr *e) {
   if (setjmp(jb)) {
     cerr_jmp = saved;
     numvars.n = 0;
+    pending.n = 0;
     level = 0;
     return NULL;
   }
   cerr_jmp = &jb;
   numvars.n = 0;
+  pending.n = 0;
   split_expr(e);
   level = 1;
   Type *t = infer(e, NULL);
+  resolve_fields(true);
   level = 0;
   gen(t, false);
   numvars.n = 0;
