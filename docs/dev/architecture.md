@@ -193,6 +193,8 @@ Output: the embedded runtime source, a global array `G`, one `static V fn_N(V se
 
 - A self call in tail position assigns the parameters and jumps to `top`.
 
+- Tail recursion modulo cons: a function whose tail result is a constructor with a self call as its last argument (`x : map f xs`) is a loop. Its results go through `dst`, which starts at `&head` and then points at the last field of the latest cell; the cell is allocated with a placeholder there. Building a list therefore takes constant stack, which also keeps the collector's stack scan short. See [memory.md](memory.md).
+
 - A case alternative becomes a pattern test, then bindings, then guards. A failure jumps to the next alternative's label.
 
 - Constructor tag tests are skipped for single-constructor types.

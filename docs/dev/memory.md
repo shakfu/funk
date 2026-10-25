@@ -1,6 +1,6 @@
 # Memory: design note
 
-Status: proposal. It covers step 6 of [performance-first.md](performance-first.md): the cost of allocation and collection. The geometric mean is 2.4x against the 2x target. The largest ratios left are `lists` 8.0x, `queens` 5.4x, `sort` 4.7x and `strings` 4.0x, all allocation-heavy.
+Status: TRMC implemented (unreleased); the choice between B and C is open. It covers step 6 of [performance-first.md](performance-first.md): the cost of allocation and collection. The geometric mean is 2.4x against the 2x target. The largest ratios left are `lists` 8.0x, `queens` 5.4x, `sort` 4.7x and `strings` 4.0x, all allocation-heavy.
 
 ## Where the time goes
 
@@ -65,8 +65,17 @@ Self tail calls in other branches, such as `filter` skipping an element, keep ju
 
 **Interpreter.** Not changed. It still recurses, which is correct and only slower; interpreter speed is not part of the goal.
 
-## Expected effect
+## Result
 
-If `lists` reaches about 3.1x, as measured, and `sort`, `strings` and `queens` gain a third as much, the geometric mean moves from 2.4x to about 2.1x. This is an estimate. Profiles after TRMC decide between B and C.
+The implementation requires the self-call to be the constructor's last argument, so no evaluation-order check is needed. All prelude candidates have that shape. The geometric mean went from 2.40x to **2.06x**, against an estimate of about 2.1x:
+
+| Benchmark | Before | After |
+|-|-|-|
+| `lists` | 8.0x | 3.2x |
+| `sort` | 4.7x | 3.1x |
+| `strings` | 4.0x | 3.8x |
+| `queens` | 5.4x | 5.8x |
+
+`queens` is about 3.5% slower in an interleaved A/B run. Its lists are 11 elements long, so the loop's setup costs more than the stack it saves. `trees` also becomes a loop on its right spine (`Node (make d) (make d)`), with no measurable change. Profiles after TRMC decide between B and C.
 
 The OCaml citation is from memory and was not checked in this session.

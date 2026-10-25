@@ -1,0 +1,27 @@
+-- Tail recursion modulo cons: compiled, these functions build their results
+-- in a loop. The output must match the interpreter's, which recurses.
+
+data Stream = End | Item Int Stream deriving (Show)
+
+-- A user type, with a skipping branch that is a plain self tail call.
+evens :: [Int] -> Stream
+evens [] = End
+evens (x:xs) = if even x then Item x (evens xs) else evens xs
+
+-- Two cells per step, and a tuple field before the recursive call.
+pairsOf (a:b:rest) = (a, b) : pairsOf rest
+pairsOf _ = []
+
+-- The fields before the recursive call are evaluated before it, in order.
+tagged n = if n == 0 then [] else (n * 10) : tagged (n - 1)
+
+-- An error partway through the loop leaves no partial result.
+upTo n i = if i > n then error "past the end" else i : upTo n (i + 1)
+
+main = do
+  print (evens [1 .. 10])
+  print (pairsOf [1 .. 7])
+  print (tagged 4)
+  print (length (map (+ 1) [1 .. 2000000]))
+  print (take 3 (zipWith (+) [1, 2, 3, 4] [10, 20, 30]))
+  print (upTo 3 1)

@@ -1,0 +1,6 @@
+Item 2 (Item 4 (Item 6 (Item 8 (Item 10 End))))
+[(1,2),(3,4),(5,6)]
+[40,30,20,10]
+2000000
+[11,22,33]
+runtime error: past the end

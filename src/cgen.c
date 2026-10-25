@@ -26,6 +26,7 @@ typedef struct {
   int tmp, label;
   bool looped;
   Rep *slot; /* representation of each frame slot */
+  bool trmc; /* results go through dst; see cg_tail */
 } CG;
 
 static TV cg_expr(CG *c, Expr *e);
@@ -341,22 +342,75 @@ static TV cg_expr(CG *c, Expr *e) {
   }
 }
 
+/* ------------------------------------------- tail recursion modulo cons */
+
+/* A function whose tail result is a constructor with a call to itself as
+   the last argument (`x : map f xs`) becomes a loop (memory.md). The
+   result goes through `dst`, which points at `head` and then at the last
+   field of the latest cell, and `head` is returned. The cell is allocated
+   with a placeholder in that field, before the call's arguments are
+   evaluated; the allocation is the only thing moved, so evaluation order
+   is unchanged. */
+static bool self_call(Lambda *L, Expr *e) {
+  return e->k == E_APP && e->fn->k == E_VAR && e->fn->known == L && L->n == e->n;
+}
+
+static bool cons_self(Lambda *L, Expr *e) {
+  return e->k == E_APP && e->fn->k == E_CON && e->n == fk_cons[e->fn->idx].arity && self_call(L, e->args[e->n - 1]);
+}
+
+static bool has_trmc(Lambda *L, Expr *e) {
+  switch (e->k) {
+  case E_APP: return cons_self(L, e);
+  case E_LET: return has_trmc(L, e->body);
+  case E_IF: return has_trmc(L, e->then_) || has_trmc(L, e->else_);
+  case E_ANN: return has_trmc(L, e->body);
+  case E_CASE:
+    for (int a = 0; a < e->na; a++)
+      for (int i = 0; i < e->alts[a]->rhs.ng; i++)
+        if (has_trmc(L, e->alts[a]->rhs.bodies[i])) return true;
+    return false;
+  default: return false;
+  }
+}
+
+/* Return v from a function body, through dst in a TRMC loop. */
+static void ret(CG *c, const char *v) {
+  if (c->trmc) sb_printf(c->out, "  *dst = %s;\n  return head;\n", v);
+  else sb_printf(c->out, "  return %s;\n", v);
+}
+
+/* A self call in tail position: assign the parameters, jump to the top. */
+static void self_jump(CG *c, Expr *e) {
+  const char **a = xmalloc((size_t)e->n * sizeof *a);
+  for (int i = 0; i < e->n; i++) a[i] = conv(cg_expr(c, e->args[i]), c->slot[i]);
+  int base = c->tmp;
+  c->tmp += e->n;
+  for (int i = 0; i < e->n; i++) sb_printf(c->out, "  %s t%d = %s;\n", ctype[c->slot[i]], base + i, a[i]);
+  for (int i = 0; i < e->n; i++) sb_printf(c->out, "  l%d = t%d;\n", i, base + i);
+  sb_puts(c->out, "  goto top;\n");
+  c->looped = true;
+}
+
 static void cg_tail(CG *c, Expr *e) {
   switch (e->k) {
   case E_APP: {
-    Expr *f = e->fn;
-    if (f->k == E_VAR && f->known == c->lam && c->lam->n == e->n) {
-      const char **a = xmalloc((size_t)e->n * sizeof *a);
-      for (int i = 0; i < e->n; i++) a[i] = conv(cg_expr(c, e->args[i]), c->slot[i]);
-      int base = c->tmp;
-      c->tmp += e->n;
-      for (int i = 0; i < e->n; i++) sb_printf(c->out, "  %s t%d = %s;\n", ctype[c->slot[i]], base + i, a[i]);
-      for (int i = 0; i < e->n; i++) sb_printf(c->out, "  l%d = t%d;\n", i, base + i);
-      sb_puts(c->out, "  goto top;\n");
-      c->looped = true;
+    if (self_call(c->lam, e)) {
+      self_jump(c, e);
       return;
     }
-    sb_printf(c->out, "  return %s;\n", as_v(cg_call(c, e)));
+    if (c->trmc && cons_self(c->lam, e)) {
+      int n = e->n;
+      const char **a = xmalloc((size_t)n * sizeof *a);
+      for (int i = 0; i < n - 1; i++) a[i] = as_v(cg_expr(c, e->args[i]));
+      a[n - 1] = "fk_unit"; /* the placeholder */
+      const char *cell = newtmp(c);
+      sb_printf(c->out, "  V %s = fk_mkcon(%d, %d, %s);\n", cell, e->fn->idx, n, arg_array(a, n));
+      sb_printf(c->out, "  *dst = %s;\n  dst = &FK_FIELD(%s, %d);\n", cell, cell, n - 1);
+      self_jump(c, e->args[n - 1]);
+      return;
+    }
+    ret(c, as_v(cg_call(c, e)));
     return;
   }
   case E_LET: cg_group(c, &e->g); cg_tail(c, e->body); return;
@@ -370,7 +424,7 @@ static void cg_tail(CG *c, Expr *e) {
   }
   case E_CASE: cg_case(c, e, true); return;
   case E_ANN: cg_tail(c, e->body); return;
-  default: sb_printf(c->out, "  return %s;\n", as_v(cg_expr(c, e))); return;
+  default: ret(c, as_v(cg_expr(c, e))); return;
   }
 }
 
@@ -430,13 +484,14 @@ static void cg_lambda(SB *out, Lambda *L) {
   slots_expr(slot, L->body);
   SB body = {0};
   sb_puts(&body, "");
-  CG c = {&body, L, 0, 0, false, slot};
+  CG c = {&body, L, 0, 0, false, slot, has_trmc(L, L->body)};
   cg_tail(&c, L->body);
   char *nm = xsprintf("%s", L->name ? L->name : "lambda");
   for (char *s = nm; (s = strstr(s, "*/"));) s[1] = '|'; /* keep the comment closed */
   sb_printf(out, "static V fn_%d(V self, V *a) { /* %s */\n", L->id, nm);
   for (int i = 0; i < L->nslots; i++)
     sb_printf(out, "  %s l%d = %s;\n", ctype[slot[i]], i, i < L->n ? conv(tv(xsprintf("a[%d]", i), R_V), slot[i]) : "0");
+  if (c.trmc) sb_puts(out, "  V head = 0, *dst = &head;\n");
   if (c.looped) sb_puts(out, "  top:;\n");
   sb_puts(out, body.s);
   sb_puts(out, "}\n\n");

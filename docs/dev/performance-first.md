@@ -122,7 +122,9 @@ The largest ratios left are `floats` (boxing: step 5), `lazywhere` (thunks: step
 
 **Typed locals, then eager `let`.** Step 2 of [typed-backend.md](typed-backend.md) took the mean to 4.02x (`loop` 1.0x, `floats` 11.4x). The generated `floats` loop then showed its remaining allocation was a thunk, so eager `let` went next: 4.02x to **2.57x**, with `floats` at 1.0x and `lazywhere` at 1.1x. The largest ratios left are `lists` (10.3x), `strings` (5.5x), `queens` (5.2x) and `sort` (4.8x), all dominated by allocation and calls to function arguments.
 
-**Specialization on function arguments.** Calls with closed function arguments call copies of the callee with the argument substituted (architecture.md, Elaboration). The geometric mean went from 2.57x to **2.38x**: `lists` 10.3x to 8.0x, `strings` 5.5x to 4.0x, `closures` 2.3x to 1.8x. What remains in `lists`, `sort` and `queens` is mostly collection, about 40% of `lists`: the next step is the memory manager. Step 5 changes the shape of `cgen.c`, so steps 1 and 3 should be written so that they survive it.
+**Specialization on function arguments.** Calls with closed function arguments call copies of the callee with the argument substituted (architecture.md, Elaboration). The geometric mean went from 2.57x to **2.38x**: `lists` 10.3x to 8.0x, `strings` 5.5x to 4.0x, `closures` 2.3x to 1.8x. What remains in `lists`, `sort` and `queens` is mostly collection, about 40% of `lists`: the next step is the memory manager.
+
+**Tail recursion modulo cons** ([memory.md](memory.md)): list-building functions compile to loops, so stacks stay shallow and collections scan less. 2.40x to **2.06x**: `lists` 8.0x to 3.2x, `sort` 4.7x to 3.1x. Step 5 changes the shape of `cgen.c`, so steps 1 and 3 should be written so that they survive it.
 
 ## Decisions needed
 
