@@ -1,0 +1,35 @@
+-- Lambda lifting: local functions that are only called become top-level
+-- functions taking their free variables. The results must not change.
+
+-- Free variables k and step, and a recursive call.
+sumBy k step = go 0 0
+  where go i acc = if i > k then acc else go (i + step) (acc + i)
+
+-- Mutual recursion within one group.
+parity n = isEven n
+  where
+    isEven 0 = True
+    isEven m = isOdd (m - 1)
+    isOdd 0 = False
+    isOdd m = isEven (m - 1)
+
+-- A lifted function calling another, which needs its free variable too.
+scaled f xs = map g xs
+  where
+    h x = x * f
+    g x = h x + 1
+
+-- Escapes as a value: stays a closure.
+adders n = map add [1, 2, 3] where add x = x + n
+
+-- A partial application escapes too.
+partial n = map (plus 10) [n] where plus a b = a + b + n
+
+-- A free variable rebound in the region: not lifted, still correct.
+shadow k = f 1 + (let k = 100 in f 2)
+  where f x = x + k
+
+main = do
+  print (sumBy 10 3, parity 7, parity 10)
+  print (scaled 3 [1, 2], adders 5, partial 1)
+  print (shadow 1)

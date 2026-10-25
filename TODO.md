@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite, 2.06x now. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.89x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
@@ -10,11 +10,9 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## High
 
-- [ ] **Allocation: nursery or Perceus,** decided from a profile now that TRMC is done (`lists` 3.2x, `sort` 3.1x, `strings` 3.8x). See [docs/dev/memory.md](docs/dev/memory.md#options).
+- [ ] **Perceus reference counting.** Collection is about 35% of `lists`, `sort` and `strings`, mostly marking live data; a nursery would not help ([docs/dev/memory.md](docs/dev/memory.md#after-trmc)). Perceus removes marking and sweeping, but is the largest change on this list: design it before writing code.
 
-- [ ] **Unknown calls through lambdas with free variables.** Calls with closed function arguments are specialized (`map (* 3)`). A lambda capturing a local, as in `queens`' `\q -> safe q qs`, is still called through `fk_apply`. Lambda-lift such arguments into extra parameters, then specialize.
-
-- [ ] **Strings.** `[Char]` costs 3 words per character (`strings` 5.7x). Decide on a packed string type; see the decisions in performance-first.md.
+- [ ] **Strings: decision needed.** `strings` is 3.3x, but its C version also uses `[Char]` lists, so packing is not what the gap is. Options and the language consequences are in [docs/dev/strings.md](docs/dev/strings.md).
 
 - [ ] Generated C triggers `-Wall` warnings: unused labels and temporaries in `cg_case`.
 

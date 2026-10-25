@@ -1,6 +1,6 @@
 # Memory: design note
 
-Status: TRMC implemented (unreleased); the choice between B and C is open. It covers step 6 of [performance-first.md](performance-first.md): the cost of allocation and collection. The geometric mean is 2.4x against the 2x target. The largest ratios left are `lists` 8.0x, `queens` 5.4x, `sort` 4.7x and `strings` 4.0x, all allocation-heavy.
+Status: TRMC implemented (unreleased). After it, a profile rules out B; C is deferred (see "After TRMC"). It covers step 6 of [performance-first.md](performance-first.md): the cost of allocation and collection. The geometric mean is 2.4x against the 2x target. The largest ratios left are `lists` 8.0x, `queens` 5.4x, `sort` 4.7x and `strings` 4.0x, all allocation-heavy.
 
 ## Where the time goes
 
@@ -77,5 +77,21 @@ The implementation requires the self-call to be the constructor's last argument,
 | `queens` | 5.4x | 5.8x |
 
 `queens` is about 3.5% slower in an interleaved A/B run. Its lists are 11 elements long, so the loop's setup costs more than the stack it saves. `trees` also becomes a loop on its right spine (`Node (make d) (make d)`), with no measurable change. Profiles after TRMC decide between B and C.
+
+## After TRMC
+
+Each collection's phases, timed in an instrumented build at the benchmark sizes:
+
+| Benchmark | Total | Collections | Marking | Sweep | Stack scan |
+|-|-|-|-|-|-|
+| `lists` | 69 ms | 2 | 11.5 ms | 13.6 ms | 0 ms |
+| `strings` | 126 ms | 1 | 41.3 ms | 4.2 ms | 0 ms |
+| `sort` | 107 ms | 2 | 23.3 ms | 12.8 ms | 0 ms |
+
+Collection is about 35% of these programs, in one or two collections. Stack scanning is gone. What remains is marking live data and sweeping.
+
+- **B is ruled out.** At each collection, the live data is a list or string built just before: young, and still live. A minor collection would mark it all the same.
+- **The collector is near its limit.** A reciprocal in place of the division per marked word saved 3-8% of marking, and was kept. Marking follows millions of cells and pays a cache miss for each; a tracing collector pays this in proportion to live data.
+- **C, Perceus, is the option that removes marking and sweeping.** Its cost is unchanged: reference-count operations in generated code, the interpreter and the runtime, and lambda lifting of the remaining recursive closures to avoid cycles. It is deferred: the geometric mean is already 1.93x, under the target, and C is the largest change on the list. It needs its own design pass before any code.
 
 The OCaml citation is from memory and was not checked in this session.

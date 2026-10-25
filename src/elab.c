@@ -552,14 +552,16 @@ Bind *dict_bind(InstDef *in) {
 /* ------------------------------------- specialization on function arguments */
 
 /* After elaboration, a call to a top-level function whose argument for a
-   function-typed parameter is closed -- built from globals, literals,
-   constructors and lambdas that use only their own parameters -- calls a
-   copy of the function with that parameter replaced by the argument:
-   `map (flip primMulInt 3) xs` calls `map@{flip primMulInt 3}`, where
-   `f x` is a known call. Copies are keyed by the argument's structure, so
-   a recursive call inside a copy reuses it. Global references copied into
-   a body are pinned, so a local of the same name there cannot capture
-   them. */
+   function-typed parameter is built from globals, literals, constructors
+   and lambdas calls a copy of the function with that parameter replaced
+   by the argument: `map (flip primMulInt 3) xs` calls
+   `map@{flip primMulInt 3}`, where `f x` is a known call. Local variables
+   of the call site in the argument (`\q -> q : qs`) become leading
+   parameters of the copy, passed by the call. Copies are keyed by the
+   argument's structure with those variables numbered, so a recursive call
+   inside a copy, which passes the copy's own parameters, reuses it.
+   Global references copied into a body are pinned, so a local of the same
+   name there cannot capture them. */
 
 typedef struct Nm { const char *name; struct Nm *next; } Nm;
 
@@ -583,32 +585,82 @@ static Nm *pat_nm(Pat *p, Nm *s) {
 
 static int nho; /* copies made, bounded so argument growth terminates */
 
-/* Is e closed: no variable of `outer` (the call site's locals) occurs free? */
-static bool closed(Expr *e, Nm *inner, Nm *outer, int depth) {
+/* Local variables of a call site that an argument uses, in order. */
+typedef struct { VEC(const char *) names; VEC(Type *) types; } Fv;
+
+static int fv_index(Fv *fv, const char *name) {
+  for (int i = 0; i < fv->names.n; i++)
+    if (fv->names.a[i] == name) return i;
+  return -1;
+}
+
+/* Can e be substituted into a copy? Its variables must be globals, its
+   own lambda parameters (inner), or locals of the call site (outer), which
+   are collected in fv. */
+static bool liftable(Expr *e, Nm *inner, Nm *outer, int depth, Fv *fv) {
   if (depth > 6) return false;
   switch (e->k) {
   case E_VAR:
     if (in(inner, e->name)) return true;
-    return (e->global_ref || !in(outer, e->name)) && global_lookup(e->name) >= 0;
+    if (!e->global_ref && in(outer, e->name)) {
+      if (fv_index(fv, e->name) < 0) {
+        VPUSH(fv->names, e->name);
+        VPUSH(fv->types, e->ty);
+      }
+      return true;
+    }
+    return global_lookup(e->name) >= 0;
   case E_CON: case E_INT: case E_FLOAT: case E_CHAR: case E_STR: return true;
   case E_APP:
-    if (!closed(e->fn, inner, outer, depth + 1)) return false;
+    if (!liftable(e->fn, inner, outer, depth + 1, fv)) return false;
     for (int i = 0; i < e->n; i++)
-      if (!closed(e->args[i], inner, outer, depth + 1)) return false;
+      if (!liftable(e->args[i], inner, outer, depth + 1, fv)) return false;
     return true;
   case E_LAM:
     for (int i = 0; i < e->lam->n; i++) inner = nm(inner, e->lam->params[i]);
-    return closed(e->lam->body, inner, outer, depth + 1);
+    return liftable(e->lam->body, inner, outer, depth + 1, fv);
   case E_IF:
-    return closed(e->cond, inner, outer, depth + 1) && closed(e->then_, inner, outer, depth + 1) &&
-           closed(e->else_, inner, outer, depth + 1);
-  case E_ANN: return closed(e->body, inner, outer, depth + 1);
+    return liftable(e->cond, inner, outer, depth + 1, fv) && liftable(e->then_, inner, outer, depth + 1, fv) &&
+           liftable(e->else_, inner, outer, depth + 1, fv);
+  case E_ANN: return liftable(e->body, inner, outer, depth + 1, fv);
+  case E_CASE: /* as clauses with patterns desugar: \$a0 $a1 -> case $a0 $a1 of ... */
+    for (int i = 0; i < e->ns; i++)
+      if (!liftable(e->scruts[i], inner, outer, depth + 1, fv)) return false;
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      if (alt->rhs.nwg) return false;
+      Nm *t = inner;
+      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
+      for (int i = 0; i < alt->rhs.ng; i++)
+        if ((alt->rhs.guards[i] && !liftable(alt->rhs.guards[i], t, outer, depth + 1, fv)) ||
+            !liftable(alt->rhs.bodies[i], t, outer, depth + 1, fv))
+          return false;
+    }
+    return true;
   default: return false;
   }
 }
 
-/* The structure of a closed argument, as a key; lambda parameters are
-   numbered so equal lambdas give equal keys. */
+static void pat_key(SB *b, Pat *p, Nm **params) {
+  switch (p->k) {
+  case P_VAR: *params = nm(*params, p->name); sb_puts(b, "v"); return;
+  case P_WILD: sb_puts(b, "_"); return;
+  case P_INT: sb_printf(b, "%lld", p->ival); return;
+  case P_CHAR: sb_printf(b, "'%lld", p->ival); return;
+  default:
+    sb_printf(b, "(%s", p->name);
+    for (int i = 0; i < p->n; i++) {
+      sb_puts(b, " ");
+      pat_key(b, p->args[i], params);
+    }
+    sb_puts(b, ")");
+  }
+}
+
+/* The structure of an argument, as a key; lambda parameters and the call
+   site's locals (fv) are numbered, so equal structures give equal keys. */
+static Fv *key_fv;
+
 static void key(SB *b, Expr *e, Nm *params) {
   switch (e->k) {
   case E_VAR: {
@@ -618,6 +670,10 @@ static void key(SB *b, Expr *e, Nm *params) {
         sb_printf(b, "#%d", i);
         return;
       }
+    if (!e->global_ref && (i = fv_index(key_fv, e->name)) >= 0) {
+      sb_printf(b, "$%d", i);
+      return;
+    }
     sb_puts(b, e->name);
     return;
   }
@@ -651,11 +707,38 @@ static void key(SB *b, Expr *e, Nm *params) {
     sb_puts(b, ")");
     return;
   case E_ANN: key(b, e->body, params); return;
+  case E_CASE:
+    sb_puts(b, "(case");
+    for (int i = 0; i < e->ns; i++) {
+      sb_puts(b, " ");
+      key(b, e->scruts[i], params);
+    }
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *ps = params;
+      sb_puts(b, " |");
+      for (int i = 0; i < alt->np; i++) {
+        sb_puts(b, " ");
+        pat_key(b, alt->pats[i], &ps);
+      }
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        sb_puts(b, " ->");
+        if (alt->rhs.guards[i]) {
+          sb_puts(b, " ? ");
+          key(b, alt->rhs.guards[i], ps);
+        }
+        sb_puts(b, " ");
+        key(b, alt->rhs.bodies[i], ps);
+      }
+    }
+    sb_puts(b, ")");
+    return;
   default: abort();
   }
 }
 
-/* Pin the global references of a closed copy. */
+/* Pin the global references of a copied argument. Variables in inner (its
+   lambda parameters, and the copy's leading parameters) stay local. */
 static void pin(Expr *e, Nm *inner) {
   switch (e->k) {
   case E_VAR: if (!in(inner, e->name)) e->global_ref = true; return;
@@ -673,9 +756,62 @@ static void pin(Expr *e, Nm *inner) {
     pin(e->else_, inner);
     return;
   case E_ANN: pin(e->body, inner); return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) pin(e->scruts[i], inner);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = inner;
+      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) pin(alt->rhs.guards[i], t);
+        pin(alt->rhs.bodies[i], t);
+      }
+    }
+    return;
   default: return;
   }
 }
+
+/* In a copy of an argument, rename the call site's locals to the copy's
+   leading parameters. */
+static void rename_fv(Expr *e, Fv *fv, const char **to, Nm *inner) {
+  switch (e->k) {
+  case E_VAR: {
+    int i;
+    if (!in(inner, e->name) && !e->global_ref && (i = fv_index(fv, e->name)) >= 0) e->name = to[i];
+    return;
+  }
+  case E_APP:
+    rename_fv(e->fn, fv, to, inner);
+    for (int i = 0; i < e->n; i++) rename_fv(e->args[i], fv, to, inner);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) inner = nm(inner, e->lam->params[i]);
+    rename_fv(e->lam->body, fv, to, inner);
+    return;
+  case E_IF:
+    rename_fv(e->cond, fv, to, inner);
+    rename_fv(e->then_, fv, to, inner);
+    rename_fv(e->else_, fv, to, inner);
+    return;
+  case E_ANN: rename_fv(e->body, fv, to, inner); return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) rename_fv(e->scruts[i], fv, to, inner);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = inner;
+      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) rename_fv(alt->rhs.guards[i], fv, to, t);
+        rename_fv(alt->rhs.bodies[i], fv, to, t);
+      }
+    }
+    return;
+  default: return;
+  }
+}
+
+static Nm *keep_locals; /* the copy's leading parameters, during replace */
 
 /* Replace free occurrences of variable x in e by copies of arg. */
 static void replace(Expr *e, const char *x, Expr *arg);
@@ -696,7 +832,7 @@ static void replace(Expr *e, const char *x, Expr *arg) {
   case E_VAR:
     if (e->name == x && !e->global_ref) {
       Expr *c = copy_expr(arg);
-      pin(c, NULL);
+      pin(c, keep_locals);
       *e = *c;
     }
     return;
@@ -772,6 +908,8 @@ static bool fun_type(Type *t) {
 static VEC(Bind *) ho_work;
 
 /* Specialize the call e if it qualifies; locals are the call site's. */
+static int nhparam;
+
 static void ho_call(Expr *e, Nm *locals) {
   Expr *f = e->fn;
   if (f->k != E_VAR || (!f->global_ref && in(locals, f->name))) return;
@@ -781,52 +919,69 @@ static void ho_call(Expr *e, Nm *locals) {
   Lambda *L = fb->e->lam;
   int m = e->n < L->n ? e->n : L->n;
   bool *use = xcalloc((size_t)m + 1, sizeof *use);
+  Fv fv = {0};
   int nuse = 0;
-  SB k = {0};
-  sb_printf(&k, "%s@{", fb->name);
   for (int i = 0; i < m; i++) {
-    if (!fun_type(L->ptypes[i]) || !closed(e->args[i], NULL, locals, 0)) continue;
-    SB a = {0};
-    sb_puts(&a, "");
-    key(&a, e->args[i], NULL);
-    if (a.n > 160) continue; /* a growing argument: stop specializing */
-    sb_printf(&k, "%s%d=%s", nuse ? ";" : "", i, a.s);
+    Expr *x = e->args[i];
+    if (!fun_type(L->ptypes[i]) || (x->k == E_VAR && !x->global_ref && in(locals, x->name))) continue;
+    Fv try = fv;
+    try.names.a = xmalloc((size_t)(fv.names.n + 8) * sizeof(char *));
+    try.types.a = xmalloc((size_t)(fv.names.n + 8) * sizeof(Type *));
+    memcpy(try.names.a, fv.names.a, (size_t)fv.names.n * sizeof(char *));
+    memcpy(try.types.a, fv.types.a, (size_t)fv.names.n * sizeof(Type *));
+    try.names.cap = try.types.cap = fv.names.n + 8;
+    if (!liftable(x, NULL, locals, 0, &try) || try.names.n > 4) continue;
+    fv = try;
     use[i] = true;
     nuse++;
   }
-  if (nuse == L->n) { /* a copy must keep a parameter, to stay a function */
+  if (nuse == L->n && !fv.names.n) { /* a copy must keep a parameter, to stay a function */
     int i = m - 1;
     while (!use[i]) i--;
     use[i] = false;
     nuse--;
-    k.n = 0;
-    sb_printf(&k, "%s@{", fb->name);
-    for (int j = 0, c = 0; j < m; j++) {
-      if (!use[j]) continue;
-      SB a = {0};
-      sb_puts(&a, "");
-      key(&a, e->args[j], NULL);
-      sb_printf(&k, "%s%d=%s", c++ ? ";" : "", j, a.s);
-    }
   }
   if (!nuse) return;
+  key_fv = &fv;
+  SB k = {0};
+  sb_printf(&k, "%s@{", fb->name);
+  for (int i = 0, c = 0; i < m; i++) {
+    if (!use[i]) continue;
+    SB a = {0};
+    sb_puts(&a, "");
+    key(&a, e->args[i], NULL);
+    if (a.n > 160) return; /* a growing argument: stop specializing */
+    sb_printf(&k, "%s%d=%s", c++ ? ";" : "", i, a.s);
+  }
   sb_puts(&k, "}");
   const char *name = intern(k.s);
+  int nf = fv.names.n;
   if (global_lookup(name) < 0) {
     Bind *b = NEW(Bind);
     *b = (Bind){.name = name, .e = copy_expr(fb->e), .line = fb->line, .col = fb->col, .type = fb->type};
     Lambda *C = b->e->lam;
-    const char **ps = xmalloc((size_t)C->n * sizeof *ps);
-    Type **ts = xmalloc((size_t)C->n * sizeof *ts);
+    const char **hp = xmalloc((size_t)nf * sizeof *hp + 1);
+    Nm *keep = NULL;
+    for (int i = 0; i < nf; i++) keep = nm(keep, hp[i] = intern(xsprintf("$h%d", nhparam++)));
+    const char **ps = xmalloc((size_t)(C->n + nf) * sizeof *ps);
+    Type **ts = xmalloc((size_t)(C->n + nf) * sizeof *ts);
     int n = 0;
+    for (int i = 0; i < nf; i++) {
+      ps[n] = hp[i];
+      ts[n++] = fv.types.a[i];
+    }
+    keep_locals = keep;
     for (int i = 0; i < C->n; i++) {
       if (i < m && use[i]) {
-        replace(C->body, C->params[i], e->args[i]);
+        Expr *arg = copy_expr(e->args[i]);
+        rename_fv(arg, &fv, hp, NULL);
+        replace(C->body, C->params[i], arg);
         continue;
       }
       ps[n] = C->params[i];
       ts[n++] = C->ptypes[i];
     }
+    keep_locals = NULL;
     C->params = ps;
     C->ptypes = ts;
     C->n = n;
@@ -837,8 +992,13 @@ static void ho_call(Expr *e, Nm *locals) {
     VPUSH(specialized, b);
     VPUSH(ho_work, b);
   }
-  Expr **rest = xmalloc((size_t)e->n * sizeof *rest);
+  Expr **rest = xmalloc((size_t)(e->n + nf) * sizeof *rest);
   int n = 0;
+  for (int i = 0; i < nf; i++) { /* the call site's locals, as the copy's leading arguments */
+    Expr *v = var(fv.names.a[i], f->line, f->col);
+    v->ty = fv.types.a[i];
+    rest[n++] = v;
+  }
   for (int i = 0; i < e->n; i++)
     if (!(i < m && use[i])) rest[n++] = e->args[i];
   Expr *v = var(name, f->line, f->col);
@@ -863,6 +1023,60 @@ static Nm *ho_group(Group *g, Nm *s) {
   return s;
 }
 
+/* (\p1 .. pn -> body) a1 .. an becomes case a1 of p1 -> .. case an of
+   pn -> body: the arguments are still evaluated first, in order, and no
+   closure is built. Parameters get fresh names first, so one cannot
+   capture a variable of a later argument. */
+static int nbeta;
+
+static void beta(Expr *e) {
+  Lambda *L = e->fn->lam;
+  int n = L->n;
+  Expr *body = L->body;
+  const char **fresh = xmalloc((size_t)n * sizeof *fresh);
+  for (int i = 0; i < n; i++) {
+    fresh[i] = intern(xsprintf("$b%d", nbeta++));
+    Expr *v = mk(E_VAR, e->line, e->col);
+    v->name = fresh[i];
+    v->ty = L->ptypes ? L->ptypes[i] : NULL;
+    Nm *saved = keep_locals;
+    keep_locals = nm(NULL, fresh[i]); /* the fresh name stays local */
+    replace(body, L->params[i], v);
+    keep_locals = saved;
+  }
+  for (int i = n; i-- > 0;) {
+    Pat *p = NEW(Pat);
+    *p = (Pat){.k = P_VAR, .line = e->line, .col = e->col, .name = fresh[i], .ty = L->ptypes ? L->ptypes[i] : NULL};
+    Alt *alt = NEW(Alt);
+    alt->np = 1;
+    alt->pats = xmalloc(sizeof *alt->pats);
+    alt->pats[0] = p;
+    alt->rhs.ng = 1;
+    alt->rhs.guards = xcalloc(1, sizeof(Expr *));
+    alt->rhs.bodies = xmalloc(sizeof(Expr *));
+    alt->rhs.bodies[0] = body;
+    Expr *c = mk(E_CASE, e->line, e->col);
+    c->name = cur_file;
+    c->ns = 1;
+    c->scruts = xmalloc(sizeof *c->scruts);
+    c->scruts[0] = e->args[i];
+    c->na = 1;
+    c->alts = xmalloc(sizeof *c->alts);
+    c->alts[0] = alt;
+    c->ty = body->ty;
+    body = c;
+  }
+  if (e->n == n) {
+    Type *t = e->ty;
+    *e = *body;
+    e->ty = t;
+  } else { /* more arguments than parameters: apply the result to the rest */
+    e->fn = body;
+    e->args += n;
+    e->n -= n;
+  }
+}
+
 static void ho_expr(Expr *e, Nm *s) {
   switch (e->k) {
   case E_APP:
@@ -874,6 +1088,11 @@ static void ho_expr(Expr *e, Nm *s) {
       e->fn = f->fn;
       e->args = all;
       e->n += f->n;
+    }
+    if (e->fn->k == E_LAM && e->n >= e->fn->lam->n) {
+      beta(e);
+      ho_expr(e, s);
+      return;
     }
     ho_expr(e->fn, s);
     for (int i = 0; i < e->n; i++) ho_expr(e->args[i], s);
@@ -913,4 +1132,325 @@ void ho_specialize(Bind **bs, int n) {
     Bind *b = ho_work.a[--ho_work.n];
     ho_expr(b->e, NULL);
   }
+}
+
+/* ---------------------------------------------------------- lambda lifting */
+
+/* A local function that is only ever called -- never passed, returned or
+   stored -- needs no closure. It becomes a top-level function taking its
+   free local variables as leading parameters, and each call passes them:
+   `safe q qs = check qs 1 where check (c:cs) d = .. q ..` calls
+   `safe/check q qs 1`. Lifted functions are then ordinary globals: direct
+   calls, specialization, TRMC. A group is lifted only if no binder in its
+   region rebinds one of its free variables, so the variables passed at a
+   call are the ones the function used. */
+
+typedef struct Lift { const char *name, *global; int nfv; const char **fv; Type **fvt; struct Lift *next; } Lift;
+
+static int nlift;
+
+static Lift *lift_find(Lift *l, const char *name) {
+  for (; l; l = l->next)
+    if (l->name == name) return l;
+  return NULL;
+}
+
+/* Does name occur in e other than as the function of a call with at least
+   arity arguments? */
+static bool escapes(Expr *e, const char *name, int arity);
+
+static bool escapes_group(Group *g, const char *name, int arity) {
+  for (int i = 0; i < g->n; i++)
+    if (escapes(g->b[i]->e, name, arity)) return true;
+  return false;
+}
+
+static bool escapes(Expr *e, const char *name, int arity) {
+  switch (e->k) {
+  case E_VAR: return e->name == name && !e->global_ref;
+  case E_APP:
+    if (!(e->fn->k == E_VAR && e->fn->name == name && !e->fn->global_ref && e->n >= arity) &&
+        escapes(e->fn, name, arity))
+      return true;
+    for (int i = 0; i < e->n; i++)
+      if (escapes(e->args[i], name, arity)) return true;
+    return false;
+  case E_LAM: return escapes(e->lam->body, name, arity);
+  case E_LET: return escapes_group(&e->g, name, arity) || escapes(e->body, name, arity);
+  case E_IF: return escapes(e->cond, name, arity) || escapes(e->then_, name, arity) || escapes(e->else_, name, arity);
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++)
+      if (escapes(e->scruts[i], name, arity)) return true;
+    for (int a = 0; a < e->na; a++) {
+      Rhs *r = &e->alts[a]->rhs;
+      for (int i = 0; i < r->nwg; i++)
+        if (escapes_group(&r->wg[i], name, arity)) return true;
+      for (int i = 0; i < r->ng; i++)
+        if ((r->guards[i] && escapes(r->guards[i], name, arity)) || escapes(r->bodies[i], name, arity)) return true;
+    }
+    return false;
+  case E_ANN: return escapes(e->body, name, arity);
+  default: return false;
+  }
+}
+
+/* All names bound anywhere in e (parameters, patterns, bindings). */
+static Nm *binders(Expr *e, Nm *s);
+
+static Nm *binders_group(Group *g, Nm *s) {
+  for (int i = 0; i < g->n; i++) s = binders(g->b[i]->e, nm(s, g->b[i]->name));
+  return s;
+}
+
+static Nm *binders(Expr *e, Nm *s) {
+  switch (e->k) {
+  case E_APP:
+    s = binders(e->fn, s);
+    for (int i = 0; i < e->n; i++) s = binders(e->args[i], s);
+    return s;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) s = nm(s, e->lam->params[i]);
+    return binders(e->lam->body, s);
+  case E_LET: return binders(e->body, binders_group(&e->g, s));
+  case E_IF: return binders(e->else_, binders(e->then_, binders(e->cond, s)));
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) s = binders(e->scruts[i], s);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      for (int i = 0; i < alt->np; i++) s = pat_nm(alt->pats[i], s);
+      for (int i = 0; i < alt->rhs.nwg; i++) s = binders_group(&alt->rhs.wg[i], s);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) s = binders(alt->rhs.guards[i], s);
+        s = binders(alt->rhs.bodies[i], s);
+      }
+    }
+    return s;
+  case E_ANN: return binders(e->body, s);
+  default: return s;
+  }
+}
+
+/* Free local variables of e: names in locals, not bound inside e, plus
+   the free variables of lifted functions it calls. */
+static void free_locals(Expr *e, Nm *inner, Nm *locals, Lift *lifts, Fv *fv);
+
+static void add_fv(Fv *fv, const char *name, Type *t) {
+  if (fv_index(fv, name) >= 0) return;
+  VPUSH(fv->names, name);
+  VPUSH(fv->types, t);
+}
+
+static Nm *free_group(Group *g, Nm *inner, Nm *locals, Lift *lifts, Fv *fv) {
+  for (int i = 0; i < g->n; i++) inner = nm(inner, g->b[i]->name);
+  for (int i = 0; i < g->n; i++) free_locals(g->b[i]->e, inner, locals, lifts, fv);
+  return inner;
+}
+
+static void free_locals(Expr *e, Nm *inner, Nm *locals, Lift *lifts, Fv *fv) {
+  switch (e->k) {
+  case E_VAR: {
+    if (e->global_ref || in(inner, e->name)) return;
+    Lift *l = lift_find(lifts, e->name);
+    if (l) {
+      for (int i = 0; i < l->nfv; i++) add_fv(fv, l->fv[i], l->fvt[i]);
+      return;
+    }
+    if (in(locals, e->name)) add_fv(fv, e->name, e->ty);
+    return;
+  }
+  case E_APP:
+    free_locals(e->fn, inner, locals, lifts, fv);
+    for (int i = 0; i < e->n; i++) free_locals(e->args[i], inner, locals, lifts, fv);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) inner = nm(inner, e->lam->params[i]);
+    free_locals(e->lam->body, inner, locals, lifts, fv);
+    return;
+  case E_LET: free_locals(e->body, free_group(&e->g, inner, locals, lifts, fv), locals, lifts, fv); return;
+  case E_IF:
+    free_locals(e->cond, inner, locals, lifts, fv);
+    free_locals(e->then_, inner, locals, lifts, fv);
+    free_locals(e->else_, inner, locals, lifts, fv);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) free_locals(e->scruts[i], inner, locals, lifts, fv);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = inner;
+      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
+      for (int i = 0; i < alt->rhs.nwg; i++) t = free_group(&alt->rhs.wg[i], t, locals, lifts, fv);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) free_locals(alt->rhs.guards[i], t, locals, lifts, fv);
+        free_locals(alt->rhs.bodies[i], t, locals, lifts, fv);
+      }
+    }
+    return;
+  case E_ANN: free_locals(e->body, inner, locals, lifts, fv); return;
+  default: return;
+  }
+}
+
+static VEC(Bind *) lifted;
+
+static void lift_expr(Expr *e, Nm *locals, Lift *lifts, const char *owner);
+
+/* Try to lift group g, whose scope also covers the expressions in rest.
+   Returns the lifts in scope afterwards; *done tells whether g was
+   lifted (and must be removed by the caller). */
+static Lift *lift_group(Group *g, Expr **rest, int nrest, Nm *locals, Lift *lifts, const char *owner, bool *done) {
+  *done = false;
+  for (int i = 0; i < g->n; i++)
+    if (g->b[i]->e->k != E_LAM || !g->b[i]->e->lam->ptypes) return lifts;
+  for (int i = 0; i < g->n; i++) {
+    const char *x = g->b[i]->name;
+    int ar = g->b[i]->e->lam->n;
+    if (escapes_group(g, x, ar)) return lifts;
+    for (int k = 0; k < nrest; k++)
+      if (rest[k] && escapes(rest[k], x, ar)) return lifts;
+  }
+  Fv fv = {0};
+  for (int i = 0; i < g->n; i++) {
+    Nm *inner = NULL;
+    for (int k = 0; k < g->n; k++) inner = nm(inner, g->b[k]->name);
+    free_locals(g->b[i]->e, inner, locals, lifts, &fv);
+  }
+  if (fv.names.n > 8) return lifts;
+  Nm *bound = binders_group(g, NULL);
+  for (int k = 0; k < nrest; k++)
+    if (rest[k]) bound = binders(rest[k], bound);
+  for (int i = 0; i < fv.names.n; i++)
+    if (in(bound, fv.names.a[i])) return lifts; /* a call might see another variable of that name */
+  for (int i = 0; i < g->n; i++) {
+    Lift *l = NEW(Lift);
+    *l = (Lift){g->b[i]->name, intern(xsprintf("%s/%s%d", owner, g->b[i]->name, nlift++)), fv.names.n, fv.names.a,
+                fv.types.a, lifts};
+    lifts = l;
+  }
+  for (int i = 0; i < g->n; i++) {
+    Bind *b = g->b[i];
+    Lambda *L = b->e->lam;
+    Lift *l = lift_find(lifts, b->name);
+    const char **ps = xmalloc((size_t)(l->nfv + L->n) * sizeof *ps);
+    Type **ts = xmalloc((size_t)(l->nfv + L->n) * sizeof *ts);
+    memcpy(ps, l->fv, (size_t)l->nfv * sizeof *ps);
+    memcpy(ts, l->fvt, (size_t)l->nfv * sizeof *ts);
+    memcpy(ps + l->nfv, L->params, (size_t)L->n * sizeof *ps);
+    memcpy(ts + l->nfv, L->ptypes, (size_t)L->n * sizeof *ts);
+    L->params = ps;
+    L->ptypes = ts;
+    L->n += l->nfv;
+    L->name = l->global;
+    Nm *inner = NULL;
+    for (int k = 0; k < L->n; k++) inner = nm(inner, L->params[k]);
+    lift_expr(L->body, inner, lifts, l->global); /* the free variables are parameters now */
+    Bind *nb = NEW(Bind);
+    *nb = (Bind){.name = l->global, .e = b->e, .line = b->line, .col = b->col, .type = b->type};
+    nb->gidx = global_add(l->global, NULL, L);
+    globals.a[nb->gidx].bind = nb;
+    VPUSH(lifted, nb);
+  }
+  *done = true;
+  return lifts;
+}
+
+static void lift_call(Expr *e, Lift *lifts) {
+  Expr *f = e->fn;
+  Lift *l = f->k == E_VAR && !f->global_ref ? lift_find(lifts, f->name) : NULL;
+  if (!l) return;
+  Expr **all = xmalloc((size_t)(l->nfv + e->n) * sizeof *all);
+  for (int i = 0; i < l->nfv; i++) {
+    Expr *v = mk(E_VAR, e->line, e->col);
+    v->name = l->fv[i];
+    v->ty = l->fvt[i];
+    all[i] = v;
+  }
+  memcpy(all + l->nfv, e->args, (size_t)e->n * sizeof *all);
+  e->args = all;
+  e->n += l->nfv;
+  Type *t = f->ty;
+  f->name = l->global;
+  f->global_ref = true;
+  f->ty = t;
+}
+
+static void lift_wgs(Rhs *r, Nm **locals, Lift **lifts, const char *owner) {
+  for (int i = 0; i < r->nwg; i++) {
+    VEC(Expr *) rest = {0};
+    for (int k = i + 1; k < r->nwg; k++)
+      for (int j = 0; j < r->wg[k].n; j++) VPUSH(rest, r->wg[k].b[j]->e);
+    for (int k = 0; k < r->ng; k++) {
+      VPUSH(rest, r->guards[k]);
+      VPUSH(rest, r->bodies[k]);
+    }
+    bool done;
+    *lifts = lift_group(&r->wg[i], rest.a, rest.n, *locals, *lifts, owner, &done);
+    if (done) {
+      memmove(r->wg + i, r->wg + i + 1, (size_t)(r->nwg - i - 1) * sizeof *r->wg);
+      r->nwg--;
+      i--;
+      continue;
+    }
+    for (int j = 0; j < r->wg[i].n; j++) *locals = nm(*locals, r->wg[i].b[j]->name);
+    for (int j = 0; j < r->wg[i].n; j++) lift_expr(r->wg[i].b[j]->e, *locals, *lifts, owner);
+  }
+}
+
+static void lift_expr(Expr *e, Nm *locals, Lift *lifts, const char *owner) {
+  switch (e->k) {
+  case E_APP:
+    lift_expr(e->fn, locals, lifts, owner);
+    for (int i = 0; i < e->n; i++) lift_expr(e->args[i], locals, lifts, owner);
+    lift_call(e, lifts);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) locals = nm(locals, e->lam->params[i]);
+    lift_expr(e->lam->body, locals, lifts, owner);
+    return;
+  case E_LET: {
+    bool done;
+    Expr *rest[1] = {e->body};
+    lifts = lift_group(&e->g, rest, 1, locals, lifts, owner, &done);
+    if (done) {
+      Type *t = e->ty;
+      Expr *body = e->body;
+      *e = *body;
+      e->ty = t;
+      lift_expr(e, locals, lifts, owner);
+      return;
+    }
+    for (int i = 0; i < e->g.n; i++) locals = nm(locals, e->g.b[i]->name);
+    for (int i = 0; i < e->g.n; i++) lift_expr(e->g.b[i]->e, locals, lifts, owner);
+    lift_expr(e->body, locals, lifts, owner);
+    return;
+  }
+  case E_IF:
+    lift_expr(e->cond, locals, lifts, owner);
+    lift_expr(e->then_, locals, lifts, owner);
+    lift_expr(e->else_, locals, lifts, owner);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) lift_expr(e->scruts[i], locals, lifts, owner);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = locals;
+      Lift *ls = lifts;
+      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
+      lift_wgs(&alt->rhs, &t, &ls, owner);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) lift_expr(alt->rhs.guards[i], t, ls, owner);
+        lift_expr(alt->rhs.bodies[i], t, ls, owner);
+      }
+    }
+    return;
+  case E_ANN: lift_expr(e->body, locals, lifts, owner); return;
+  default: return;
+  }
+}
+
+/* Lift local functions in bs; lifted functions go to `specialized`, and
+   are themselves searched for nested ones. */
+void lift_locals(Bind **bs, int n) {
+  for (int i = 0; i < n; i++) lift_expr(bs[i]->e, NULL, NULL, bs[i]->name);
+  for (int i = 0; i < lifted.n; i++) VPUSH(specialized, lifted.a[i]);
+  lifted.n = 0;
 }

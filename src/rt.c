@@ -58,7 +58,7 @@ static void *rt_realloc(void *p, size_t n) {
 #define CHUNK_SIZE ((size_t)1 << 20)
 #define MAX_SMALL 32
 
-typedef struct { size_t words, nobj; char *objs; uint8_t *marks; } Chunk;
+typedef struct { size_t words, nobj; char *objs; uint8_t *marks; uint64_t recip; } Chunk;
 typedef struct { V *p; size_t words; uint8_t mark; } Large;
 typedef struct { V **base; size_t *count; } Root;
 
@@ -108,6 +108,7 @@ static void new_chunk(size_t words) {
   size_t nobj = (CHUNK_SIZE - hdr - 16) / (objbytes + 1);
   c->words = words;
   c->nobj = nobj;
+  c->recip = ((uint64_t)1 << 32) / objbytes + 1; /* offset * recip >> 32 == offset / objbytes below 1 MiB */
   c->marks = (uint8_t *)(base + hdr);
   c->objs = base + ((hdr + nobj + 15) & ~(size_t)15);
   nchunks++;
@@ -120,7 +121,7 @@ static V *find_obj(uintptr_t w, uint8_t **mark, size_t *words) {
   if (w >= heap_lo && w < heap_hi) {
     Chunk *c = (Chunk *)(w & ~(uintptr_t)(CHUNK_SIZE - 1));
     if (w < (uintptr_t)c->objs) return NULL;
-    size_t i = (w - (uintptr_t)c->objs) / (c->words * sizeof(V));
+    size_t i = (size_t)(((uint64_t)(w - (uintptr_t)c->objs) * c->recip) >> 32);
     if (i >= c->nobj) return NULL;
     V *o = (V *)(c->objs + i * c->words * sizeof(V));
     if (((FkHdr *)o)->kind == K_FREE) return NULL;

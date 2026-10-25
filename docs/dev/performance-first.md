@@ -124,7 +124,9 @@ The largest ratios left are `floats` (boxing: step 5), `lazywhere` (thunks: step
 
 **Specialization on function arguments.** Calls with closed function arguments call copies of the callee with the argument substituted (architecture.md, Elaboration). The geometric mean went from 2.57x to **2.38x**: `lists` 10.3x to 8.0x, `strings` 5.5x to 4.0x, `closures` 2.3x to 1.8x. What remains in `lists`, `sort` and `queens` is mostly collection, about 40% of `lists`: the next step is the memory manager.
 
-**Tail recursion modulo cons** ([memory.md](memory.md)): list-building functions compile to loops, so stacks stay shallow and collections scan less. 2.40x to **2.06x**: `lists` 8.0x to 3.2x, `sort` 4.7x to 3.1x. Step 5 changes the shape of `cgen.c`, so steps 1 and 3 should be written so that they survive it.
+**Tail recursion modulo cons** ([memory.md](memory.md)): list-building functions compile to loops, so stacks stay shallow and collections scan less. 2.40x to **2.06x**: `lists` 8.0x to 3.2x, `sort` 4.7x to 3.1x.
+
+**Lambdas that capture locals.** Function arguments with free local variables are specialized too, with those variables as extra parameters; the lambda applications this creates are beta-reduced; and local functions that are only called are lambda-lifted, so they need no closure. 2.06x to **1.93x**, below the target: `queens` 5.8x to 3.0x, `sort` 3.1x to 2.9x. Specialized arguments may then contain `case`, which lambdas with patterns desugar to (`length`'s `\n _ -> n + 1`): **1.89x**, with no unknown calls left in the generated `strings` program. Collection is now about 35% of `lists`, `sort` and `strings`; see [memory.md](memory.md#after-trmc). Step 5 changes the shape of `cgen.c`, so steps 1 and 3 should be written so that they survive it.
 
 ## Decisions needed
 

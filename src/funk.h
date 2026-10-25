@@ -335,6 +335,7 @@ void elab_bind(Bind *b);
 Bind *dict_bind(InstDef *in);
 Expr *copy_expr(Expr *e);
 void ho_specialize(Bind **bs, int n); /* copies made go to `specialized` */
+void lift_locals(Bind **bs, int n);   /* lifted functions go to `specialized` */
 extern VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 
 /* --------------------------------------------------------------- backends */
