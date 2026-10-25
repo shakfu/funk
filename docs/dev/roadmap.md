@@ -36,11 +36,11 @@ Measure first with `make bench`, then compare with `bench/bench.py report`. Base
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
-- Type classes with dictionary passing. This would replace the `Num` flag and structural `show`/`==`, and fix the polymorphic-literal limitation from [design.md](design.md). It is the biggest change on this list.
+- Type classes with dictionary passing ([type-classes.md](type-classes.md)). This would replace the `Num` flag and structural `show`/`==`, and fix the polymorphic-literal limitation from [design.md](design.md). It is the biggest change on this list.
 
 - Modules and `import`.
 
-- Records, as-patterns, list comprehensions.
+- Records ([records.md](records.md)), as-patterns, list comprehensions.
 
 - A `do` block for sequencing, desugared to `>>` and `let`.
 
