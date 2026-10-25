@@ -38,7 +38,7 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 
 - Type classes with dictionary passing ([type-classes.md](type-classes.md)). This would replace the `Num` flag and structural `show`/`==`, and fix the polymorphic-literal limitation from [design.md](design.md). It is the biggest change on this list.
 
-- Modules and `import`.
+- Modules and `import`. Lowercase module names with `.` paths are reserved in [records.md](records.md#modules).
 
 - Records ([records.md](records.md)), as-patterns, list comprehensions.
 

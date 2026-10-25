@@ -31,6 +31,7 @@ main =
   print ([1..10] |> filter even |> map (* 3) |> sum) >>
   print ((show . (+ 1) . (* 2)) 5) >>
   print ((length >>> (* 2)) "hello") >>
+  print (10 |> (+1) |> (*2)) >>
   print (sumTo 1000000) >>
   print (map classify [-5, 0, 7]) >>
   print (Just (Circle 2.0), Left 3 :: Either Int Bool) >>
