@@ -5,7 +5,10 @@
    closure. Saturated calls to known lambdas, primitives and constructors
    are direct; anything else goes through fk_apply. Values of scalar type
    are C scalars inside a function body; function boundaries, data fields
-   and closures use V (typed-backend.md). A self call in tail
+   and closures use V (typed-backend.md). Each lambda is a worker w_N
+   with C-typed parameters and result, called directly by saturated known
+   calls, and a wrapper fn_N(self, V *a) for closures, thunks and
+   fk_apply. A self call in tail
    position becomes a jump back to the top of the function. Arguments are
    evaluated left to right into temporaries before each call, since C
    leaves argument order unspecified. */
@@ -28,6 +31,7 @@ typedef struct {
   Rep *slot; /* representation of each frame slot */
   bool trmc; /* results go through dst; see cg_tail */
   const char *reuse; /* a dead cons cell, matched from an `own` scrutinee */
+  Rep rrep;          /* the worker's result */
 } CG;
 
 static TV cg_expr(CG *c, Expr *e);
@@ -57,6 +61,10 @@ static const char *conv(TV v, Rep to) {
 }
 
 static TV tv(const char *s, Rep r) { return (TV){s, r}; }
+
+/* A worker's parameter and result representations. */
+static Rep param_rep(Lambda *L, int i) { return L->ptypes ? rep_of(L->ptypes[i]) : R_V; }
+static Rep result_rep(Lambda *L) { return rep_of(L->body->ty); }
 static const char *as_v(TV v) { return conv(v, R_V); }
 
 static const char *newtmp(CG *c) { return xsprintf("t%d", c->tmp++); }
@@ -193,8 +201,10 @@ static TV cg_call(CG *c, Expr *e) {
   }
   bool direct = f->k == E_CON || prim >= 0 || (f->k == E_VAR && f->known);
   const char *fv = direct ? NULL : as_v(cg_expr(c, f));
+  Lambda *K = f->k == E_VAR && prim < 0 ? f->known : NULL;
+  bool worker = K && n >= K->n;
   const char **a = xmalloc((size_t)n * sizeof *a);
-  for (int i = 0; i < n; i++) a[i] = as_v(cg_expr(c, e->args[i]));
+  for (int i = 0; i < n; i++) a[i] = conv(cg_expr(c, e->args[i]), worker && i < K->n ? param_rep(K, i) : R_V);
   int arity;
   const char *call;
   if (f->k == E_CON) {
@@ -209,7 +219,12 @@ static TV cg_call(CG *c, Expr *e) {
     arity = f->known->n;
     const char *self = as_v(var_ref(c, f));
     if (n < arity) return tv(xsprintf("fk_apply(%s, %d, %s)", self, n, arg_array(a, n)), R_V);
-    call = xsprintf("fn_%d(%s, %s)", f->known->id, self, arg_array(a, arity));
+    SB w = {0};
+    sb_printf(&w, "w_%d(%s", K->id, self);
+    for (int i = 0; i < arity; i++) sb_printf(&w, ", %s", a[i]);
+    sb_puts(&w, ")");
+    if (n == arity) return tv(w.s, result_rep(K));
+    call = as_v(tv(w.s, result_rep(K)));
   } else {
     return tv(xsprintf("fk_apply(%s, %d, %s)", fv, n, arg_array(a, n)), R_V);
   }
@@ -389,9 +404,9 @@ static bool has_trmc(Lambda *L, Expr *e) {
 }
 
 /* Return v from a function body, through dst in a TRMC loop. */
-static void ret(CG *c, const char *v) {
-  if (c->trmc) sb_printf(c->out, "  *dst = %s;\n  return head;\n", v);
-  else sb_printf(c->out, "  return %s;\n", v);
+static void ret(CG *c, TV v) {
+  if (c->trmc) sb_printf(c->out, "  *dst = %s;\n  return head;\n", as_v(v));
+  else sb_printf(c->out, "  return %s;\n", conv(v, c->rrep));
 }
 
 /* A self call in tail position: assign the parameters, jump to the top. */
@@ -427,7 +442,7 @@ static void cg_tail(CG *c, Expr *e) {
       self_jump(c, e->args[n - 1]);
       return;
     }
-    ret(c, as_v(cg_call(c, e)));
+    ret(c, cg_call(c, e));
     return;
   }
   case E_LET: cg_group(c, &e->g); cg_tail(c, e->body); return;
@@ -441,7 +456,7 @@ static void cg_tail(CG *c, Expr *e) {
   }
   case E_CASE: cg_case(c, e, true); return;
   case E_ANN: cg_tail(c, e->body); return;
-  default: ret(c, as_v(cg_expr(c, e))); return;
+  default: ret(c, cg_expr(c, e)); return;
   }
 }
 
@@ -495,23 +510,37 @@ static void slots_expr(Rep *s, Expr *e) {
   }
 }
 
+/* The wrapper's call of the worker, unboxing a. */
+static const char *wrapper_call(Lambda *L) {
+  SB b = {0};
+  sb_printf(&b, "w_%d(self", L->id);
+  for (int i = 0; i < L->n; i++) sb_printf(&b, ", %s", conv(tv(xsprintf("a[%d]", i), R_V), param_rep(L, i)));
+  sb_puts(&b, ")");
+  return b.s;
+}
+
 static void cg_lambda(SB *out, Lambda *L) {
   Rep *slot = xcalloc((size_t)L->nslots + 1, sizeof *slot);
   for (int i = 0; i < L->n; i++) slot[i] = L->ptypes ? rep_of(L->ptypes[i]) : R_V;
   slots_expr(slot, L->body);
   SB body = {0};
   sb_puts(&body, "");
-  CG c = {&body, L, 0, 0, false, slot, has_trmc(L, L->body), NULL};
+  bool trmc = has_trmc(L, L->body);
+  Rep rr = trmc ? R_V : result_rep(L);
+  CG c = {&body, L, 0, 0, false, slot, trmc, NULL, rr};
   cg_tail(&c, L->body);
   char *nm = xsprintf("%s", L->name ? L->name : "lambda");
   for (char *s = nm; (s = strstr(s, "*/"));) s[1] = '|'; /* keep the comment closed */
-  sb_printf(out, "static V fn_%d(V self, V *a) { /* %s */\n", L->id, nm);
+  sb_printf(out, "static %s w_%d(V self", ctype[rr], L->id);
+  for (int i = 0; i < L->n; i++) sb_printf(out, ", %s p%d", ctype[param_rep(L, i)], i);
+  sb_printf(out, ") { /* %s */\n", nm);
   for (int i = 0; i < L->nslots; i++)
-    sb_printf(out, "  %s l%d = %s;\n", ctype[slot[i]], i, i < L->n ? conv(tv(xsprintf("a[%d]", i), R_V), slot[i]) : "0");
+    sb_printf(out, "  %s l%d = %s;\n", ctype[slot[i]], i, i < L->n ? conv(tv(xsprintf("p%d", i), param_rep(L, i)), slot[i]) : "0");
   if (c.trmc) sb_puts(out, "  V head = 0, *dst = &head;\n");
   if (c.looped) sb_puts(out, "  top:;\n");
   sb_puts(out, body.s);
-  sb_puts(out, "}\n\n");
+  sb_puts(out, "}\n");
+  sb_printf(out, "static V fn_%d(V self, V *a) { return %s; }\n\n", L->id, as_v(tv(wrapper_call(L), rr)));
 }
 
 /* Pass 0 creates function closures, pass 1 runs value initializers. Raw
@@ -608,7 +637,13 @@ char *cgen_program(Chunk *chunks, int nchunks) {
   sb_printf(&out, "\n/* ---- generated program ---- */\n\nstatic V G[%d];\nstatic size_t G_n = %d;\n\n",
             globals.n ? globals.n : 1, globals.n);
   for (int i = 0; i < all_lambdas.n; i++)
-    if (r.lam[all_lambdas.a[i]->id]) sb_printf(&out, "static V fn_%d(V self, V *a);\n", all_lambdas.a[i]->id);
+    if (r.lam[all_lambdas.a[i]->id]) {
+      Lambda *L = all_lambdas.a[i];
+      Rep rr = has_trmc(L, L->body) ? R_V : result_rep(L);
+      sb_printf(&out, "static V fn_%d(V self, V *a);\nstatic %s w_%d(V self", L->id, ctype[rr], L->id);
+      for (int j = 0; j < L->n; j++) sb_printf(&out, ", %s", ctype[param_rep(L, j)]);
+      sb_puts(&out, ");\n");
+    }
   sb_puts(&out, "\n");
   for (int i = 0; i < all_lambdas.n; i++)
     if (r.lam[all_lambdas.a[i]->id]) cg_lambda(&out, all_lambdas.a[i]);

@@ -34,12 +34,12 @@ for f in tests/run/*.fk examples/*.fk; do
   if FK_CHECK_TYPES=1 "$FUNK" emit-c "$f" -o /dev/null 2>"$tmp/types" && ! grep -q untyped "$tmp/types"; then ok
   else bad "$n (types)" "$tmp/types"; fi
   if [ -f "$d/$n.reuse" ]; then
-    FK_NOFUSE=1 "$FUNK" emit-c "$f" -o "$tmp/$n.c" && grep '^static V fn_.*@reuse[0-9]* \*/$' "$tmp/$n.c" |
+    FK_NOFUSE=1 "$FUNK" emit-c "$f" -o "$tmp/$n.c" && grep '^static .* w_[0-9]*(.*) { /\* .*@reuse[0-9]* \*/$' "$tmp/$n.c" |
       sed 's|.*/\* ||; s| \*/$||' | sort >"$tmp/$n.reuse"
     if diff "$d/$n.reuse" "$tmp/$n.reuse" >"$tmp/diff" 2>&1; then ok; else bad "$n (reuse)" "$tmp/diff"; fi
   fi
   if [ -f "$d/$n.fuse" ]; then
-    "$FUNK" emit-c "$f" -o "$tmp/$n.c" && grep '^static V fn_.*/\$f[0-9]' "$tmp/$n.c" |
+    "$FUNK" emit-c "$f" -o "$tmp/$n.c" && grep '^static .* w_[0-9]*(.*) { /\* .*/\$f[0-9]' "$tmp/$n.c" |
       sed 's|.*/\* ||; s|/\$f.*||' | sort >"$tmp/$n.fuse"
     if diff "$d/$n.fuse" "$tmp/$n.fuse" >"$tmp/diff" 2>&1; then ok; else bad "$n (fuse)" "$tmp/diff"; fi
   fi

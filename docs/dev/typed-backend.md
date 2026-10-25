@@ -73,7 +73,12 @@ Each step is measured with `bench/bench.py report` before the next.
 
 1. ~~Record types (check.c, elab.c clones).~~ Done. Every expression, lambda parameter, binding and non-wildcard pattern has a type; dictionaries have the type `$Dict`. Clones substitute their types (`fib@Int,Int: Int -> Int`). `FK_CHECK_TYPES=1` reports gaps, and `make test` runs it on every run test and example; `FK_CHECK_TYPES=2` prints each top-level function's parameter and result types.
 2. ~~Typed locals and expressions within a function body, with coercions at calls, fields and returns.~~ Done. Geometric mean 4.91x to **4.02x**: `loop` 2.6x to 1.0x, `floats` 34.3x to 11.4x, others 0-9% faster. `floats`' loop is still allocating, but for a thunk: `let x = ...` is lazy, which makes eager `let` the next cost there. Function boundaries are still `V`: parameters are unboxed once at entry and results boxed at `return`.
-3. Workers and wrappers, direct typed calls. Expected: `fib` near C.
+3. ~~Workers and wrappers, direct typed calls.~~ Done. Geometric mean 1.52x to **1.37x**: `fib` 1.5x to 1.0x, `queens` 1.4x to 1.1x, `trees` 2.2x to 1.7x, `sort` 2.2x to 1.8x. Every lambda is a worker `w_N` with C parameters and result, plus the wrapper `fn_N(V self, V *a)` for closures, thunks and `fk_apply`. Notes:
+   - clang now turns some non-tail recursions into loops: `1 + f (n - 1)` runs in constant stack when compiled, but not when interpreted. `tests/run/overflow.fk` uses `1 + 2 * f (n - 1)`, which clang cannot turn into a loop.
+   - Inlining is left to clang. Marking looping workers `noinline` made `pipeline` 2x faster, because clang vectorizes the loop when it is out of line, but `queens` 14% slower. It was not kept.
+   - Copies made by `ho_specialize` keep the original's generic parameter types, so `flip@{0=primMulInt}` still takes `V`.
+
+   The original expectation was `fib` near C. A hand prototype (2026-10-25) shows they also give the effect of an inliner: with `even`, `flip (*) 3` and `compare` at `Int` as typed C functions, clang inlines them. `pipeline` at n = 30M went from 192 ms to 97 ms, which is C's 96 ms. `sort` went from 77 ms to 70 ms; inlining by hand gave the same. A funk-level inliner is therefore not needed for these. Matching on the inlined `compare`'s result without building the `Ordering` (case-of-case) gave a further 5% on `sort` (66 ms). clang cannot do that itself, because `fk_con_value` is an out-of-line call.
 4. Typed closure captures.
 5. Unboxed scalar fields in constructors whose field types are concrete.
 6. 64-bit `Int` in the interpreter (`K_INT64`), with tests at the 63-bit boundary in both backends.
