@@ -1,4 +1,4 @@
-/* embed SYMBOL FILE [SYMBOL FILE ...] -- write C arrays holding each FILE,
+/* embed [-o OUT] SYMBOL FILE [SYMBOL FILE ...] -- write C arrays holding each FILE,
    with local `#include "x"` lines expanded so the runtime can be pasted
    into generated programs as one translation unit. */
 #include <stdio.h>
@@ -25,11 +25,17 @@ static void emit(FILE *out, const char *path, int depth) {
 }
 
 int main(int argc, char **argv) {
-  if (argc < 3 || argc % 2 == 0) { fputs("usage: embed SYMBOL FILE ...\n", stderr); return 2; }
-  for (int i = 1; i < argc; i += 2) {
-    printf("const char %s[] = {\n", argv[i]);
-    emit(stdout, argv[i + 1], 0);
-    puts("0};");
+  FILE *out = stdout;
+  int first = 1;
+  if (argc > 2 && strcmp(argv[1], "-o") == 0) {
+    if (!(out = fopen(argv[2], "w"))) { fprintf(stderr, "embed: cannot write %s\n", argv[2]); return 1; }
+    first = 3;
   }
-  return 0;
+  if (argc - first < 2 || (argc - first) % 2) { fputs("usage: embed [-o OUT] SYMBOL FILE ...\n", stderr); return 2; }
+  for (int i = first; i < argc; i += 2) {
+    fprintf(out, "const char %s[] = {\n", argv[i]);
+    emit(out, argv[i + 1], 0);
+    fputs("0};\n", out);
+  }
+  return fclose(out) ? 1 : 0;
 }

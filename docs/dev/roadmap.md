@@ -6,9 +6,11 @@ A provisional plan, ordered by value per unit of work. The concrete items for th
 
 Core language, HM inference with `Num`, interpreter, REPL, C backend, conservative GC. See [CHANGELOG.md](../../CHANGELOG.md).
 
-## 0.2 -- Haskell semantics and the core of 0.4 (unreleased)
+## 0.2 -- done: Haskell semantics and performance
 
-Done, see [CHANGELOG.md](../../CHANGELOG.md):
+Released 2026-10-25; see [CHANGELOG.md](../../CHANGELOG.md). It covers what the plan had split into two releases, 0.2 and 0.3.
+
+Haskell semantics:
 
 - Lazy `let` and `where` value bindings.
 
@@ -26,7 +28,7 @@ Done, see [CHANGELOG.md](../../CHANGELOG.md):
 
 - Type errors at the offending sub-expression, not the binding.
 
-## 0.3 -- performance (the primary goal)
+Performance, the primary goal:
 
 Generated C speed outranks every other goal; see [performance-first.md](performance-first.md). The metric is the geometric mean of compiled time over C time on the benchmark suite: 10.0x on an M1 (2.6-62x). The target is 2x. Measure with `make bench` and `bench/bench.py report`.
 
@@ -40,15 +42,15 @@ Generated C speed outranks every other goal; see [performance-first.md](performa
 
    Steps 1-4 took the geometric mean from 10.3x to 6.6x; collector marking fixes then took it to 4.9x, typed locals to 4.0x, eager `let` to 2.6x, specialization on function arguments to 2.4x, TRMC to 2.06x, lifting and specializing lambdas that capture locals to 1.93x, packed strings to 1.79x, reuse of list cells to 1.68x, list fusion to 1.52x, and typed workers to 1.37x; 64-bit `Int` in both backends then cost 5.4%, to 1.48x; typed copies of higher-order functions and bump allocation brought it to 1.35x.
 
-5. Typed backend: C scalars in monomorphic code, workers with typed parameters, unboxed scalar fields ([typed-backend.md](typed-backend.md)).
+5. ~~Typed backend: C scalars in monomorphic code, workers with typed parameters, unboxed scalar fields ([typed-backend.md](typed-backend.md)).~~
 
-6. Memory ([memory.md](memory.md)): tail recursion modulo cons first, then a nursery or Perceus reference counting, chosen from a profile.
+6. ~~Memory ([memory.md](memory.md)): tail recursion modulo cons first, then a nursery or Perceus reference counting, chosen from a profile.~~ TRMC, in-place reuse of list cells and list fusion; a nursery and Perceus were measured and rejected.
 
 7. ~~Evaluate pure, total, cheap `let` bindings eagerly.~~ Geometric mean 4.0x to 2.6x.
 
 Interpreter speed (splitting `eval`, 26% in its prologue) is not part of this goal.
 
-## 0.4 -- language growth
+## 0.3 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 

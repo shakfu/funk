@@ -27,16 +27,31 @@ Output:
 
 ## Build and run
 
-```sh
-make                          # builds ./funk; needs a C11 compiler and pthreads
-make test                     # interpreter, compiled, error and REPL tests
-make bench                    # time funk against C; see bench/README.md
+Building needs CMake 3.20 or later, a C11 compiler and pthreads. `make` drives CMake, using Ninja when it is installed:
 
-./funk                        # REPL
-./funk prog.fk                # interpret (same as: funk run prog.fk)
-./funk build prog.fk -o prog  # native executable via $CC (default cc)
-./funk emit-c prog.fk -o prog.c
+```sh
+make                          # builds build/funk and links ./funk to it
+make test                     # interpreter, compiled, error, REPL and command-line tests
+make SANITIZE=undefined test  # the same, with funk built under UBSan in build-undefined/
+make bench                    # time funk against C; see bench/README.md
+make install PREFIX=~/.local  # install funk into PREFIX/bin
 ```
+
+CMake works directly too: `cmake -B build && cmake --build build && ctest --test-dir build`. `BUILD_TYPE` (default `RelWithDebInfo`) applies when a build directory is first configured.
+
+```sh
+funk                          # REPL
+funk repl prog.fk             # REPL, after loading prog.fk
+funk prog.fk                  # interpret (same as: funk run prog.fk)
+funk build prog.fk -o prog    # native executable via $CC (default cc)
+funk build prog.fk -O3 -lsqlite3   # C optimization level; libraries to link
+funk emit-c prog.fk -o prog.c # the generated C
+funk check prog.fk            # type-check only, for editors
+funk -e 'sum [1..10]'         # evaluate an expression (same as: funk eval EXPR)
+funk help build               # a command's options; funk --version
+```
+
+Exit status: 0 on success, 1 when the program or its compilation fails, 2 on a usage error.
 
 REPL commands:
 

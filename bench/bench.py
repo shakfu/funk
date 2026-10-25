@@ -28,7 +28,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROGS = os.path.join(ROOT, "bench", "progs")
 RESULTS = os.path.join(ROOT, "bench", "results.jsonl")
 BUILD = os.path.join(ROOT, "build", "bench")
-FUNK = os.path.join(ROOT, "funk")
+FUNK = os.environ.get("FUNK", os.path.join(ROOT, "funk"))
 BACKENDS = ["c", "compiled", "interp"]
 
 # Input size per benchmark, written to stdin. Changing a size makes old

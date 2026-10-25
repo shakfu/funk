@@ -32,7 +32,8 @@ Both backends link the same runtime, `rt.c`.
 | `src/main.c` | 323 | CLI, REPL, `cc` invocation |
 | `src/util.c`, `funk.h` | 549 | allocation, interning, maps with undo, AST types |
 | `lib/prelude.fk` | 274 | standard functions in funk |
-| `tools/embed.c` | 35 | embeds `rt.c` and the prelude into the binary |
+| `tools/embed.c` | 45 | embeds `rt.c` and the prelude into the binary |
+| `CMakeLists.txt` | 50 | the build; `Makefile` is a frontend to it |
 
 ## Lexing and layout (`lex.c`)
 
@@ -216,4 +217,4 @@ Each input is a chunk. `is_decl_text` classifies it: `data`, a signature, or `=`
 
 ## Build and tests
 
-`make` builds `tools/embed`. It inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/embedded.c`. The behaviour of `tests/run.sh` is documented at the top of the script.
+The CMake build compiles `tools/embed` first. It inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/embedded.c`. The behaviour of `tests/run.sh` is documented at the top of the script.

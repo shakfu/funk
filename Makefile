@@ -1,34 +1,33 @@
-CC ?= cc
-CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Wno-unused-parameter
-LDLIBS = -lm -lpthread
-B = build
+# Frontend to the CMake build (CMakeLists.txt). `make` configures on first
+# use, builds, and links ./funk to the binary, which the benchmarks and the
+# README use. A sanitizer build has its own directory and leaves ./funk alone.
+#
+#   make                           build ./funk
+#   make test                      run the test suite
+#   make SANITIZE=undefined test   the same with funk built under UBSan, in build-undefined/
+#   make bench | bench-report      time funk against C; see bench/README.md
+#   make install PREFIX=DIR        install funk into DIR/bin
+#   make clean                     remove build directories and ./funk
 
-SRCS = main util lex parse check elab fuse resolve interp cgen rt
-OBJS = $(SRCS:%=$(B)/%.o) $(B)/embedded.o
-HDRS = src/funk.h src/rt.h src/prims.def
+CMAKE ?= cmake
+BUILD_TYPE ?= RelWithDebInfo
+SANITIZE ?=
+PREFIX ?= /usr/local
+comma := ,
+BUILD := build$(if $(SANITIZE),-$(subst $(comma),-,$(SANITIZE)))
+GENERATOR := $(if $(shell command -v ninja 2>/dev/null),Ninja,Unix Makefiles)
 
 all: funk
 
-funk: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
+$(BUILD)/CMakeCache.txt:
+	$(CMAKE) -S . -B $(BUILD) -G "$(GENERATOR)" -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) -DFUNK_SANITIZE=$(SANITIZE)
 
-$(B)/%.o: src/%.c $(HDRS) | $(B)
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(B)/embed: tools/embed.c | $(B)
-	$(CC) -O2 -o $@ $<
-
-$(B)/embedded.c: $(B)/embed src/rt.c $(HDRS) lib/prelude.fk
-	$(B)/embed fk_rt_src src/rt.c fk_prelude_src lib/prelude.fk > $@
-
-$(B)/embedded.o: $(B)/embedded.c
-	$(CC) $(CFLAGS) -c -o $@ $<
-
-$(B):
-	mkdir -p $(B)
+funk: $(BUILD)/CMakeCache.txt
+	$(CMAKE) --build $(BUILD)
+	$(if $(SANITIZE),,ln -sf $(BUILD)/funk funk)
 
 test: funk
-	sh tests/run.sh
+	FUNK=$(BUILD)/funk sh tests/run.sh
 
 bench: funk
 	python3 bench/bench.py run
@@ -36,7 +35,10 @@ bench: funk
 bench-report:
 	python3 bench/bench.py report
 
-clean:
-	rm -rf $(B) funk
+install: funk
+	$(CMAKE) --install $(BUILD) --prefix $(PREFIX)
 
-.PHONY: all test bench bench-report clean
+clean:
+	rm -rf build build-* funk
+
+.PHONY: all funk test bench bench-report install clean

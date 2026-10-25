@@ -8,8 +8,9 @@
 #   tests/errors/NAME.fk   must exit non-zero; stderr must contain the text
 #                          after "-- expect: " on line 1
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
+#   the command line       exit status 0 on success, 1 on a failing program, 2 on a usage error
 cd "$(dirname "$0")/.." || exit 1
-FUNK=./funk
+FUNK=${FUNK:-./funk}
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 pass=0
@@ -63,6 +64,30 @@ for f in tests/repl/*.in; do
   "$FUNK" <"$f" >"$tmp/$n.repl" 2>&1
   if diff "tests/repl/$n.expected" "$tmp/$n.repl" >"$tmp/diff" 2>&1; then ok; else bad "$n (repl)" "$tmp/diff"; fi
 done
+
+# cli STATUS [OUTPUT] -- ARGS: funk ARGS exits with STATUS, and prints OUTPUT first if given.
+cli() {
+  want=$1 out=; shift
+  if [ "$1" != -- ]; then out=$1; shift; fi
+  shift
+  "$FUNK" "$@" >"$tmp/cli" 2>&1
+  got=$?
+  if [ "$got" -ne "$want" ]; then echo "    exit $got, wanted $want" >>"$tmp/cli"; bad "cli: funk $*" "$tmp/cli"
+  elif [ -n "$out" ] && [ "$(head -n 1 "$tmp/cli")" != "$out" ]; then bad "cli: funk $*" "$tmp/cli"
+  else ok; fi
+}
+cli 0 -- --version
+cli 0 -- help build
+cli 0 3 -- -e "1 + 2"
+cli 0 "[2,4]" -- eval "map (* 2) [1, 2]"
+cli 1 -- eval "1 +"
+cli 0 -- check tests/run/strings.fk
+cli 1 -- check tests/errors/loc_case.fk
+cli 2 -- biuld x.fk
+cli 2 -- run
+cli 2 -- build tests/run/strings.fk -Ofast
+cli 2 -- emit-c tests/run/strings.fk -x
+cli 1 -- run tests/run/no-such-file.fk
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]
