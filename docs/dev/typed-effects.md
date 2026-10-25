@@ -20,6 +20,7 @@ None of these is a bug in the implementation. They come from Haskell syntax over
 |-|-|-|-|-|
 | A | Keep untyped effects (OCaml, F#, SML) | no | none | no |
 | A' | A, plus strict `let` statements in `do` | no | none | rarely |
+| A'' | A', plus purity the compiler infers, reported or checked | inferred, not in types | none; uses the existing analysis | rarely |
 | B1 | `IO a` with a bind for `IO` only | yes | small | yes |
 | B2 | `IO a` with a `Monad` class | yes | type classes phase 2 | yes, as B1 |
 | C | Effect rows (Koka) | yes, per effect | large: row types | yes |
@@ -28,6 +29,7 @@ None of these is a bug in the implementation. They come from Haskell syntax over
 - **A** is what strict ML-family languages do, and it works there because their `let` is strict. Effect order is then the order of the source.
 
 - **A'** removes the `do` surprise: a `let` statement in `do` would run at its line, as `<-` does. Effects stay invisible in types, top-level effects still run at startup, and `let` would mean two things.
+- **A''** is A' plus the purity that `fuse.c` already infers ([fusion.md](fusion.md#semantics-when-fusion-is-exact)), made visible: a `pure` declaration the checker verifies, rejecting the program if the function can act ("A'' in detail"). Effects compose with any function, as in A', and readers and the optimizer learn some of what B1 would tell them. The guarantee is weaker than a type: inference stops at unknown calls (closures, parameters, dictionaries) and must assume they act.
 
 - **B1** is Haskell's `IO` ([Peyton Jones and Wadler, POPL 1993](https://dl.acm.org/doi/10.1145/158511.158524)), with `bindIO :: IO a -> (a -> IO b) -> IO b` as a plain function. `do` works for `IO` only. No higher-kinded classes are needed.
 
@@ -37,7 +39,7 @@ None of these is a bug in the implementation. They come from Haskell syntax over
 
 - **D** threads a unique `World` value: `getLine :: World -> (String, World)`. Code becomes verbose without new syntax. Rejected.
 
-Recommendation: B1 now, then B2 once phase 2 of type classes lands. B1 fixes all three problems. It is source-compatible with B2, because a `do` over `IO` written for B1 means the same under `Monad IO`. If the answer is "funk stays impure", choose A' instead; it is a small change and fixes the `do` surprise.
+Recommendation: B1, with B2 decided later, on its own; see "A', A'' and B1-then-B2 compared". B1 fixes all three problems. It is source-compatible with B2, because a `do` over `IO` written for B1 means the same under `Monad IO`. If funk stays impure, choose A'': it includes A' and fixes the `do` surprise.
 
 ## B1 in detail
 
@@ -102,6 +104,67 @@ About 250 lines. These are estimates, not measurements.
 
 In this repo, 10 test and example files sequence effects. Most use `do` or `>>` on `print` and type-check unchanged. Three need edits: `io.fk` (`getLine ()`), `syntax.fk` (top-level `early` and `results` rely on running at startup) and `lazy.fk` (it tests effect order under lazy `let`, which becomes meaningless). A compile error for `getLine ()` should say "`getLine` is an action; write `line <- getLine`".
 
+## A'' in detail
+
+A `pure` annotation is a checked claim about one definition: calling the function with arguments free of effects performs no effects. The checker proves it, or rejects the program. The analysis exists: `fuse.c`'s purity fixpoint (`ok_e` without `tot`). The annotation adds syntax, rules for unknown calls and an error message.
+
+### Syntax
+
+A declaration listing names, placed like a fixity declaration:
+
+```haskell
+pure area, norm2, insert
+
+area :: Shape -> Float
+area (Circle r) = 3.14159 * r * r
+```
+
+Alternatives: a pragma, `{-# PURE area #-}`, would let Haskell tools ignore it, but funk has no pragma syntax. A marker in the signature, `area :: pure Shape -> Float`, reads as part of the type, which it is not.
+
+### Meaning: pure modulo arguments
+
+The claim is about the definition, not every call: the function may call its parameters, and their effects belong to its caller. This is what the inference computes, and it makes higher-order functions annotatable. `pure map` holds, though `map print xs` acts.
+
+- **Allowed:** calls to pure globals, to parameters and to pattern variables bound from them, to local lambdas, and to `trace`. `trace` is exempt, so a debug print does not break an annotation, as with `Debug.Trace`.
+- **Rejected:** a call to an effect primitive (`putStr`, `putStrLn`, `getLine`, `print`), to an impure global, or to a function value not traced to an argument.
+- **Not total:** `error` and non-termination are allowed. Totality is fusion's other analysis.
+- **Thunks:** the analysis walks lazy `let` and `where` bodies, so an effect in a thunk is caught.
+
+### Unknown calls
+
+The inference cannot see through three kinds of function values; the annotation needs a rule for each:
+
+| Function value | Example | Rule |
+|-|-|-|
+| a function in data that came from a parameter | `applyAll fs x = map ($ x) fs` | allowed: it came from an argument, like a parameter |
+| a class method through a dictionary | `showAll :: Show a => [a] -> [String]` | allowed: the dictionary is an argument. An instance may still print, e.g. `show` defined with `trace` |
+| a closure from a global value, or returned by a call | `handlers = [print, ...]`, then `head handlers x` | rejected: the function does not come from the caller |
+
+The first two keep "pure modulo arguments" consistent. The third is where the guarantee would leak, so it is rejected and the claim stays sound. The first needs an extension: today the analysis follows pattern variables bound from a parameter only when they are called directly, not elements of data passed through other functions.
+
+### Errors
+
+An error names the chain to the effect:
+
+```text
+shapes.fk:12:1: error: `report` is declared pure, but it can act:
+  `report` calls `logLine` (shapes.fk:14:5), which calls `putStrLn` (shapes.fk:20:3)
+```
+
+The analysis returns one bit today; it would also record, per function, the first call that makes it impure.
+
+### Limits
+
+- **No new information for the optimizer.** The annotation checks the inference fusion already uses. Where the inference gives up, the annotation fails instead of adding facts.
+- **No constraint on callers.** `map print xs` stays legal; the claim says nothing about arguments.
+- **Opt-in.** Unannotated code keeps today's semantics. A'' is documentation the compiler verifies.
+
+The next step would be annotating parameters, `applyTwice :: pure (a -> a) -> a -> a`, checked at each call site. The optimizer could then treat calls to that parameter as pure inside the function, which is where inference fails today. But that is a one-bit effect system in the types, with subtyping (a pure function goes where any function does) and questions about polymorphism. It is the start of option C, and no longer cheap.
+
+### Cost
+
+The `pure` declaration in the parser; the check after the purity fixpoint, which would then run even under `FK_NOFUSE`; provenance for errors; tests that accept `map`, `foldl` and a dictionary-using function and reject direct, indirect and global-closure effects. About 150 lines, an estimate.
+
 ## Investigation (2026-10-25)
 
 ### Cost, measured
@@ -152,13 +215,54 @@ Every program in `bench/progs` reads its size with `readInt (getLine ())`, so al
 
 ### Recommendation
 
-B1 with the runner, now. Its cost is 5% on a program that does nothing but print, and it needs no compiler work beyond the checker and `do`. Token passing is a later optimization of the same semantics: 3 points, for an eta-expansion pass and inlined binds. A' remains the choice if funk stays impure, but it does not make effects visible in types and gives fusion nothing.
+B1 with the runner, now. Its cost is 5% on a program that does nothing but print, and it needs no compiler work beyond the checker and `do`. Token passing is a later optimization of the same semantics: 3 points, for an eta-expansion pass and inlined binds. If funk stays impure, A'' is the choice. It does not put effects in types, and it gives fusion nothing new.
 
 These simulations stand in for the implementations; they share their allocation pattern, not their code. The prototypes are not in the repo.
 
+## A', A'' and B1-then-B2 compared
+
+### Expressiveness
+
+| | A' | A'' | B1 (`IO` only) | B2 (`Monad` class) |
+|-|-|-|-|-|
+| Effects visible | no: `f :: Int -> Int` may print | inferred, reported or checked against a `pure` annotation; unknown calls count as acting | in types | in types |
+| Higher-order functions with effects | any: `map print xs` works, ordered by strict evaluation | as A' | split: `map` and `mapM_`, `foldl` and `foldM` | split as B1, but `mapM` works for every monad |
+| Actions as values | by convention: `\() -> print x` | as A' | yes: stored, retried, combined | yes |
+| `do` for `Maybe`, `State`, parsers, lists | no | no | no | yes |
+| Printing from anywhere, for debugging | yes | yes | `trace` | `trace` |
+| Remaining surprises | lazy `let` and `where` outside `do` still move effects; a top-level `act = ...` runs at startup; `x <- 1 + 2` is accepted | as A'; a `pure` annotation can catch some | none of these | none of these |
+| Haskell compatibility | Haskell syntax, OCaml meaning | as A' | Haskell's `IO` code ports | most Haskell code ports |
+
+A' and A'' keep composition without coloring, which is the ML experience and an advantage for small programs. B2 adds `do` for every monad, with three costs specific to a strict language:
+
+- **Recursive applicative definitions loop.** `some p = (:) <$> p <*> many p` evaluates `many p` while building the parser and never terminates. `do` style is safe, because the recursive call is under a lambda. OCaml parser-combinator libraries need explicit thunks for the same reason.
+- **`>>` must be lazy for every monad,** not only `IO`, so the special form applies to all of them.
+- **Kinds.** `m :: * -> *` and phase 2 of type classes ([type-classes.md](type-classes.md#later-phases)) are a second type-class project. B1 needs neither.
+
+### Performance
+
+| | A' | A'' | B1 | B2 |
+|-|-|-|-|-|
+| Effect-heavy code (`printing`) | 0% | 0% | +5% with the runner, +2% with token passing | as B1 for `IO` |
+| Pure code (14 of 15 benchmarks) | 0% | 0% | 0% | 0% for `IO` |
+| Code generic over `Monad m` | n/a | n/a | n/a | dictionary calls, unless specialized at a known monad: the clone machinery handles kind `*` and would need extending to `* -> *` |
+| User monads (`State`, parsers) | n/a | n/a | n/a | a closure and an unknown call per `>>=`. funk has no inliner and depends on specialization and beta reduction to remove them; GHC needs heavy inlining for the same. Expect such code to be slow at first |
+| What the optimizer knows | purity inferred, giving up at unknown calls | as A' | purity from types: a function not returning `IO` is pure, except `trace` and `error` | as B1 |
+
+The last row is B1's performance argument, and it partly offsets the 5%. Fusion today refuses pipelines whose stage functions are closures, parameters or dictionary methods, because it cannot rule out effects. Under B1 their types rule them out. More pipelines would fuse, more `let`s could be evaluated eagerly, and `mapM_` over a range could fuse, removing the list behind about 25% of `printing`'s time at 20M lines. This gain is plausible, not measured.
+
+### Weighing
+
+- **A'** fits if funk stays an ML with Haskell syntax. It costs nothing, but keeps the mismatch this note began with: a Haskell reader assumes a purity the types do not promise.
+- **A''** narrows that mismatch for little work: the analysis exists, and only a report or an annotation check is new. Its guarantee stops at unknown calls, which are common in higher-order code.
+- **B1** gets most of the value: types that tell the truth, `do` that means what it says, and an optimizer that knows purity. It costs about 250 lines, 5% on effect-heavy code, and a migration of every program's first line.
+- **B2** adds generality whose costs are specific to a strict language. It is better decided on its own, once a program needs a monad other than `IO`, than committed to now as "B1 then B2".
+
+Recommendation: B1, with B2 decided later. A'' if funk stays impure; it subsumes A'.
+
 ## Questions for the decision
 
-1. **B1 now, or wait for B2?** B1 gives every benefit except `do` for other monads. Waiting for B2 means kinds and phase 2 of type classes come first, a larger change.
+1. **A', A'', or B1? And B2 now, later or never?** B1 gives every benefit except `do` for other monads. Waiting for B2 means kinds and phase 2 of type classes come first, a larger change; see "A', A'' and B1-then-B2 compared".
 
 2. **`getLine` or `getLine ()`?** Haskell compatibility says `getLine :: IO String`. Keeping `()` would only ease migration.
 

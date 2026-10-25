@@ -62,7 +62,7 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 
 ## Open questions
 
-- Should effects become typed (an `IO` type)? It needs type classes phase 2 (`Monad` abstracts over `IO`, not `IO a`). It would make `<-` a real bind, stop top-level `do` values from running at startup, and show effects in types. It breaks every program that sequences effects with `>>` or `do` today.
+- Should effects become typed (an `IO` type)? `IO` alone (B1) needs no type-class work; a `Monad` class over it (B2) needs kinds and type classes phase 2. Either makes `<-` a real bind, stops top-level `do` values from running at startup, and shows effects in types. Both break the first line of every program that reads input. The options, including staying impure with inferred purity (A''), are compared in [typed-effects.md](typed-effects.md#a-a-and-b1-then-b2-compared).
 
 - Should `Int` become a full 64 bits? Under the performance goal, yes: the typed backend gives unboxed `int64_t`.
 
