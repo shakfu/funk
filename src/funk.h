@@ -142,6 +142,7 @@ struct Expr {
   Type *ty;       /* type after inference; INT: decides Int, Float or fromInt */
   int vk, idx;    /* VAR: resolved location; CON: constructor id */
   bool lazy;      /* VAR: bound to a thunk, forced on load */
+  bool global_ref; /* VAR: refers to the global of this name, even if a local shadows it */
   struct Pred *preds; /* VAR: class constraints of this instantiation */
   int npreds;
   Lambda *known;  /* VAR bound to a known lambda: direct calls */
@@ -333,6 +334,7 @@ int global_add(const char *name, Type *t, Lambda *lam);
 void elab_bind(Bind *b);
 Bind *dict_bind(InstDef *in);
 Expr *copy_expr(Expr *e);
+void ho_specialize(Bind **bs, int n); /* copies made go to `specialized` */
 extern VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 
 /* --------------------------------------------------------------- backends */

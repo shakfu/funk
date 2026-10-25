@@ -117,6 +117,8 @@ Inference:
 
 A binding with constraints gets one dictionary parameter per constraint, prepended to its lambda. A use gets its dictionaries as leading arguments of the same application, so a call to a known function stays saturated. A dictionary is a parameter in scope, a superclass selector applied to one, or an instance dictionary, applied to its context's dictionaries if it has one. The rewrites that avoid dictionaries at known types are described in [type-classes.md](type-classes.md#performance).
 
+After elaboration, `ho_specialize` specializes calls on function arguments. A call to a top-level function whose argument for a function-typed parameter is closed gets a copy with the parameter replaced by the argument. A closed argument is built from globals, literals, constructors and lambdas that use only their own parameters. `map (flip primMulInt 3) xs` calls `map@{0=(flip@{0=primMulInt} 3)}`, in which `f x` is a known call. In desugared clauses, the pattern variables bound to that parameter are replaced too. Copies are keyed by the argument's structure, so recursive calls reuse them. Arguments longer than 160 characters as keys are not specialized, so specialization terminates when an argument grows. Global references copied into a body are marked `global_ref`, so a local of the same name cannot capture them. `.` and `>>>` take three parameters in the prelude, which makes `(f . g) x` a saturated, specializable call.
+
 Installation runs in three steps per chunk, in both backends: function closures, then dictionaries (superclasses first), then top-level values. Dictionaries refer to method functions, and values may use dictionaries.
 
 ## Closure conversion (`resolve.c`)

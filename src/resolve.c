@@ -123,7 +123,7 @@ static Scope *pat(Pat *p, Fn *f, Scope *sc) {
 static void expr(Expr *e, Fn *f, Scope *sc) {
   switch (e->k) {
   case E_VAR: {
-    for (Scope *s = sc; s; s = s->next)
+    for (Scope *s = e->global_ref ? NULL : sc; s; s = s->next)
       if (s->name == e->name) {
         FreeSrc src = capture(f, s->fn, s->slot);
         e->vk = src.vk;

@@ -548,3 +548,369 @@ Bind *dict_bind(InstDef *in) {
   if (body->k == E_LAM) body->lam->name = b->name;
   return b;
 }
+
+/* ------------------------------------- specialization on function arguments */
+
+/* After elaboration, a call to a top-level function whose argument for a
+   function-typed parameter is closed -- built from globals, literals,
+   constructors and lambdas that use only their own parameters -- calls a
+   copy of the function with that parameter replaced by the argument:
+   `map (flip primMulInt 3) xs` calls `map@{flip primMulInt 3}`, where
+   `f x` is a known call. Copies are keyed by the argument's structure, so
+   a recursive call inside a copy reuses it. Global references copied into
+   a body are pinned, so a local of the same name there cannot capture
+   them. */
+
+typedef struct Nm { const char *name; struct Nm *next; } Nm;
+
+static Nm *nm(Nm *s, const char *name) {
+  Nm *n = NEW(Nm);
+  *n = (Nm){name, s};
+  return n;
+}
+
+static bool in(Nm *s, const char *name) {
+  for (; s; s = s->next)
+    if (s->name == name) return true;
+  return false;
+}
+
+static Nm *pat_nm(Pat *p, Nm *s) {
+  if (p->k == P_VAR) return nm(s, p->name);
+  for (int i = 0; i < p->n; i++) s = pat_nm(p->args[i], s);
+  return s;
+}
+
+static int nho; /* copies made, bounded so argument growth terminates */
+
+/* Is e closed: no variable of `outer` (the call site's locals) occurs free? */
+static bool closed(Expr *e, Nm *inner, Nm *outer, int depth) {
+  if (depth > 6) return false;
+  switch (e->k) {
+  case E_VAR:
+    if (in(inner, e->name)) return true;
+    return (e->global_ref || !in(outer, e->name)) && global_lookup(e->name) >= 0;
+  case E_CON: case E_INT: case E_FLOAT: case E_CHAR: case E_STR: return true;
+  case E_APP:
+    if (!closed(e->fn, inner, outer, depth + 1)) return false;
+    for (int i = 0; i < e->n; i++)
+      if (!closed(e->args[i], inner, outer, depth + 1)) return false;
+    return true;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) inner = nm(inner, e->lam->params[i]);
+    return closed(e->lam->body, inner, outer, depth + 1);
+  case E_IF:
+    return closed(e->cond, inner, outer, depth + 1) && closed(e->then_, inner, outer, depth + 1) &&
+           closed(e->else_, inner, outer, depth + 1);
+  case E_ANN: return closed(e->body, inner, outer, depth + 1);
+  default: return false;
+  }
+}
+
+/* The structure of a closed argument, as a key; lambda parameters are
+   numbered so equal lambdas give equal keys. */
+static void key(SB *b, Expr *e, Nm *params) {
+  switch (e->k) {
+  case E_VAR: {
+    int i = 0;
+    for (Nm *s = params; s; s = s->next, i++)
+      if (s->name == e->name) {
+        sb_printf(b, "#%d", i);
+        return;
+      }
+    sb_puts(b, e->name);
+    return;
+  }
+  case E_CON: sb_puts(b, e->name); return;
+  case E_INT: sb_printf(b, "%lld", e->ival); return;
+  case E_FLOAT: sb_printf(b, "%.17g", e->fval); return;
+  case E_CHAR: sb_printf(b, "'%lld", e->ival); return;
+  case E_STR: sb_printf(b, "\"%d:%s", e->slen, e->name); return;
+  case E_APP:
+    sb_puts(b, "(");
+    key(b, e->fn, params);
+    for (int i = 0; i < e->n; i++) {
+      sb_puts(b, " ");
+      key(b, e->args[i], params);
+    }
+    sb_puts(b, ")");
+    return;
+  case E_LAM:
+    sb_printf(b, "(\\%d ", e->lam->n);
+    for (int i = 0; i < e->lam->n; i++) params = nm(params, e->lam->params[i]);
+    key(b, e->lam->body, params);
+    sb_puts(b, ")");
+    return;
+  case E_IF:
+    sb_puts(b, "(if ");
+    key(b, e->cond, params);
+    sb_puts(b, " ");
+    key(b, e->then_, params);
+    sb_puts(b, " ");
+    key(b, e->else_, params);
+    sb_puts(b, ")");
+    return;
+  case E_ANN: key(b, e->body, params); return;
+  default: abort();
+  }
+}
+
+/* Pin the global references of a closed copy. */
+static void pin(Expr *e, Nm *inner) {
+  switch (e->k) {
+  case E_VAR: if (!in(inner, e->name)) e->global_ref = true; return;
+  case E_APP:
+    pin(e->fn, inner);
+    for (int i = 0; i < e->n; i++) pin(e->args[i], inner);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) inner = nm(inner, e->lam->params[i]);
+    pin(e->lam->body, inner);
+    return;
+  case E_IF:
+    pin(e->cond, inner);
+    pin(e->then_, inner);
+    pin(e->else_, inner);
+    return;
+  case E_ANN: pin(e->body, inner); return;
+  default: return;
+  }
+}
+
+/* Replace free occurrences of variable x in e by copies of arg. */
+static void replace(Expr *e, const char *x, Expr *arg);
+static void replace_alt(Alt *alt, const char *x, Expr *arg);
+
+static void replace_group(Group *g, const char *x, Expr *arg) {
+  for (int i = 0; i < g->n; i++) replace(g->b[i]->e, x, arg);
+}
+
+static bool binds_in(Group *g, const char *x) {
+  for (int i = 0; i < g->n; i++)
+    if (g->b[i]->name == x) return true;
+  return false;
+}
+
+static void replace(Expr *e, const char *x, Expr *arg) {
+  switch (e->k) {
+  case E_VAR:
+    if (e->name == x && !e->global_ref) {
+      Expr *c = copy_expr(arg);
+      pin(c, NULL);
+      *e = *c;
+    }
+    return;
+  case E_APP:
+    replace(e->fn, x, arg);
+    for (int i = 0; i < e->n; i++) replace(e->args[i], x, arg);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++)
+      if (e->lam->params[i] == x) return;
+    replace(e->lam->body, x, arg);
+    return;
+  case E_LET:
+    if (binds_in(&e->g, x)) return;
+    replace_group(&e->g, x, arg);
+    replace(e->body, x, arg);
+    return;
+  case E_IF:
+    replace(e->cond, x, arg);
+    replace(e->then_, x, arg);
+    replace(e->else_, x, arg);
+    return;
+  case E_CASE:
+    /* `case x of v -> ...`, as clauses desugar: v is the argument too, and
+       the scrutinee goes when every alternative only binds or ignores it. */
+    for (int i = 0; i < e->ns; i++) {
+      if (e->scruts[i]->k != E_VAR || e->scruts[i]->name != x || e->scruts[i]->global_ref) continue;
+      bool simple = true;
+      for (int a = 0; a < e->na; a++) {
+        Pat *p = e->alts[a]->pats[i];
+        if (p->k == P_VAR) {
+          p->k = P_WILD; /* first, so replace_alt does not see it as shadowing */
+          replace_alt(e->alts[a], p->name, arg);
+        }
+        simple &= p->k == P_WILD;
+      }
+      if (!simple) continue;
+      for (int a = 0; a < e->na; a++) {
+        Alt *alt = e->alts[a];
+        memmove(alt->pats + i, alt->pats + i + 1, (size_t)(alt->np - i - 1) * sizeof *alt->pats);
+        alt->np--;
+      }
+      memmove(e->scruts + i, e->scruts + i + 1, (size_t)(e->ns - i - 1) * sizeof *e->scruts);
+      e->ns--;
+      i--;
+    }
+    for (int i = 0; i < e->ns; i++) replace(e->scruts[i], x, arg);
+    for (int a = 0; a < e->na; a++) replace_alt(e->alts[a], x, arg);
+    return;
+  case E_ANN: replace(e->body, x, arg); return;
+  default: return;
+  }
+}
+
+/* replace within one alternative, unless it binds x. */
+static void replace_alt(Alt *alt, const char *x, Expr *arg) {
+  for (int i = 0; i < alt->np; i++)
+    if (in(pat_nm(alt->pats[i], NULL), x)) return;
+  for (int i = 0; i < alt->rhs.nwg; i++)
+    if (binds_in(&alt->rhs.wg[i], x)) return;
+  for (int i = 0; i < alt->rhs.nwg; i++) replace_group(&alt->rhs.wg[i], x, arg);
+  for (int i = 0; i < alt->rhs.ng; i++) {
+    if (alt->rhs.guards[i]) replace(alt->rhs.guards[i], x, arg);
+    replace(alt->rhs.bodies[i], x, arg);
+  }
+}
+
+static bool fun_type(Type *t) {
+  t = t ? repr(t) : NULL;
+  return t && t->k == TY_CON && !strcmp(t->name, "->");
+}
+
+static VEC(Bind *) ho_work;
+
+/* Specialize the call e if it qualifies; locals are the call site's. */
+static void ho_call(Expr *e, Nm *locals) {
+  Expr *f = e->fn;
+  if (f->k != E_VAR || (!f->global_ref && in(locals, f->name))) return;
+  int g = global_lookup(f->name);
+  Bind *fb = g >= 0 ? globals.a[g].bind : NULL;
+  if (!fb || fb->e->k != E_LAM || !fb->e->lam->ptypes || nho >= 4000) return;
+  Lambda *L = fb->e->lam;
+  int m = e->n < L->n ? e->n : L->n;
+  bool *use = xcalloc((size_t)m + 1, sizeof *use);
+  int nuse = 0;
+  SB k = {0};
+  sb_printf(&k, "%s@{", fb->name);
+  for (int i = 0; i < m; i++) {
+    if (!fun_type(L->ptypes[i]) || !closed(e->args[i], NULL, locals, 0)) continue;
+    SB a = {0};
+    sb_puts(&a, "");
+    key(&a, e->args[i], NULL);
+    if (a.n > 160) continue; /* a growing argument: stop specializing */
+    sb_printf(&k, "%s%d=%s", nuse ? ";" : "", i, a.s);
+    use[i] = true;
+    nuse++;
+  }
+  if (nuse == L->n) { /* a copy must keep a parameter, to stay a function */
+    int i = m - 1;
+    while (!use[i]) i--;
+    use[i] = false;
+    nuse--;
+    k.n = 0;
+    sb_printf(&k, "%s@{", fb->name);
+    for (int j = 0, c = 0; j < m; j++) {
+      if (!use[j]) continue;
+      SB a = {0};
+      sb_puts(&a, "");
+      key(&a, e->args[j], NULL);
+      sb_printf(&k, "%s%d=%s", c++ ? ";" : "", j, a.s);
+    }
+  }
+  if (!nuse) return;
+  sb_puts(&k, "}");
+  const char *name = intern(k.s);
+  if (global_lookup(name) < 0) {
+    Bind *b = NEW(Bind);
+    *b = (Bind){.name = name, .e = copy_expr(fb->e), .line = fb->line, .col = fb->col, .type = fb->type};
+    Lambda *C = b->e->lam;
+    const char **ps = xmalloc((size_t)C->n * sizeof *ps);
+    Type **ts = xmalloc((size_t)C->n * sizeof *ts);
+    int n = 0;
+    for (int i = 0; i < C->n; i++) {
+      if (i < m && use[i]) {
+        replace(C->body, C->params[i], e->args[i]);
+        continue;
+      }
+      ps[n] = C->params[i];
+      ts[n++] = C->ptypes[i];
+    }
+    C->params = ps;
+    C->ptypes = ts;
+    C->n = n;
+    C->name = name;
+    b->gidx = global_add(name, NULL, C);
+    globals.a[b->gidx].bind = b;
+    nho++;
+    VPUSH(specialized, b);
+    VPUSH(ho_work, b);
+  }
+  Expr **rest = xmalloc((size_t)e->n * sizeof *rest);
+  int n = 0;
+  for (int i = 0; i < e->n; i++)
+    if (!(i < m && use[i])) rest[n++] = e->args[i];
+  Expr *v = var(name, f->line, f->col);
+  v->global_ref = true;
+  v->ty = f->ty;
+  if (n) {
+    e->fn = v;
+    e->args = rest;
+    e->n = n;
+  } else {
+    Type *t = e->ty;
+    *e = *v;
+    e->ty = t;
+  }
+}
+
+static void ho_expr(Expr *e, Nm *s);
+
+static Nm *ho_group(Group *g, Nm *s) {
+  for (int i = 0; i < g->n; i++) s = nm(s, g->b[i]->name);
+  for (int i = 0; i < g->n; i++) ho_expr(g->b[i]->e, s);
+  return s;
+}
+
+static void ho_expr(Expr *e, Nm *s) {
+  switch (e->k) {
+  case E_APP:
+    while (e->fn->k == E_APP) { /* (f a) b is f a b */
+      Expr *f = e->fn;
+      Expr **all = xmalloc((size_t)(f->n + e->n) * sizeof *all);
+      memcpy(all, f->args, (size_t)f->n * sizeof *all);
+      memcpy(all + f->n, e->args, (size_t)e->n * sizeof *all);
+      e->fn = f->fn;
+      e->args = all;
+      e->n += f->n;
+    }
+    ho_expr(e->fn, s);
+    for (int i = 0; i < e->n; i++) ho_expr(e->args[i], s);
+    ho_call(e, s);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) s = nm(s, e->lam->params[i]);
+    ho_expr(e->lam->body, s);
+    return;
+  case E_LET: ho_expr(e->body, ho_group(&e->g, s)); return;
+  case E_IF:
+    ho_expr(e->cond, s);
+    ho_expr(e->then_, s);
+    ho_expr(e->else_, s);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) ho_expr(e->scruts[i], s);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = s;
+      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
+      for (int i = 0; i < alt->rhs.nwg; i++) t = ho_group(&alt->rhs.wg[i], t);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) ho_expr(alt->rhs.guards[i], t);
+        ho_expr(alt->rhs.bodies[i], t);
+      }
+    }
+    return;
+  case E_ANN: ho_expr(e->body, s); return;
+  default: return;
+  }
+}
+
+void ho_specialize(Bind **bs, int n) {
+  for (int i = 0; i < n; i++) VPUSH(ho_work, bs[i]);
+  while (ho_work.n) {
+    Bind *b = ho_work.a[--ho_work.n];
+    ho_expr(b->e, NULL);
+  }
+}

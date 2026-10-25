@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite, 2.6x now. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite, 2.4x now. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
@@ -10,9 +10,11 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## High
 
-- [ ] **Allocation: nursery or Perceus.** After the marking fixes, allocation and sweeping are 15-25% of `lists`, `sort` and `strings`. A bump-allocated nursery with mostly-copying collection, or reference counting with in-place reuse. Needs a design note.
+- [ ] **Tail recursion modulo cons in `cgen.c`.** `map`, `filter`, `++`, `enumFromTo` and similar build lists by deep recursion, so every collection scans a deep stack. As loops with a destination pointer, `lists` ran 2.5x faster in a hand-edited experiment. Design: [docs/dev/memory.md](docs/dev/memory.md).
 
-- [ ] **Unknown calls.** `fk_apply` is 10-15% of `lists` and `strings`: calls to function arguments such as `map f`. Specialize higher-order functions on known function arguments, or defunctionalize.
+- [ ] **Allocation: nursery or Perceus,** decided from a profile after TRMC. Collection is about 40% of `lists` today. See [docs/dev/memory.md](docs/dev/memory.md#options).
+
+- [ ] **Unknown calls through lambdas with free variables.** Calls with closed function arguments are specialized (`map (* 3)`). A lambda capturing a local, as in `queens`' `\q -> safe q qs`, is still called through `fk_apply`. Lambda-lift such arguments into extra parameters, then specialize.
 
 - [ ] **Strings.** `[Char]` costs 3 words per character (`strings` 5.7x). Decide on a packed string type; see the decisions in performance-first.md.
 

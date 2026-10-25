@@ -92,8 +92,9 @@ print x = putStrLn (show x)
 id x = x
 const x _ = x
 flip f x y = f y x
-f . g = \x -> f (g x)
-f >>> g = \x -> g (f x)
+-- three parameters, so (f . g) x is one saturated call that can be specialized
+(.) f g x = f (g x)
+(>>>) f g x = g (f x)
 x |> f = f x
 f $ x = f x
 until p f x = if p x then x else until p f (f x)

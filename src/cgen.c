@@ -50,7 +50,7 @@ static const char *conv(TV v, Rep to) {
     static const char *const box[] = {NULL, "FK_MKINT(%s)", "fk_float(%s)", "FK_MKCHAR(%s)", "FK_BOOL(%s)"};
     return xsprintf(box[v.r], v.s);
   }
-  static const char *const unbox[] = {NULL, "FK_INT(%s)", "FK_FLOATV(%s)", "FK_CHAR(%s)", "(%s == fk_true)"};
+  static const char *const unbox[] = {NULL, "FK_INT(%s)", "FK_FLOATV(%s)", "FK_CHAR(%s)", "FK_ISTRUE(%s)"};
   return xsprintf(unbox[to], v.s);
 }
 

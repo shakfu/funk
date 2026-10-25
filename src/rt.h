@@ -51,6 +51,7 @@ extern FkCon *fk_cons;
 extern uint32_t fk_ncons;
 extern V fk_true, fk_false, fk_unit, fk_nil;
 #define FK_BOOL(b) ((b) ? fk_true : fk_false)
+#define FK_ISTRUE(v) ((v) == fk_true)
 
 void fk_init(void);
 int fk_run(void (*fn)(void *), void *arg); /* run fn on a large stack */

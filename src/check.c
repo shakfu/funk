@@ -2131,6 +2131,10 @@ bool compile_chunk(Module *m, Chunk *out) {
   check_types(m->binds, m->nb);
   check_types(specialized.a, specialized.n);
   for (int i = 0; i < specialized.n; i++) VPUSH(raw, specialized.a[i]);
+  int nspec = specialized.n;
+  ho_specialize(m->binds, m->nb);
+  ho_specialize(specialized.a, nspec); /* type-class clones made above */
+  for (int i = nspec; i < specialized.n; i++) VPUSH(raw, specialized.a[i]);
   /* Dictionaries after the selectors, superclass dictionaries first. */
   for (int depth = 1; depth <= 64; depth++)
     for (int i = first_inst; i < insts.n; i++)
