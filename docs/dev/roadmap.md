@@ -53,6 +53,7 @@ Interpreter speed (splitting `eval`, 26% in its prologue) is not part of this go
 Larger changes, each needing its own design note in `docs/dev/` first.
 
 - Decide on typed effects ([typed-effects.md](typed-effects.md)). Several items depend on it.
+- A foreign function interface ([ffi.md](ffi.md)): libm, then sqlite3, then libremidi.
 
 - Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.
 

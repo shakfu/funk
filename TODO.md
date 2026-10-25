@@ -22,6 +22,8 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Medium
 
+- [ ] **Foreign function interface**, for libm, sqlite3 and libremidi in that order. Design and open questions: [docs/dev/ffi.md](docs/dev/ffi.md). Depends on the typed-effects decision.
+
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 
 ## Low
