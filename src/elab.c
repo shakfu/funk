@@ -909,6 +909,23 @@ static bool fun_type(Type *t) {
 
 static VEC(Bind *) ho_work;
 
+/* Bind the variables of the callee's type pat to the call site's ground
+   type t, so a copy's parameters get C types (typed-backend.md). */
+typedef VEC(TS) TSs;
+
+static void match_type(Type *pat, Type *t, TSs *out) {
+  pat = repr(pat);
+  t = repr(t);
+  if (pat->k == TY_VAR) {
+    for (int i = 0; i < out->n; i++)
+      if (out->a[i].from == pat) return;
+    if (ground_depth(t) >= 0 && ground_depth(t) <= 4) VPUSH(*out, ((TS){pat, t}));
+    return;
+  }
+  if (t->k != TY_CON || pat->name != t->name || pat->n != t->n) return;
+  for (int i = 0; i < pat->n; i++) match_type(pat->args[i], t->args[i], out);
+}
+
 /* Specialize the call e if it qualifies; locals are the call site's. */
 static int nhparam;
 
@@ -944,6 +961,9 @@ static void ho_call(Expr *e, Nm *locals) {
     nuse--;
   }
   if (!nuse) return;
+  TSs ts = {0};
+  for (int i = 0; i < m; i++)
+    if (L->ptypes[i] && e->args[i]->ty) match_type(L->ptypes[i], e->args[i]->ty, &ts);
   key_fv = &fv;
   SB k = {0};
   sb_printf(&k, "%s@{", fb->name);
@@ -956,11 +976,32 @@ static void ho_call(Expr *e, Nm *locals) {
     sb_printf(&k, "%s%d=%s", c++ ? ";" : "", i, a.s);
   }
   sb_puts(&k, "}");
+  if (ts.n) { /* the types are part of the copy: `map id` differs at [Int] and [Char] */
+    TS *saved = tsub;
+    int nsaved = ntsub;
+    tsub = ts.a;
+    ntsub = ts.n;
+    sb_puts(&k, "<");
+    for (int i = 0; i < L->n; i++) sb_printf(&k, "%s%s", i ? "," : "", L->ptypes[i] ? type_str(apply(L->ptypes[i])) : "$");
+    sb_puts(&k, ">");
+    tsub = saved;
+    ntsub = nsaved;
+  }
   const char *name = intern(k.s);
   int nf = fv.names.n;
   if (global_lookup(name) < 0) {
     Bind *b = NEW(Bind);
     *b = (Bind){.name = name, .e = copy_expr(fb->e), .line = fb->line, .col = fb->col, .type = fb->type};
+    if (ts.n) {
+      TS *saved = tsub;
+      int nsaved = ntsub;
+      tsub = ts.a;
+      ntsub = ts.n;
+      subst_types(b->e);
+      b->type = apply(b->type);
+      tsub = saved;
+      ntsub = nsaved;
+    }
     Lambda *C = b->e->lam;
     const char **hp = xmalloc((size_t)nf * sizeof *hp + 1);
     Nm *keep = NULL;

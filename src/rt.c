@@ -91,6 +91,12 @@ static void push_free(size_t words, V *o) {
   freelist[words] = o;
 }
 
+/* A fresh chunk is allocated by bumping a pointer, not through a free list
+   built in advance, which wrote every object once before its use. Sweep
+   ends the bump region: its unallocated objects are K_FREE and go on the
+   free lists. */
+static V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
+
 static void new_chunk(size_t words) {
   if (!heap_base) { /* reserve, halving on failure, then align to CHUNK_SIZE */
     char *r = MAP_FAILED;
@@ -113,7 +119,8 @@ static void new_chunk(size_t words) {
   c->objs = base + ((hdr + nobj + 15) & ~(size_t)15);
   nchunks++;
   heap_hi = (uintptr_t)base + CHUNK_SIZE;
-  for (size_t k = nobj; k-- > 0;) push_free(words, (V *)(c->objs + k * objbytes));
+  bump[words] = (V *)c->objs; /* allocated in address order, each word written once */
+  bump_end[words] = (V *)(c->objs + nobj * objbytes);
 }
 
 /* Map a candidate word to the object containing it, or NULL. */
@@ -179,6 +186,8 @@ static __attribute__((noinline)) void scan_stack(void) {
 static void sweep(void) {
   size_t live = 0;
   memset(freelist, 0, sizeof freelist);
+  memset(bump, 0, sizeof bump);
+  memset(bump_end, 0, sizeof bump_end);
   for (size_t ci = 0; ci < nchunks; ci++) {
     Chunk *c = (Chunk *)(heap_base + ci * CHUNK_SIZE);
     size_t bytes = c->words * sizeof(V);
@@ -239,10 +248,14 @@ static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uin
   if (words > MAX_SMALL) {
     o = (V *)alloc_large(words);
   } else {
-    if (!freelist[words]) new_chunk(words);
-    o = freelist[words];
-    freelist[words] = (V *)o[1];
-    o[1] = 0;
+    if ((o = freelist[words])) {
+      freelist[words] = (V *)o[1];
+      o[1] = 0;
+    } else {
+      if (bump[words] >= bump_end[words]) new_chunk(words);
+      o = bump[words];
+      bump[words] += words;
+    }
   }
   FkHdr *h = (FkHdr *)o;
   h->kind = (uint8_t)kind;
@@ -257,10 +270,16 @@ static inline __attribute__((always_inline)) V alloc(size_t words, int kind, int
   if (words < 2) words = 2;
   alloc_since_gc += words * sizeof(V);
   V *o;
-  if (words > MAX_SMALL || alloc_since_gc > gc_threshold || !(o = freelist[words]))
+  if (words > MAX_SMALL || alloc_since_gc > gc_threshold) return alloc_slow(words, kind, n, aux);
+  if ((o = freelist[words])) {
+    freelist[words] = (V *)o[1];
+    o[1] = 0;
+  } else if (bump[words] < bump_end[words]) {
+    o = bump[words];
+    bump[words] += words;
+  } else {
     return alloc_slow(words, kind, n, aux);
-  freelist[words] = (V *)o[1];
-  o[1] = 0;
+  }
   FkHdr *h = (FkHdr *)o;
   h->kind = (uint8_t)kind;
   h->n = (uint16_t)n;

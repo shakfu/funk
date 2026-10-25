@@ -2,13 +2,13 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.48x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.35x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
 - [ ] **Typed backend.** C scalars (`int64_t`, `double`, `bool`) in monomorphic code, `V` at polymorphic boundaries, workers with typed parameters, unboxed scalar fields. Design: [docs/dev/typed-backend.md](docs/dev/typed-backend.md). Steps 1-6 are done.
 - [ ] 64-bit `Int` costs 5.4% at `V` boundaries (`lists` +15%, `pipeline` +28%): the range check in `FK_MKINT` and the branch in `FK_INT`. Typed list heads or `__builtin_expect` may recover part; [docs/dev/typed-backend.md](docs/dev/typed-backend.md#integers).
-- [ ] Copies made by `ho_specialize` keep generic parameter types: `flip@{0=primMulInt}` takes `V` where `Int` is known.
+- [x] Copies made by `ho_specialize` get the call site's ground types: `flip@{0=primMulInt}` takes `int64_t`. Geometric mean -5.7% (`pipeline` -47%, `closures` -4%, `sort` +2.5%).
 - [ ] Nullary constructors as constants in generated C, so clang can resolve a `case` on an inlined `compare` (5% on `sort` in a hand prototype).
 
 ## High
