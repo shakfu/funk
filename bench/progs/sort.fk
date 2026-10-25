@@ -1,0 +1,9 @@
+-- Prelude merge sort on pseudo-random Ints: closures, comparison, GC.
+rand s = mod (s * 1103515245 + 12345) 2147483648
+
+randoms 0 _ = []
+randoms n s = s : randoms (n - 1) (rand s)
+
+checksum xs = foldl (\acc x -> mod (acc * 31 + x) 1000000007) 0 xs
+
+main = print (checksum (sort (randoms (readInt (getLine ())) 42)))

@@ -1,0 +1,4 @@
+-- Self tail call over Int arithmetic: the tightest loop funk can express.
+loop i acc = if i == 0 then acc else loop (i - 1) (acc + mod i 7)
+
+main = print (loop (readInt (getLine ())) 0)

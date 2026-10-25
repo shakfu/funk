@@ -1,0 +1,20 @@
+-- Binary trees (Computer Language Benchmarks Game): allocation-heavy GC.
+data Tree = Leaf | Node Tree Tree
+
+make 0 = Node Leaf Leaf
+make d = Node (make (d - 1)) (make (d - 1))
+
+check Leaf = 0
+check (Node l r) = 1 + check l + check r
+
+sweep d maxd = go (2 ^ (maxd - d + 4)) 0
+  where go i acc = if i == 0 then acc else go (i - 1) (acc + check (make d))
+
+depths d maxd acc = if d > maxd then acc else depths (d + 2) maxd (acc + sweep d maxd)
+
+-- `check long` is a strict argument, so `long` is built before the sweeps
+-- and stays live until the final `check long`.
+main =
+  let maxd = readInt (getLine ())
+      long = make maxd
+  in print (depths 4 maxd (check long) + check long)

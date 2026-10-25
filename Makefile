@@ -30,7 +30,13 @@ $(B):
 test: funk
 	sh tests/run.sh
 
+bench: funk
+	python3 bench/bench.py run
+
+bench-report:
+	python3 bench/bench.py report
+
 clean:
 	rm -rf $(B) funk
 
-.PHONY: all test clean
+.PHONY: all test bench bench-report clean

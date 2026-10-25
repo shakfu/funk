@@ -22,7 +22,7 @@ Every item here makes funk behave as Haskell programmers expect, without changin
 
 ## 0.3 -- performance
 
-Measure first: the reference workload is a 10M-iteration allocation-heavy loop at 13.7s interpreted and 2.1s compiled.
+Measure first with `make bench`, then compare with `bench/bench.py report`. Baseline on an M1 before 0.3: compiled funk is 2.7-65x slower than equivalent C, and the interpreter is 24-203x slower. See [bench/README.md](../../bench/README.md).
 
 - Split `eval` so the common cases avoid its large prologue (26% of interpreter time in callgrind).
 

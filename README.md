@@ -30,6 +30,7 @@ Output:
 ```sh
 make                          # builds ./funk; needs a C11 compiler and pthreads
 make test                     # interpreter, compiled, error and REPL tests
+make bench                    # time funk against C; see bench/README.md
 
 ./funk                        # REPL
 ./funk prog.fk                # interpret (same as: funk run prog.fk)
@@ -144,5 +145,6 @@ Hindley-Milner inference with let-polymorphism. Signatures are optional and chec
 | [docs/dev/design.md](docs/dev/design.md) | language decisions and the alternatives rejected |
 | [docs/dev/architecture.md](docs/dev/architecture.md) | compiler passes, runtime, GC, backends |
 | [docs/dev/roadmap.md](docs/dev/roadmap.md) | planned releases |
+| [bench/README.md](bench/README.md) | benchmarks against C and the results history |
 | [TODO.md](TODO.md) | next steps |
 | [CHANGELOG.md](CHANGELOG.md) | changes by release |

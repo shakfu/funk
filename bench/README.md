@@ -1,0 +1,61 @@
+# Benchmarks
+
+Each benchmark exists as `progs/NAME.fk` and `progs/NAME.c`. They are timed on three backends:
+
+| Backend | Command |
+|-|-|
+| `c` | `$CC -O2 NAME.c` |
+| `compiled` | `funk build NAME.fk` |
+| `interp` | `funk NAME.fk` |
+
+```sh
+make bench                                  # all benchmarks, 5 timed runs each
+python3 bench/bench.py run --only fib,trees --backends compiled -r 10
+python3 bench/bench.py report               # latest run vs the previous one
+python3 bench/bench.py report --baseline 690ac24 --threshold 0.05
+python3 bench/bench.py history trees --backend interp
+```
+
+`report` exits 1 if any benchmark is slower than its baseline by more than the threshold (default 10%). It needs Python 3; nothing outside the standard library.
+
+## What the C programs are
+
+The C programs use the same algorithm and data structures as the funk programs: linked lists, recursion, closures as a code pointer plus an environment. They allocate from a bump arena (`progs/arena.h`) that is reset between phases, in place of a GC. Idiomatic C with arrays would mostly measure lists against arrays. That is a language design choice, which optimizations of funk cannot change.
+
+All backends must print the same output. A benchmark whose outputs differ is not recorded.
+
+## Benchmarks
+
+| Name | Measures | n |
+|-|-|-|
+| `fib` | non-tail calls, Int arithmetic | argument |
+| `loop` | self tail call over Int arithmetic | iterations |
+| `lazywhere` | one thunk per iteration for a `where` binding | iterations |
+| `floats` | boxed Float arithmetic (midpoint integration) | steps |
+| `lists` | `map`, `filter`, `foldl` over fresh lists, 20 rounds | list length |
+| `sort` | prelude merge sort of pseudo-random Ints | list length |
+| `queens` | all n-queens solutions as lists of partial boards | board size |
+| `trees` | binary trees from the Benchmarks Game: allocation and GC with a live tree | max depth |
+| `closures` | unknown calls through closures, a partial application and a composition | calls per function |
+| `strings` | `show`, `++` and `words` over `[Char]` | count of numbers |
+
+Sizes are in `SIZES` in `bench.py`. Each size keeps the interpreter under about 3 s. On an M1, C times are therefore 5-75 ms, so `x C` ratios carry several percent of noise. Changing a size makes older rows incomparable, and `report` skips rows whose `n` differs.
+
+## Data
+
+`results.jsonl` is append-only, one JSON object per benchmark, backend and run. Commit it to keep the history.
+
+| Field | Meaning |
+|-|-|
+| `run` | UTC start time of the run; groups its rows |
+| `commit`, `dirty` | `HEAD`, and whether the tree had changes other than `results.jsonl` |
+| `host`, `machine`, `cc` | where it ran; `report` and `history` compare one host only |
+| `note` | free text from `--note` |
+| `bench`, `backend`, `n` | what ran |
+| `wall`, `cpu` | per-run wall and user+system seconds, after one untimed warm-up run |
+| `maxrss_kb` | largest resident set over the timed runs |
+| `build_s` | `funk build` or `cc` time; null for `interp` |
+
+Comparisons use the minimum wall time, the sample least affected by other load. Every sample is stored, so other statistics can be computed later.
+
+Timings include process start-up. For `interp` that includes compiling the prelude, about 3 ms on an M1.

@@ -1,0 +1,12 @@
+-- All solutions to n queens as lists of partial boards: lists and closures.
+safe q qs = check qs 1
+  where
+    check [] _ = True
+    check (c:cs) d = q /= c && abs (q - c) /= d && check cs (d + 1)
+
+queens n = go n
+  where
+    go 0 = [[]]
+    go k = concatMap (\qs -> map (\q -> q : qs) (filter (\q -> safe q qs) (enumFromTo 1 n))) (go (k - 1))
+
+main = print (length (queens (readInt (getLine ()))))

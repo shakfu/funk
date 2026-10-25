@@ -1,0 +1,9 @@
+-- Midpoint rule for 4 / (1 + x^2) on [0, 1]: boxed Float arithmetic.
+integrate n = go 0 0.0
+  where
+    h = 1.0 / toFloat n
+    go i acc
+      | i == n = acc * h
+      | otherwise = let x = (toFloat i + 0.5) * h in go (i + 1) (acc + 4.0 / (1.0 + x * x))
+
+main = print (round (integrate (readInt (getLine ())) * 1000000000.0))

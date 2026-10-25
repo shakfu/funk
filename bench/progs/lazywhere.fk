@@ -1,0 +1,7 @@
+-- A where binding used on one guard branch: one thunk per iteration.
+loop i acc
+  | i == 0 = acc
+  | otherwise = loop (i - 1) (acc + y)
+  where y = mod i 7
+
+main = print (loop (readInt (getLine ())) 0)

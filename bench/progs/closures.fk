@@ -1,0 +1,10 @@
+-- Calls through function values: unknown closures, a partial application
+-- and a composition, all dispatched by fk_apply.
+applyN f n x = if n == 0 then x else applyN f (n - 1) (f x)
+
+step a x = mod (x * a + 7) 1000003
+
+main =
+  let n = readInt (getLine ())
+      fs = [\x -> mod (x * 31 + 7) 1000003, step 17, step 3 . step 5]
+  in print (foldl (\acc f -> acc + applyN f n 1) 0 fs)
