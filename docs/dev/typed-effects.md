@@ -25,6 +25,7 @@ None of these is a bug in the implementation. They come from Haskell syntax over
 | B2 | `IO a` with a `Monad` class | yes | type classes phase 2 | yes, as B1 |
 | C | Effect rows (Koka) | yes, per effect | large: row types | yes |
 | D | Uniqueness types (Clean) | yes | large | yes |
+| E | Effect arrows (Roc): `a -> b` pure, `a ~> b` effectful; calls stay direct | yes, one bit per arrow | medium: an effect on every arrow | rarely: effectful signatures change |
 
 - **A** is what strict ML-family languages do, and it works there because their `let` is strict. Effect order is then the order of the source.
 
@@ -39,7 +40,9 @@ None of these is a bug in the implementation. They come from Haskell syntax over
 
 - **D** threads a unique `World` value: `getLine :: World -> (String, World)`. Code becomes verbose without new syntax. Rejected.
 
-Recommendation: B1, with B2 decided later, on its own; see "A', A'' and B1-then-B2 compared". B1 fixes all three problems. It is source-compatible with B2, because a `do` over `IO` written for B1 means the same under `Monad IO`. If funk stays impure, choose A'': it includes A' and fixes the `do` surprise.
+- **E** puts one bit in every function arrow: pure or effectful. There is no `IO` type and no runner; an effectful call is a direct call, as today. Roc does this with `->` and `=>` ([roc-lang.md](roc-lang.md#1-effects-in-the-arrow)). funk spells the effectful arrow `~>`, because `=>` already marks class contexts. A higher-order function is polymorphic in its argument's effect, so one `map` serves both (see "E in detail").
+
+Recommendation: E, after a prototype of its inference; see "The options compared". Otherwise B1, with B2 decided later, on its own. B1 is source-compatible with B2, because a `do` over `IO` written for B1 means the same under `Monad IO`. If funk stays impure, choose A'': it includes A' and fixes the `do` surprise.
 
 ## B1 in detail
 
@@ -165,6 +168,75 @@ The next step would be annotating parameters, `applyTwice :: pure (a -> a) -> a 
 
 The `pure` declaration in the parser; the check after the purity fixpoint, which would then run even under `FK_NOFUSE`; provenance for errors; tests that accept `map`, `foldl` and a dictionary-using function and reject direct, indirect and global-closure effects. About 150 lines, an estimate.
 
+## E in detail
+
+E types effects in the function arrow, as Roc does, with effect polymorphism added: funk's functions are curried and higher-order, and Roc's separate `!` variants (`List.for_each!`) would split the prelude.
+
+### Syntax
+
+```haskell
+print :: Show a => a ~> ()
+getLine :: () ~> String
+greet :: String ~> ()
+greet name = putStrLn ("hello " ++ name)
+
+map :: (a -> b) -> [a] -> [b]     -- pure if f is; acts if f does
+area :: Shape -> Float             -- rejected if area can act
+```
+
+- **`a -> b` in a signature** means the function has no effects of its own. All the `->` arrows of one signature share an effect variable, so a higher-order function acts exactly when its function arguments do. That is A'''s "pure modulo arguments" ([A'' in detail](#a-in-detail)), stated in the type.
+- **`a ~> b`** means the function may act.
+- **`~>` over `=>`,** Roc's spelling, because `=>` separates a class context in funk and Haskell. `~>` is not a Haskell type operator in the standard. Other spellings would do as well; see question 6.
+
+### Semantics
+
+- Each arrow carries an effect: pure, effectful, or a variable. A function's effect is effectful if its body, when the function is applied, calls a function whose arrow is effectful.
+- A pure function can be used where an effectful one is expected. Inference treats a pure function as polymorphic in its effect, so it unifies with either. This is the standard trick of effect systems, as in Koka, where a total function is polymorphic in its effect row.
+- Evaluation is strict and left to right, as today, so effects happen in source order. There is no runner, and `>>` stays an ordinary primitive.
+- **Lazy bindings.** A `let` or `where` binding whose evaluation can act is evaluated where it is bound, not at first use. Lazy bindings were the first problem in this note; this rule removes it. Pure bindings stay lazy, so `y = div 1 x` under a guard still does not fail.
+- **Top-level values** must be pure: a top-level value with an effect is an error, except `main`, whose evaluation is the program. `act () = do ...`, a function, may act. Pure top-level values could then be evaluated at compile time, as in Roc.
+- **Data fields** of function type are pure if written with `->`, effectful if written with `~>`. A field written `Int -> ()` cannot hold `print`.
+- **Class methods** follow their signature. `show :: a -> String` is pure in every instance, so an instance cannot print, except through `trace`. A class that needs effects says so: `log :: a ~> ()`.
+- **`trace` and `error`** are pure, as in Haskell.
+
+### Inference
+
+The arrow type gets a third argument, its effect: `Pure`, `Eff`, or a variable. Unification is unchanged. Each lambda gets a fresh effect variable. Every call in its body unifies the callee's arrow effect with that variable. A body with no effectful call leaves the variable free, so it generalizes, which is what makes a pure function usable at either effect.
+
+Unifying all of a body's calls into one variable over-approximates: a function calling two function arguments makes their effects equal. That is sound, and at a call site it only costs precision when one argument is a monomorphic effectful function and the other a pure one.
+
+### Partial application
+
+Roc's functions take several arguments at once; funk's are curried. If every arrow of a signature shares the effect, applying an effectful function to fewer arguments than it takes also counts as acting, although it only builds a closure. `greeter = putStrLn . ("hi " ++)` would be rejected as a top-level value with an effect. Two refinements, to choose between with a prototype:
+
+- **By arity.** A call is effectful only when it saturates a known function of known arity. The checker knows the arity of every global and every local lambda. Unknown function values keep the over-approximation.
+- **Effect on the last arrow only.** `a -> b ~> c` would act only when given both arguments. That is more precise, but signatures have to say where the effect sits.
+
+### Migration
+
+| 0.2 code | E |
+|-|-|
+| `main = print x` | unchanged |
+| `line = getLine ()` in `do` | unchanged; `getLine :: () ~> String` |
+| `f :: Int -> ()` that prints | `f :: Int ~> ()` |
+| `early = print "x"`, run at startup | an error; make it a function, or call it from `main` |
+| `print x` inside a pure function | an error; use `trace`, or change the signature to `~>` |
+
+Unannotated code needs no change, since effects are inferred. Of this repo's files, those that rely on top-level effects (`syntax.fk`) or on effects in lazy bindings (`lazy.fk`) change; the 15 benchmarks do not.
+
+### Implementation sketch
+
+| Part | Change | Estimate |
+|-|-|-|
+| `check.c` | an effect argument on `->`; effect variables per lambda; unification of call effects; the top-level, data-field and class-method rules; type printing that shows `~>` and hides free effect variables | 250 lines |
+| `parse.c` | `~>` in types | 10 lines |
+| `elab.c`, `resolve.c` | effectful bindings evaluated eagerly, through the existing eager `let` | 20 lines |
+| `fuse.c` | purity from types, replacing the effect half of its analysis; totality stays | -100 lines, +30 |
+| `prims.def`, prelude | effectful types for the I/O primitives | 20 lines |
+| errors | "`f` is declared `Int -> ()` but calls `putStrLn` (line 4); write `Int ~> ()`" | 50 lines |
+
+About 400 lines, minus the effect half of `fuse.c`'s analysis. These are estimates. The runtime does not change.
+
 ## Investigation (2026-10-25)
 
 ### Cost, measured
@@ -215,25 +287,25 @@ Every program in `bench/progs` reads its size with `readInt (getLine ())`, so al
 
 ### Recommendation
 
-B1 with the runner, now. Its cost is 5% on a program that does nothing but print, and it needs no compiler work beyond the checker and `do`. Token passing is a later optimization of the same semantics: 3 points, for an eta-expansion pass and inlined binds. If funk stays impure, A'' is the choice. It does not put effects in types, and it gives fusion nothing new.
+Of the monadic options, B1 with the runner, now. Its cost is 5% on a program that does nothing but print, and it needs no compiler work beyond the checker and `do`. E, added after this investigation, avoids that cost; see "The options compared". Token passing is a later optimization of the same semantics: 3 points, for an eta-expansion pass and inlined binds. If funk stays impure, A'' is the choice. It does not put effects in types, and it gives fusion nothing new.
 
 These simulations stand in for the implementations; they share their allocation pattern, not their code. The prototypes are not in the repo.
 
-## A', A'' and B1-then-B2 compared
+## The options compared
 
 ### Expressiveness
 
-| | A' | A'' | B1 (`IO` only) | B2 (`Monad` class) |
-|-|-|-|-|-|
-| Effects visible | no: `f :: Int -> Int` may print | inferred, reported or checked against a `pure` annotation; unknown calls count as acting | in types | in types |
-| Higher-order functions with effects | any: `map print xs` works, ordered by strict evaluation | as A' | split: `map` and `mapM_`, `foldl` and `foldM` | split as B1, but `mapM` works for every monad |
-| Actions as values | by convention: `\() -> print x` | as A' | yes: stored, retried, combined | yes |
-| `do` for `Maybe`, `State`, parsers, lists | no | no | no | yes |
-| Printing from anywhere, for debugging | yes | yes | `trace` | `trace` |
-| Remaining surprises | lazy `let` and `where` outside `do` still move effects; a top-level `act = ...` runs at startup; `x <- 1 + 2` is accepted | as A'; a `pure` annotation can catch some | none of these | none of these |
-| Haskell compatibility | Haskell syntax, OCaml meaning | as A' | Haskell's `IO` code ports | most Haskell code ports |
+| | A' | A'' | B1 (`IO` only) | B2 (`Monad` class) | E (effect arrows) |
+|-|-|-|-|-|-|
+| Effects visible | no: `f :: Int -> Int` may print | inferred, reported or checked against a `pure` annotation; unknown calls count as acting | in types | in types | in types, through closures, parameters and dictionaries |
+| Higher-order functions with effects | any: `map print xs` works, ordered by strict evaluation | as A' | split: `map` and `mapM_`, `foldl` and `foldM` | split as B1, but `mapM` works for every monad | one function for both: `map print xs` works, and its type says it acts |
+| Actions as values | by convention: `\() -> print x` | as A' | yes: stored, retried, combined | yes | as functions of `()`: `\() -> print x :: () ~> ()` |
+| `do` for `Maybe`, `State`, parsers, lists | no | no | no | yes | no; independent of E, a `Monad` class could still come later |
+| Printing from anywhere, for debugging | yes | yes | `trace` | `trace` | `trace` |
+| Remaining surprises | lazy `let` and `where` outside `do` still move effects; a top-level `act = ...` runs at startup; `x <- 1 + 2` is accepted | as A'; a `pure` annotation can catch some | none of these | none of these | `x <- 1 + 2` is accepted, harmlessly; partial application can over-approximate effects |
+| Haskell compatibility | Haskell syntax, OCaml meaning | as A' | Haskell's `IO` code ports | most Haskell code ports | pure code ports unchanged; `IO` code does not |
 
-A' and A'' keep composition without coloring, which is the ML experience and an advantage for small programs. B2 adds `do` for every monad, with three costs specific to a strict language:
+A', A'' and E keep composition without coloring, which is the ML experience and an advantage for small programs; E also puts it in the types. B2 adds `do` for every monad, with three costs specific to a strict language:
 
 - **Recursive applicative definitions loop.** `some p = (:) <$> p <*> many p` evaluates `many p` while building the parser and never terminates. `do` style is safe, because the recursive call is under a lambda. OCaml parser-combinator libraries need explicit thunks for the same reason.
 - **`>>` must be lazy for every monad,** not only `IO`, so the special form applies to all of them.
@@ -241,15 +313,15 @@ A' and A'' keep composition without coloring, which is the ML experience and an 
 
 ### Performance
 
-| | A' | A'' | B1 | B2 |
-|-|-|-|-|-|
-| Effect-heavy code (`printing`) | 0% | 0% | +5% with the runner, +2% with token passing | as B1 for `IO` |
-| Pure code (14 of 15 benchmarks) | 0% | 0% | 0% | 0% for `IO` |
-| Code generic over `Monad m` | n/a | n/a | n/a | dictionary calls, unless specialized at a known monad: the clone machinery handles kind `*` and would need extending to `* -> *` |
-| User monads (`State`, parsers) | n/a | n/a | n/a | a closure and an unknown call per `>>=`. funk has no inliner and depends on specialization and beta reduction to remove them; GHC needs heavy inlining for the same. Expect such code to be slow at first |
-| What the optimizer knows | purity inferred, giving up at unknown calls | as A' | purity from types: a function not returning `IO` is pure, except `trace` and `error` | as B1 |
+| | A' | A'' | B1 | B2 | E |
+|-|-|-|-|-|-|
+| Effect-heavy code (`printing`) | 0% | 0% | +5% with the runner, +2% with token passing | as B1 for `IO` | 0%: calls stay direct |
+| Pure code (14 of 15 benchmarks) | 0% | 0% | 0% | 0% for `IO` | 0% |
+| Code generic over `Monad m` | n/a | n/a | n/a | dictionary calls, unless specialized at a known monad: the clone machinery handles kind `*` and would need extending to `* -> *` | n/a |
+| User monads (`State`, parsers) | n/a | n/a | n/a | a closure and an unknown call per `>>=`. funk has no inliner and depends on specialization and beta reduction to remove them; GHC needs heavy inlining for the same. Expect such code to be slow at first | n/a |
+| What the optimizer knows | purity inferred, giving up at unknown calls | as A' | purity from types: a function not returning `IO` is pure, except `trace` and `error` | as B1 | purity from types, per arrow: a call is pure unless its arrow is effectful at that instance |
 
-The last row is B1's performance argument, and it partly offsets the 5%. Fusion today refuses pipelines whose stage functions are closures, parameters or dictionary methods, because it cannot rule out effects. Under B1 their types rule them out. More pipelines would fuse, more `let`s could be evaluated eagerly, and `mapM_` over a range could fuse, removing the list behind about 25% of `printing`'s time at 20M lines. This gain is plausible, not measured.
+The last row is B1's and E's performance argument, and for B1 it partly offsets the 5%. Fusion today refuses pipelines whose stage functions are closures, parameters or dictionary methods, because it cannot rule out effects. Under B1 and E their types rule them out. E keeps today's direct calls, so it gets this without B1's cost. More pipelines would fuse, more `let`s could be evaluated eagerly, and `mapM_` over a range could fuse, removing the list behind about 25% of `printing`'s time at 20M lines. This gain is plausible, not measured.
 
 ### Weighing
 
@@ -257,12 +329,13 @@ The last row is B1's performance argument, and it partly offsets the 5%. Fusion 
 - **A''** narrows that mismatch for little work: the analysis exists, and only a report or an annotation check is new. Its guarantee stops at unknown calls, which are common in higher-order code.
 - **B1** gets most of the value: types that tell the truth, `do` that means what it says, and an optimizer that knows purity. It costs about 250 lines, 5% on effect-heavy code, and a migration of every program's first line.
 - **B2** adds generality whose costs are specific to a strict language. It is better decided on its own, once a program needs a monad other than `IO`, than committed to now as "B1 then B2".
+- **E** has B1's honest types and optimizer knowledge at A'''s cost, 0%. It keeps composition without coloring and needs little migration, because funk's runtime semantics do not change. It costs Haskell compatibility for `IO` code, about 400 lines in the checker, and two unproven points: whether unification-based effect inference is precise enough on real code, and how partial application is treated. Roc shows the approach in a strict language, but without currying or effect polymorphism.
 
-Recommendation: B1, with B2 decided later. A'' if funk stays impure; it subsumes A'.
+Recommendation: E, if a prototype of its inference, run over this repo's programs, rejects no correct program that a refinement cannot fix. Otherwise B1, with B2 decided later. A'' if funk stays impure; it subsumes A'.
 
 ## Questions for the decision
 
-1. **A', A'', or B1? And B2 now, later or never?** B1 gives every benefit except `do` for other monads. Waiting for B2 means kinds and phase 2 of type classes come first, a larger change; see "A', A'' and B1-then-B2 compared".
+1. **A', A'', B1 or E? And B2 now, later or never?** B1 gives every benefit except `do` for other monads, for 5% on effect-heavy code. E gives B1's types at no runtime cost, but not Haskell's `IO`. Waiting for B2 means kinds and phase 2 of type classes come first, a larger change; see "The options compared".
 
 2. **`getLine` or `getLine ()`?** Haskell compatibility says `getLine :: IO String`. Keeping `()` would only ease migration.
 
@@ -270,6 +343,7 @@ Recommendation: B1, with B2 decided later. A'' if funk stays impure; it subsumes
 
 4. **Keep `trace`?** Without it, printing from pure code is impossible, which is the point of B1 but hurts debugging.
 
-5. **Accept the break?** funk is pre-1.0, and 0.2 already breaks `deriving` and `f.g`. Releasing 0.2 first and then B1 as 0.3 gives users one version with `do` over untyped effects.
+5. **Accept the break?** funk is pre-1.0, and 0.2 already breaks `deriving` and `f.g`. Releasing 0.2 first and then B1 or E as 0.3 gives users one version with `do` over untyped effects.
+6. **Under E, the spelling of the effectful arrow:** `~>`, or another token such as `-!>`? And partial application: by arity, or the effect on the last arrow only?
 
 The citations are from memory and were not checked in this session.
