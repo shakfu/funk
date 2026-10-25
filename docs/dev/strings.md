@@ -1,6 +1,6 @@
 # Packed strings: design note
 
-Status: proposal, needs a decision. [performance-first.md](performance-first.md) decided that strings become a packed type. This note shows what that means for the language, and a measurement that bears on whether to do it now.
+Status: option A implemented (unreleased). [performance-first.md](performance-first.md) decided that strings become a packed type. Breaking `String = [Char]` was accepted because funk has no releases and no users yet.
 
 ## What the metric says
 
@@ -32,11 +32,15 @@ B costs every list operation in exchange for strings, which goes against the per
 
 The prelude's string functions become C primitives over `[Char]` lists. They keep their types and semantics. They remove per-character calls and allocation in those functions, but not the cost of `[Char]` itself.
 
-## Recommendation
+## Decision
 
-Revisit the decision. The measurement shows packed strings do not serve the metric, and A breaks the Haskell rule that `String = [Char]`. If text performance matters beyond the benchmark, A is the right design and C is its cheap partial version. If not, defer both. A, if chosen, should land with a text-processing benchmark whose C version uses a packed string, so the metric measures it fairly.
+This note first recommended deferring both A and C: the measurement shows packing does not close the benchmark's gap, and A breaks the Haskell rule that `String = [Char]`. A was chosen instead, because with no releases and no users the break costs nothing yet, and text performance matters for real programs. The benchmark's C version was rewritten to use packed strings, so the metric stays fair.
 
-## Decision needed
+## As implemented
 
-1. A (distinct packed `String`), C (primitives over `[Char]`), or neither for now?
-2. If A: is breaking `String = [Char]` acceptable?
+- `K_STR` objects hold the length in the header and the bytes after it, NUL-terminated. The collector does not scan them. A literal is a static object made on its first evaluation, once per literal, in both backends.
+- `++` and `length` are methods of `Append` and `Sized`, with instances for `[a]` and `String`. At `String`, both compile to primitives (`primAppendString`, `primLengthString`), as `==` and `show` do.
+- `words`, `lines`, `unwords`, `unlines` and `concatStrings` are primitives: one pass, one allocation for joins.
+- The class default `showList` joins with `concatStrings`; joining with `++` would copy the growing tail on every step.
+- Tests that used strings as lists now call `unpack`: 5 places in the repo.
+- `bench/progs/strings.c` was rewritten with `char` buffers, so the benchmark compares packed with packed. `strings` is 1.6x C; it was 3.3x C when both versions used lists. The interpreter went from 1.32 s to 0.12 s on it.

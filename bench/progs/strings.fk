@@ -1,4 +1,4 @@
--- show, string concatenation and words over [Char] lists.
+-- show, unwords and words over packed Strings.
 main =
   let n = readInt (getLine ())
       s = unwords (map show (enumFromTo 1 n))

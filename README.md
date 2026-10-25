@@ -63,7 +63,7 @@ Syntax follows Haskell 2010 where a feature exists:
 
 - `class` and `instance` declarations: single-parameter classes with superclasses and default methods.
 
-- Lists `[1, 2]`, ranges `[1..n]` and `[1, 3..n]`, tuples up to 7, strings as `[Char]`, sections `(+ 1)`, `(1 +)` and `` (`div` 2) ``, operator definitions `x <+> y = ...`.
+- Lists `[1, 2]`, ranges `[1..n]` and `[1, 3..n]`, tuples up to 7, strings, sections `(+ 1)`, `(1 +)` and `` (`div` 2) ``, operator definitions `x <+> y = ...`.
 
 Records have named fields, which belong to their type:
 
@@ -185,6 +185,8 @@ The prelude defines:
 - `.` without spaces is field access: `f.g` is no longer composition. Write `f . g`.
 
 - A numeric literal pattern (`f 0 = ...`) works only at `Int` and `Float`; at another `Num` type it is a runtime error.
+
+- `String` is a packed type, not `[Char]` as in Haskell. `++`, `length`, `show`, `words`, `lines`, `unwords` and `unlines` work on it; for list functions, convert with `unpack :: String -> [Char]` and `pack :: [Char] -> String`. A string literal in a pattern matches an equal `String`.
 
 - `Int` is 63 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
 

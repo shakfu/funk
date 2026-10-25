@@ -220,9 +220,10 @@ static Expr *dict_for(int cls, Type *t, DEnv *env, int line, int col) {
   return app(var(globals.a[in->dict].name, line, col), n, a);
 }
 
+/* Types whose instances are primitives: primEqInt, primAppendString, ... */
 static bool builtin_num(Type *t) {
   const char *n = t->name;
-  return t->k == TY_CON && (!strcmp(n, "Int") || !strcmp(n, "Float") || !strcmp(n, "Char"));
+  return t->k == TY_CON && (!strcmp(n, "Int") || !strcmp(n, "Float") || !strcmp(n, "Char") || !strcmp(n, "String"));
 }
 
 static void elab(Expr *e, Sc *sc, DEnv *env);
@@ -647,6 +648,7 @@ static void pat_key(SB *b, Pat *p, Nm **params) {
   case P_WILD: sb_puts(b, "_"); return;
   case P_INT: sb_printf(b, "%lld", p->ival); return;
   case P_CHAR: sb_printf(b, "'%lld", p->ival); return;
+  case P_STR: sb_printf(b, "\"%lld:%s", p->ival, p->name); return;
   default:
     sb_printf(b, "(%s", p->name);
     for (int i = 0; i < p->n; i++) {

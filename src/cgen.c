@@ -230,6 +230,12 @@ static void pat_cond(SB *cond, Pat *p, const char *path, Rep r) {
     if (r == R_C) sb_printf(cond, " && %s == %lld", path, p->ival);
     else sb_printf(cond, " && %s == FK_MKCHAR(%lld)", path, p->ival);
     return;
+  case P_STR: {
+    SB s = {0};
+    c_string(&s, p->name, (int)p->ival);
+    sb_printf(cond, " && fk_str_eq_lit(%s, %s, %lld)", path, s.s, p->ival);
+    return;
+  }
   default:
     if (r == R_B) {
       sb_printf(cond, p->con == FK_C_TRUE ? " && %s" : " && !%s", path);
@@ -314,11 +320,12 @@ static TV cg_expr(CG *c, Expr *e) {
     return tv(xsprintf("FK_MKINT(%lldLL)", e->ival), R_V);
   case E_CHAR: return tv(xsprintf("%lld", e->ival), R_C);
   case E_FLOAT: return tv(xsprintf("((double)%.17g)", e->fval), R_F); /* 0.0 must not print as the int 0 */
-  case E_STR: {
+  case E_STR: { /* a static String, made on first use */
+    static int nstr;
     SB s = {0};
     c_string(&s, e->name, e->slen);
-    t = newtmp(c);
-    sb_printf(c->out, "  V %s = fk_string(%s, %d);\n", t, s.s, e->slen);
+    t = xsprintf("s%d", nstr++);
+    sb_printf(c->out, "  static V %s;\n  if (!%s) %s = fk_str_static(%s, %d);\n", t, t, t, s.s, e->slen);
     return tv(t, R_V);
   }
   case E_APP: return hold(c, cg_call(c, e));

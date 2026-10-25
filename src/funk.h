@@ -101,7 +101,7 @@ typedef struct {
   int line, col;
 } Sig;
 
-enum { P_VAR, P_WILD, P_INT, P_CHAR, P_CON };
+enum { P_VAR, P_WILD, P_INT, P_CHAR, P_CON, P_STR }; /* P_STR: name holds ival bytes */
 struct Pat {
   int k, line, col;
   const char *name; /* variable or constructor */
@@ -136,6 +136,7 @@ enum { VK_NONE, VK_LOCAL, VK_FREE, VK_GLOBAL };
 struct Expr {
   int k, line, col;
   const char *name; /* VAR/CON name, STR bytes, CASE source file */
+  V lit;            /* STR: the String, made once on first evaluation (interpreter) */
   int slen;
   long long ival;
   double fval;

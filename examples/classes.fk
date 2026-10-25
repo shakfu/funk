@@ -60,7 +60,7 @@ instance Show Celsius where
 data Tag = Tag String
 
 instance Eq Tag where
-  Tag a == Tag b = map toLower a == map toLower b
+  Tag a == Tag b = map toLower (unpack a) == map toLower (unpack b)
 
 -- An instance with a context: a pair of Describe values describes itself.
 instance (Describe a, Describe b) => Describe (a, b) where

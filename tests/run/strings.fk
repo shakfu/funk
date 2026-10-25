@@ -1,0 +1,20 @@
+-- String is a packed type; [Char] is a list. pack and unpack convert.
+
+data Pet = Pet { name :: String, kind :: String } deriving (Eq, Ord, Show)
+
+greet "hello" = "greeting"
+greet "" = "empty"
+greet s = "other: " ++ s
+
+main = do
+  print (greet "hello", greet "", greet "x")
+  print (length "", length "abc", "" ++ "a" ++ "", "ab" ++ "cd")
+  print (words "", words "  a  bc   ", words "one")
+  print (lines "", lines "a\n", lines "a\n\nb", lines "\n")
+  print (unwords [], unwords ["", "a"], unlines ["x", "y"])
+  print (pack (map succ' (unpack "HAL")), unpack "ab")
+  print ("abc" < "abd", "ab" < "abc", compare "b" "a", "x" == "x", "x" /= "y")
+  print (show "tab\there \"q\"", ['a', 'b'], "")
+  print (Pet "Rex" "dog", sort [Pet "b" "x", Pet "a" "y"], Pet "a" "b" == Pet "a" "b")
+  putStrLn (concatStrings ["con", "cat"])
+  where succ' c = chr (ord c + 1)

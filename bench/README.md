@@ -20,7 +20,7 @@ python3 bench/bench.py history trees --backend interp
 
 ## What the C programs are
 
-The C programs use the same algorithm and data structures as the funk programs: linked lists, recursion, closures as a code pointer plus an environment. They allocate from a bump arena (`progs/arena.h`) that is reset between phases, in place of a GC. Idiomatic C with arrays would mostly measure lists against arrays. That is a language design choice, which optimizations of funk cannot change.
+The C programs use the same algorithm and data structures as the funk programs: linked lists, recursion, closures as a code pointer plus an environment, packed strings. `strings` used `[Char]` lists in both versions until `String` became packed; rows before that change are not comparable. They allocate from a bump arena (`progs/arena.h`) that is reset between phases, in place of a GC. Idiomatic C with arrays would mostly measure lists against arrays. That is a language design choice, which optimizations of funk cannot change.
 
 All backends must print the same output. A benchmark whose outputs differ is not recorded.
 
@@ -37,7 +37,7 @@ All backends must print the same output. A benchmark whose outputs differ is not
 | `queens` | all n-queens solutions as lists of partial boards | board size |
 | `trees` | binary trees from the Benchmarks Game: allocation and GC with a live tree | max depth |
 | `closures` | unknown calls through closures, a partial application and a composition | calls per function |
-| `strings` | `show`, `++` and `words` over `[Char]` | count of numbers |
+| `strings` | `show`, `unwords` and `words` over packed `String`; the C version uses `char` buffers | count of numbers |
 
 Sizes are in `SIZES` in `bench.py`. Each size keeps the interpreter under about 3 s. On an M1, C times are therefore 5-75 ms, so `x C` ratios carry several percent of noise. Changing a size makes older rows incomparable, and `report` skips rows whose `n` differs.
 

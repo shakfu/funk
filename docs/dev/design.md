@@ -66,6 +66,10 @@ Local functions without a signature do not generalize constrained variables eith
 
 Instances for `Int`, `Float` and `Char` call primitives that compare tagged words. Derived instances compare field by field, through the fields' instances, and order constructors by declaration order: `False < True` and `[] < (x:xs)`, as in Haskell. The REPL falls back to the structural `show` in `rt.c` for a result type that has no `Show` instance.
 
+## Strings: packed, not `[Char]`
+
+`String` is a builtin packed type, with `pack` and `unpack` to and from `[Char]`. This breaks Haskell's `String = [Char]`, chosen for speed while funk has no users: a list costs one 3-word cell per character, and the string functions are single C passes over bytes. See [strings.md](strings.md).
+
 ## Syntax choices
 
 - `::` annotates and `:` conses, as in Haskell.

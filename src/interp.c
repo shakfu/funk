@@ -63,6 +63,7 @@ static bool match(Pat *p, V v, V *fr) {
   case P_WILD: return true;
   case P_INT: return fk_num_eq_int(v, p->ival);
   case P_CHAR: return v == FK_MKCHAR(p->ival);
+  case P_STR: return fk_str_eq_lit(v, p->name, (size_t)p->ival);
   default:
     if (FK_CONID(v) != (uint32_t)p->con) return false;
     for (int i = 0; i < p->n; i++)
@@ -100,7 +101,9 @@ static V eval(Expr *e, V *fr, V self, Tail *tc) {
     case E_INT: return FK_MKINT(e->ival);
     case E_FLOAT: return fk_float(e->fval);
     case E_CHAR: return FK_MKCHAR(e->ival);
-    case E_STR: return fk_string(e->name, (size_t)e->slen);
+    case E_STR:
+      if (!e->lit) e->lit = fk_str_static(e->name, (size_t)e->slen);
+      return e->lit;
     case E_LAM: {
       V c = alloc_closure(e->lam);
       fill_closure(c, e->lam, fr, self);

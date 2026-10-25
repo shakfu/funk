@@ -5,6 +5,7 @@
 #define FK_RT_H
 
 #include <setjmp.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -16,12 +17,13 @@ typedef uintptr_t V;
 typedef V (*FkCode)(V self, V *args);
 
 typedef struct { uint8_t kind, pad; uint16_t n; uint32_t aux; } FkHdr;
-enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP, K_THUNK };
+enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP, K_THUNK, K_STR };
 /* K_CON:     n = field count, aux = constructor id, fields follow
    K_FLOAT:   double follows
    K_CLOSURE: n = free count, aux = arity; then code, info, free vars
    K_PAP:     aux = held arg count; then closure, args
-   K_THUNK:   closure layout, arity 0; once forced, code = 0 and info = value */
+   K_THUNK:   closure layout, arity 0; once forced, code = 0 and info = value
+   K_STR:     aux = byte length; the bytes follow, NUL-terminated */
 typedef struct { FkHdr h; double d; } FkFloat;
 
 #define FK_ISINT(v)    ((v) & 1)
@@ -40,6 +42,8 @@ typedef struct { FkHdr h; double d; } FkFloat;
 #define FK_INFO(c)     ((void *)FK_W(c)[2])
 #define FK_FREE(c, i)  (FK_W(c)[3 + (i)])
 #define FK_ARITY(c)    (FK_HDR(c)->aux)
+#define FK_STRLEN(s)   ((size_t)FK_HDR(s)->aux)
+#define FK_STRBYTES(s) ((char *)&FK_W(s)[1])
 
 /* Builtin constructor ids, registered by fk_init in this order. */
 enum { FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL, FK_C_CONS, FK_C_TUP2 };
@@ -69,8 +73,10 @@ uint32_t fk_register_con(const char *name, int arity);
 void fk_con_labels(uint32_t id, const char *const *labels); /* show as a record */
 void fk_truncate_cons(uint32_t n);
 
-V fk_string(const char *s, size_t n);
-char *fk_cstring(V list, size_t *len);
+V fk_str(const char *s, size_t n);        /* a String on the heap */
+V fk_str_static(const char *s, size_t n); /* a String literal: allocated once, never collected */
+bool fk_str_eq_lit(V s, const char *lit, size_t n);
+char *fk_cstring(V s, size_t *len);       /* malloc'd copy of a String's bytes */
 char *fk_show_cstr(V v);
 int fk_compare(V a, V b);
 int fk_num_eq_int(V v, long long i);

@@ -17,7 +17,7 @@ main = do
   print (map (show . (+ 1)) [1, 2], map (max 2) [1, 3])
   print (applyTwice double 5)
   print (grow 50 (* 2))
-  print (words " a  bc d ", foldl (flip (:)) [] "abc")
+  print (words " a  bc d ", foldl (flip (:)) [] (unpack "abc"))
   -- a lambda capturing a local is not closed: called as before
   let k = 10
   print (map (\x -> x + k) [1, 2])

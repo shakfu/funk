@@ -1,0 +1,10 @@
+("greeting","empty","other: x")
+(0,3,"a","abcd")
+([],["a","bc"],["one"])
+([],["a"],["a","","b"],[""])
+(""," a","x\ny\n")
+("IBM","ab")
+(True,True,GT,True,True)
+("\"tab\\there \\\"q\\\"\"","ab","")
+(Pet {name = "Rex", kind = "dog"},[Pet {name = "a", kind = "y"},Pet {name = "b", kind = "x"}],True)
+concat

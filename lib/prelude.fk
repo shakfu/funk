@@ -17,7 +17,15 @@ class Show a where
   showPrec _ x = show x
   show x = showPrec 0 x
   showList [] = "[]"
-  showList (x:xs) = "[" ++ showPrec 0 x ++ concatMap (\y -> "," ++ showPrec 0 y) xs ++ "]"
+  showList (x:xs) = concatStrings ("[" : showPrec 0 x : map (\y -> "," ++ showPrec 0 y) xs ++ ["]"])
+
+-- ++ and length work on lists and on String, the packed text type
+
+class Append a where
+  (++) :: a -> a -> a
+
+class Sized a where
+  length :: a -> Int
 
 class Num a where
   (+), (-), (*) :: a -> a -> a
@@ -67,7 +75,26 @@ instance Ord Char where
   compare x y = if primLtChar x y then LT else if primEqChar x y then EQ else GT
 instance Show Char where
   showPrec _ c = primShowChar c
-  showList cs = primShowString cs
+  showList cs = primShowCharList cs
+
+instance Eq String where
+  (==) = primEqString
+  (/=) = primNeString
+instance Ord String where
+  compare x y = if primLtString x y then LT else if primEqString x y then EQ else GT
+instance Show String where
+  showPrec _ s = primShowString s
+
+instance Append String where
+  (++) = primAppendString
+instance Sized String where
+  length = primLengthString
+
+instance Append [a] where
+  [] ++ ys = ys
+  (x:xs) ++ ys = x : (xs ++ ys)
+instance Sized [a] where
+  length xs = foldl (\n _ -> n + 1) 0 xs
 
 instance Eq a => Eq [a] where
   [] == [] = True
@@ -156,7 +183,6 @@ init (x:xs) = x : init xs
 init [] = error "init: empty list"
 null [] = True
 null _ = False
-length xs = foldl (\n _ -> n + 1) 0 xs
 
 (x:xs) !! n = if n == 0 then x else xs !! (n - 1)
 [] !! _ = error "!!: index too large"
@@ -178,8 +204,6 @@ maximum xs = foldl1 max xs
 minimum xs = foldl1 min xs
 reverse xs = foldl (flip (:)) [] xs
 
-[] ++ ys = ys
-(x:xs) ++ ys = x : (xs ++ ys)
 concat xss = foldr (++) [] xss
 concatMap f xs = concat (map f xs)
 
@@ -259,16 +283,7 @@ isAlpha c = isUpper c || isLower c
 toUpper c = if isLower c then chr (ord c - 32) else c
 toLower c = if isUpper c then chr (ord c + 32) else c
 
-words s = case dropWhile isSpace s of
-  [] -> []
-  s2 -> let (w, rest) = break isSpace s2 in w : words rest
-unwords [] = ""
-unwords [w] = w
-unwords (w:ws) = w ++ " " ++ unwords ws
-lines s = case break (== '\n') s of
-  (l, []) -> if null l then [] else [l]
-  (l, _:rest) -> l : lines rest
-unlines ls = concatMap (\l -> l ++ "\n") ls
+-- words, unwords, lines and unlines are primitives on String (prims.def).
 
 -- effects run left to right; `>>` sequences them
 

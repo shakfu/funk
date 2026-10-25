@@ -30,6 +30,7 @@
 #include "funk.h"
 
 #define GENERIC INT_MAX
+#define NBUILTIN_TYPES 9 /* Int Float Char Bool () [] -> Num String */
 
 __typeof__(globals) globals;
 __typeof__(condefs) condefs;
@@ -476,7 +477,6 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
   }
   case TE_CON: {
     int ti = map_get(&tmap, te->name);
-    if (ti < 0 && te->name == s_string && te->n == 0) return tlist(tcon0(s_char));
     if (ti < 0) cerror(te->line, te->col, "unknown type `%s`", te->name);
     if (tydefs.a[ti].arity != te->n)
       cerror(te->line, te->col, "type `%s` expects %d argument%s, got %d", te->name, tydefs.a[ti].arity,
@@ -512,7 +512,7 @@ static void register_datas(Module *m) {
     for (int j = 0; j < i; j++)
       if (m->datas[j]->name == d->name) cerror(d->line, d->col, "duplicate data type `%s`", d->name);
     int ti = map_get(&tmap, d->name);
-    if (ti >= 0 && ti < 8) cerror(d->line, d->col, "cannot redefine builtin type `%s`", d->name);
+    if (ti >= 0 && ti < NBUILTIN_TYPES) cerror(d->line, d->col, "cannot redefine builtin type `%s`", d->name);
     VPUSH(tydefs, ((TyDef){d->name, d->np, d->nc}));
     map_put(&tmap, d->name, tydefs.n - 1);
   }
@@ -860,7 +860,7 @@ static Expr *ex_error(const char *msg, int line, int col) {
   Expr *s = ex_new(E_STR, line, col);
   s->name = msg;
   s->slen = (int)strlen(msg);
-  s->ty = tlist(tcon0(s_char));
+  s->ty = tcon0(s_string);
   Expr **a = xmalloc(sizeof *a);
   a[0] = s;
   Expr *f = ex_var(intern("$error"), line, col);
@@ -1209,6 +1209,7 @@ static Type *infer_pat0(Pat *p, Env **env, Env *stop) {
   case P_WILD: return newvar();
   case P_INT: return numvar(p->line, p->col);
   case P_CHAR: return tcon0(s_char);
+  case P_STR: return tcon0(s_string);
   case P_CON: {
     int id = con_lookup(p->name, p->line, p->col);
     ConDef *c = &condefs.a[id];
@@ -1351,7 +1352,7 @@ static Type *infer0(Expr *e, Env *env) {
   case E_INT: return e->ty = numvar(e->line, e->col);
   case E_FLOAT: return tcon0(s_float);
   case E_CHAR: return tcon0(s_char);
-  case E_STR: return tlist(tcon0(s_char));
+  case E_STR: return tcon0(s_string);
   case E_APP: {
     Type *tf = infer(e->fn, env);
     for (int i = 0; i < e->n; i++) {
@@ -1661,7 +1662,8 @@ static void cover_expr(Expr *e, const char *fn) {
    Char: `x == y` at Int calls primEqInt. */
 static const char *const spec_table[][2] = {
     {"==", "Eq"}, {"/=", "Ne"}, {"<", "Lt"}, {"<=", "Le"}, {">", "Gt"}, {">=", "Ge"}, {"+", "Add"},
-    {"-", "Sub"}, {"*", "Mul"}, {"negate", "Negate"}, {"abs", "Abs"}, {"show", "Show"}, {"print", "Print"}};
+    {"-", "Sub"}, {"*", "Mul"}, {"negate", "Negate"}, {"abs", "Abs"}, {"show", "Show"}, {"print", "Print"},
+    {"++", "Append"}, {"length", "Length"}};
 
 static const char *spec_stem(const char *name) {
   if (strcmp(cur_file, "<prelude>") != 0) return NULL;
@@ -1836,7 +1838,7 @@ static const char *head_tycon(InstDecl *in, Strs *vars) {
   default: cerror(h->line, h->col, "instances for function types are not supported");
   }
   int ti = map_get(&tmap, tc);
-  if (ti < 0) cerror(h->line, h->col, tc == s_string ? "an instance for `String` must be written for `[a]`" : "unknown type `%s`", tc);
+  if (ti < 0) cerror(h->line, h->col, "unknown type `%s`", tc);
   if (tydefs.a[ti].arity != h->n)
     cerror(h->line, h->col, "type `%s` expects %d argument%s, got %d", tc, tydefs.a[ti].arity,
            tydefs.a[ti].arity == 1 ? "" : "s", h->n);
@@ -2029,7 +2031,8 @@ void compiler_init(void) {
   add_tydef(s_unit, 0, 1);
   add_tydef(s_list, 1, 2);
   add_tydef(s_arrow, 2, 0);
-  add_tydef(intern("Num"), 1, 0); /* reserved; index < 8 marks builtins */
+  add_tydef(intern("Num"), 1, 0); /* reserved */
+  add_tydef(s_string, 0, 0);       /* packed; index < NBUILTIN_TYPES marks builtins */
   for (int i = 0; i < FK_MAXTUPLE - 1; i++) add_tydef(intern(tuples[i]), i + 2, 1);
 
   fk_init();

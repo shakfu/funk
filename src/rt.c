@@ -149,7 +149,8 @@ static void mark_word(uintptr_t w) {
   V *o = find_obj(w, &m, &words);
   if (!o || *m) return;
   *m = 1;
-  if (((FkHdr *)o)->kind == K_FLOAT) return; /* a double, no pointers */
+  int k = ((FkHdr *)o)->kind;
+  if (k == K_FLOAT || k == K_STR) return; /* a double or bytes: no pointers */
   if (msp + 2 > mcap) {
     mcap = mcap ? 2 * mcap : 4096;
     mstack = rt_realloc(mstack, mcap * sizeof *mstack);
@@ -384,11 +385,23 @@ V fk_apply(V f, int n, V *args) {
 
 /* --------------------------------------------------------------- strings */
 
-V fk_string(const char *s, size_t n) {
-  V acc = fk_nil;
-  while (n-- > 0) acc = fk_mkcon(FK_C_CONS, 2, (V[]){FK_MKCHAR(s[n]), acc});
-  return acc;
+static size_t str_words(size_t n) { return 1 + (n + 1 + sizeof(V) - 1) / sizeof(V); }
+
+V fk_str(const char *s, size_t n) {
+  if (n > UINT32_MAX) fk_error("string too long");
+  V o = alloc(str_words(n), K_STR, 0, (uint32_t)n);
+  memcpy(FK_STRBYTES(o), s, n);
+  FK_STRBYTES(o)[n] = 0;
+  return o;
 }
+
+V fk_str_static(const char *s, size_t n) {
+  V o = static_obj(str_words(n), K_STR, 0, (uint32_t)n);
+  memcpy(FK_STRBYTES(o), s, n);
+  return o;
+}
+
+bool fk_str_eq_lit(V s, const char *lit, size_t n) { return FK_STRLEN(s) == n && memcmp(FK_STRBYTES(s), lit, n) == 0; }
 
 typedef struct { char *s; size_t n, cap; } Buf;
 
@@ -405,16 +418,12 @@ static void buf_puts(Buf *b, const char *s) {
   while (*s) buf_putc(b, *s++);
 }
 
-char *fk_cstring(V list, size_t *len) {
-  Buf b = {0};
-  buf_putc(&b, 0);
-  b.n = 0;
-  while (FK_CONID(list) == FK_C_CONS) {
-    buf_putc(&b, (char)FK_CHAR(FK_FIELD(list, 0)));
-    list = FK_FIELD(list, 1);
-  }
-  if (len) *len = b.n;
-  return b.s;
+char *fk_cstring(V s, size_t *len) {
+  size_t n = FK_STRLEN(s);
+  char *c = rt_realloc(NULL, n + 1);
+  memcpy(c, FK_STRBYTES(s), n + 1);
+  if (len) *len = n;
+  return c;
 }
 
 /* ------------------------------------------------------------------ show */
@@ -500,6 +509,12 @@ static void show(Buf *b, V v, int prec) {
     show_float(b, FK_FLOATV(v), prec);
     return;
   }
+  if (h->kind == K_STR) {
+    buf_putc(b, '"');
+    for (size_t i = 0; i < FK_STRLEN(v); i++) show_char_esc(b, (unsigned char)FK_STRBYTES(v)[i], '"');
+    buf_putc(b, '"');
+    return;
+  }
   if (h->kind != K_CON) { buf_puts(b, "<function>"); return; }
   uint32_t id = h->aux;
   if (id == FK_C_NIL) { buf_puts(b, "[]"); return; }
@@ -564,6 +579,12 @@ char *fk_show_cstr(V v) {
 static bool is_num(V v) { return FK_ISINT(v) || is_float(v); }
 static double num_d(V v) { return FK_ISINT(v) ? (double)FK_INT(v) : FK_FLOATV(v); }
 
+static int str_cmp(V a, V b) {
+  size_t na = FK_STRLEN(a), nb = FK_STRLEN(b);
+  int c = memcmp(FK_STRBYTES(a), FK_STRBYTES(b), na < nb ? na : nb);
+  return c ? (c < 0 ? -1 : 1) : na < nb ? -1 : na > nb;
+}
+
 /* Structural ordering; lists and other right-nested data loop on the
    last field so long lists do not deepen the C stack. */
 int fk_compare(V a, V b) {
@@ -576,6 +597,8 @@ int fk_compare(V a, V b) {
       double x = num_d(a), y = num_d(b);
       return x < y ? -1 : x > y ? 1 : 0;
     }
+    if (FK_ISPTR(a) && FK_ISPTR(b) && FK_HDR(a)->kind == K_STR && FK_HDR(b)->kind == K_STR)
+      return str_cmp(a, b);
     if (!FK_ISPTR(a) || !FK_ISPTR(b) || FK_HDR(a)->kind != K_CON || FK_HDR(b)->kind != K_CON)
       fk_error("cannot compare functions");
     uint32_t ia = FK_CONID(a), ib = FK_CONID(b);
@@ -707,7 +730,7 @@ V fk_p_chr(V self, V *a) { return FK_MKCHAR(fk_s_chr(FK_INT(a[0]))); }
 
 V fk_p_show(V self, V *a) {
   char *s = fk_show_cstr(a[0]);
-  V r = fk_string(s, strlen(s));
+  V r = fk_str(s, strlen(s));
   free(s);
   return r;
 }
@@ -719,11 +742,112 @@ V fk_p_print(V self, V *a) {
   return fk_unit;
 }
 
-/* show for [Char]: quoted, also when empty. */
-V fk_p_showstr(V self, V *a) {
-  if (a[0] == fk_nil) return fk_string("\"\"", 2);
-  return fk_p_show(self, a);
+/* show for a String, and for a [Char], which shows as one: quoted, escaped. */
+V fk_p_showstr(V self, V *a) { return fk_p_show(self, a); }
+
+V fk_p_showchars(V self, V *a) {
+  Buf b = {0};
+  buf_putc(&b, '"');
+  for (V l = a[0]; FK_CONID(l) == FK_C_CONS; l = FK_FIELD(l, 1)) show_char_esc(&b, FK_CHAR(FK_FIELD(l, 0)), '"');
+  buf_putc(&b, '"');
+  V r = fk_str(b.s, b.n);
+  free(b.s);
+  return r;
 }
+
+/* ---------------------------------------------------------- String prims */
+
+V fk_p_streq(V self, V *a) { return FK_BOOL(str_cmp(a[0], a[1]) == 0); }
+V fk_p_strne(V self, V *a) { return FK_BOOL(str_cmp(a[0], a[1]) != 0); }
+V fk_p_strlt(V self, V *a) { return FK_BOOL(str_cmp(a[0], a[1]) < 0); }
+V fk_p_strle(V self, V *a) { return FK_BOOL(str_cmp(a[0], a[1]) <= 0); }
+V fk_p_strgt(V self, V *a) { return FK_BOOL(str_cmp(a[0], a[1]) > 0); }
+V fk_p_strge(V self, V *a) { return FK_BOOL(str_cmp(a[0], a[1]) >= 0); }
+V fk_p_strlength(V self, V *a) { return FK_MKINT((intptr_t)FK_STRLEN(a[0])); }
+
+V fk_p_strappend(V self, V *a) {
+  size_t n = FK_STRLEN(a[0]), m = FK_STRLEN(a[1]);
+  if (!n) return a[1];
+  if (!m) return a[0];
+  if (n + m > UINT32_MAX) fk_error("string too long");
+  V o = alloc(str_words(n + m), K_STR, 0, (uint32_t)(n + m));
+  memcpy(FK_STRBYTES(o), FK_STRBYTES(a[0]), n);
+  memcpy(FK_STRBYTES(o) + n, FK_STRBYTES(a[1]), m + 1);
+  return o;
+}
+
+V fk_p_pack(V self, V *a) {
+  size_t n = 0;
+  for (V l = a[0]; FK_CONID(l) == FK_C_CONS; l = FK_FIELD(l, 1)) n++;
+  if (n > UINT32_MAX) fk_error("string too long");
+  V o = alloc(str_words(n), K_STR, 0, (uint32_t)n);
+  char *p = FK_STRBYTES(o);
+  for (V l = a[0]; FK_CONID(l) == FK_C_CONS; l = FK_FIELD(l, 1)) *p++ = (char)FK_CHAR(FK_FIELD(l, 0));
+  *p = 0;
+  return o;
+}
+
+V fk_p_unpack(V self, V *a) {
+  V s = a[0], acc = fk_nil;
+  for (size_t n = FK_STRLEN(s); n-- > 0;) acc = fk_mkcon(FK_C_CONS, 2, (V[]){FK_MKCHAR(FK_STRBYTES(s)[n]), acc});
+  return acc;
+}
+
+/* Split s into pieces at sep (lines) or at runs of spaces (words). The
+   result list is built front to back; the string is re-read after each
+   allocation, which a collection never moves. */
+static bool is_space(int c) { return c == ' ' || c == '\n' || c == '\t' || c == '\r'; }
+
+static V split(V s, bool words) {
+  V head = fk_nil, *dst = &head;
+  size_t n = FK_STRLEN(s), i = 0;
+  while (i < n) {
+    if (words) {
+      while (i < n && is_space((unsigned char)FK_STRBYTES(s)[i])) i++;
+      if (i == n) break;
+    }
+    size_t j = i;
+    while (j < n && (words ? !is_space((unsigned char)FK_STRBYTES(s)[j]) : FK_STRBYTES(s)[j] != '\n')) j++;
+    V piece = alloc(str_words(j - i), K_STR, 0, (uint32_t)(j - i));
+    memcpy(FK_STRBYTES(piece), FK_STRBYTES(s) + i, j - i);
+    FK_STRBYTES(piece)[j - i] = 0;
+    V cell = fk_mkcon(FK_C_CONS, 2, (V[]){piece, fk_nil});
+    *dst = cell;
+    dst = &FK_FIELD(cell, 1);
+    i = words ? j : j + 1;
+  }
+  return head;
+}
+
+V fk_p_words(V self, V *a) { return split(a[0], true); }
+V fk_p_lines(V self, V *a) { return split(a[0], false); }
+
+/* Join a list of Strings: unwords puts a space between, unlines a newline
+   after each, concatStrings nothing. One allocation, linear time. */
+enum { J_CONCAT, J_WORDS, J_LINES };
+
+static V join(V l, int mode) {
+  size_t n = 0, k = 0;
+  for (V p = l; FK_CONID(p) == FK_C_CONS; p = FK_FIELD(p, 1), k++) n += FK_STRLEN(FK_FIELD(p, 0));
+  n += mode == J_LINES ? k : mode == J_WORDS && k ? k - 1 : 0;
+  if (n > UINT32_MAX) fk_error("string too long");
+  V o = alloc(str_words(n), K_STR, 0, (uint32_t)n);
+  char *q = FK_STRBYTES(o);
+  bool first = true;
+  for (V p = l; FK_CONID(p) == FK_C_CONS; p = FK_FIELD(p, 1), first = false) {
+    V s = FK_FIELD(p, 0);
+    if (mode == J_WORDS && !first) *q++ = ' ';
+    memcpy(q, FK_STRBYTES(s), FK_STRLEN(s));
+    q += FK_STRLEN(s);
+    if (mode == J_LINES) *q++ = '\n';
+  }
+  *q = 0;
+  return o;
+}
+
+V fk_p_unwords(V self, V *a) { return join(a[0], J_WORDS); }
+V fk_p_unlines(V self, V *a) { return join(a[0], J_LINES); }
+V fk_p_concatstr(V self, V *a) { return join(a[0], J_CONCAT); }
 
 /* Constructor index, for derived Ord. */
 V fk_p_contag(V self, V *a) {
@@ -732,10 +856,7 @@ V fk_p_contag(V self, V *a) {
 }
 
 V fk_p_putstr(V self, V *a) {
-  size_t n;
-  char *s = fk_cstring(a[0], &n);
-  fwrite(s, 1, n, stdout);
-  free(s);
+  fwrite(FK_STRBYTES(a[0]), 1, FK_STRLEN(a[0]), stdout);
   return fk_unit;
 }
 
@@ -753,7 +874,7 @@ V fk_p_getline(V self, V *a) {
   b.n = 0;
   while ((c = getchar()) != EOF && c != '\n') buf_putc(&b, (char)c);
   if (c == EOF && b.n == 0) { free(b.s); fk_error("getLine: end of file"); }
-  V r = fk_string(b.s, b.n);
+  V r = fk_str(b.s, b.n);
   free(b.s);
   return r;
 }

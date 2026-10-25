@@ -1,8 +1,8 @@
 A
 <function> :: a -> a
 U
-\x -> show x ++ "!" :: Show a => a -> [Char]
+\x -> show x ++ "!" :: Show a => a -> String
 "yes"
-pretty :: Pretty a => a -> [Char]
+pretty :: Pretty a => a -> String
 <repl>:1:1: error: instance `Pretty Int` does not define `pretty`, which has no default
 <repl>:1:9: error: no instance `Pretty Int`

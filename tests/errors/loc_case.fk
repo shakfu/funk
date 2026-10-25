@@ -1,4 +1,4 @@
--- expect: 5:8: error: type mismatch: expected `[Char]`, found `Int`
+-- expect: 5:8: error: type mismatch: expected `String`, found `Int`
 m :: Int -> String
 m n = case n of
   0 -> "zero"

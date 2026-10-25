@@ -425,13 +425,11 @@ static bool apat_start(P *p) {
   }
 }
 
+/* A string literal pattern matches a String equal to it. */
 static Pat *string_pat(Token *t) {
-  Pat *pt = pcon("[]", 0, NULL, t->line, t->col);
-  for (int i = t->len; i-- > 0;) {
-    Pat *c = mkpat(P_CHAR, t->line, t->col);
-    c->ival = (unsigned char)t->s[i];
-    pt = pcon(":", 2, (Pat *[]){c, pt}, t->line, t->col);
-  }
+  Pat *pt = mkpat(P_STR, t->line, t->col);
+  pt->name = t->s;
+  pt->ival = t->len;
   return pt;
 }
 
