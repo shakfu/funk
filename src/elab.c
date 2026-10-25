@@ -140,9 +140,11 @@ static Expr *mk(int k, int line, int col) {
   return e;
 }
 
+/* Dictionaries and the functions building them have type dict_type. */
 static Expr *var(const char *name, int line, int col) {
   Expr *e = mk(E_VAR, line, col);
   e->name = name;
+  e->ty = dict_type;
   return e;
 }
 
@@ -152,6 +154,7 @@ static Expr *app(Expr *f, int n, Expr **args) {
   e->fn = f;
   e->n = n;
   e->args = args;
+  e->ty = dict_type;
   return e;
 }
 
@@ -224,6 +227,66 @@ static bool builtin_num(Type *t) {
 
 static void elab(Expr *e, Sc *sc, DEnv *env);
 
+/* Apply tsub to every type recorded in a clone, so its parameters and
+   locals have the concrete types the typed backend needs. The arrays are
+   replaced, not edited: copy_expr shares them with the original. */
+static void subst_pat(Pat *p) {
+  if (p->ty) p->ty = apply(p->ty);
+  for (int i = 0; i < p->n; i++) subst_pat(p->args[i]);
+}
+
+static void subst_types(Expr *e);
+
+static void subst_group(Group *g) {
+  for (int i = 0; i < g->n; i++) {
+    if (g->b[i]->type) g->b[i]->type = apply(g->b[i]->type);
+    subst_types(g->b[i]->e);
+  }
+}
+
+static void subst_types(Expr *e) {
+  if (e->ty) e->ty = apply(e->ty);
+  switch (e->k) {
+  case E_APP:
+    subst_types(e->fn);
+    for (int i = 0; i < e->n; i++) subst_types(e->args[i]);
+    return;
+  case E_LAM: {
+    Lambda *L = e->lam;
+    if (L->ptypes) {
+      Type **ts = xmalloc((size_t)L->n * sizeof *ts + 1);
+      for (int i = 0; i < L->n; i++) ts[i] = L->ptypes[i] ? apply(L->ptypes[i]) : NULL;
+      L->ptypes = ts;
+    }
+    subst_types(L->body);
+    return;
+  }
+  case E_LET:
+    subst_group(&e->g);
+    subst_types(e->body);
+    return;
+  case E_IF:
+    subst_types(e->cond);
+    subst_types(e->then_);
+    subst_types(e->else_);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) subst_types(e->scruts[i]);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      for (int i = 0; i < alt->np; i++) subst_pat(alt->pats[i]);
+      for (int i = 0; i < alt->rhs.nwg; i++) subst_group(&alt->rhs.wg[i]);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) subst_types(alt->rhs.guards[i]);
+        subst_types(alt->rhs.bodies[i]);
+      }
+    }
+    return;
+  case E_ANN: subst_types(e->body); return;
+  default: return;
+  }
+}
+
 /* Global name of g's clone at the types tys of its constraints, made
    now if new; NULL if not worth it (a type nested too deeply, as in
    polymorphic recursion). */
@@ -252,7 +315,9 @@ static const char *specialize(int g, Type **tys, int n) {
   Bind *b = NEW(Bind);
   *b = (Bind){.name = name, .e = copy_expr(ob->orig), .line = ob->line, .col = ob->col};
   b->e->lam->name = name;
-  b->gidx = global_add(name, apply(globals.a[g].type), b->e->lam); /* before the body, for recursion */
+  b->type = apply(globals.a[g].type);
+  subst_types(b->e);
+  b->gidx = global_add(name, b->type, b->e->lam); /* before the body, for recursion */
   elab(b->e, NULL, NULL);
   tsub = saved;
   ntsub = nsaved;
@@ -326,19 +391,27 @@ static void elab_one(Bind *b, Sc *sc, DEnv *env) {
       for (int k = 0; k < b->nskolem; k++) /* the body was checked against rigid copies */
         if (b->skolem[2 * k] == ps[i].t) env = denv(env, b->skolem[2 * k + 1], ps[i].cls, names[i]);
     }
+    Type **dts = xmalloc((size_t)n * sizeof *dts);
+    for (int i = 0; i < n; i++) dts[i] = dict_type;
     if (b->e->k == E_LAM) {
       Lambda *L = b->e->lam;
       const char **all = xmalloc((size_t)(n + L->n) * sizeof *all);
       memcpy(all, names, (size_t)n * sizeof *all);
       memcpy(all + n, L->params, (size_t)L->n * sizeof *all);
+      Type **ts = xmalloc((size_t)(n + L->n) * sizeof *ts);
+      memcpy(ts, dts, (size_t)n * sizeof *ts);
+      memcpy(ts + n, L->ptypes, (size_t)L->n * sizeof *ts);
       L->params = all;
+      L->ptypes = ts;
       L->n += n;
     } else {
       Expr *body = b->e;
       Expr *l = mk(E_LAM, body->line, body->col);
       Lambda *L = NEW(Lambda);
-      *L = (Lambda){.n = n, .params = names, .body = body, .line = body->line, .col = body->col, .name = b->name};
+      *L = (Lambda){.n = n, .params = names, .ptypes = dts, .body = body, .line = body->line, .col = body->col,
+                    .name = b->name};
       l->lam = L;
+      l->ty = dict_type;
       b->e = l;
     }
   }
@@ -366,6 +439,7 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
     Expr *v = NEW(Expr);
     *v = *e;
     *e = *app(v, n, ds);
+    e->ty = v->ty; /* the value's type; v itself now takes dictionaries first */
     return;
   }
   case E_INT: {
@@ -382,6 +456,7 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
     a[0] = dict_for(num_class, t, env, e->line, e->col);
     a[1] = lit;
     *e = *app(var(intern("$fromInt"), e->line, e->col), 2, a);
+    e->ty = t;
     return;
   }
   case E_APP: {

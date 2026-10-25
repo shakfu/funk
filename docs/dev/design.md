@@ -30,7 +30,7 @@ Consequences:
 
 - `&&` and `||` short-circuit only when written infix: the parser turns them into `if`. `(&&)` as a value is a strict prelude function.
 
-- Exception: non-recursive `let` and `where` value bindings are memoized thunks, forced on first use. Without this, a `where` binding runs before the guards that protect it. Only bindings already in value form (lambda, literal, constructor) skip the thunk. The cost is one allocation per evaluated binding. A `where` binding in a 5M-iteration loop costs 24% interpreted and 6x compiled (0.01 s to 0.06 s). Effects bound by `let` now run at first use rather than in binding order.
+- Exception: non-recursive `let` and `where` value bindings are memoized thunks, forced on first use. Without this, a `where` binding runs before the guards that protect it. A binding whose right side cannot fail, loop or have an effect is evaluated where it is bound instead; nothing can tell the difference. That covers arithmetic, comparisons and constructors over evaluated variables, which are most loop bindings. Without it, a thunk per binding made the `lazywhere` and `floats` benchmarks 8-11x slower than C; with it they run at 1.0-1.1x. Effects bound by `let` now run at first use rather than in binding order.
 
 - Infinite lists, `iterate` and `cycle` do not exist.
 

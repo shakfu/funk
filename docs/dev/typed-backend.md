@@ -1,0 +1,94 @@
+# Typed backend: design note
+
+Status: proposal. It implements step 5 of [performance-first.md](performance-first.md). Decided there: the interpreter keeps tagged values while compiled code changes representation, and strings become a packed type (a separate note).
+
+## Goal and evidence
+
+Generated C should use C types where funk's types are known: `int64_t` for `Int`, `double` for `Float`, C truth values for `Bool`. Today every value is a tagged word (`V`), every `Float` is a heap box, and every call passes its arguments through a `V[]` array. Experiments on hand-edited generated C, on an M1:
+
+| Program | Now | Typed by hand | C |
+|-|-|-|-|
+| `loop`, 40M iterations | 54 ms (inline primitives, tagged) | 22 ms (`int64_t` locals) | 21 ms |
+| `fib 34` | 31 ms | 24 ms (typed parameters, direct calls) | 19 ms |
+
+`floats` is 34x slower than C, and most of its time is spent allocating and collecting `Float` boxes. Its loop is monomorphic (`go :: Int -> Float -> Float`), so typed locals remove every box.
+
+## Options
+
+| Option | Representation | Polymorphic code | Cost |
+|-|-|-|-|
+| A. Full monomorphization (MLton) | every function cloned per instantiation; all values typed, data fields unboxed | none left | clones every polymorphic function; polymorphic recursion needs a fallback; largest change |
+| B. Typed monomorphic code, uniform boundaries (chosen) | C scalars in monomorphic code; `V` in polymorphic code, data fields and unknown calls | unchanged: `V` | boxing where a scalar enters a `V` position |
+| C. Unboxed fields only | data with `Float` fields stored raw | unchanged | no help for locals or calls |
+
+B is chosen. The measured gaps, in `loop`, `fib` and `floats`, are all in monomorphic code. Type-class specialization already turns the common overloaded code into monomorphic clones (`fib@Int`, `sum@Int`). The other large gaps need different fixes, so A's extra cost buys little there:
+- `lists` and `closures`: calls to unknown functions;
+- `lazywhere`: thunks;
+- `strings`: the string representation.
+
+B also leaves the uniform representation in place for the one case A must work around, polymorphic recursion.
+
+What B gives up, and the later steps that recover it:
+- **Monomorphic data types with scalar fields** (`data Vec = Vec Float Float`) still box their fields. Step 5 lays such fields out unboxed: a field whose declared type is `Float` holds a raw `double` in every instance of the type.
+- **Unconstrained polymorphic functions** (`map`, `foldl`) still exchange `V`. A `Float` passing through them is boxed. Specializing higher-order functions on known function arguments (TODO: unknown calls) is the place to clone them at scalar types too.
+
+## Representations
+
+| funk type | C type in typed code | Into `V` | Out of `V` |
+|-|-|-|-|
+| `Int` | `int64_t` | `FK_MKINT` | `FK_INT` |
+| `Float` | `double` | `fk_float` (allocates) | `FK_FLOATV` |
+| `Char` | `int32_t` | `FK_MKCHAR` | `FK_CHAR` |
+| `Bool` | `bool` | `FK_BOOL` | `== fk_true` |
+| `()` | `V` (`fk_unit`) | none | none |
+| any other type, or a type variable | `V` | none | none |
+
+A value's representation is decided by its type after defaulting, with clone substitutions applied (below). Any missing or variable type means `V`, so a gap in type information costs speed, never correctness.
+
+The conservative collector stays correct. It may read a raw `int64_t` or `double` on the stack, or in a field, as a pointer, which only retains an object longer. The non-moving collector never writes through such words.
+
+## What the code generator needs
+
+1. **A type on every expression, lambda parameter, pattern variable and binding**, recorded by `check.c` during inference (today only integer literals carry one). Expressions created after inference get types where their creator knows them. That covers record lowering (the field type) and `do` lowering (the statement's type). The rest default to `V`.
+2. **Concrete types in specialization clones.** A clone made by `elab.c` shares its original's `Type` objects, whose variables are the original's generic ones. `copy_expr` must substitute `tsub` into every recorded type, or `fib@Int`'s parameter would look polymorphic and stay `V`.
+3. **Representation-aware expression generation.** `cg_expr` returns a C expression and its representation. A coercion is inserted only where the two sides differ: a `double` passed to a polymorphic function is boxed, and a `V` bound to an `Int` pattern variable is unboxed.
+4. **Typed primitives on scalars.** `primAddInt` on two `int64_t` is `a + b`, with wraparound through unsigned arithmetic; `primLtFloat` on two `double` is `a < b`. The tagged `fk_i_` forms remain for `V` operands.
+5. **Workers and wrappers.** A function whose type is monomorphic gets:
+   - a *worker* with C parameters and return type, `static double fn_12_w(V self, int64_t a0, double a1)`;
+   - the uniform *wrapper* `V fn_12(V self, V *a)`, which unboxes its arguments, calls the worker and boxes the result.
+
+   Saturated known calls go to the worker. `fk_apply`, closures and partial applications use the wrapper. Self tail calls still become `goto top` over typed locals. A wrapper is emitted only if the function is used as a value; reachability already tracks this.
+6. **Typed closure captures.** A free variable of scalar type is stored in its closure slot as raw bits, and the closure's code reads it back with its type, so capturing a `Float` does not allocate.
+
+## Integers
+
+Typed code computes in `int64_t`, so `Int` becomes 64 bits in compiled code. The interpreter keeps 63-bit tagged integers, and the two backends then disagree on overflow: `2^62` is `-2^62` interpreted and `2^62` compiled. Two ways to settle it:
+
+- **Decided:** `Int` is 64 bits, and the interpreter boxes the rare values that do not fit in 63 bits, using a `K_INT64` object. Both backends then agree. The interpreter's integer primitives check for overflow, which matches the "fast compiled code, correct interpreter" split decided above.
+- Keep 63-bit semantics in compiled code by sign-extending after each `+`, `-` and `*`: two shifts per operation, and a permanent cost to compiled code for the interpreter's sake. Rejected under the performance goal.
+
+## Steps
+
+Each step is measured with `bench/bench.py report` before the next.
+
+1. ~~Record types (check.c, elab.c clones).~~ Done. Every expression, lambda parameter, binding and non-wildcard pattern has a type; dictionaries have the type `$Dict`. Clones substitute their types (`fib@Int,Int: Int -> Int`). `FK_CHECK_TYPES=1` reports gaps, and `make test` runs it on every run test and example; `FK_CHECK_TYPES=2` prints each top-level function's parameter and result types.
+2. ~~Typed locals and expressions within a function body, with coercions at calls, fields and returns.~~ Done. Geometric mean 4.91x to **4.02x**: `loop` 2.6x to 1.0x, `floats` 34.3x to 11.4x, others 0-9% faster. `floats`' loop is still allocating, but for a thunk: `let x = ...` is lazy, which makes eager `let` the next cost there. Function boundaries are still `V`: parameters are unboxed once at entry and results boxed at `return`.
+3. Workers and wrappers, direct typed calls. Expected: `fib` near C.
+4. Typed closure captures.
+5. Unboxed scalar fields in constructors whose field types are concrete.
+6. 64-bit `Int` in the interpreter (`K_INT64`), with tests at the 63-bit boundary in both backends.
+
+Size: about 700-1,000 lines in `cgen.c`, which is 435 today, and about 150 in `check.c` and `elab.c`. These are estimates.
+
+## Expected effect on the metric
+
+The geometric mean is 4.91x. If steps 2-3 bring `loop` and `fib` to about 1.1x, as in the experiments, and `floats` to about 2x, the mean becomes about **3.2x**. This is an estimate, not a measurement; `floats` is the least certain of the three. The other planned steps then address the rest: eager `let` for `lazywhere`, higher-order specialization for `lists` and `closures`, and packed strings.
+
+## Risks
+
+- **Types lost in transformations.** Each pass that builds expressions after inference (records, `do`, elaboration, specialization) must carry types, or the code falls back to `V`. The fallback is safe but silent. A debug flag that counts `V` slots of concrete type in generated code would make such losses visible.
+- **Two representations of one value.** A scalar may be needed both raw and boxed, for example an `Int` used in arithmetic and also stored in a list. Generation keeps the raw form and boxes at each use in a `V` position. Repeated boxing of one `Float` allocates repeatedly; caching the boxed form per variable avoids that.
+- **Code size.** Workers and wrappers add C code for every monomorphic function used as a value. Reachability limits this to functions actually referenced.
+- **Divergence between backends.** The interpreter is now the reference only through the shared front end and the tests. Every run test already executes under both backends against one expected output, which remains the check.
+
+The MLton comparison is from memory and was not checked in this session.

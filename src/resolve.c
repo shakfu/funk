@@ -6,9 +6,11 @@
    created; intermediate lambdas capture it too. Frames therefore never
    outlive their call, so both backends keep them on the C stack.
 
-   A non-recursive local binding whose right side is not already a value
-   becomes a thunk: its body is a zero-parameter lambda, and references
-   to it force the thunk. */
+   A non-recursive local binding becomes a thunk: its body is a
+   zero-parameter lambda, and references to it force the thunk. Right sides
+   that are safe to evaluate early are evaluated where they are bound
+   instead (`eager`): the difference cannot be observed, and the thunk
+   costs an allocation per binding. */
 #include "funk.h"
 
 typedef struct { void *owner; int slot; FreeSrc src; } Cap;
@@ -42,15 +44,57 @@ static FreeSrc capture(Fn *f, Fn *owner, int slot) {
 static void expr(Expr *e, Fn *f, Scope *sc);
 static void lambda(Lambda *L, Fn *parent, Scope *sc);
 
-static bool is_value(Expr *e) {
-  return e->k == E_LAM || e->k == E_CON || e->k == E_INT || e->k == E_FLOAT || e->k == E_CHAR || e->k == E_STR;
+/* Primitives that are total, have no effect and take constant time. The
+   division family is total only with a literal, non-zero divisor. */
+static bool total_prim(const char *c) {
+  static const char *const names[] = {"addi", "subi", "muli", "negi", "absi", "addf", "subf", "mulf", "fdiv", "negf",
+                                      "absf", "sqrt", "exp",  "log",  "sin",  "cos",  "pow",  "tofloat", "ord",
+                                      "eqw",  "new",  "ltw",  "lew",  "gtw",  "gew",  "eqf",  "nef",  "ltf",
+                                      "lef",  "gtf",  "gef"};
+  for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+    if (strcmp(names[i], c) == 0) return true;
+  return false;
+}
+
+static bool nonzero_literal(Expr *e) { return (e->k == E_INT && e->ival) || (e->k == E_FLOAT && e->fval); }
+
+/* Can e be evaluated now instead of at its first use, with no way to tell?
+   It must terminate, cannot fail and has no effect: literals, constructors,
+   lambdas, variables already evaluated, total primitives and `if` over
+   such expressions. A call to a user function might not terminate. */
+static bool eager(Expr *e, Scope *sc) {
+  switch (e->k) {
+  case E_LAM: case E_CON: case E_INT: case E_FLOAT: case E_CHAR: case E_STR: return true;
+  case E_VAR:
+    for (Scope *s = sc; s; s = s->next)
+      if (s->name == e->name) return !s->lazy; /* forcing a thunk may fail */
+    return true; /* a global: evaluated before anything that uses it */
+  case E_ANN: return eager(e->body, sc);
+  case E_IF: return eager(e->cond, sc) && eager(e->then_, sc) && eager(e->else_, sc);
+  case E_APP: {
+    for (int i = 0; i < e->n; i++)
+      if (!eager(e->args[i], sc)) return false;
+    if (e->fn->k == E_CON) return e->n <= fk_cons[e->fn->idx].arity;
+    if (e->fn->k != E_VAR) return false;
+    for (Scope *s = sc; s; s = s->next)
+      if (s->name == e->fn->name) return false; /* a local function */
+    int g = global_lookup(e->fn->name);
+    int p = g >= 0 ? globals.a[g].prim : -1;
+    if (p < 0 || e->n != fk_prims[p].arity) return false;
+    const char *c = prim_cname(p);
+    if (total_prim(c)) return true;
+    return (!strcmp(c, "div") || !strcmp(c, "mod") || !strcmp(c, "quot") || !strcmp(c, "rem")) &&
+           nonzero_literal(e->args[1]);
+  }
+  default: return false;
+  }
 }
 
 static Scope *group(Group *g, Fn *f, Scope *sc) {
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
     b->slot = f->nslots++;
-    if (!g->rec && !is_value(b->e)) {
+    if (!g->rec && !eager(b->e, sc)) {
       Lambda *L = NEW(Lambda);
       L->body = b->e;
       L->line = b->line;

@@ -102,16 +102,34 @@ Steps 1-4 are independent of the larger decisions and pay off immediately.
 | `sort` | 12.6x | 11.1x | `strings` | 16.1x | 15.2x |
 | `lists` | 22.0x | 18.0x | `floats` | 62.4x | 37.3x |
 
-What remains is boxed `Float` and memory management (`floats`, `lists`, `strings`, `sort`) and thunks (`lazywhere`): steps 5-7. Step 5 changes the shape of `cgen.c`, so steps 1 and 3 should be written so that they survive it.
+What remains is boxed `Float` and memory management (`floats`, `lists`, `strings`, `sort`) and thunks (`lazywhere`): steps 5-7.
+
+**Collector marking, measured first.** After steps 1-4, `scan_range` took 50-60% of `lists`, `sort`, `strings` and `trees`, so it went before the typed backend. Three changes took the geometric mean from 6.58x to **4.91x**:
+
+- Chunks come from one reserved address range, so a word maps to its chunk by masking, not by binary search: `lists` -31%, `sort` -34%, `strings` -39%.
+- Collect after max(128 MiB, 2x live) instead of max(32 MiB, live): `sort` -26%, `strings` -35%, peak memory about 2x.
+- An inline allocation fast path.
+
+| Benchmark | 6.58x run | Now | Benchmark | 6.58x run | Now |
+|-|-|-|-|-|-|
+| `fib` | 1.5x | 1.5x | `trees` | 2.6x | 2.2x |
+| `loop` | 2.6x | 2.6x | `closures` | 2.3x | 2.3x |
+| `sort` | 11.1x | 4.8x | `queens` | 5.6x | 5.1x |
+| `strings` | 15.2x | 5.7x | `lists` | 18.0x | 10.1x |
+| `lazywhere` | 10.7x | 10.7x | `floats` | 37.3x | 34.3x |
+
+The largest ratios left are `floats` (boxing: step 5), `lazywhere` (thunks: step 7) and `lists` (unknown calls and allocation).
+
+**Typed locals, then eager `let`.** Step 2 of [typed-backend.md](typed-backend.md) took the mean to 4.02x (`loop` 1.0x, `floats` 11.4x). The generated `floats` loop then showed its remaining allocation was a thunk, so eager `let` went next: 4.02x to **2.57x**, with `floats` at 1.0x and `lazywhere` at 1.1x. The largest ratios left are `lists` (10.3x), `strings` (5.5x), `queens` (5.2x) and `sort` (4.8x), all dominated by allocation and calls to function arguments. Step 5 changes the shape of `cgen.c`, so steps 1 and 3 should be written so that they survive it.
 
 ## Decisions needed
 
 1. ~~What is the target?~~ Decided: a geometric mean of 2x.
-2. **What may be sacrificed?** Each of these has a cost in speed:
+2. **What may be sacrificed?** Decided: the interpreter may keep its own representation, and strings become a packed type. Each of these had a cost in speed:
    - Haskell semantics: lazy `let` (step 7 keeps it where it matters); `String = [Char]`; typed `IO`.
    - The interpreter: with full monomorphization, the interpreter and the compiled code no longer share a representation, and the shared runtime stops guaranteeing one semantics. The tests still run both backends against one expected output. Dropping the interpreter would mean a REPL that compiles each input with `cc` and loads it with `dlopen`, which was measured at 50-200 ms per input when it was rejected.
    - Size: the typed backend and a new collector add perhaps 2,000-3,000 lines. That is an estimate.
-3. **Strings:** a packed builtin string type, faster than `[Char]` by more than the 16x gap, would make `"abc"` a different type from `['a', 'b', 'c']`. Prelude functions such as `words` and `lines` would need versions for it.
+3. ~~Strings~~ Decided: packed (needs its own note). A packed builtin string type, faster than `[Char]` by more than the 16x gap, would make `"abc"` a different type from `['a', 'b', 'c']`. Prelude functions such as `words` and `lines` would need versions for it.
 4. **Are compile time and memory use part of the goal?** Monomorphization grows code and compile time; the rule as stated does not count them.
 
 The MLton claim and the citation are from memory and were not checked in this session.

@@ -1,4 +1,6 @@
--- Local value bindings are evaluated on first use, at most once.
+-- Local value bindings are evaluated on first use, at most once. Bindings
+-- that cannot fail, loop or act are evaluated early instead, which must not
+-- be observable: the cases below stay lazy.
 safeRecip x
   | x == 0 = 0
   | otherwise = y
@@ -14,9 +16,19 @@ count n = go 0
 
 shared () = let a = putStrLn "forced once" >> 21 in a + a
 
+-- A literal zero divisor fails; a call to a user function might not return.
+zeroDiv x = if x > 0 then x else z where z = div 1 0
+loops x = if x > 0 then x else w where w = spin x
+spin n = spin n
+-- Forcing a lazy binding can fail, so a binding that uses one is lazy too.
+chained x = if x > 0 then x else v where
+  u = div 1 x
+  v = u + 1
+
 main =
   print (safeRecip 0, safeRecip 4) >>
   print (unused 1) >>
   print (count 5) >>
   print (shared ()) >>
+  print (zeroDiv 1, loops 2, chained 3) >>
   (let late = putStrLn "second" in putStrLn "first" >> late)

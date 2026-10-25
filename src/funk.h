@@ -110,6 +110,7 @@ struct Pat {
   Pat **args;
   int con;  /* constructor id, set by check */
   int slot; /* frame slot of a variable, set by resolve */
+  Type *ty; /* type after inference */
   bool rec; /* C { f = p, ... }: args match fields, until check reorders them */
   const char **fields;
 };
@@ -138,7 +139,7 @@ struct Expr {
   int slen;
   long long ival;
   double fval;
-  Type *ty;       /* INT: literal type, decides Int vs Float or fromInt */
+  Type *ty;       /* type after inference; INT: decides Int, Float or fromInt */
   int vk, idx;    /* VAR: resolved location; CON: constructor id */
   bool lazy;      /* VAR: bound to a thunk, forced on load */
   struct Pred *preds; /* VAR: class constraints of this instantiation */
@@ -163,6 +164,7 @@ typedef struct { int vk, idx; } FreeSrc; /* where a closure gets a free var */
 struct Lambda {
   int n;
   const char **params;
+  Type **ptypes; /* parameter types after inference; NULL entries for dictionaries */
   Expr *body;
   int line, col;
   const char *name;
@@ -325,6 +327,8 @@ Type *tcon_new(const char *name, int n, Type **args);
 /* ---------------------------------------------------------- elaboration */
 
 extern int num_class;
+extern Type *dict_type; /* type of dictionary arguments: represented as V */
+void check_types(Bind **bs, int n); /* report expressions without a type (FK_CHECK_TYPES) */
 int global_add(const char *name, Type *t, Lambda *lam);
 void elab_bind(Bind *b);
 Bind *dict_bind(InstDef *in);

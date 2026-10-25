@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Generated code is faster: on the benchmark suite, its geometric mean over C went from 10.3x to 6.6x (`docs/dev/performance-first.md`). Typed primitives are inlined, comparisons in conditions compile to C comparisons, the collector skips non-pointers and stops zeroing dead objects, stack overflow is detected by a guard region instead of a check in every function, and only reachable code is emitted.
+- Generated code is faster: on the benchmark suite, its geometric mean over C went from 10.3x to 2.6x (`docs/dev/performance-first.md`). Local bindings that cannot fail, loop or act are evaluated where they are bound, without a thunk. Values of type `Int`, `Float`, `Char` and `Bool` are C scalars inside function bodies (`docs/dev/typed-backend.md`). Typed primitives are inlined, comparisons in conditions compile to C comparisons, stack overflow is detected by a guard region instead of a check in every function, and only reachable code is emitted. The collector finds objects by address arithmetic instead of binary search, skips non-pointers, no longer zeroes dead objects, and collects after max(128 MiB, 2x live) instead of max(32 MiB, live), which roughly doubles peak memory.
 
 - `Float` comparison follows IEEE in both backends: `NaN == NaN` is `False`. It was `True`, because floats were compared structurally.
 

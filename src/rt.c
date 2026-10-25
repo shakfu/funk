@@ -1,8 +1,9 @@
 /* rt.c -- funk runtime. See rt.h for the value representation.
 
    GC: non-moving conservative mark-sweep. Small objects (<= MAX_SMALL
-   words) live in 1 MiB chunks with one object size per chunk, so any word
-   can be mapped to an object start in O(log chunks). Roots are the funk
+   words) live in 1 MiB chunks with one object size per chunk. Chunks are
+   carved in order from one reserved address range, so any word maps to its
+   chunk, and then to an object start, by arithmetic alone. Roots are the funk
    thread's whole stack (registers spilled by setjmp) plus registered global
    arrays. Conservative scanning lets compiled C code keep values in
    ordinary locals with no shadow stack. */
@@ -61,16 +62,22 @@ typedef struct { size_t words, nobj; char *objs; uint8_t *marks; } Chunk;
 typedef struct { V *p; size_t words; uint8_t mark; } Large;
 typedef struct { V **base; size_t *count; } Root;
 
-static Chunk **chunks;
-static size_t nchunks, capchunks;
-static uintptr_t heap_lo = UINTPTR_MAX, heap_hi;
+static size_t heap_reserve = (size_t)64 << 30; /* address space only; MAP_NORESERVE */
+static char *heap_base;  /* chunk i is at heap_base + i * CHUNK_SIZE */
+static size_t nchunks;
+static uintptr_t heap_lo = UINTPTR_MAX, heap_hi; /* chunks in use */
 static V *freelist[MAX_SMALL + 1];
 static Large *larges;
 static size_t nlarge, caplarge;
 static uintptr_t large_lo = UINTPTR_MAX, large_hi;
 static Root *roots;
 static size_t nroots;
-static size_t alloc_since_gc, gc_threshold = (size_t)32 << 20;
+/* Collect after max(128 MiB, 2x live) of allocation. Each collection scans
+   the whole stack, which deep recursion makes large, so fewer collections
+   pay off: 26-35% on sort and strings against 32 MiB and 1x, at about 2x
+   the peak memory. */
+#define GC_MIN ((size_t)128 << 20)
+static size_t alloc_since_gc, gc_threshold = GC_MIN;
 static V **mstack;
 static size_t msp, mcap;
 
@@ -85,9 +92,17 @@ static void push_free(size_t words, V *o) {
 }
 
 static void new_chunk(size_t words) {
-  char *base = aligned_alloc(CHUNK_SIZE, CHUNK_SIZE);
-  if (!base) { fputs("funk: out of memory\n", stderr); exit(1); }
-  memset(base, 0, CHUNK_SIZE);
+  if (!heap_base) { /* reserve, halving on failure, then align to CHUNK_SIZE */
+    char *r = MAP_FAILED;
+    for (; r == MAP_FAILED && heap_reserve >= ((size_t)256 << 20); heap_reserve /= 2)
+      r = mmap(NULL, heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    if (r == MAP_FAILED) { fputs("funk: cannot reserve heap\n", stderr); exit(1); }
+    heap_reserve *= 2; /* undo the last halving */
+    heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
+    heap_lo = (uintptr_t)heap_base;
+  }
+  if ((nchunks + 1) * CHUNK_SIZE > heap_reserve) { fputs("funk: out of memory\n", stderr); exit(1); }
+  char *base = heap_base + nchunks * CHUNK_SIZE; /* fresh pages are zero */
   Chunk *c = (Chunk *)base;
   size_t hdr = sizeof(Chunk), objbytes = words * sizeof(V);
   size_t nobj = (CHUNK_SIZE - hdr - 16) / (objbytes + 1);
@@ -95,40 +110,23 @@ static void new_chunk(size_t words) {
   c->nobj = nobj;
   c->marks = (uint8_t *)(base + hdr);
   c->objs = base + ((hdr + nobj + 15) & ~(size_t)15);
-  if (nchunks == capchunks) {
-    capchunks = capchunks ? 2 * capchunks : 16;
-    chunks = rt_realloc(chunks, capchunks * sizeof *chunks);
-  }
-  size_t i = nchunks++;
-  while (i > 0 && chunks[i - 1] > c) { chunks[i] = chunks[i - 1]; i--; }
-  chunks[i] = c;
-  if ((uintptr_t)base < heap_lo) heap_lo = (uintptr_t)base;
-  if ((uintptr_t)base + CHUNK_SIZE > heap_hi) heap_hi = (uintptr_t)base + CHUNK_SIZE;
+  nchunks++;
+  heap_hi = (uintptr_t)base + CHUNK_SIZE;
   for (size_t k = nobj; k-- > 0;) push_free(words, (V *)(c->objs + k * objbytes));
 }
 
 /* Map a candidate word to the object containing it, or NULL. */
 static V *find_obj(uintptr_t w, uint8_t **mark, size_t *words) {
   if (w >= heap_lo && w < heap_hi) {
-    uintptr_t base = w & ~(uintptr_t)(CHUNK_SIZE - 1);
-    size_t lo = 0, hi = nchunks;
-    while (lo < hi) {
-      size_t mid = (lo + hi) / 2;
-      uintptr_t b = (uintptr_t)chunks[mid];
-      if (b == base) {
-        Chunk *c = chunks[mid];
-        if (w < (uintptr_t)c->objs) return NULL;
-        size_t i = (w - (uintptr_t)c->objs) / (c->words * sizeof(V));
-        if (i >= c->nobj) return NULL;
-        V *o = (V *)(c->objs + i * c->words * sizeof(V));
-        if (((FkHdr *)o)->kind == K_FREE) return NULL;
-        *mark = &c->marks[i];
-        *words = c->words;
-        return o;
-      }
-      if (b < base) lo = mid + 1; else hi = mid;
-    }
-    return NULL;
+    Chunk *c = (Chunk *)(w & ~(uintptr_t)(CHUNK_SIZE - 1));
+    if (w < (uintptr_t)c->objs) return NULL;
+    size_t i = (w - (uintptr_t)c->objs) / (c->words * sizeof(V));
+    if (i >= c->nobj) return NULL;
+    V *o = (V *)(c->objs + i * c->words * sizeof(V));
+    if (((FkHdr *)o)->kind == K_FREE) return NULL;
+    *mark = &c->marks[i];
+    *words = c->words;
+    return o;
   }
   if (w >= large_lo && w < large_hi) {
     size_t lo = 0, hi = nlarge;
@@ -180,7 +178,7 @@ static void sweep(void) {
   size_t live = 0;
   memset(freelist, 0, sizeof freelist);
   for (size_t ci = 0; ci < nchunks; ci++) {
-    Chunk *c = chunks[ci];
+    Chunk *c = (Chunk *)(heap_base + ci * CHUNK_SIZE);
     size_t bytes = c->words * sizeof(V);
     for (size_t i = c->nobj; i-- > 0;) {
       V *o = (V *)(c->objs + i * bytes);
@@ -204,7 +202,7 @@ static void sweep(void) {
     if (end > large_hi) large_hi = end;
   }
   nlarge = j;
-  gc_threshold = live > ((size_t)32 << 20) ? live : ((size_t)32 << 20);
+  gc_threshold = 2 * live > GC_MIN ? 2 * live : GC_MIN;
 }
 
 static void fk_gc(void) {
@@ -233,10 +231,8 @@ static V alloc_large(size_t words) {
   return (V)p;
 }
 
-V fk_alloc(size_t words, int kind, int n, uint32_t aux) {
+static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uint32_t aux) {
   V *o;
-  if (words < 2) words = 2;
-  alloc_since_gc += words * sizeof(V);
   if (alloc_since_gc > gc_threshold) fk_gc();
   if (words > MAX_SMALL) {
     o = (V *)alloc_large(words);
@@ -252,6 +248,25 @@ V fk_alloc(size_t words, int kind, int n, uint32_t aux) {
   h->aux = aux;
   return (V)o;
 }
+
+/* The common case inline: a small object from a non-empty free list, with
+   no collection due. */
+static inline __attribute__((always_inline)) V alloc(size_t words, int kind, int n, uint32_t aux) {
+  if (words < 2) words = 2;
+  alloc_since_gc += words * sizeof(V);
+  V *o;
+  if (words > MAX_SMALL || alloc_since_gc > gc_threshold || !(o = freelist[words]))
+    return alloc_slow(words, kind, n, aux);
+  freelist[words] = (V *)o[1];
+  o[1] = 0;
+  FkHdr *h = (FkHdr *)o;
+  h->kind = (uint8_t)kind;
+  h->n = (uint16_t)n;
+  h->aux = aux;
+  return (V)o;
+}
+
+V fk_alloc(size_t words, int kind, int n, uint32_t aux) { return alloc(words, kind, n, aux); }
 
 /* --------------------------------------------------------------- objects */
 
@@ -301,26 +316,26 @@ V fk_con_value(uint32_t id) {
 
 V fk_mkcon(uint32_t id, int n, V *fields) {
   if (n == 0) return fk_cons[id].nullary;
-  V o = fk_alloc(1 + (size_t)n, K_CON, n, id);
+  V o = alloc(1 + (size_t)n, K_CON, n, id);
   memcpy(&FK_W(o)[1], fields, (size_t)n * sizeof(V));
   return o;
 }
 
 V fk_float(double d) {
-  V o = fk_alloc(2, K_FLOAT, 0, 0);
+  V o = alloc(2, K_FLOAT, 0, 0);
   FK_FLOATV(o) = d;
   return o;
 }
 
 V fk_closure(FkCode code, int arity, int nfree, void *info) {
-  V c = fk_alloc(3 + (size_t)nfree, K_CLOSURE, nfree, (uint32_t)arity);
+  V c = alloc(3 + (size_t)nfree, K_CLOSURE, nfree, (uint32_t)arity);
   FK_W(c)[1] = (V)code;
   FK_W(c)[2] = (V)info;
   return c;
 }
 
 V fk_thunk(FkCode code, int nfree, void *info) {
-  V t = fk_alloc(3 + (size_t)nfree, K_THUNK, nfree, 0);
+  V t = alloc(3 + (size_t)nfree, K_THUNK, nfree, 0);
   FK_W(t)[1] = (V)code;
   FK_W(t)[2] = (V)info;
   return t;
@@ -346,7 +361,7 @@ V fk_apply(V f, int n, V *args) {
       int ar = (int)h->aux;
       if (n == ar) return FK_CODE(f)(f, args);
       if (n < ar) {
-        V p = fk_alloc(2 + (size_t)n, K_PAP, 0, (uint32_t)n);
+        V p = alloc(2 + (size_t)n, K_PAP, 0, (uint32_t)n);
         FK_W(p)[1] = f;
         memcpy(&FK_W(p)[2], args, (size_t)n * sizeof(V));
         return p;
@@ -589,6 +604,8 @@ int fk_num_eq_int(V v, long long i) {
    wraps (unsigned in C, so defined). Tagged Ints and Chars are ordered
    like their values, so they compare as words. Float follows IEEE:
    NaN /= NaN. */
+static inline int64_t fk_s_absi(int64_t x) { return x < 0 ? (int64_t)(0 - (uint64_t)x) : x; }
+
 #define I2(name, expr)                                                         \
   static inline V fk_i_##name(V x, V y) { return expr; }                     \
   V fk_p_##name(V self, V *a) { return fk_i_##name(a[0], a[1]); }
@@ -605,7 +622,7 @@ I2(subf, fk_float(FK_FLOATV(x) - FK_FLOATV(y)))
 I2(mulf, fk_float(FK_FLOATV(x) * FK_FLOATV(y)))
 I1(negi, FK_MKINT((intptr_t)(0 - (uintptr_t)FK_INT(x))))
 I1(negf, fk_float(-FK_FLOATV(x)))
-I1(absi, FK_INT(x) < 0 ? FK_MKINT((intptr_t)(0 - (uintptr_t)FK_INT(x))) : x)
+I1(absi, FK_MKINT(fk_s_absi(FK_INT(x))))
 I1(absf, fk_float(fabs(FK_FLOATV(x))))
 I2(fdiv, fk_float(FK_FLOATV(x) / FK_FLOATV(y)))
 
@@ -629,29 +646,39 @@ B2(gef, FK_FLOATV(x) >= FK_FLOATV(y))
 
 _Noreturn static void div_zero(void) { fk_error("divide by zero"); }
 
-/* div and mod round toward negative infinity, quot and rem toward zero. */
-static inline V fk_i_div(V a, V b) {
-  intptr_t x = FK_INT(a), y = FK_INT(b);
+/* Scalar forms, fk_s_NAME, for typed generated code. div and mod round
+   toward negative infinity, quot and rem toward zero. INT64_MIN / -1
+   wraps instead of trapping. */
+static inline int64_t fk_s_div(int64_t x, int64_t y) {
   if (y == 0) div_zero();
-  intptr_t q = x / y;
+  if (y == -1) return (int64_t)(0 - (uint64_t)x);
+  int64_t q = x / y;
   if (x % y != 0 && ((x < 0) != (y < 0))) q--;
-  return FK_MKINT(q);
+  return q;
 }
-static inline V fk_i_mod(V a, V b) {
-  intptr_t x = FK_INT(a), y = FK_INT(b);
+static inline int64_t fk_s_mod(int64_t x, int64_t y) {
   if (y == 0) div_zero();
-  intptr_t r = x % y;
+  if (y == -1) return 0;
+  int64_t r = x % y;
   if (r != 0 && ((r < 0) != (y < 0))) r += y;
-  return FK_MKINT(r);
+  return r;
 }
-static inline V fk_i_quot(V a, V b) {
-  if (FK_INT(b) == 0) div_zero();
-  return FK_MKINT(FK_INT(a) / FK_INT(b));
+static inline int64_t fk_s_quot(int64_t x, int64_t y) {
+  if (y == 0) div_zero();
+  return y == -1 ? (int64_t)(0 - (uint64_t)x) : x / y;
 }
-static inline V fk_i_rem(V a, V b) {
-  if (FK_INT(b) == 0) div_zero();
-  return FK_MKINT(FK_INT(a) % FK_INT(b));
+static inline int64_t fk_s_rem(int64_t x, int64_t y) {
+  if (y == 0) div_zero();
+  return y == -1 ? 0 : x % y;
 }
+static inline int32_t fk_s_chr(int64_t i) {
+  if (i < 0 || i > 255) fk_error("chr: %lld out of range", (long long)i);
+  return (int32_t)i;
+}
+static inline V fk_i_div(V a, V b) { return FK_MKINT(fk_s_div(FK_INT(a), FK_INT(b))); }
+static inline V fk_i_mod(V a, V b) { return FK_MKINT(fk_s_mod(FK_INT(a), FK_INT(b))); }
+static inline V fk_i_quot(V a, V b) { return FK_MKINT(fk_s_quot(FK_INT(a), FK_INT(b))); }
+static inline V fk_i_rem(V a, V b) { return FK_MKINT(fk_s_rem(FK_INT(a), FK_INT(b))); }
 V fk_p_div(V self, V *a) { return fk_i_div(a[0], a[1]); }
 V fk_p_mod(V self, V *a) { return fk_i_mod(a[0], a[1]); }
 V fk_p_quot(V self, V *a) { return fk_i_quot(a[0], a[1]); }
@@ -675,11 +702,7 @@ V fk_p_cos(V self, V *a) { return fk_float(cos(num_d(a[0]))); }
 V fk_p_pow(V self, V *a) { return fk_float(pow(num_d(a[0]), num_d(a[1]))); }
 
 V fk_p_ord(V self, V *a) { return FK_MKINT(FK_CHAR(a[0])); }
-V fk_p_chr(V self, V *a) {
-  intptr_t i = FK_INT(a[0]);
-  if (i < 0 || i > 255) fk_error("chr: %ld out of range", (long)i);
-  return FK_MKCHAR(i);
-}
+V fk_p_chr(V self, V *a) { return FK_MKCHAR(fk_s_chr(FK_INT(a[0]))); }
 
 V fk_p_show(V self, V *a) {
   char *s = fk_show_cstr(a[0]);

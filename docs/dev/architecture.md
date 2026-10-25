@@ -109,6 +109,8 @@ Inference:
 
 - Every integer literal records its type. Resolution later rewrites literals whose type is `Float` into float literals.
 
+- Every expression, lambda parameter (`Lambda.ptypes`), pattern and binding records its type, for the typed backend ([typed-backend.md](typed-backend.md)). Specialization clones substitute their concrete types into the copy. With `FK_CHECK_TYPES=1`, the compiler reports any expression left without a type; the test suite runs this on every run test.
+
 - Each variable reference records the instantiated constraints of its scheme (`Expr.preds`). Each binding records the constraints it generalized (`Bind.preds`), in the order `preds_of` gives. Elaboration needs both.
 
 ## Elaboration (`elab.c`)
@@ -125,7 +127,7 @@ Each variable reference resolves to `LOCAL slot`, `FREE index` or `GLOBAL index`
 
 Frames never outlive their call, so both backends keep them on the C stack. Top-level values become zero-parameter lambdas (`Bind.init`), run once.
 
-A non-recursive local binding that is not a lambda, literal or constructor also gets a zero-parameter lambda (`Bind.thunk`). Backends allocate a `K_THUNK` in its slot, and references to it (`Expr.lazy`) call `fk_force`.
+A non-recursive local binding also gets a zero-parameter lambda (`Bind.thunk`), unless its right side can be evaluated early without any visible difference (`eager`). That holds for literals, constructors, lambdas, variables that are not themselves thunks, total primitives (arithmetic, comparisons, `div` by a non-zero literal) and `if` over such expressions. Calls to user functions are never eager, since they might not terminate. Backends allocate a `K_THUNK` in the slot of a lazy binding, and references to it (`Expr.lazy`) call `fk_force`.
 
 ## Runtime (`rt.c`)
 
@@ -155,7 +157,7 @@ All code has the signature `V code(V self, V *args)`. `fk_apply` handles the thr
 
 Non-moving conservative mark-sweep:
 
-- Objects up to 32 words live in 1 MiB aligned chunks, one object size per chunk. Mapping any word to its object takes a binary search over chunk addresses and one division, and handles interior pointers.
+- Objects up to 32 words live in 1 MiB aligned chunks, one object size per chunk. Chunks are carved in order from one reserved address range (64 GiB, `MAP_NORESERVE`, halved until the reservation succeeds). Mapping any word to its object is a mask and one division, and handles interior pointers.
 
 - Larger objects are kept in a sorted array of separate allocations.
 
@@ -163,7 +165,7 @@ Non-moving conservative mark-sweep:
 
 - Every word of a live object is scanned, so the collector needs no per-kind layout.
 
-- Collection runs when allocation since the last GC exceeds max(32 MiB, live bytes). Sweep rebuilds the free lists.
+- Collection runs when allocation since the last GC exceeds max(128 MiB, 2x live bytes). Each collection scans the whole stack, which deep recursion makes large, so fewer collections are faster, at about twice the peak memory of max(32 MiB, live). Sweep rebuilds the free lists. Allocation pops a free list inline; collection and new chunks are out of line.
 
 `fk_run` starts the program on a thread with a 4 GiB `MAP_NORESERVE` stack. That fixes the stack bounds for scanning. A 16 MiB inaccessible region lies below the stack. The interpreter and the runtime check the stack (`FK_STACK_CHECK`) and report overflow as an error the REPL recovers from. Generated code has no check: overflowing it faults on the guard region, and a handler on an alternate signal stack reports the overflow and exits.
 
@@ -177,7 +179,7 @@ The collector skips tagged words before looking up an object, does not scan `Flo
 
 Output: the embedded runtime source, a global array `G`, one `static V fn_N(V self, V *a)` per lambda, and `program()`, which registers constructors and initializes globals in dependency order.
 
-- Frame slots become locals `lN`; free variables are `FK_FREE(self, i)`.
+- Frame slots become locals `lN`; free variables are `FK_FREE(self, i)`. A slot or expression whose type is `Int`, `Float`, `Char` or `Bool` is a C `int64_t`, `double`, `int32_t` or `bool`; conversions to and from `V` are inserted where representations meet: parameters, results, data fields, closures and unknown calls. Primitives on scalars are C operators.
 
 - Arguments go into temporaries in order before each call, since C leaves argument evaluation order unspecified.
 

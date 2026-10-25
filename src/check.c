@@ -44,6 +44,7 @@ static int tvid;
 static VEC(Type *) cvars; /* variables that gained classes, for defaulting */
 static uint64_t num_bit;  /* the Num class, once the prelude declares it */
 int num_class = -1;
+Type *dict_type;
 static const char *s_int, *s_float, *s_char, *s_bool, *s_list, *s_arrow, *s_unit, *s_string, *s_otherwise;
 
 static const struct { const char *cname, *type; } prim_info[] = {
@@ -859,9 +860,12 @@ static Expr *ex_error(const char *msg, int line, int col) {
   Expr *s = ex_new(E_STR, line, col);
   s->name = msg;
   s->slen = (int)strlen(msg);
+  s->ty = tlist(tcon0(s_char));
   Expr **a = xmalloc(sizeof *a);
   a[0] = s;
-  return ex_app(ex_var(intern("$error"), line, col), 1, a);
+  Expr *f = ex_var(intern("$error"), line, col);
+  f->ty = dict_type; /* a function value: represented as V */
+  return ex_app(f, 1, a); /* the caller sets the result type */
 }
 
 /* Constructor pattern with wildcard arguments. */
@@ -966,16 +970,21 @@ static void lower_field(Pending *pd, int ti) {
     int i = label_index(c, x);
     Expr *body;
     if (i >= 0) {
-      p->args[i] = var_pat(v, e->line, e->col);
-      body = ex_var(v, e->line, e->col);
       if (!ft) ft = field_type(c, i, pd->rec, e->line, e->col);
+      p->args[i] = var_pat(v, e->line, e->col);
+      p->args[i]->ty = ft;
+      body = ex_var(v, e->line, e->col);
+      body->ty = ft;
     } else {
       body = ex_error(xsprintf("constructor `%s` has no field `%s`", condefs.a[c].name, x), e->line, e->col);
+      body->ty = pd->res;
     }
+    p->ty = pd->rec;
     alts[c - first] = alt1(p, body);
   }
   unify(pd->res, ft, e->line, e->col);
   make_case(e, e->body, nc, alts);
+  e->ty = pd->res;
 }
 
 /* r { f = v, ... }: rebuild each constructor that has every field; bind the
@@ -1014,34 +1023,45 @@ static void lower_update(Pending *pd, int ti) {
   for (int c = first; c < first + nc; c++) {
     Pat *p = con_pat(c, e->line, e->col);
     Expr *body;
+    p->ty = pd->rec;
     if (missing[c - first]) {
       body = ex_error(xsprintf("constructor `%s` has no field `%s`", condefs.a[c].name, missing[c - first]), e->line,
                       e->col);
+      body->ty = pd->rec;
     } else {
       int ar = condefs.a[c].arity;
       Expr **args = xmalloc((size_t)ar * sizeof *args);
       for (int i = 0; i < ar; i++) {
         int k = 0;
         while (k < e->n && label_index(c, e->fields[k]) != i) k++;
+        Type *fty = field_type(c, i, pd->rec, e->line, e->col);
         if (k < e->n) {
           args[i] = nok == 1 ? vals[k] : ex_var(binds[k]->name, e->line, e->col);
+          args[i]->ty = fty;
         } else {
           const char *u = intern(xsprintf("$u%d", i));
           p->args[i] = var_pat(u, e->line, e->col);
+          p->args[i]->ty = fty;
           args[i] = ex_var(u, e->line, e->col);
+          args[i]->ty = fty;
         }
       }
       Expr *con = ex_new(E_CON, e->line, e->col);
       con->name = condefs.a[c].name;
       con->idx = c;
+      con->ty = dict_type; /* a function value: represented as V */
       body = ex_app(con, ar, args);
+      body->ty = pd->rec;
     }
     alts[c - first] = alt1(p, body);
   }
   Expr *cs = ex_new(E_CASE, e->line, e->col);
   make_case(cs, e->fn, nc, alts);
+  cs->ty = pd->rec;
   for (int k = nok == 1 ? 0 : e->n; k-- > 0;) {
+    binds[k]->type = pd->vals[k];
     Expr *let = ex_new(E_LET, e->line, e->col);
+    let->ty = pd->rec;
     let->g = (Group){xmalloc(sizeof(Bind *)), 1, false};
     let->g.b[0] = binds[k];
     let->body = cs;
@@ -1058,10 +1078,11 @@ static bool lower_method(Pending *pd, Type *r) {
   int g = map_get(&gmap, q);
   if (g < 0 || !globals.a[g].type) return false;
   Expr *f = ex_var(q, e->line, e->col);
-  unify(inst_var(globals.a[g].type, f), tarrow(pd->rec, pd->res), e->line, e->col);
+  unify(f->ty = inst_var(globals.a[g].type, f), tarrow(pd->rec, pd->res), e->line, e->col);
   Expr **a = xmalloc(sizeof *a);
   a[0] = e->body;
   *e = *ex_app(f, 1, a);
+  e->ty = pd->res;
   return true;
 }
 
@@ -1174,7 +1195,9 @@ static Type *infer_qualified_field(Expr *e, Env *env) {
   return t;
 }
 
-static Type *infer_pat(Pat *p, Env **env, Env *stop) {
+static Type *infer_pat(Pat *p, Env **env, Env *stop);
+
+static Type *infer_pat0(Pat *p, Env **env, Env *stop) {
   switch (p->k) {
   case P_VAR: {
     for (Env *e = *env; e != stop; e = e->next)
@@ -1207,6 +1230,9 @@ static Type *infer_pat(Pat *p, Env **env, Env *stop) {
   abort();
 }
 
+/* Every pattern records its type, for the typed backend. */
+static Type *infer_pat(Pat *p, Env **env, Env *stop) { return p->ty = infer_pat0(p, env, stop); }
+
 static void check(Expr *e, Env *env, Type *expected);
 
 static void infer_rhs(Rhs *r, Env *env, Type *res) {
@@ -1238,7 +1264,9 @@ static Type *infer_case(Expr *e, Env *env, Type *res) {
 static void check(Expr *e, Env *env, Type *expected) {
   switch (e->k) {
   case E_LAM: {
+    e->ty = expected;
     Type *t = expected;
+    e->lam->ptypes = xmalloc((size_t)e->lam->n * sizeof(Type *) + 1);
     for (int i = 0; i < e->lam->n; i++) {
       Type *f = repr(t), *p, *r;
       if (f->k == TY_CON && f->name == s_arrow) {
@@ -1250,23 +1278,30 @@ static void check(Expr *e, Env *env, Type *expected) {
         unify(f, tarrow(p, r), e->line, e->col);
       }
       env = env_push(env, e->lam->params[i], p);
+      e->lam->ptypes[i] = p;
       t = r;
     }
     check(e->lam->body, env, t);
     return;
   }
   case E_LET:
+    e->ty = expected;
     infer_group(&e->g, &env, false);
     check(e->body, env, expected);
     return;
   case E_IF:
+    e->ty = expected;
     check(e->cond, env, tcon0(s_bool));
     check(e->then_, env, expected);
     check(e->else_, env, expected);
     return;
-  case E_CASE: infer_case(e, env, expected); return;
+  case E_CASE:
+    e->ty = expected;
+    infer_case(e, env, expected);
+    return;
   case E_APP: { /* a constructor: result first, then each argument against its field */
     if (e->fn->k != E_CON) break;
+    e->ty = expected;
     Type *t = infer(e->fn, env);
     Type **ps = xmalloc((size_t)e->n * sizeof *ps);
     for (int i = 0; i < e->n; i++) {
@@ -1291,7 +1326,16 @@ static void check(Expr *e, Env *env, Type *expected) {
   unify(expected, infer(e, env), e->line, e->col);
 }
 
+static Type *infer0(Expr *e, Env *env);
+
+/* Every expression records its type, for the typed backend. */
 static Type *infer(Expr *e, Env *env) {
+  Type *t = infer0(e, env);
+  e->ty = t;
+  return t;
+}
+
+static Type *infer0(Expr *e, Env *env) {
   switch (e->k) {
   case E_VAR: {
     for (Env *x = env; x; x = x->next)
@@ -1326,11 +1370,11 @@ static Type *infer(Expr *e, Env *env) {
   }
   case E_LAM: {
     Lambda *L = e->lam;
-    Type **ps = xmalloc((size_t)L->n * sizeof *ps);
+    Type **ps = xmalloc((size_t)L->n * sizeof *ps + 1);
     for (int i = 0; i < L->n; i++) env = env_push(env, L->params[i], ps[i] = newvar());
+    L->ptypes = ps;
     Type *t = infer(L->body, env);
     for (int i = L->n; i-- > 0;) t = tarrow(ps[i], t);
-    free(ps);
     return t;
   }
   case E_LET:
@@ -1874,6 +1918,87 @@ static int popcount(uint64_t m) {
   return n;
 }
 
+/* ---------------------------------------------------- type completeness */
+
+/* With FK_CHECK_TYPES set, report every expression, pattern and lambda
+   parameter left without a type. FK_CHECK_TYPES=2 also prints each
+   top-level function's parameter and result types. The typed backend treats them as V, which
+   is safe but slow, so a gap would otherwise go unnoticed. */
+static int untyped;
+
+static void untyped_at(const char *what, int line, int col) {
+  fprintf(stderr, "%s:%d:%d: untyped %s\n", cur_file, line, col, what);
+  untyped++;
+}
+
+static void ct_expr(Expr *e);
+
+static void ct_pat(Pat *p) { /* a wildcard binds and tests nothing: no type needed */
+  if (!p->ty && p->k != P_WILD) untyped_at("pattern", p->line, p->col);
+  for (int i = 0; i < p->n; i++) ct_pat(p->args[i]);
+}
+
+static void ct_group(Group *g) {
+  for (int i = 0; i < g->n; i++) {
+    if (!g->b[i]->type) untyped_at("binding", g->b[i]->line, g->b[i]->col);
+    ct_expr(g->b[i]->e);
+  }
+}
+
+static void ct_expr(Expr *e) {
+  if (!e->ty) untyped_at((const char *[]){"variable", "constructor", "integer", "float", "char", "string", "application",
+                                          "lambda", "let", "if", "case", "annotation", "field", "record"}[e->k],
+                         e->line, e->col);
+  switch (e->k) {
+  case E_APP:
+    ct_expr(e->fn);
+    for (int i = 0; i < e->n; i++) ct_expr(e->args[i]);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++)
+      if (!e->lam->ptypes || !e->lam->ptypes[i]) untyped_at("parameter", e->line, e->col);
+    ct_expr(e->lam->body);
+    return;
+  case E_LET:
+    ct_group(&e->g);
+    ct_expr(e->body);
+    return;
+  case E_IF:
+    ct_expr(e->cond);
+    ct_expr(e->then_);
+    ct_expr(e->else_);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) ct_expr(e->scruts[i]);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      for (int i = 0; i < alt->np; i++) ct_pat(alt->pats[i]);
+      for (int i = 0; i < alt->rhs.nwg; i++) ct_group(&alt->rhs.wg[i]);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) ct_expr(alt->rhs.guards[i]);
+        ct_expr(alt->rhs.bodies[i]);
+      }
+    }
+    return;
+  case E_ANN: ct_expr(e->body); return;
+  default: return;
+  }
+}
+
+void check_types(Bind **bs, int n) {
+  const char *mode = getenv("FK_CHECK_TYPES");
+  if (!mode) return;
+  for (int i = 0; i < n; i++) {
+    if (!bs[i]->type) untyped_at("binding", bs[i]->line, bs[i]->col);
+    ct_expr(bs[i]->e);
+    if (strcmp(mode, "2") || bs[i]->e->k != E_LAM) continue;
+    Lambda *L = bs[i]->e->lam;
+    fprintf(stderr, "%s:", bs[i]->name);
+    for (int k = 0; k < L->n; k++) fprintf(stderr, " %s", L->ptypes[k] ? type_str(L->ptypes[k]) : "?");
+    fprintf(stderr, " -> %s\n", L->body->ty ? type_str(L->body->ty) : "?");
+  }
+}
+
 /* ---------------------------------------------------------------- driver */
 
 static void add_tydef(const char *name, int arity, int ncons) {
@@ -1928,6 +2053,7 @@ void compiler_init(void) {
     VPUSH(globals, g);
     map_put(&gmap, g.name, globals.n - 1);
   }
+  dict_type = tcon0(intern("$Dict"));
   map_put(&gmap, intern("$error"), global_lookup(intern("error")));
 }
 
@@ -2002,6 +2128,8 @@ bool compile_chunk(Module *m, Chunk *out) {
     if (m->binds[i]->npreds && m->binds[i]->e->k == E_LAM) m->binds[i]->orig = copy_expr(m->binds[i]->e);
   specialized.n = 0;
   for (int i = 0; i < m->nb; i++) elab_bind(m->binds[i]);
+  check_types(m->binds, m->nb);
+  check_types(specialized.a, specialized.n);
   for (int i = 0; i < specialized.n; i++) VPUSH(raw, specialized.a[i]);
   /* Dictionaries after the selectors, superclass dictionaries first. */
   for (int depth = 1; depth <= 64; depth++)

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Run the funk test suite. Exit status is the number of failures (capped).
 #   tests/run/NAME.fk      interpreted and compiled output must equal NAME.expected
-#   examples/NAME.fk       (stdin from NAME.stdin if present)
+#   examples/NAME.fk       (stdin from NAME.stdin if present); every expression
+#                          must have a type (FK_CHECK_TYPES), for the typed backend
 #   tests/errors/NAME.fk   must exit non-zero; stderr must contain the text
 #                          after "-- expect: " on line 1
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
@@ -28,6 +29,8 @@ for f in tests/run/*.fk examples/*.fk; do
   else
     bad "$n (build)" "$tmp/cc"
   fi
+  if FK_CHECK_TYPES=1 "$FUNK" emit-c "$f" -o /dev/null 2>"$tmp/types" && ! grep -q untyped "$tmp/types"; then ok
+  else bad "$n (types)" "$tmp/types"; fi
 done
 
 for f in tests/errors/*.fk; do

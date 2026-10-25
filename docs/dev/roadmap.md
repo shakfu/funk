@@ -29,10 +29,10 @@ Generated C speed outranks every other goal; see [performance-first.md](performa
 3. ~~Stack overflow through a guard page, removing the per-call check.~~
 4. ~~Drop unreachable code, prelude instances included.~~
 
-   Steps 1-4 took the geometric mean from 10.3x to 6.6x.
-5. Typed backend: full monomorphization, unboxed scalars, typed layouts, direct calls. Needs a design note.
+   Steps 1-4 took the geometric mean from 10.3x to 6.6x; collector marking fixes then took it to 4.9x, and typed locals to 4.0x.
+5. Typed backend: C scalars in monomorphic code, workers with typed parameters, unboxed scalar fields ([typed-backend.md](typed-backend.md)).
 6. Nursery allocation, or Perceus reference counting. Needs a design note.
-7. Evaluate pure, total, cheap `let` bindings eagerly.
+7. ~~Evaluate pure, total, cheap `let` bindings eagerly.~~ Geometric mean 4.0x to 2.6x.
 
 Interpreter speed (splitting `eval`, 26% in its prologue) is not part of this goal.
 
