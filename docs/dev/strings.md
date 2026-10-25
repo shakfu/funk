@@ -21,11 +21,17 @@ B costs every list operation in exchange for strings, which goes against the per
 ### A in detail
 
 - **Types.** `String` is a builtin type. Literals have type `String`. `[Char]` remains a list type, with `pack :: [Char] -> String` and `unpack :: String -> [Char]` between them.
+
 - **Representation.** A heap object holding a length and bytes. A literal is a static object, allocated once.
+
 - **Overloading.** `++` and `length` become methods of classes with instances for `[a]` and `String`. Single-parameter classes over the type itself (`[a]`, `String`) suffice; no higher-kinded classes are needed.
+
 - **Prelude.** `words`, `unwords`, `lines`, `unlines`, `show`, `putStr`, `putStrLn`, `getLine`, `readInt`, `readFloat` and `error` move to `String`, implemented as primitives.
+
 - **Patterns.** A string literal pattern compares by equality. `(c:cs)` on a `String` is a type error; write `case unpack s of (c:cs) -> ...`.
+
 - **Breaks.** Code that treats strings as lists: `map toUpper s`, `filter isDigit s`, `s !! 0`, `(c:cs)` patterns on strings. In this repo, the prelude's string functions, and the tests that use `words`, `++` or pattern-match strings.
+
 - **Size.** About 400 lines across the checker, runtime, prelude and tests. An estimate.
 
 ### C in detail
@@ -39,8 +45,13 @@ This note first recommended deferring both A and C: the measurement shows packin
 ## As implemented
 
 - `K_STR` objects hold the length in the header and the bytes after it, NUL-terminated. The collector does not scan them. A literal is a static object made on its first evaluation, once per literal, in both backends.
+
 - `++` and `length` are methods of `Append` and `Sized`, with instances for `[a]` and `String`. At `String`, both compile to primitives (`primAppendString`, `primLengthString`), as `==` and `show` do.
+
 - `words`, `lines`, `unwords`, `unlines` and `concatStrings` are primitives: one pass, one allocation for joins.
+
 - The class default `showList` joins with `concatStrings`; joining with `++` would copy the growing tail on every step.
+
 - Tests that used strings as lists now call `unpack`: 5 places in the repo.
+
 - `bench/progs/strings.c` was rewritten with `char` buffers, so the benchmark compares packed with packed. `strings` is 1.6x C; it was 3.3x C when both versions used lists. The interpreter went from 1.32 s to 0.12 s on it.

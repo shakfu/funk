@@ -29,13 +29,17 @@ C is B done at compile time: the stages are known, so the loop is generated dire
 Evaluation is strict, so `sum (map f (filter p xs))` runs `p` on every element, then `f` on every kept element, then sums. Fused, the calls interleave: `p x1`, `f x1`, `p x2`. Three things could become observable:
 
 - **Effects.** `print` acts when evaluated ([design.md](design.md#effects-impure-primitives-sequenced-by-)), so interleaving reorders output.
+
 - **Which error.** If `p` fails on element 5 and `f` on element 1, the original raises `p`'s error and the fused loop raises `f`'s.
+
 - **Whether it fails.** `take 2 (map f [1, 2, 0])` evaluates `f 0` in the original. Fused, it stops after two elements and does not.
 
 A pipeline is fused only if:
 
 1. no stage can perform an effect;
+
 2. at most one stage can fail, by raising an error or by not terminating;
+
 3. every stage before a short-circuiting stage (`take`, `takeWhile`, `any`, `all`, `elem`) cannot fail.
 
 Under these conditions the fused program has the same value, error and termination as the original. Only time and memory differ. Proof sketch: by 1, only the value and failure are observable. By 2, the elements are processed in the same order, and the one stage that can fail sees the same inputs up to its first failure. By 3, the elements a short-circuit skips would have run only total, pure code.
@@ -43,6 +47,7 @@ Under these conditions the fused program has the same value, error and terminati
 Neither condition needs an annotation. Two analyses, both greatest fixpoints over the chunk's functions like those in [reuse.md](reuse.md):
 
 - **Pure:** the expression calls no effectful primitive (`putStr`, `getLine`, and the prelude functions built on them) and no unknown function, such as a parameter or a closure in a local variable.
+
 - **Total:** pure, and every call is to a total primitive or a non-recursive total function. Arithmetic is total, except `div`, `mod`, `quot` and `rem`, whose divisor must be a non-zero literal. A `case` must be exhaustive, as checked by the existing coverage warning. Recursion counts as possible non-termination: strict lists are finite, but proving that a recursive function terminates is not attempted.
 
 In `lists`, every stage is total. In `queens`, only `safe` can fail, since it is recursive. Both fuse.
@@ -88,8 +93,11 @@ go k = case go (k - 1) of src ->
 Rules for the generated code:
 
 - **Stage functions are evaluated once,** in the original argument order, before the loop. An argument that is already a value (a lambda, a global name, or a partial application of a global to variables or literals) is substituted into the loop. `ho_specialize` then makes it a direct call. Any other expression is bound strictly with `case` and called through the variable.
+
 - **Each stage's result is bound strictly,** as `case f x of y -> ...`, because `map` evaluates `f x` before the rest of the list.
+
 - **Types are attached to every generated expression,** from the types of the calls they replace, so `FK_CHECK_TYPES=1` stays clean.
+
 - **Both backends run the fused code,** because the pass rewrites funk expressions. The interpreter therefore shows the same semantics as compiled code.
 
 ### Placement
@@ -99,18 +107,26 @@ The pass runs after elaboration and before `lift_locals`, so the loop is lifted,
 ## Tests
 
 - **Reference semantics.** `FK_NOFUSE=1` disables the pass. The expected output of `tests/run/fuse.fk` is produced with it, so the test checks the fused program against the unfused one, in both backends.
+
 - **Must fuse:** the two benchmark pipelines; `sum`, `length`, `any` and `elem` over `map` and `filter`; `concatMap` with an inner pipeline; `take` after total stages. `tests/run/fuse.fuse` lists the generated loops, as `reuse.reuse` lists reuse copies.
+
 - **Must not fuse, with output equal to the unfused program:**
   - `mapM_ print` as a consumer, and a `map` whose function prints;
+
   - `map (div 1)` after a `filter` with a non-exhaustive `case`, where both can fail;
+
   - `take 2 (map f [1, 2, 0])` with `f 0 = error ...`;
+
   - a stage function in a local variable;
+
   - a user function named `map`.
 
 ## Expected effect
 
 - `queens`: about 2.9x to 1.6x, as measured by hand.
+
 - `lists`: depends on decision 2.
+
 - `strings`: `map show (enumFromTo 1 n)` is materialized without the `Int` list. A small gain, not measured.
 
 Geometric mean, from 1.68x: about 1.58x with `lists` unchanged; about 1.48x with `lists` compared against a fused C loop (about 1.3x). Estimates.
@@ -122,10 +138,15 @@ Size: about 500 lines in `src/fuse.c`, and tests. An estimate.
 Implemented in `src/fuse.c`, about 1,000 lines. Differences from the design:
 
 - **Placement.** The pass runs after `lift_locals`, not before, so local helpers such as `safe`'s `check` are globals the analyses can see. `lift_locals` then runs again on the bindings that got a loop.
+
 - **Unfolding.** Only prelude definitions are unfolded. Unfolding user functions moved their pipelines into callers, duplicating code for no gain.
+
 - **Scope.** One `concat` per pipeline, and none inside its inner pipeline. `enumFromThenTo` is not a producer. A `concatMap` whose outer element type is not `Int`, `Bool`, `()` or a list does not fuse: the loop's inner parameters start with a placeholder value of that type.
+
 - **Desugared clauses.** `map f (x:xs)` binds `f` again in a `case`; the analyses treat such a pattern variable as the parameter it aliases.
+
 - **Dictionaries.** A call through a dictionary counts as unknown, so overloaded code fuses only in its specialized clones.
+
 - **Tests.** `tests/run/fuse.fk` and `fuse_err1.fk`, `fuse_err2.fk`, with expected output from `FK_NOFUSE=1`; `fuse.fuse` lists the functions that get a loop. The `.reuse` check now runs with fusion off, since fusion removes the lists it tests.
 
 | Benchmark | Before | After |
@@ -140,9 +161,12 @@ Implemented in `src/fuse.c`, about 1,000 lines. Differences from the design:
 ## Decisions (taken)
 
 1. **Exact semantics, as above, or imprecise errors?** Taken: exact. The rules above fuse only when the result is unchanged. The alternative is to declare that a pipeline that can fail in several stages may raise any one of their errors. This is Haskell's semantics for imprecise exceptions ([Peyton Jones et al., PLDI 1999](https://dl.acm.org/doi/10.1145/301618.301637)). It would drop rule 2 and fuse more pipelines, at the cost of a documented loss of determinism in error messages. Recommendation: exact. Both benchmarks fuse under it.
+
 2. **What does `lists` measure after fusion?** Taken: (c).
    - (a) Rewrite `lists.c` as the loop a C programmer would write. The benchmark then measures what the compiler achieves on that program, and overlaps with `loop`.
+
    - (b) Change `lists.fk` so its lists cannot be fused, for example by using the filtered list twice. It then keeps measuring allocation and collection.
+
    - (c) Keep both versions as separate benchmarks.
 
    Recommendation: (c). `lists` becomes `pipeline`, against a fused C loop, and a new `lists` defeats fusion, so allocation stays measured.

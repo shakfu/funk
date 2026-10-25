@@ -39,6 +39,10 @@ All backends must print the same output. A benchmark whose outputs differ is not
 | `trees` | binary trees from the Benchmarks Game: allocation and GC with a live tree | max depth |
 | `closures` | unknown calls through closures, a partial application and a composition | calls per function |
 | `strings` | `show`, `unwords` and `words` over packed `String`; the C version uses `char` buffers | count of numbers |
+| `records` | particles as records with `Float` fields, advanced by record update, 100 steps | particles |
+| `bst` | a persistent binary search tree as a map: path-copying inserts, then lookups | keys |
+| `wordfreq` | build text, split it into words, merge sort, count runs: `String` comparison and `++` | words |
+| `printing` | one `putStrLn` per line, with `show` and `++`: an effect-heavy loop | lines |
 
 Sizes are in `SIZES` in `bench.py`. Each size keeps the interpreter under about 3 s. On an M1, C times are therefore 5-75 ms, so `x C` ratios carry several percent of noise. Changing a size makes older rows incomparable, and `report` skips rows whose `n` differs.
 

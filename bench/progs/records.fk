@@ -1,0 +1,17 @@
+-- Particles as records with Float fields, advanced with record update:
+-- field access, record update, unboxed Float fields.
+data P = P { px :: Float, py :: Float, vx :: Float, vy :: Float }
+
+step :: P -> P
+step p = p { px = p.px + p.vx * 0.01, py = p.py + p.vy * 0.01, vx = p.vx - p.px * 0.01, vy = p.vy - p.py * 0.01 }
+
+energy :: [P] -> Float
+energy ps = foldl (\acc p -> acc + p.px * p.px + p.py * p.py + p.vx * p.vx + p.vy * p.vy) 0.0 ps
+
+run :: Int -> [P] -> [P]
+run k ps = if k == 0 then ps else run (k - 1) (map step ps)
+
+main =
+  let n = readInt (getLine ())
+      ps = map (\i -> P (toFloat i) 0.0 0.0 1.0) (enumFromTo 1 n)
+  in print (round (energy (run 100 ps)))

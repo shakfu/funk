@@ -53,8 +53,11 @@ A comes first. It is measured, small and independent, and it makes B cheaper, si
 **Evaluation order.** Evaluation is strict, left to right. In `C a (f xs) b`, `b` is evaluated after the recursive call. A loop would evaluate it before. The transformation therefore applies only if every argument after the self-call is safe to evaluate early, by the same rule as eager `let`. For `x : f xs`, the self-call is the last argument, so this never limits it.
 
 **Code.** The function keeps its signature. In its body:
+
 - Two locals: `head`, which receives the first result, and `dst`, which points to where the next result goes. `dst` starts as `&head`.
+
 - A tail-position constructor application with the self-call allocates the constructor, with a placeholder in the self-call's field, and stores it through `dst`. It then points `dst` at that field and jumps to the top with the self-call's arguments, as self tail calls already do.
+
 - Every other tail-position result is stored through `dst`, and the function returns `head`.
 
 Self tail calls in other branches, such as `filter` skipping an element, keep jumping to the top with `dst` unchanged.
@@ -91,7 +94,9 @@ Each collection's phases, timed in an instrumented build at the benchmark sizes:
 Collection is about 35% of these programs, in one or two collections. Stack scanning is gone. What remains is marking live data and sweeping.
 
 - **B is ruled out.** At each collection, the live data is a list or string built just before: young, and still live. A minor collection would mark it all the same.
+
 - **The collector is near its limit.** A reciprocal in place of the division per marked word saved 3-8% of marking, and was kept. Marking follows millions of cells and pays a cache miss for each; a tracing collector pays this in proportion to live data.
+
 - **C, Perceus, is the option that removes marking and sweeping.** Its cost is unchanged: reference-count operations in generated code, the interpreter and the runtime, and lambda lifting of the remaining recursive closures to avoid cycles. It is deferred: the geometric mean is already 1.93x, under the target, and C is the largest change on the list. It needs its own design pass before any code.
 
 ## Perceus, prototyped by hand
@@ -111,6 +116,7 @@ Freeing makes the program slower, with either free-list layout. With the tracing
 Consequences:
 
 - **Perceus as designed is not implemented.** It would need an allocator that keeps locality under explicit freeing (mimalloc's per-page free lists are one approach) before it could pay off. That is a second large project on top of the first.
+
 - **The gain is in reuse, about 20% on `lists`** (18-23%, with only `filter` and `map` changed). Reuse needs to know that a cell is unique. Full reference counting gives that, at the cost of increments and decrements throughout generated code, which the prototype did not include. A cheaper route: a static check that an argument is a fresh list, such as the direct result of a TRMC-built call like `filter p (enumFromTo 1 n)`, passed to a parameter the callee uses only once. The static route is implemented: [reuse.md](reuse.md).
 
 ## After workers and fusion (2026-10-25)
@@ -129,6 +135,7 @@ The earlier figure of 65% for `lists` predates fusion, reuse, typed workers and 
 Two hypotheses were tested:
 
 - **Page faults from the 128 MiB threshold.** `lists` touches 140 MiB, where its C version touches 12 MiB. Lowering the threshold made every allocating benchmark slower: geometric mean +2.5% at 32 MiB, +15% at 4 MiB (`trees` +58%). More collections cost more than the faults they save. 64 MiB ties with 128 MiB. Rejected.
+
 - **Free lists built in advance.** A new chunk pushed every object onto its free list, writing each one before its first use. Bump allocation through fresh chunks, with sweep ending the bump region, measured -3.0% on the geometric mean (`lists` -9%, `trees` -4%). Kept.
 
 What remains in the collector is sweep and marking. They are proportional to heap size and to live data, so they matter most for programs larger than these benchmarks. Lazy sweeping, which sweeps a chunk when allocation reaches it, would spread the cost but not reduce it. It is not started.

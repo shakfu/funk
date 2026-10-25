@@ -45,6 +45,10 @@ SIZES = {
     "trees": 16,
     "closures": 4000000,
     "strings": 300000,
+    "records": 30000,
+    "bst": 400000,
+    "wordfreq": 300000,
+    "printing": 1000000,
 }
 
 

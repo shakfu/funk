@@ -1,0 +1,5 @@
+-- One line of output per number: show, String append and putStrLn in a
+-- loop. An effect-heavy program, for the cost of effects.
+main =
+  let n = readInt (getLine ())
+  in mapM_ (\i -> putStrLn ("line " ++ show i ++ " " ++ show (i * i))) (enumFromTo 1 n)

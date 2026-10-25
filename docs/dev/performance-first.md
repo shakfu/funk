@@ -41,7 +41,9 @@ Samples of the worker thread, as shares of its samples:
 Conclusions:
 
 1. Unboxed scalars with direct calls reach C speed on `loop` and `fib`. The gap there is representation and calling convention, not the language.
+
 2. Allocation-heavy code is dominated by memory management. `floats` allocates a box per `Float` result; `lists` and `trees` spend most of their time scanning and sweeping.
+
 3. The per-call stack check costs about 20% on call-heavy code.
 
 ## Decisions revisited
@@ -72,6 +74,7 @@ Verdicts: **keep**, **change**, or **decide** (needs the user).
 Two steps, measured between them:
 
 1. **Fix the collector's hot paths.** `mark_word` searches the chunk table for every word, tagged integers included. Tagged words should be rejected first: integers have their low bit set. Sweep zeroes every dead object with `memset`, which is 461 of the `floats` samples; zeroing at allocation, or not at all, is enough. Cost: tens of lines.
+
 2. **A bump-allocated nursery with copying collection**, keeping conservative stack roots by pinning the pages they point into (Bartlett's mostly-copying collector). Short-lived cons cells and boxes, which most of this allocation is, then cost a pointer increment and are never swept. Typed layouts from monomorphization let the collector scan the heap precisely.
 
 The alternative to step 2 is reference counting with reuse (Perceus, as in Koka and Lean 4; [Reinking et al., PLDI 2021](https://dl.acm.org/doi/10.1145/3453483.3454032)). A uniquely owned cell is updated in place, so `map f xs` on a list used once allocates nothing. Its costs: count operations in all generated code, and cycle handling for recursive closures. This needs its own design note before choosing.
@@ -83,11 +86,17 @@ MLton compiles Standard ML through whole-program monomorphization, defunctionali
 ## Plan, by payoff per cost
 
 1. **Inline primitives at known types in `cgen.c`**, on tagged words: `loop` 2.2x faster, `fib` 2.3x. Small.
+
 2. **GC hot-path fixes.** Small; to measure.
+
 3. **Guard-page stack overflow.** About 20% on call-heavy code. Small.
+
 4. **Drop unreachable code.** Small.
+
 5. **Typed backend:** full monomorphization in `cgen.c`, unboxed `Int`, `Float`, `Char` and `Bool`, typed layouts for data, direct calls with typed parameters. `loop` and `fib` reach C speed, and `floats` loses its boxes. Large: it changes how `cgen.c` works and needs a design note.
+
 6. **Nursery or Perceus**, after 5, with its own design note.
+
 7. **Eager `let`** for pure, total, cheap right sides. Medium.
 
 Steps 1-4 are independent of the larger decisions and pay off immediately.
@@ -107,7 +116,9 @@ What remains is boxed `Float` and memory management (`floats`, `lists`, `strings
 **Collector marking, measured first.** After steps 1-4, `scan_range` took 50-60% of `lists`, `sort`, `strings` and `trees`, so it went before the typed backend. Three changes took the geometric mean from 6.58x to **4.91x**:
 
 - Chunks come from one reserved address range, so a word maps to its chunk by masking, not by binary search: `lists` -31%, `sort` -34%, `strings` -39%.
+
 - Collect after max(128 MiB, 2x live) instead of max(32 MiB, live): `sort` -26%, `strings` -35%, peak memory about 2x.
+
 - An inline allocation fast path.
 
 | Benchmark | 6.58x run | Now | Benchmark | 6.58x run | Now |
@@ -131,11 +142,16 @@ The largest ratios left are `floats` (boxing: step 5), `lazywhere` (thunks: step
 ## Decisions needed
 
 1. ~~What is the target?~~ Decided: a geometric mean of 2x.
+
 2. **What may be sacrificed?** Decided: the interpreter may keep its own representation, and strings become a packed type. Each of these had a cost in speed:
    - Haskell semantics: lazy `let` (step 7 keeps it where it matters); `String = [Char]`; typed `IO`.
+
    - The interpreter: with full monomorphization, the interpreter and the compiled code no longer share a representation, and the shared runtime stops guaranteeing one semantics. The tests still run both backends against one expected output. Dropping the interpreter would mean a REPL that compiles each input with `cc` and loads it with `dlopen`, which was measured at 50-200 ms per input when it was rejected.
+
    - Size: the typed backend and a new collector add perhaps 2,000-3,000 lines. That is an estimate.
+
 3. ~~Strings~~ Decided: packed (needs its own note). A packed builtin string type, faster than `[Char]` by more than the 16x gap, would make `"abc"` a different type from `['a', 'b', 'c']`. Prelude functions such as `words` and `lines` would need versions for it.
+
 4. **Are compile time and memory use part of the goal?** Monomorphization grows code and compile time; the rule as stated does not count them.
 
 The MLton claim and the citation are from memory and were not checked in this session.

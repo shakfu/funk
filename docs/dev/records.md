@@ -22,13 +22,21 @@ B's cost: a field access whose record type is unknown where it is generalized is
 ## Semantics
 
 - **Declaration.** `data Shape = Circle { radius :: Float } | Rect { w, h :: Float }`. Field order gives the position. One constructor cannot mix labelled and positional fields. Constructors of one type may share a field if its type is the same in each.
+
 - **Scope.** Field names are in their type's namespace, not the global one. They are not functions and do not shadow or clash with variables.
+
 - **Access.** `p.x`, and `(.x)` as a function; see [Dot access](#dot-access). On a type with several constructors, a field missing from the value's constructor is a runtime error: `(Rect 1.0 2.0).radius`.
+
 - **Construction.** `Rect { h = 2.0, w = 1.0 }` accepts any order. The constructor names the type, so no inference is needed. A missing field is a compile error. Haskell accepts it with a warning and stores a bottom value; under strict evaluation that value would fail on construction anyway.
+
 - **Update.** `s { w = 3.0 }` copies `s` with new fields. The type of `s` is resolved like `s.w`. It desugars to a `case` over the constructors that have every named field; the others are a runtime error.
+
 - **Patterns.** `Rect { w = x }` matches `Rect` and binds `x`. `Rect {}` matches any `Rect`. Both desugar to positional patterns with wildcards.
+
 - **Positional use** keeps working: `Rect 1.0 2.0`, and `Rect a b` as a pattern.
+
 - **Show** prints `Rect {w = 1.0, h = 2.0}`, as Haskell's derived `Show` does.
+
 - **Excluded for now:** puns and wildcards (`Rect {..}`), nested update (`p { pos.x = 1 }`).
 
 ## Dot access
@@ -44,9 +52,13 @@ The lexer separates field access from composition by whitespace, as GHC's `Overl
 | `f.g` | field access; was composition in 0.1 |
 
 - **Precedence.** Field access binds tighter than application: `f p.x` is `f (p.x)`.
+
 - **Left side.** An identifier, `)` or `]` with no space before the `.`. A type name on the left (`Shape.area`) is a qualified name; see [Type namespaces](#type-namespaces).
+
 - **Right side.** A lowercase field name. `1.5` stays a float literal, since the lexer reads numbers first.
+
 - **Breaking change.** `f.g` without spaces changes meaning. The prelude, tests and benchmarks have no such use. 0.1 code that has one gets an error.
+
 - **Pipes** still work: `ps |> map (.x)`.
 
 ## Resolution
@@ -54,10 +66,14 @@ The lexer separates field access from composition by whitespace, as GHC's `Overl
 `p.x` cannot be looked up while it is inferred. In `map (.x) ps`, the argument `(.x)` is inferred before `ps` fixes its type. The checker therefore records a deferred constraint "`t` has field `x` of type `a`":
 
 1. `p.x` gives `p` a fresh type `t` and the result a fresh type `a`. It appends `(t, x, a, location)` to a pending list.
+
 2. Before each binding group is generalized, the checker retries every pending entry. When `t` resolves to `T args`, it finds field `x` of `T`, instantiates the field's type with `args`, unifies it with `a`, and records the field's position for the backends. One success can fix the type of another entry (`p.pos.x`), so it repeats until nothing changes.
+
 3. An entry whose `t` is still a variable is either:
    - an error, if `t` would be generalized in this group: `cannot infer the record type for .x; add a type signature`;
+
    - carried to the enclosing group, if `t` belongs to an outer level.
+
 4. If `T` has no field `x`: `type Shape has no field radius2`.
 
 A signature is unified before the group is generalized, so `getX :: Point -> Float; getX p = p.x` resolves. `let f q = q.x in f p` fails without a signature for `f`, because `q`'s type would be generalized.
@@ -65,6 +81,7 @@ A signature is unified before the group is generalized, so `getX :: Point -> Flo
 Two defaults apply before step 3 reports an error, because each depends only on the binding itself:
 
 - In `Type.f p ... = e` without a signature, a first parameter used with dot access and otherwise unconstrained has type `Type`. `V.len v = sqrt (v.vx * v.vx)` needs no signature.
+
 - A record type that is still a `Num` variable defaults to `Int`, as it would at the end of the chunk. `21.double` calls `Int.double`.
 
 Step 3 has no fallback that picks the only type with field `x`. Such a fallback would make a program stop compiling when an unrelated type later adds a field `x`, which in the REPL can be any later input.
@@ -88,9 +105,13 @@ Shape.scale (Rect w h) k = Rect (w * k) (h * k)
 ```
 
 - **Definition.** A top-level clause whose name is `Type.name` adds `name` to `Type`'s namespace. `Type` may be any declared type, including `Int` and types from earlier REPL inputs. A field and an associated function of one type cannot share a name.
+
 - **Qualified use.** `Shape.area` and `Shape.radius` are ordinary functions, so `map Shape.area shapes` needs no inference.
+
 - **Method call.** `s.name` looks up a field `name` in `s`'s type, then an associated function, and applies the function to `s`: `s.area` is `Shape.area s`, and `s.scale 2.0` is `Shape.scale s 2.0`. Resolution uses the pending check above. Calls are static; there is no runtime dispatch.
+
 - **Argument order.** Method calls need the receiver first. Pipelines and the prelude put data last (`s |> scale 2.0`). Associated functions take the receiver first; ordinary functions keep data last.
+
 - **Lexing.** A conid, `.` and a varid with no spaces form one qualified-name token.
 
 ## Modules
@@ -98,18 +119,25 @@ Shape.scale (Rect w h) k = Rect (w * k) (h * k)
 Modules are not designed yet (see [roadmap.md](roadmap.md)). Reserved syntax:
 
 - Module names are lowercase and use `.` as types do: `geometry.pi`, `geometry.Shape`, `geometry.Shape.area`. Case already decides the meaning: uppercase after `.` is a type or constructor, lowercase is a value, field or function.
+
 - `geometry.pi` is a module member when `geometry` names a module, and field access otherwise. A local variable with the name of an imported module is an error.
+
 - Constants are lowercase, `geometry.pi`; `geometry.PI` would be a constructor.
+
 - `::` is not used for paths, because it is the annotation operator: `geometry::PI` already parses as `geometry` annotated with type `PI`, and `(x::Int)` is common Haskell style.
 
 ## Implementation
 
 - **Lexer.** A `.` with no space before it, after an identifier, `)` or `]`, and directly followed by a lowercase letter, becomes a new token `T_FIELD` carrying the name. `(.` directly followed by a lowercase name and `)` becomes a field section.
+
 - **Parser.** `T_FIELD` is a postfix operator in `parse_aexp`, applied before function application. `{` after a constructor in a `data` declaration starts a field list. `{` after an atomic expression or constructor pattern starts a construction, update or record pattern. This is unambiguous: the parser otherwise accepts `{` only where a layout keyword opens a block. New nodes: `E_FIELD`, `E_RECORD` and a record pattern.
+
 - **Checker.** `register_datas` stores field names and types per constructor in `ConDef`. Construction and patterns are lowered after `register_datas`, since a `data` declaration may appear after its use. Field access and update are lowered after resolution (above). In the REPL, a failed input truncates the pending list with the other tables.
+
 - **Runtime.** `fk_register_con` also takes field names (NULL for positional), so structural `show` and `cgen.c`'s constructor table can print record syntax.
 
 - **Update with several matching constructors** binds each new value with a `let` first, so the value is written once; with one matching constructor it is inlined.
+
 - **Errors in lowered code** call the `error` primitive through the alias `$error`, which user code cannot shadow.
 
 The implementation added about 630 lines: 456 in `check.c`, 111 in `parse.c`. The estimate was 400-500.
@@ -133,5 +161,7 @@ Each value of type `Counter` is an object. Its state lives in the closures, and 
 Records come before type classes:
 
 - they are smaller;
+
 - they are independent of the rest of 0.4;
+
 - derived `Show` in phase 1 of type classes reuses their field names.

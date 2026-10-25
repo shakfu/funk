@@ -1,0 +1,30 @@
+-- An unbalanced binary search tree as a persistent map: inserts copy the
+-- path, then lookups. Comparison-heavy recursion over a data type.
+data Tree = Leaf | Node Tree Int Int Tree
+
+insert :: Int -> Int -> Tree -> Tree
+insert k v Leaf = Node Leaf k v Leaf
+insert k v (Node l k2 v2 r)
+  | k < k2 = Node (insert k v l) k2 v2 r
+  | k > k2 = Node l k2 v2 (insert k v r)
+  | otherwise = Node l k v r
+
+find :: Int -> Tree -> Int
+find k Leaf = 0
+find k (Node l k2 v r)
+  | k < k2 = find k l
+  | k > k2 = find k r
+  | otherwise = v
+
+rand :: Int -> Int
+rand s = mod (s * 1103515245 + 12345) 2147483648
+
+build :: Int -> Int -> Tree -> Tree
+build n s t = if n == 0 then t else build (n - 1) (rand s) (insert (mod s 1000000) n t)
+
+probe :: Int -> Int -> Tree -> Int -> Int
+probe n s t acc = if n == 0 then acc else probe (n - 1) (rand s) t (acc + find (mod s 1000000) t)
+
+main =
+  let n = readInt (getLine ())
+  in print (probe n 7 (build n 42 Leaf) 0)
