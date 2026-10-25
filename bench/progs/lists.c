@@ -1,6 +1,6 @@
 #include "arena.h"
 
-/* Each list is built in order, as funk's recursive map and filter do. */
+/* Each list is built in order, as funk's map and filter do; xs is kept for length. */
 static long round_(long n) {
   Cell *xs = NULL, **tp = &xs;
   for (long i = 1; i <= n; i++) { *tp = cons(i, NULL); tp = &(*tp)->tail; }
@@ -11,7 +11,9 @@ static long round_(long n) {
   for (Cell *c = ev; c; c = c->tail) { *mp = cons(c->head * 3, NULL); mp = &(*mp)->tail; }
   long s = 0;
   for (Cell *c = ms; c; c = c->tail) s += c->head;
-  return s;
+  long len = 0;
+  for (Cell *c = xs; c; c = c->tail) len++;
+  return s + len;
 }
 
 int main(void) {

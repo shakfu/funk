@@ -20,7 +20,7 @@ python3 bench/bench.py history trees --backend interp
 
 ## What the C programs are
 
-The C programs use the same algorithm and data structures as the funk programs: linked lists, recursion, closures as a code pointer plus an environment, packed strings. `strings` used `[Char]` lists in both versions until `String` became packed; rows before that change are not comparable. They allocate from a bump arena (`progs/arena.h`) that is reset between phases, in place of a GC. Idiomatic C with arrays would mostly measure lists against arrays. That is a language design choice, which optimizations of funk cannot change.
+The C programs use the same algorithm and data structures as the funk programs: linked lists, recursion, closures as a code pointer plus an environment, packed strings. Where the compiler removes a data structure, as fusion does in `pipeline`, the C version does without it too. Rows named `lists` before fusion measured what `pipeline` measures now; the new `lists` has a different size, so `report` does not compare them. `strings` used `[Char]` lists in both versions until `String` became packed; rows before that change are not comparable. They allocate from a bump arena (`progs/arena.h`) that is reset between phases, in place of a GC. Idiomatic C with arrays would mostly measure lists against arrays. That is a language design choice, which optimizations of funk cannot change.
 
 All backends must print the same output. A benchmark whose outputs differ is not recorded.
 
@@ -32,7 +32,8 @@ All backends must print the same output. A benchmark whose outputs differ is not
 | `loop` | self tail call over Int arithmetic | iterations |
 | `lazywhere` | one thunk per iteration for a `where` binding | iterations |
 | `floats` | boxed Float arithmetic (midpoint integration) | steps |
-| `lists` | `map`, `filter`, `foldl` over fresh lists, 20 rounds | list length |
+| `lists` | `map`, `filter`, `foldl` over fresh lists, each named so fusion cannot apply, 20 rounds | list length |
+| `pipeline` | `sum (map f (filter p (enumFromTo 1 n)))`, 20 rounds; fused into a loop, and the C version is that loop | list length |
 | `sort` | prelude merge sort of pseudo-random Ints | list length |
 | `queens` | all n-queens solutions as lists of partial boards | board size |
 | `trees` | binary trees from the Benchmarks Game: allocation and GC with a live tree | max depth |

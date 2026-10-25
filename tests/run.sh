@@ -1,7 +1,8 @@
 #!/bin/sh
 # Run the funk test suite. Exit status is the number of failures (capped).
 #   tests/run/NAME.fk      interpreted and compiled output must equal NAME.expected;
-#                          the reuse copies emitted must equal NAME.reuse, if present
+#                          the reuse copies emitted without fusion must equal
+#                          NAME.reuse, and the fused loops NAME.fuse, if present
 #   examples/NAME.fk       (stdin from NAME.stdin if present); every expression
 #                          must have a type (FK_CHECK_TYPES), for the typed backend
 #   tests/errors/NAME.fk   must exit non-zero; stderr must contain the text
@@ -33,9 +34,14 @@ for f in tests/run/*.fk examples/*.fk; do
   if FK_CHECK_TYPES=1 "$FUNK" emit-c "$f" -o /dev/null 2>"$tmp/types" && ! grep -q untyped "$tmp/types"; then ok
   else bad "$n (types)" "$tmp/types"; fi
   if [ -f "$d/$n.reuse" ]; then
-    "$FUNK" emit-c "$f" -o "$tmp/$n.c" && grep '^static V fn_.*@reuse[0-9]* \*/$' "$tmp/$n.c" |
+    FK_NOFUSE=1 "$FUNK" emit-c "$f" -o "$tmp/$n.c" && grep '^static V fn_.*@reuse[0-9]* \*/$' "$tmp/$n.c" |
       sed 's|.*/\* ||; s| \*/$||' | sort >"$tmp/$n.reuse"
     if diff "$d/$n.reuse" "$tmp/$n.reuse" >"$tmp/diff" 2>&1; then ok; else bad "$n (reuse)" "$tmp/diff"; fi
+  fi
+  if [ -f "$d/$n.fuse" ]; then
+    "$FUNK" emit-c "$f" -o "$tmp/$n.c" && grep '^static V fn_.*/\$f[0-9]' "$tmp/$n.c" |
+      sed 's|.*/\* ||; s|/\$f.*||' | sort >"$tmp/$n.fuse"
+    if diff "$d/$n.fuse" "$tmp/$n.fuse" >"$tmp/diff" 2>&1; then ok; else bad "$n (fuse)" "$tmp/diff"; fi
   fi
 done
 

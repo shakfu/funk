@@ -1617,6 +1617,22 @@ static void check_case(Expr *e, const char *fn) {
   cwarning(e->line, e->col, "non-exhaustive patterns%s; not matched: %s", in, b.s);
 }
 
+bool case_covers(Expr *e, bool otherwise_true) {
+  VEC(Pat **) rows = {0};
+  for (int a = 0; a < e->na; a++) {
+    Rhs *r = &e->alts[a]->rhs;
+    bool total = false;
+    for (int i = 0; i < r->ng; i++) {
+      Expr *g = r->guards[i];
+      total |= !g || (g->k == E_CON && g->idx == FK_C_TRUE) || (otherwise_true && g->k == E_VAR && g->name == s_otherwise);
+    }
+    if (total) VPUSH(rows, e->alts[a]->pats);
+  }
+  Pat **w = missing(rows.a, rows.n, e->ns);
+  free(rows.a);
+  return !w;
+}
+
 static void cover_expr(Expr *e, const char *fn);
 
 static void cover_group(Group *g) {
@@ -2137,6 +2153,10 @@ bool compile_chunk(Module *m, Chunk *out) {
   int nspec = specialized.n;
   lift_locals(m->binds, m->nb);
   lift_locals(specialized.a, nspec); /* type-class clones made above */
+  VEC(Bind *) cand = {0};
+  for (int i = 0; i < m->nb; i++) VPUSH(cand, m->binds[i]);
+  for (int i = 0; i < specialized.n; i++) VPUSH(cand, specialized.a[i]);
+  lift_locals(cand.a, fuse_lists(cand.a, cand.n)); /* the fused loops */
   ho_specialize(m->binds, m->nb);
   ho_specialize(specialized.a, specialized.n); /* clones and lifted functions */
   reuse_cells(m->binds, m->nb, specialized.a, specialized.n);

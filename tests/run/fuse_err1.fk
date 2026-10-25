@@ -1,0 +1,5 @@
+-- Two stages that can fail: the original order of errors is kept, so
+-- `filter`'s error comes first, although `map` would fail on an earlier element.
+f x = if x == 2 then error "map" else x
+p x = if x == 4 then error "filter" else True
+main = print (sum (map f (filter p [1, 2, 3, 4])))

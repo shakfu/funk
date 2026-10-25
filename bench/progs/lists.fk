@@ -1,5 +1,10 @@
--- map/filter/foldl over a fresh list each round: allocation and GC.
-round_ n = sum (map (* 3) (filter even (enumFromTo 1 n)))
+-- map/filter/foldl over fresh lists each round, each list named, so fusion
+-- cannot apply: list allocation and GC.
+round_ n =
+  let xs = enumFromTo 1 n
+      ys = filter even xs
+      zs = map (* 3) ys
+  in sum zs + length xs
 
 rounds k n acc = if k == 0 then acc else rounds (k - 1) n (mod (acc + round_ n) 1000000007)
 

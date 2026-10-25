@@ -1,0 +1,12 @@
+allEven
+boards@Int,Int
+counted
+firsts@Int,Int
+flat
+hashed
+lazySource@Int,Int
+member@Int,Int
+pairs@Int,Int
+pipeline
+recursive@Int,Int
+small@Int,Int

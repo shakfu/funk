@@ -1,0 +1,6 @@
+-- sum (map (filter (enumFromTo))): one pipeline per round, which fusion turns into a loop.
+round_ n = sum (map (* 3) (filter even (enumFromTo 1 n)))
+
+rounds k n acc = if k == 0 then acc else rounds (k - 1) n (mod (acc + round_ n) 1000000007)
+
+main = print (rounds 20 (readInt (getLine ())) 0)

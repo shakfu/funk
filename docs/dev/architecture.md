@@ -23,6 +23,7 @@ Both backends link the same runtime, `rt.c`.
 | `src/parse.c` | 1431 | recursive-descent parser, desugaring |
 | `src/check.c` | 1966 | data types, classes, SCC analysis, type inference, chunk driver |
 | `src/elab.c` | 475 | dictionary passing, specialization |
+| `src/fuse.c` | 1148 | fusion of list pipelines into loops |
 | `src/resolve.c` | 158 | closure conversion |
 | `src/interp.c` | 173 | interpreter |
 | `src/cgen.c` | 321 | C generator |
@@ -120,6 +121,8 @@ A binding with constraints gets one dictionary parameter per constraint, prepend
 After elaboration, `lift_locals` lifts local functions that are only ever called (never passed, returned or partially applied) to top-level functions, with their free local variables as leading parameters; each call passes them. A group is lifted only if no binder in its region rebinds one of those variables. `safe q qs = check qs 1 where check ...` calls `safe/check q qs 1`, with no closure.
 
 Then `ho_specialize` specializes calls on function arguments. A call to a top-level function whose argument for a function-typed parameter is built from globals, literals, constructors and lambdas gets a copy with the parameter replaced by the argument. Local variables of the call site in the argument become leading parameters of the copy. Arguments may contain `case`, which lambdas with patterns desugar to (`\n _ -> n + 1`). An application of a lambda literal, which substitution creates, is beta-reduced into `case a of p -> body`, which evaluates the argument first and builds no closure. `map (flip primMulInt 3) xs` calls `map@{0=(flip@{0=primMulInt} 3)}`, in which `f x` is a known call. In desugared clauses, the pattern variables bound to that parameter are replaced too. Copies are keyed by the argument's structure, so recursive calls reuse them. Arguments longer than 160 characters as keys are not specialized, so specialization terminates when an argument grows. Global references copied into a body are marked `global_ref`, so a local of the same name cannot capture them. `.` and `>>>` take three parameters in the prelude, which makes `(f . g) x` a saturated, specializable call.
+
+After lambda lifting, `fuse_lists` (`fuse.c`) replaces chains of prelude list functions with a local loop, which is lifted in turn; see [fusion.md](fusion.md). It runs before `ho_specialize`, so the loop's stage functions become direct calls.
 
 Last, `reuse_cells` finds fresh-producing functions and consuming list parameters, and sends calls that pass a fresh list to a consuming parameter to a copy `f@reuseK`. In the copy, scrutinees holding the input's spine are marked `own`, and cgen writes TRMC output cells into the cells matched from them. Before that, an alternative's `C x1 .. xn` that rebuilds the cell it matched becomes the scrutinee. See [reuse.md](reuse.md).
 

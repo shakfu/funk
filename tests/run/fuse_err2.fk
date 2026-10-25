@@ -1,0 +1,4 @@
+-- `take` after a stage that can fail: the original evaluates `f 0`, so
+-- this must fail, although the result needs only two elements.
+f x = if x == 0 then error "f 0" else x
+main = print (take 2 (map f [1, 2, 0]))

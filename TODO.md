@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.68x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.52x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
@@ -11,6 +11,9 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 ## High
 
 - [x] **In-place reuse of unique list cells.** Done: 1.79x to 1.68x ([docs/dev/reuse.md](docs/dev/reuse.md#result)).
+
+- [x] **List fusion.** Done: 1.68x to 1.52x; `queens` 2.9x to 1.4x ([docs/dev/fusion.md](docs/dev/fusion.md#result)).
+- [ ] Fusion: `enumFromThenTo` as a producer, and nested `concatMap`.
 
 - [ ] Generated C triggers `-Wall` warnings: unused labels and temporaries in `cg_case`.
 

@@ -314,7 +314,7 @@ static const char *specialize(int g, Type **tys, int n) {
   tsub = ts.a;
   ntsub = ts.n;
   Bind *b = NEW(Bind);
-  *b = (Bind){.name = name, .e = copy_expr(ob->orig), .line = ob->line, .col = ob->col};
+  *b = (Bind){.name = name, .e = copy_expr(ob->orig), .line = ob->line, .col = ob->col, .from = ob->from ? ob->from : ob};
   b->e->lam->name = name;
   b->type = apply(globals.a[g].type);
   subst_types(b->e);

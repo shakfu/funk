@@ -196,6 +196,9 @@ struct Bind {
   bool fresh;    /* returns only cells it allocated (reuse.md) */
   uint32_t consumes, gain; /* bit i: list parameter i is consuming; and reusing it can pay */
   int reuse;     /* a reuse copy: 1 + the parameter whose cells it reuses */
+  struct Bind *from; /* type-class clone: the definition it was cloned from */
+  bool pure, total;  /* no effects; and cannot fail, given such arguments (fusion.md) */
+  bool prelude;      /* defined in the prelude */
 };
 
 typedef struct {
@@ -342,6 +345,8 @@ Expr *copy_expr(Expr *e);
 void ho_specialize(Bind **bs, int n); /* copies made go to `specialized` */
 void lift_locals(Bind **bs, int n);   /* lifted functions go to `specialized` */
 void reuse_cells(Bind **bs, int n, Bind **cs, int nc); /* copies go to `specialized` */
+int fuse_lists(Bind **all, int n); /* moves the changed bindings to the front; returns their count */
+bool case_covers(Expr *e, bool otherwise_true); /* exhaustive, guards included; before resolve */
 extern VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 
 /* --------------------------------------------------------------- backends */
