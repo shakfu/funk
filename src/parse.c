@@ -4,13 +4,15 @@
      (op e), (e op)           -> flip op e, op e
      [a, b], [a..b], "str"    -> cons chains, enumFromTo
      (p1, p2) = e             -> one binding per pattern variable
+     do { p <- e; e2; let ds; e3 }
+                              -> case e of p -> case e2 of _ -> let ds in e3
    Record syntax (p.x, C { f = e }, r { f = e }) is kept as E_FIELD and
    E_RECORD; check.c lowers it once constructor fields are known. */
 #include "funk.h"
 
 typedef struct { Token *t; int n, pos; } P;
 
-enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY };
+enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY, D_CLASS, D_INST };
 typedef struct {
   int k, line, col;
   const char *name;
@@ -22,6 +24,8 @@ typedef struct {
   int nn;
   Sig *sig;
   DataDecl *data;
+  ClassDecl *cls;
+  InstDecl *inst;
 } Decl;
 typedef VEC(Decl) Decls;
 typedef VEC(Bind *) Binds;
@@ -33,6 +37,8 @@ static Pat *parse_pat(P *p);
 static Pat *parse_apat(P *p);
 static TypeExpr *parse_type(P *p);
 static void parse_decl_block(P *p, Binds *out);
+static void parse_decl(P *p, Decls *out, bool top);
+static void build_binds(Decls *ds, Binds *out, Datas *datas);
 
 static Token *cur(P *p) { return &p->t[p->pos]; }
 static Token *ahead(P *p, int k) { return &p->t[p->pos + k < p->n ? p->pos + k : p->n - 1]; }
@@ -389,12 +395,12 @@ static Sig *parse_sig(P *p) {
     int n = te->k == TE_TUPLE ? te->n : 1;
     TypeExpr **cs = te->k == TE_TUPLE ? te->args : &te;
     s->ctx = xmalloc((size_t)n * sizeof *s->ctx);
+    s->ctx_cls = xmalloc((size_t)n * sizeof *s->ctx_cls);
     for (int i = 0; i < n; i++) {
       TypeExpr *c = cs[i];
       if (c->k != TE_CON || c->n != 1 || c->args[0]->k != TE_VAR)
-        cerror(c->line, c->col, "constraint must have the form `Num a`");
-      if (strcmp(c->name, "Num") != 0)
-        cerror(c->line, c->col, "unknown class `%s` (only Num is supported)", c->name);
+        cerror(c->line, c->col, "constraint must have the form `Class a`");
+      s->ctx_cls[i] = c->name;
       s->ctx[i] = c->args[0]->name;
     }
     s->nctx = n;
@@ -740,6 +746,84 @@ static Rhs parse_rhs(P *p, TokKind sep, bool allow_where) {
     }                                                                          \
   } while (0)
 
+/* A statement: `p <- e`, an expression (pat NULL), or `let decls`
+   (e NULL). */
+typedef struct { Expr *e; Pat *pat; Binds let; int line, col; } Stmt;
+
+/* Does the statement at the cursor contain `<-` outside brackets? */
+static bool bind_stmt(P *p) {
+  for (int i = 0, depth = 0;; i++) {
+    switch (ahead(p, i)->k) {
+    case T_LPAREN: case T_LBRACKET: case T_LBRACE: case T_VLBRACE: depth++; break;
+    case T_RPAREN: case T_RBRACKET: case T_RBRACE: case T_VRBRACE:
+      if (--depth < 0) return false;
+      break;
+    case T_SEMI: if (!depth) return false; break;
+    case T_LARROW: if (!depth) return true; break;
+    case T_EOF: return false;
+    default: break;
+    }
+  }
+}
+
+static Stmt parse_stmt(P *p) {
+  Token *t = cur(p);
+  Stmt s = {NULL, NULL, {0}, t->line, t->col};
+  if (bind_stmt(p)) {
+    s.pat = parse_pat(p);
+    expect(p, T_LARROW, NULL);
+    s.e = parse_expr(p);
+    return s;
+  }
+  if (!is(p, T_LET)) {
+    s.e = parse_expr(p);
+    s.pat = mkpat(P_WILD, t->line, t->col);
+    return s;
+  }
+  next(p);
+  parse_decl_block(p, &s.let);
+  if (!accept(p, T_IN)) return s;
+  Expr *e = mk(E_LET, t->line, t->col); /* let ... in e as an expression statement */
+  e->g.b = s.let.a;
+  e->g.n = s.let.n;
+  e->body = parse_expr(p);
+  s.e = s.let.n ? e : e->body;
+  s.pat = mkpat(P_WILD, t->line, t->col);
+  s.let = (Binds){0};
+  return s;
+}
+
+/* Each statement is a `case` on its expression, so the expression runs
+   before the rest of the block, which stays in tail position. */
+static Expr *parse_do(P *p, Token *t) {
+  VEC(Stmt) ss = {0};
+  BLOCK(p, VPUSH(ss, parse_stmt(p)));
+  if (!ss.n) cerror(t->line, t->col, "empty `do` block");
+  Stmt *last = &ss.a[ss.n - 1];
+  if (!last->e || last->pat->k != P_WILD)
+    cerror(last->line, last->col, "the last statement of a `do` block must be an expression");
+  Expr *e = last->e;
+  for (int i = ss.n - 1; i-- > 0;) {
+    Stmt *s = &ss.a[i];
+    if (s->e) {
+      Expr **sc = xmalloc(sizeof *sc);
+      sc[0] = s->e;
+      Pat **ps = xmalloc(sizeof *ps);
+      ps[0] = s->pat;
+      Alt **alts = xmalloc(sizeof *alts);
+      alts[0] = mkalt(1, ps, simple_rhs(e));
+      e = mkcase(1, sc, 1, alts, s->line, s->col);
+    } else if (s->let.n) {
+      Expr *l = mk(E_LET, s->line, s->col);
+      l->g.b = s->let.a;
+      l->g.n = s->let.n;
+      l->body = e;
+      e = l;
+    }
+  }
+  return e;
+}
+
 static Expr *parse_exp10(P *p) {
   Token *t = cur(p);
   if (accept(p, T_LAMBDA)) {
@@ -762,6 +846,7 @@ static Expr *parse_exp10(P *p) {
     e->body = body;
     return e;
   }
+  if (accept(p, T_DO)) return parse_do(p, t);
   if (accept(p, T_IF)) {
     Expr *c = parse_expr(p);
     accept(p, T_SEMI);
@@ -881,18 +966,225 @@ static DataDecl *parse_data(P *p) {
   } while (accept(p, T_BAR));
   d->nc = cs.n;
   d->cons = cs.a;
-  if (accept(p, T_DERIVING)) { /* Eq, Ord and Show are structural already */
+  d->derive_line = cur(p)->line;
+  d->derive_col = cur(p)->col;
+  if (accept(p, T_DERIVING)) {
+    VEC(const char *) ds = {0};
     if (accept(p, T_LPAREN)) {
       if (!is(p, T_RPAREN)) {
-        do expect(p, T_CONID, "a class name");
+        do VPUSH(ds, expect(p, T_CONID, "a class name")->s);
         while (accept(p, T_COMMA));
       }
       expect(p, T_RPAREN, NULL);
     } else {
-      expect(p, T_CONID, "a class name");
+      VPUSH(ds, expect(p, T_CONID, "a class name")->s);
     }
+    d->nderiv = ds.n;
+    d->derivs = ds.a;
   }
   return d;
+}
+
+/* ------------------------------------------------------------- deriving */
+
+/* Derived Eq, Ord and Show instances are generated as source text, one
+   line with explicit braces, then parsed. Their tokens take the location
+   of the `deriving` clause, so errors in them point there. */
+
+static bool tuple_con(const char *s) { return s[0] == '(' && s[1] == ','; }
+
+static void con_pat_text(SB *b, ConDecl *c, char var) {
+  if (tuple_con(c->name)) {
+    for (int i = 0; i < c->nfields; i++) sb_printf(b, "%s%c%d", i ? ", " : "(", var, i);
+    sb_puts(b, ")");
+    return;
+  }
+  if (!c->nfields) { sb_puts(b, c->name); return; }
+  sb_printf(b, "(%s", c->name);
+  for (int i = 0; i < c->nfields; i++) sb_printf(b, " %c%d", var, i);
+  sb_puts(b, ")");
+}
+
+static char *derive_text(DataDecl *d, const char *cls) {
+  SB b = {0};
+  sb_printf(&b, "instance ");
+  for (int i = 0; i < d->np; i++) sb_printf(&b, "%s%s %s", i ? ", " : "(", cls, d->params[i]);
+  if (d->np) sb_puts(&b, ") => ");
+  sb_printf(&b, "%s ", cls);
+  if (tuple_con(d->name)) {
+    for (int i = 0; i < d->np; i++) sb_printf(&b, "%s%s", i ? ", " : "(", d->params[i]);
+    sb_printf(&b, ")");
+  } else if (d->np) {
+    sb_printf(&b, "(%s", d->name);
+    for (int i = 0; i < d->np; i++) sb_printf(&b, " %s", d->params[i]);
+    sb_puts(&b, ")");
+  } else {
+    sb_puts(&b, d->name);
+  }
+  sb_puts(&b, " where { ");
+  for (int c = 0; c < d->nc; c++) {
+    ConDecl *cd = &d->cons[c];
+    int n = cd->nfields;
+    if (strcmp(cls, "Show") == 0) {
+      sb_puts(&b, "showPrec d ");
+      con_pat_text(&b, cd, 'a');
+      if (tuple_con(cd->name)) {
+        sb_puts(&b, " = \"(\"");
+        for (int i = 0; i < n; i++) sb_printf(&b, " ++ %sshowPrec 0 a%d", i ? "\",\" ++ " : "", i);
+        sb_puts(&b, " ++ \")\"");
+      } else if (!n) {
+        sb_printf(&b, " = \"%s\"", cd->name);
+      } else if (cd->labels) {
+        sb_printf(&b, " = showParen (d > 10) (\"%s {", cd->name);
+        for (int i = 0; i < n; i++) sb_printf(&b, "%s%s = \" ++ showPrec 0 a%d ++ \"", i ? ", " : "", cd->labels[i], i);
+        sb_puts(&b, "}\")");
+      } else {
+        sb_printf(&b, " = showParen (d > 10) (\"%s\"", cd->name);
+        for (int i = 0; i < n; i++) sb_printf(&b, " ++ \" \" ++ showPrec 11 a%d", i);
+        sb_puts(&b, ")");
+      }
+    } else {
+      sb_puts(&b, strcmp(cls, "Eq") == 0 ? "(==) " : "compare ");
+      con_pat_text(&b, cd, 'a');
+      sb_puts(&b, " ");
+      con_pat_text(&b, cd, 'b');
+      sb_puts(&b, " = ");
+      if (strcmp(cls, "Eq") == 0) {
+        for (int i = 0; i < n; i++) sb_printf(&b, "(a%d == b%d) && ", i, i);
+        sb_puts(&b, "True");
+      } else {
+        for (int i = 0; i < n; i++) sb_printf(&b, "case compare a%d b%d of { EQ -> ", i, i);
+        sb_puts(&b, "EQ");
+        for (int i = 0; i < n; i++) sb_puts(&b, " ; o -> o }");
+      }
+    }
+    sb_puts(&b, " ; ");
+  }
+  if (d->nc > 1 && strcmp(cls, "Eq") == 0) sb_puts(&b, "(==) _ _ = False ; ");
+  if (d->nc > 1 && strcmp(cls, "Ord") == 0) sb_puts(&b, "compare x y = compare (primConTag x) (primConTag y) ; ");
+  sb_puts(&b, "}");
+  return b.s;
+}
+
+/* Parse generated top-level declarations, located at line:col. */
+static void parse_generated(const char *src, Decls *out, int line, int col) {
+  int n;
+  Token *t = lex(src, strlen(src), &n);
+  for (int i = 0; i < n; i++) {
+    t[i].line = line;
+    t[i].col = col;
+  }
+  P q = {t, n, 0};
+  while (!is(&q, T_EOF)) {
+    if (accept(&q, T_SEMI)) continue;
+    parse_decl(&q, out, true);
+  }
+}
+
+static void derive(DataDecl *d, Decls *out) {
+  for (int i = 0; i < d->nderiv; i++) {
+    const char *c = d->derivs[i];
+    if (strcmp(c, "Eq") && strcmp(c, "Ord") && strcmp(c, "Show"))
+      cerror(d->derive_line, d->derive_col, "cannot derive `%s`; only Eq, Ord and Show can be derived", c);
+    parse_generated(derive_text(d, c), out, d->derive_line, d->derive_col);
+  }
+}
+
+/* Instances for builtin types: Bool, (), tuples. Prepended to the prelude. */
+char *builtin_instances_src(void) {
+  static const char *pn[] = {"a", "b", "c", "d", "e", "f", "g"};
+  SB b = {0};
+  sb_puts(&b, "");
+  DataDecl bl = {.name = "Bool", .nc = 2, .cons = (ConDecl[]){{.name = "False"}, {.name = "True"}}};
+  DataDecl un = {.name = "()", .nc = 1, .cons = (ConDecl[]){{.name = "()"}}};
+  DataDecl *ds[2] = {&bl, &un};
+  for (int k = 0; k < 2 + FK_MAXTUPLE - 1; k++) {
+    DataDecl tu = {0};
+    ConDecl tc = {0};
+    DataDecl *d = k < 2 ? ds[k] : &tu;
+    if (k >= 2) {
+      int n = k;
+      SB nm = {0};
+      sb_puts(&nm, "(");
+      for (int i = 1; i < n; i++) sb_puts(&nm, ",");
+      sb_puts(&nm, ")");
+      tc.name = nm.s;
+      tc.nfields = n;
+      tu = (DataDecl){.name = nm.s, .np = n, .params = pn, .nc = 1, .cons = &tc};
+    }
+    for (int c = 0; c < 3; c++) {
+      sb_puts(&b, derive_text(d, (const char *[]){"Eq", "Ord", "Show"}[c]));
+      sb_puts(&b, "\n");
+    }
+  }
+  return b.s;
+}
+
+/* class [ctx =>] C a where { sigs; default methods } */
+static ClassDecl *parse_class(P *p) {
+  Token *t = next(p);
+  ClassDecl *c = NEW(ClassDecl);
+  c->line = t->line;
+  c->col = t->col;
+  Sig *h = parse_sig(p);
+  if (h->t->k != TE_CON || h->t->n != 1 || h->t->args[0]->k != TE_VAR)
+    cerror(h->line, h->col, "a class declaration has the form `class C a`");
+  c->name = h->t->name;
+  c->var = h->t->args[0]->name;
+  for (int i = 0; i < h->nctx; i++)
+    if (h->ctx[i] != c->var) cerror(h->line, h->col, "a superclass must constrain `%s`", c->var);
+  c->nsup = h->nctx;
+  c->sups = h->ctx_cls;
+  if (!accept(p, T_WHERE)) return c;
+  Decls ds = {0}, defs = {0};
+  BLOCK(p, parse_decl(p, &ds, false));
+  VEC(const char *) names = {0};
+  VEC(Sig *) sigs = {0};
+  for (int i = 0; i < ds.n; i++) {
+    Decl *d = &ds.a[i];
+    if (d->k == D_SIG) {
+      if (d->sig->nctx) cerror(d->line, d->col, "method signatures cannot have their own constraints");
+      for (int k = 0; k < d->nn; k++) {
+        VPUSH(names, d->names[k]);
+        VPUSH(sigs, d->sig);
+      }
+    } else if (d->k == D_CLAUSE) {
+      VPUSH(defs, *d);
+    } else {
+      cerror(d->line, d->col, "a class may contain only method signatures and default methods");
+    }
+  }
+  Binds bs = {0};
+  Datas none = {0};
+  build_binds(&defs, &bs, &none);
+  c->nsig = names.n;
+  c->names = names.a;
+  c->sigs = sigs.a;
+  c->ndef = bs.n;
+  c->defs = bs.a;
+  return c;
+}
+
+/* instance [ctx =>] C T where { methods } */
+static InstDecl *parse_instance(P *p) {
+  Token *t = next(p);
+  InstDecl *in = NEW(InstDecl);
+  in->line = t->line;
+  in->col = t->col;
+  Sig *h = parse_sig(p);
+  if (h->t->k != TE_CON || h->t->n != 1)
+    cerror(h->line, h->col, "an instance declaration has the form `instance C T`");
+  in->cls = h->t->name;
+  in->head = h->t->args[0];
+  in->ctx = h;
+  if (!accept(p, T_WHERE)) return in;
+  Binds bs = {0};
+  parse_decl_block(p, &bs);
+  for (int i = 0; i < bs.n; i++)
+    if (bs.a[i]->sig) cerror(bs.a[i]->line, bs.a[i]->col, "signatures are not allowed in instances");
+  in->nb = bs.n;
+  in->binds = bs.a;
+  return in;
 }
 
 static bool sig_start(P *p) {
@@ -917,6 +1209,15 @@ static void parse_decl(P *p, Decls *out, bool top) {
     if (!top) cerror(t->line, t->col, "data declarations are only allowed at top level");
     d.k = D_DATA;
     d.data = parse_data(p);
+    VPUSH(*out, d);
+    derive(d.data, out);
+    return;
+  }
+  if (t->k == T_CLASS || t->k == T_INSTANCE) {
+    if (!top) cerror(t->line, t->col, "class and instance declarations are only allowed at top level");
+    d.k = t->k == T_CLASS ? D_CLASS : D_INST;
+    if (t->k == T_CLASS) d.cls = parse_class(p);
+    else d.inst = parse_instance(p);
     VPUSH(*out, d);
     return;
   }
@@ -1018,7 +1319,7 @@ static void build_binds(Decls *ds, Binds *out, Datas *datas) {
       i++;
       continue;
     }
-    if (d->k == D_SIG || d->k == D_FIXITY) { i++; continue; }
+    if (d->k == D_SIG || d->k == D_FIXITY || d->k == D_CLASS || d->k == D_INST) { i++; continue; }
     if (d->k == D_PATBIND) {
       const char *tmp = fresh("p");
       VPUSH(*out, mkbind(tmp, rhs_expr(&d->rhs, d->line, d->col), d->line, d->col));
@@ -1113,6 +1414,16 @@ Module *parse_module(const char *src, size_t len) {
   m->nb = bs.n;
   m->datas = datas.a;
   m->nd = datas.n;
+  VEC(ClassDecl *) cs = {0};
+  VEC(InstDecl *) is = {0};
+  for (int i = 0; i < ds.n; i++) {
+    if (ds.a[i].k == D_CLASS) VPUSH(cs, ds.a[i].cls);
+    if (ds.a[i].k == D_INST) VPUSH(is, ds.a[i].inst);
+  }
+  m->classes = cs.a;
+  m->ncl = cs.n;
+  m->insts = is.a;
+  m->ni = is.n;
   return m;
 }
 
@@ -1136,7 +1447,7 @@ Sig *parse_sig_text(const char *src) {
 bool is_decl_text(const char *src, size_t len) {
   int n;
   Token *t = lex(src, len, &n);
-  if (t[0].k == T_DATA || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || sig_start(&(P){t, n, 0}))
+  if (t[0].k == T_DATA || t[0].k == T_CLASS || t[0].k == T_INSTANCE || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || sig_start(&(P){t, n, 0}))
     return true;
   int depth = 0;
   for (int i = 0; i < n; i++) {
@@ -1144,7 +1455,7 @@ bool is_decl_text(const char *src, size_t len) {
     case T_LPAREN: case T_LBRACKET: case T_LBRACE: depth++; break;
     case T_RPAREN: case T_RBRACKET: case T_RBRACE: depth--; break;
     case T_EQ: if (depth == 0) return true; break;
-    case T_LET: case T_LAMBDA: case T_CASE: case T_IF: case T_OF: return false;
+    case T_LET: case T_LAMBDA: case T_CASE: case T_IF: case T_OF: case T_DO: return false;
     default: break;
     }
   }

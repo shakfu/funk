@@ -91,7 +91,6 @@ static void expr(Expr *e, Fn *f, Scope *sc) {
     e->vk = VK_GLOBAL;
     e->idx = global_lookup(e->name);
     e->known = globals.a[e->idx].lam;
-    if (e->ty) e->tdesc = show_desc(repr(e->ty)->args[0]);
     return;
   }
   case E_INT: {

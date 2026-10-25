@@ -6,6 +6,7 @@
 
 #include <setjmp.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,7 @@ void undo_to(int mark);
 
 extern const char *cur_file;
 extern jmp_buf *cerr_jmp;
+extern bool cerr_quiet; /* suppress error messages (REPL probes) */
 _Noreturn void cerror(int line, int col, const char *fmt, ...);
 void cwarning(int line, int col, const char *fmt, ...);
 
@@ -58,7 +60,7 @@ typedef enum {
   T_LBRACE, T_RBRACE, T_VLBRACE, T_VRBRACE,
   T_EQ, T_BAR, T_ARROW, T_LAMBDA, T_DCOLON, T_DOTDOT, T_DARROW, T_UNDERSCORE,
   T_CASE, T_OF, T_LET, T_IN, T_WHERE, T_IF, T_THEN, T_ELSE, T_DATA, T_DERIVING,
-  T_INFIXL, T_INFIXR, T_INFIX,
+  T_INFIXL, T_INFIXR, T_INFIX, T_CLASS, T_INSTANCE, T_DO, T_LARROW,
   T_FIELD, /* .name directly after a token: field access or qualified name */
 } TokKind;
 
@@ -94,7 +96,7 @@ typedef struct TypeExpr {
 
 typedef struct {
   int nctx;
-  const char **ctx; /* type variables constrained by Num */
+  const char **ctx_cls, **ctx; /* constraint i is `ctx_cls[i] ctx[i]` */
   TypeExpr *t;
   int line, col;
 } Sig;
@@ -136,10 +138,11 @@ struct Expr {
   int slen;
   long long ival;
   double fval;
-  Type *ty;       /* INT: literal type, decides Int vs Float; VAR: type of show/print */
+  Type *ty;       /* INT: literal type, decides Int vs Float or fromInt */
   int vk, idx;    /* VAR: resolved location; CON: constructor id */
   bool lazy;      /* VAR: bound to a thunk, forced on load */
-  const char *tdesc; /* VAR: show/print with a known argument type */
+  struct Pred *preds; /* VAR: class constraints of this instantiation */
+  int npreds;
   Lambda *known;  /* VAR bound to a known lambda: direct calls */
   Expr *fn;       /* APP, RECORD */
   int n;
@@ -178,6 +181,13 @@ struct Bind {
   int gidx;     /* global index, for top-level binds */
   Lambda *init; /* top-level value: zero-arity body evaluated once */
   Lambda *thunk; /* local value: zero-arity body evaluated on first use */
+  Type *scheme;  /* given type, like a signature (generated bindings) */
+  Type *type;    /* inferred or given type, for elaboration */
+  Type **skolem; /* rigid copies of scheme variables: pairs generic, copy */
+  int nskolem;
+  struct Pred *preds; /* constraints generalized at this binding: its dictionary parameters */
+  int npreds;
+  Expr *orig;    /* overloaded function before elaboration, copied for specializations */
 };
 
 typedef struct {
@@ -194,19 +204,48 @@ typedef struct {
   int nc;
   ConDecl *cons;
   int line, col;
+  int nderiv;
+  const char **derivs;
+  int derive_line, derive_col;
 } DataDecl;
+
+typedef struct {
+  const char *name, *var;
+  int nsup;
+  const char **sups;
+  int nsig;
+  const char **names; /* method i is names[i] :: sigs[i] */
+  Sig **sigs;
+  int ndef;
+  Bind **defs; /* default methods */
+  int line, col;
+} ClassDecl;
+
+typedef struct {
+  const char *cls;
+  TypeExpr *head;
+  Sig *ctx; /* context only; t unused */
+  int nb;
+  Bind **binds;
+  int line, col;
+} InstDecl;
 
 typedef struct {
   Bind **binds;
   int nb;
   DataDecl **datas;
   int nd;
+  ClassDecl **classes;
+  int ncl;
+  InstDecl **insts;
+  int ni;
 } Module;
 
 Module *parse_module(const char *src, size_t len);
 Expr *parse_expr_text(const char *src, size_t len);
 Sig *parse_sig_text(const char *src);
 bool is_decl_text(const char *src, size_t len);
+char *builtin_instances_src(void);
 
 /* ----------------------------------------------------------------- check */
 
@@ -214,7 +253,9 @@ struct Type {
   int k; /* TY_VAR, TY_CON */
   Type *link;
   int level, id;
-  bool num, skolem;
+  uint64_t cls; /* classes a variable must be an instance of, closed under superclasses */
+  bool skolem;
+  int line, col; /* where a constrained variable arose, for ambiguity errors */
   const char *name;
   int n;
   Type **args;
@@ -226,17 +267,48 @@ typedef struct {
   Type *type; /* scheme: generic vars are quantified */
   int prim;   /* index into fk_prims, or -1 */
   Lambda *lam;
+  const char *spec; /* prelude overload with primitives primSPECInt etc. */
+  Bind *bind;       /* top-level binding, for specialization */
+  int mcls, midx;   /* class method: class and method index, else -1 */
 } Global;
 
 typedef struct { const char *name; int arity; Type *scheme; int tydef; const char **labels; } ConDef;
 typedef struct { const char *name; int arity, ncons; } TyDef;
 
-typedef struct { Group *groups; int ng; } Chunk;
+typedef struct Pred { Type *t; int cls; } Pred;
+
+typedef struct {
+  const char *name;
+  uint64_t closure; /* this class and its superclasses */
+  int nsup;
+  int *sups; /* direct superclasses, stored after the methods */
+  int nmeth;
+  const char **meths;
+  int *arity;
+  bool *hasdef;  /* has a default method $def.C.m */
+  Type **mtypes; /* method types over `var`, a generic variable in this class */
+  Type *var;
+  int con; /* dictionary constructor */
+} ClassDef;
+
+typedef struct {
+  int cls;
+  const char *tycon;
+  int arity;
+  Type **vars; /* generic head variables; vars[i]->cls is the context */
+  int dict;    /* global holding the dictionary or the function building it */
+  int line, col;
+} InstDef;
+
+/* Dictionaries, selectors: bindings built after inference. */
+typedef struct { Group *groups; int ng; Bind **raw; int nraw; } Chunk;
 
 extern VEC(Global) globals;
 extern VEC(ConDef) condefs;
 extern VEC(TyDef) tydefs;
 extern VEC(Lambda *) all_lambdas;
+extern VEC(ClassDef) classes;
+extern VEC(InstDef) insts;
 
 void compiler_init(void);
 bool compile_chunk(Module *m, Chunk *out);
@@ -245,7 +317,18 @@ int global_lookup(const char *name);
 void global_alias(const char *name, int gidx);
 Type *repr(Type *t);
 const char *type_str(Type *t);
-const char *show_desc(Type *t);
+int preds_of(Type *scheme, Pred **out);
+InstDef *find_inst(int cls, const char *tycon);
+Type *tcon_new(const char *name, int n, Type **args);
+
+/* ---------------------------------------------------------- elaboration */
+
+extern int num_class;
+int global_add(const char *name, Type *t, Lambda *lam);
+void elab_bind(Bind *b);
+Bind *dict_bind(InstDef *in);
+Expr *copy_expr(Expr *e);
+extern VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 
 /* --------------------------------------------------------------- backends */
 

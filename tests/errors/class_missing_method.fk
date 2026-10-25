@@ -1,0 +1,7 @@
+-- expect: instance `C Int` does not define `g`, which has no default
+class C a where
+  f :: a -> Int
+  g :: a -> Int
+instance C Int where
+  f x = x
+main = print (f 1)

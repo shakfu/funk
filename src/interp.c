@@ -27,7 +27,6 @@ static V load(Expr *e, V *fr, V self) {
   default:
     v = gvals[e->idx];
     if (!v) fk_error("`%s` is undefined (its definition failed)", e->name);
-    if (e->tdesc) return fk_typed_show_fn(fk_prims[globals.a[e->idx].prim].code == fk_p_print, e->tdesc);
     return v;
   }
   return e->lazy ? fk_force(v) : v;
@@ -159,11 +158,16 @@ void interp_install(Chunk *c) {
   for (size_t i = ngvals; i < (size_t)globals.n; i++)
     if (globals.a[i].prim >= 0) gvals[i] = fk_prim_value(globals.a[i].prim);
   ngvals = (size_t)globals.n;
-  for (int i = 0; i < c->ng; i++) {
-    Group *g = &c->groups[i];
-    for (int j = 0; j < g->n; j++) {
-      Bind *b = g->b[j];
-      gvals[b->gidx] = b->init ? run(b->init, 0, NULL) : alloc_closure(b->e->lam);
-    }
-  }
+  /* Functions first, then dictionaries, which refer to them, then values,
+     which may use dictionaries. Creating a closure runs no code. */
+  for (int i = 0; i < c->nraw; i++)
+    if (!c->raw[i]->init) gvals[c->raw[i]->gidx] = alloc_closure(c->raw[i]->e->lam);
+  for (int i = 0; i < c->ng; i++)
+    for (int j = 0; j < c->groups[i].n; j++)
+      if (!c->groups[i].b[j]->init) gvals[c->groups[i].b[j]->gidx] = alloc_closure(c->groups[i].b[j]->e->lam);
+  for (int i = 0; i < c->nraw; i++)
+    if (c->raw[i]->init) gvals[c->raw[i]->gidx] = run(c->raw[i]->init, 0, NULL);
+  for (int i = 0; i < c->ng; i++)
+    for (int j = 0; j < c->groups[i].n; j++)
+      if (c->groups[i].b[j]->init) gvals[c->groups[i].b[j]->gidx] = run(c->groups[i].b[j]->init, 0, NULL);
 }

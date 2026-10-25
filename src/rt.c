@@ -460,28 +460,9 @@ static void show_float(Buf *b, double d, int prec) {
   if (paren) buf_putc(b, ')');
 }
 
-/* Type descriptor from the checker: entries separated by ';', entry 0 is
-   the root. An entry is I, F, C, ? (unknown), or D<first con>,<ncons>
-   followed by ,<entry> for each field of each constructor in order.
-   Returns the entry of field i of constructor id, or -1 if unknown. */
-static int desc_field(const char *const *ent, int e, uint32_t id, int i) {
-  if (e < 0 || ent[e][0] != 'D') return -1;
-  char *p;
-  unsigned long first = strtoul(ent[e] + 1, &p, 10), ncons = strtoul(p + 1, &p, 10);
-  if (id < first || id >= first + ncons) return -1;
-  for (uint32_t c = (uint32_t)first; c < id; c++) i += fk_cons[c].arity;
-  while (i-- > 0) p = strchr(p + 1, ',');
-  return (int)strtol(p + 1, NULL, 10);
-}
-
-/* ent == NULL or e < 0 shows structurally. */
-static void show(Buf *b, V v, int prec, const char *const *ent, int e) {
+static void show(Buf *b, V v, int prec) {
   FK_STACK_CHECK();
   char tmp[32];
-  if (FK_ISINT(v) && e >= 0 && ent[e][0] == 'F') {
-    show_float(b, (double)FK_INT(v), prec);
-    return;
-  }
   if (FK_ISINT(v)) {
     intptr_t i = FK_INT(v);
     snprintf(tmp, sizeof tmp, prec > 6 && i < 0 ? "(%ld)" : "%ld", (long)i);
@@ -501,8 +482,7 @@ static void show(Buf *b, V v, int prec, const char *const *ent, int e) {
   }
   if (h->kind != K_CON) { buf_puts(b, "<function>"); return; }
   uint32_t id = h->aux;
-  int el = id == FK_C_NIL || id == FK_C_CONS ? desc_field(ent, e, FK_C_CONS, 0) : -1;
-  if (id == FK_C_NIL) { buf_puts(b, el >= 0 && ent[el][0] == 'C' ? "\"\"" : "[]"); return; }
+  if (id == FK_C_NIL) { buf_puts(b, "[]"); return; }
   if (id == FK_C_CONS) {
     if (FK_ISCHAR(FK_FIELD(v, 0))) {
       buf_putc(b, '"');
@@ -513,7 +493,7 @@ static void show(Buf *b, V v, int prec, const char *const *ent, int e) {
     buf_putc(b, '[');
     for (bool first = true; FK_CONID(v) == FK_C_CONS; v = FK_FIELD(v, 1), first = false) {
       if (!first) buf_putc(b, ',');
-      show(b, FK_FIELD(v, 0), 0, ent, el);
+      show(b, FK_FIELD(v, 0), 0);
     }
     buf_putc(b, ']');
     return;
@@ -522,7 +502,7 @@ static void show(Buf *b, V v, int prec, const char *const *ent, int e) {
     buf_putc(b, '(');
     for (int i = 0; i < h->n; i++) {
       if (i) buf_putc(b, ',');
-      show(b, FK_FIELD(v, i), 0, ent, desc_field(ent, e, id, i));
+      show(b, FK_FIELD(v, i), 0);
     }
     buf_putc(b, ')');
     return;
@@ -536,7 +516,7 @@ static void show(Buf *b, V v, int prec, const char *const *ent, int e) {
       buf_puts(b, i ? ", " : " {");
       buf_puts(b, ls[i]);
       buf_puts(b, " = ");
-      show(b, FK_FIELD(v, i), 0, ent, desc_field(ent, e, id, i));
+      show(b, FK_FIELD(v, i), 0);
     }
     buf_putc(b, '}');
     if (prec > 10) buf_putc(b, ')');
@@ -546,25 +526,18 @@ static void show(Buf *b, V v, int prec, const char *const *ent, int e) {
   buf_puts(b, fk_cons[id].name);
   for (int i = 0; i < h->n; i++) {
     buf_putc(b, ' ');
-    show(b, FK_FIELD(v, i), 11, ent, desc_field(ent, e, id, i));
+    show(b, FK_FIELD(v, i), 11);
   }
   if (prec > 10) buf_putc(b, ')');
 }
 
-char *fk_show_typed_cstr(const char *desc, V v) {
-  int n = 1;
-  for (const char *p = desc; p && *p; p++) n += *p == ';';
-  const char *ent[n];
-  ent[0] = desc;
-  for (int i = 1; i < n; i++) ent[i] = strchr(ent[i - 1], ';') + 1;
+char *fk_show_cstr(V v) {
   Buf b = {0};
   buf_putc(&b, 0);
   b.n = 0;
-  show(&b, v, 0, ent, desc ? 0 : -1);
+  show(&b, v, 0);
   return b.s;
 }
-
-char *fk_show_cstr(V v) { return fk_show_typed_cstr(NULL, v); }
 
 /* ------------------------------------------------------------- compare */
 
@@ -599,7 +572,9 @@ int fk_compare(V a, V b) {
 }
 
 int fk_num_eq_int(V v, long long i) {
-  return FK_ISINT(v) ? FK_INT(v) == i : FK_FLOATV(v) == (double)i;
+  if (FK_ISINT(v)) return FK_INT(v) == i;
+  if (!is_float(v)) fk_error("numeric literal pattern on a type other than Int or Float");
+  return FK_FLOATV(v) == (double)i;
 }
 
 /* ------------------------------------------------------------ primitives */
@@ -680,29 +655,30 @@ V fk_p_chr(V self, V *a) {
   return FK_MKCHAR(i);
 }
 
-V fk_show_typed(const char *desc, V v) {
-  char *s = fk_show_typed_cstr(desc, v);
+V fk_p_show(V self, V *a) {
+  char *s = fk_show_cstr(a[0]);
   V r = fk_string(s, strlen(s));
   free(s);
   return r;
 }
 
-V fk_print_typed(const char *desc, V v) {
-  char *s = fk_show_typed_cstr(desc, v);
+V fk_p_print(V self, V *a) {
+  char *s = fk_show_cstr(a[0]);
   puts(s);
   free(s);
   return fk_unit;
 }
 
-V fk_p_show(V self, V *a) { return fk_show_typed(NULL, a[0]); }
-V fk_p_print(V self, V *a) { return fk_print_typed(NULL, a[0]); }
+/* show for [Char]: quoted, also when empty. */
+V fk_p_showstr(V self, V *a) {
+  if (a[0] == fk_nil) return fk_string("\"\"", 2);
+  return fk_p_show(self, a);
+}
 
-static V show_typed_code(V self, V *a) { return fk_show_typed(FK_INFO(self), a[0]); }
-static V print_typed_code(V self, V *a) { return fk_print_typed(FK_INFO(self), a[0]); }
-
-/* `show` or `print` specialised to a static type, as a function value. */
-V fk_typed_show_fn(int print, const char *desc) {
-  return fk_closure(print ? print_typed_code : show_typed_code, 1, 0, (void *)desc);
+/* Constructor index, for derived Ord. */
+V fk_p_contag(V self, V *a) {
+  if (!FK_ISPTR(a[0]) || FK_HDR(a[0])->kind != K_CON) fk_error("primConTag: not a constructor");
+  return FK_MKINT(FK_CONID(a[0]));
 }
 
 V fk_p_putstr(V self, V *a) {

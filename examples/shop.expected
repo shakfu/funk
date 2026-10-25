@@ -1,0 +1,8 @@
+Ada owes $14.50
+  pen x4 = $6.00
+  notepad x2 = $8.50
+open -> paid $14.50
+cancelled: out of ink
+[36,8,3]
+["ink"]
+Paid {amount = Money {cents = 1450}}

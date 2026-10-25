@@ -1,2 +1,2 @@
--- expect: no Num instance for `Bool`
+-- expect: no instance `Num Bool`
 main = print (True + 1)

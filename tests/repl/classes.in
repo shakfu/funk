@@ -1,0 +1,16 @@
+data T = A | B
+A
+id
+data U = U deriving (Show)
+U
+:t \x -> show x ++ "!"
+:{
+class Pretty a where
+  pretty :: a -> String
+instance Pretty Bool where
+  pretty b = if b then "yes" else "no"
+:}
+pretty True
+:t pretty
+instance Pretty Int
+pretty (1 :: Int)

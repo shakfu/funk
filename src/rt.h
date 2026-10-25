@@ -71,10 +71,6 @@ void fk_truncate_cons(uint32_t n);
 V fk_string(const char *s, size_t n);
 char *fk_cstring(V list, size_t *len);
 char *fk_show_cstr(V v);
-char *fk_show_typed_cstr(const char *desc, V v); /* desc NULL: structural */
-V fk_show_typed(const char *desc, V v);
-V fk_print_typed(const char *desc, V v);
-V fk_typed_show_fn(int print, const char *desc);
 int fk_compare(V a, V b);
 int fk_num_eq_int(V v, long long i);
 

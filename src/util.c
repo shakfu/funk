@@ -177,9 +177,11 @@ void undo_to(int mark) {
 
 const char *cur_file = "<input>";
 jmp_buf *cerr_jmp;
+bool cerr_quiet;
 
 _Noreturn void cerror(int line, int col, const char *fmt, ...) {
   va_list ap;
+  if (cerr_quiet && cerr_jmp) longjmp(*cerr_jmp, 1);
   fflush(stdout);
   fprintf(stderr, "%s:%d:%d: error: ", cur_file, line, col);
   va_start(ap, fmt);

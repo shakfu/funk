@@ -1,7 +1,7 @@
 -- Records: fields scoped to their type, dot access, update, type namespaces.
-data Point = Point { x, y :: Float }
+data Point = Point { x, y :: Float } deriving (Show)
 data Shape = Circle { center :: Point, radius :: Float }
-           | Rect { center :: Point, w, h :: Float }
+           | Rect { center :: Point, w, h :: Float } deriving (Show)
 
 -- `length` is a field here and the prelude function elsewhere.
 data Item = Item { name :: String, length :: Int }

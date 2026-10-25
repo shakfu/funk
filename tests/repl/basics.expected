@@ -5,16 +5,16 @@ map :: (a -> b) -> [a] -> [b]
 (>>>) :: (a -> b) -> (b -> c) -> a -> c
 \f g x -> g (f x) :: (a -> b) -> (b -> c) -> a -> c
 1 + 2.5 :: Float
-\x y -> x == y :: a -> a -> Bool
+\x y -> x == y :: Eq a => a -> a -> Bool
 foldr :: (a -> b -> b) -> b -> [a] -> b
 (,) 1 :: Num b => a -> (b, a)
 f :: Num a => a -> a
 3.5
 20
 "1 2 3"
-insert :: a -> Tree a -> Tree a
+insert :: Ord a => a -> Tree a -> Tree a
 [1,2,5,8]
-<repl>:1:5: error: no Num instance for `Bool` (numbers are Int or Float)
+<repl>:1:5: error: no instance `Num Bool`
 runtime error: head: empty list
 7.0
 h :: Num a => a -> a

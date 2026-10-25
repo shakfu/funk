@@ -1,0 +1,4 @@
+-- expect: the last statement of a `do` block must be an expression
+main = do
+  print 1
+  let x = 2

@@ -3,7 +3,7 @@ CFLAGS ?= -std=c11 -O2 -g -Wall -Wextra -Wno-unused-parameter
 LDLIBS = -lm -lpthread
 B = build
 
-SRCS = main util lex parse check resolve interp cgen rt
+SRCS = main util lex parse check elab resolve interp cgen rt
 OBJS = $(SRCS:%=$(B)/%.o) $(B)/embedded.o
 HDRS = src/funk.h src/rt.h src/prims.def
 

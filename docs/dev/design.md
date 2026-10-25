@@ -12,7 +12,7 @@ Decisions behind funk 0.1, with the alternative each one was chosen over. Implem
 
 - A REPL and native executables from one implementation.
 
-- Small: about 4,700 lines of C and funk.
+- Small: about 6,900 lines of C and funk.
 
 ## Evaluation: strict
 
@@ -40,35 +40,29 @@ Haskell's `>>` and `print` spellings are kept, so typical `main` code reads the 
 
 Top-level values run in dependency order, with `main` moved last unless another binding uses it.
 
-## Numbers: one `Num` constraint instead of type classes
+A `do` block is syntax for `case`: each statement `p <- e`, or `e` alone, becomes `case e of p -> rest`. `case` evaluates its scrutinee first, so statements run in order, and the rest of the block stays in tail position. A strict primitive `bindNow e (\x -> rest)` was rejected, because the rest would run inside the primitive's C call, one level deeper per statement. Desugaring statements to `>>` had the same problem, since `>>` evaluates the rest as an argument. Without an `IO` type, `<-` accepts any expression: `x <- 1 + 2` is valid. A `let` statement stays lazy, as everywhere else.
 
-`+ - *` have type `Num a => a -> a -> a`. `Num a` limits `a` to `Int` or `Float`, and a constrained variable unifies only with those, or with another variable, which inherits the constraint. Integer literals get a fresh `Num` variable.
+## Overloading: type classes with dictionary passing
 
-Two alternatives were rejected:
+`Eq`, `Ord`, `Show` and `Num` are classes, and users can declare more. Each constraint becomes a dictionary argument. This replaces two 0.1 mechanisms: a `Num` flag on type variables, and structural `==`/`show` over runtime tags. The design and the rejected alternatives are in [type-classes.md](type-classes.md).
 
-| Option | `Int + Float` | Cost |
-|-|-|-|
-| Join constraint, `a -> b -> join a b` | accepted | Deferred constraints, defaulting rules, about 2x the inference code; unresolved joins inside polymorphic code need runtime tags or monomorphization |
-| Type classes (`Num`, `Eq`, `Show`) | type error | Dictionary passing and defaulting; several times the checker size |
-| `Num` constraint (chosen) | type error, write `toFloat n + x` | One flag per type variable |
+Consequences:
 
-Polymorphic literals cover most mixed cases: `x * 2` and `2.5 + 1` check.
+- `deriving (Eq, Ord, Show)` is required to compare or print a data type, as in Haskell. Implicit deriving was rejected: it would make every type comparable, including types that hold functions.
 
-At runtime every number carries a tag. Primitives dispatch on it: Int with Int gives Int, anything with a Float gives Float. Polymorphic code needs no dictionaries this way.
+- A literal has type `Num a => a` and becomes `fromInt d n` in overloaded code, so it has the right representation at every type.
 
-The cost is that a literal inside a function that stays polymorphic is built as an `Int`, even when a caller uses the result as a `Float`. Arithmetic stays correct because Float primitives accept Int tags. Type-directed `show` (below) prints such a value as a Float wherever the call site's type is known.
+- Overloaded code would be slower than 0.1's tag dispatch. Specialization removes most of that cost: a call whose dictionaries are all known calls a clone of the function at those types. Inside it, prelude operators at `Int`, `Float` and `Char` become primitive calls.
 
 ### Monomorphism restriction
 
-A binding that is not syntactically a lambda does not generalize its `Num` variables. Later uses fix them, else they default to `Int` at the end of the module. Without this, `n = 1` would be polymorphic and stored as an `Int` even when every use is `Float`. GHC applies the same restriction for a related reason (sharing).
+A binding that is not syntactically a lambda does not generalize its constrained variables. Later uses fix them, else a `Num` variable defaults to `Int` at the end of the module. Without this, `n = 1` would take a dictionary and be recomputed at every use. GHC applies the same restriction for the same reason.
 
-## Equality, ordering and `show`: structural, with static types for `show`
+Local functions without a signature do not generalize constrained variables either, which goes further than Haskell. They take those types from their uses. When the enclosing function is specialized, they are specialized with it. Generalizing them would leave `where go` loops passing dictionaries at every iteration: `trees` ran 2x slower that way. The cost is that a local function used at two number types needs a signature.
 
-`==`, `<`, `compare`, `show` and `print` have types like `a -> a -> Bool` and walk the runtime representation. Comparing functions is a runtime error. This replaces derived `Eq`/`Ord`/`Show` instances. `deriving` is parsed and ignored so Haskell sources still load.
+## Equality and ordering at runtime
 
-Constructor order defines ordering: `False < True` and `[] < (x:xs)`, matching Haskell's derived `Ord`.
-
-Where the argument type of `show` or `print` is known at the call site, the checker passes a type descriptor, and `show` walks the value and the descriptor together. An `Int`-tagged value at a `Float` position then prints with `.0`, and an empty `[Char]` prints `""`. In polymorphic code the descriptor is absent and `show` stays structural. Type classes would remove this gap. A descriptor was chosen over them for size: about 100 lines.
+Instances for `Int`, `Float` and `Char` call primitives that compare tagged words. Derived instances compare field by field, through the fields' instances, and order constructors by declaration order: `False < True` and `[] < (x:xs)`, as in Haskell. The REPL falls back to the structural `show` in `rt.c` for a result type that has no `Show` instance.
 
 ## Syntax choices
 
@@ -104,7 +98,7 @@ Compiling REPL input with `cc` and loading it with `dlopen` was rejected: it add
 
 ## Runtime representation: uniform tagged words
 
-All values are one machine word: tagged 63-bit Int, tagged Char, or a pointer to a header-prefixed object. This was chosen over type-specialized unboxed code because structural `show`/`==` and `Num` dispatch need tags, and one representation lets both backends share the runtime. The costs are a boxed `Float` for every float result and 63-bit `Int`.
+All values are one machine word: tagged 63-bit Int, tagged Char, or a pointer to a header-prefixed object. This was chosen over type-specialized unboxed code because one representation lets both backends share the runtime and its primitives, and lets the GC scan without type information. The costs are a boxed `Float` for every float result and 63-bit `Int`.
 
 ## Memory: conservative mark-sweep
 

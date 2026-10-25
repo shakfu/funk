@@ -1,6 +1,6 @@
 # Type classes: design note
 
-Status: proposal for 0.4, not implemented. Records are in [records.md](records.md); the 0.1 decisions this replaces are in [design.md](design.md).
+Status: phase 1 implemented (unreleased). Records are in [records.md](records.md); the 0.1 decisions this replaces are in [design.md](design.md).
 
 ## Problem
 
@@ -67,7 +67,17 @@ Inference and elaboration are the bulk of the work. My estimate is 400-600 lines
 
 ## Performance
 
-Overloaded prelude functions (`sum`, `elem`, `sort`, `maximum`) currently call primitives directly. With dictionaries they load a field and call it through `fk_apply`. Expect regressions in the `lists`, `sort` and `strings` benchmarks; measure them with `bench/bench.py report`. The planned mitigation is in `cgen.c`: when a selector is applied to a constant dictionary, call the method directly. GHC's `SPECIALISE` does the same at the source level.
+Dictionary passing alone made overloaded code without signatures 2-5x slower than 0.1 (`fib`, `trees`, `queens`, `closures`). `fib n = if n < 2 then n else ...` infers `(Ord a, Num a) => a -> a`, so every `<` and `+` loaded a method from a dictionary. A direct call for a method at a constant dictionary, the mitigation planned here, does not reach inside `fib`. Three rewrites in `elab.c` do:
+
+1. **Primitives.** A prelude overload at `Int`, `Float` or `Char` becomes its primitive: `x < y` at `Int` is `primLtInt x y`.
+2. **Instance methods.** A method at a known instance calls the instance's method: `compare` at `Int` is `$m.Ord.Int.compare`.
+3. **Specialization.** A call to an overloaded top-level function whose dictionaries are all known calls a clone at those types, `fib@Int`. The clone is elaborated from the function's body before elaboration, with its type variables mapped to the concrete types, so 1-3 apply inside it. Clones are made once per type list. Types nested deeper than 4 levels are not specialized, so polymorphic recursion terminates.
+
+Local functions without a signature do not generalize constrained type variables (see [design.md](design.md#monomorphism-restriction)), so specializing a function also specializes its `where` loops.
+
+Results on an M1, against the 0.1 baseline: within 5% everywhere except the two below. C itself ran 4-10% slower in the same runs.
+- `sort` interpreted is 6% faster, after `sortBy` switched from `==` on `Ordering` to `case`.
+- `loop` compiled is 13% slower. The loop's machine code is identical. The function's address moved because the program grew, and with `-falign-functions=64` both builds run at 103 ms.
 
 ## Later phases
 
@@ -77,11 +87,18 @@ Overloaded prelude functions (`sum`, `elem`, `sort`, `maximum`) currently call p
 
 Subtyping is excluded. Hindley-Milner inference with subtyping loses principal types unless the inference algorithm changes, as in MLsub ([Dolan and Mycroft, POPL 2017](https://dl.acm.org/doi/10.1145/3009837.3009882)).
 
-## Open questions
+## Decisions
 
-- **Implicit deriving.** Without it, `A == B` on `data T = A | B` becomes a type error. Every 0.1 program that compares or prints a user type without `deriving` breaks. The options are to require `deriving`, as Haskell does, or to derive `Eq`, `Ord` and `Show` for every `data` declaration that has no explicit instance. I recommend requiring `deriving`, with the change listed in the CHANGELOG.
-- **REPL output for types without Show.** `id` prints `<function>` today. Should the REPL fall back to structural `show`, or report the missing instance?
-- **Ord's method set.** Haskell's `Ord` has `compare` plus five derived methods. A dictionary with only `compare` is smaller. A full one lets an instance define `<` directly.
-- **Instances in the REPL.** Each instance must be unique per class and type. A failed input must undo its instances through the undo log, as it already does for globals and fixities.
+- **Deriving is required.** `A == B` on `data T = A | B` without `deriving (Eq)` is a type error. A derived instance requires the class for every type parameter.
+- **REPL output.** A result with a `Show` instance prints through it. Otherwise the REPL prints the structure, or `<function> :: type`.
+- **Ord has only `compare`.** `<`, `<=`, `>`, `>=`, `min` and `max` are prelude functions over it.
+- **Instances in the REPL** are unique per class and type constructor. A failed input removes its classes and instances.
+
+## Limitations of phase 1
+
+- Class methods must be functions. A constant method such as `mempty :: a` is rejected, because dictionaries are built before top-level values run.
+- Instance heads are a type constructor applied to distinct variables; no instances for function types or `String`.
+- A numeric literal pattern works only at `Int` and `Float`.
+- Mutually recursive overloaded functions without signatures can fail with "no dictionary"; a signature fixes it.
 
 The citations are from memory and were not checked in this session.

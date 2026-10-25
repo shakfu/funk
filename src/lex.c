@@ -1,13 +1,14 @@
 /* lex.c -- tokenizer and layout rule.
 
-   Layout follows Haskell 2010 section 10.3: `let`, `where` and `of` open an
+   Layout follows Haskell 2010 section 10.3: `let`, `where`, `of` and `do` open an
    implicit block at the column of the next token; a line starting at that
    column inserts `;`, a line left of it closes the block. The standard's
    parse-error(t) rule is approximated by closing implicit blocks on:
      - `in`        the innermost open `let` block
      - `)` `]`     blocks opened inside the bracket being closed
      - `,`         blocks opened inside the current bracket
-     - then/else   blocks opened after the matching `if` */
+     - then/else   blocks opened after the matching `if`
+     - `where`     a block at whose column it starts a line */
 #include <ctype.h>
 #include <errno.h>
 
@@ -27,7 +28,7 @@ const char *tok_name(TokKind k) {
       "character", "string", "'('", "')'", "'['", "']'", "','", "';' or new line", "'`'",
       "'{'", "'}'", "start of block", "end of block (check indentation)", "'='", "'|'", "'->'",
       "'\\'", "'::'", "'..'", "'=>'", "'_'", "'case'", "'of'", "'let'", "'in'", "'where'",
-      "'if'", "'then'", "'else'", "'data'", "'deriving'", "'infixl'", "'infixr'", "'infix'", "field access"};
+      "'if'", "'then'", "'else'", "'data'", "'deriving'", "'infixl'", "'infixr'", "'infix'", "'class'", "'instance'", "'do'", "'<-'", "field access"};
   return names[k];
 }
 
@@ -105,10 +106,11 @@ static void raw_lex(Lexer *L) {
       {"case", T_CASE}, {"of", T_OF},       {"let", T_LET},   {"in", T_IN},
       {"where", T_WHERE}, {"if", T_IF},     {"then", T_THEN}, {"else", T_ELSE},
       {"data", T_DATA}, {"deriving", T_DERIVING}, {"infixl", T_INFIXL}, {"infixr", T_INFIXR},
-      {"infix", T_INFIX}};
+      {"infix", T_INFIX}, {"class", T_CLASS}, {"instance", T_INSTANCE},
+      {"do", T_DO}};
   static struct { const char *s; TokKind k; } rops[] = {
       {"=", T_EQ},     {"|", T_BAR},     {"->", T_ARROW},  {"\\", T_LAMBDA},
-      {"::", T_DCOLON}, {"..", T_DOTDOT}, {"=>", T_DARROW}};
+      {"::", T_DCOLON}, {"..", T_DOTDOT}, {"=>", T_DARROW}, {"<-", T_LARROW}};
   for (;;) {
     skip_space(L);
     Token t = {0};
@@ -289,9 +291,12 @@ Token *lex(const char *src, size_t len, int *ntok) {
       }
     }
     if (t->bol && t->k != T_EOF && !fresh_block) {
-      while (implicit(&Y) && t->col < top(&Y)->col) pop(&Y, t);
-      if (top(&Y)->kind != CX_EXPLICIT && t->col == top(&Y)->col && Y.out.n > 0)
+      /* No block item starts with `where`, so one at a block's column ends it. */
+      while (implicit(&Y) && (t->col < top(&Y)->col || (t->k == T_WHERE && t->col == top(&Y)->col))) pop(&Y, t);
+      if (top(&Y)->kind != CX_EXPLICIT && t->col == top(&Y)->col && Y.out.n > 0) {
         emit(&Y, T_SEMI, t);
+        top(&Y)->closed_lets = 0; /* a new statement: a `let` statement in `do` has no `in` */
+      }
     }
     switch (t->k) {
     case T_IN:
@@ -335,7 +340,7 @@ Token *lex(const char *src, size_t len, int *ntok) {
     default: break;
     }
     VPUSH(Y.out, *t);
-    if (t->k == T_LET || t->k == T_WHERE || t->k == T_OF) {
+    if (t->k == T_LET || t->k == T_WHERE || t->k == T_OF || t->k == T_DO) {
       open = true;
       open_let = t->k == T_LET;
     }

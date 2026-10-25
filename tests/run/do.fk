@@ -1,0 +1,65 @@
+-- do blocks: `<-`, let statements, nesting, where after a block. Each statement
+-- runs before the rest of the block, which stays in tail position.
+greet name = do
+  putStr "hello, "
+  putStrLn name
+
+countdown n = if n == 0
+  then putStrLn "liftoff"
+  else do
+    print n
+    countdown (n - 1)
+
+main = do
+  greet "funk"
+  let xs = [1, 2, 3]
+      total = sum xs
+  print total
+  let y = 10 in print (y * 2)
+  countdown 3
+  if total > 5
+    then putStrLn "big"
+    else putStrLn "small"
+  mapM_ print (map (* 2) xs)
+  case xs of
+    [] -> putStrLn "empty"
+    (x:_) -> do
+      putStr "first: "
+      print x
+  do { print 1 ; print 2 }
+  print (let z = 4 in z)
+  order ()
+  aligned 1
+  readTwo ()
+  spin 25000000
+  putStrLn "done"
+
+-- A let statement is lazy: its effect runs where the binding is used. `order`
+-- takes () because a top-level value would run once, at startup.
+order () = do
+  let a = putStrLn "a runs"
+      b = putStrLn "b runs"
+  b
+  a
+
+-- `then` and `else` may align with the statements, as in Haskell 2010.
+aligned n = do
+  if n > 0
+  then putStrLn "positive"
+  else putStrLn "not positive"
+  helper
+  where helper = putStrLn "where after do"
+
+-- `<-` runs its expression on its line, whatever order the names are used in.
+readTwo () = do
+  first <- getLine ()
+  second <- getLine ()
+  putStrLn ("second: " ++ second)
+  putStrLn ("first: " ++ first)
+  (n, label) <- (readInt first, second)
+  print (n + 1, label)
+
+-- 25M iterations overflow the 4 GiB stack unless the recursive call is a tail call.
+spin n = do
+  let m = n - 1
+  if n == 0 then putStrLn "spun" else spin m

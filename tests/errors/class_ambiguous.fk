@@ -1,0 +1,2 @@
+-- expect: ambiguous type: cannot choose a type for `Show a`
+main = print (show [])

@@ -1,0 +1,81 @@
+-- Type classes: a class hierarchy with default methods, a user Num type,
+-- derived and hand-written instances, and functions overloaded over them.
+
+-- A vector is a number: literals and arithmetic work on it.
+data Vec = Vec Float Float deriving (Eq, Show)
+
+instance Num Vec where
+  Vec a b + Vec c d = Vec (a + c) (b + d)
+  Vec a b - Vec c d = Vec (a - c) (b - d)
+  Vec a b * Vec c d = Vec (a * c) (b * d)
+  negate (Vec a b) = Vec (negate a) (negate b)
+  abs (Vec a b) = Vec (abs a) (abs b)
+  fromInt n = Vec (toFloat n) (toFloat n)
+
+-- One definition for Int, Float and Vec.
+total :: Num a => [a] -> a
+total xs = foldl (+) 0 xs
+
+-- A class with a default method, and a subclass that uses it.
+class Describe a where
+  name :: a -> String
+  describe :: a -> String
+  describe x = "a " ++ name x
+
+class Describe a => Shape a where
+  area :: a -> Float
+  summary :: a -> String
+  summary x = describe x ++ " of area " ++ show (area x)
+
+data Circle = Circle { radius :: Float } deriving (Show)
+data Rect = Rect { w, h :: Float } deriving (Show)
+
+instance Describe Circle where
+  name _ = "circle"
+
+instance Describe Rect where
+  name r = if r.w == r.h then "square" else "rectangle"
+  describe r = name r ++ " " ++ show r.w ++ " by " ++ show r.h
+
+instance Shape Circle where
+  area c = 3.0 * c.radius * c.radius
+
+instance Shape Rect where
+  area r = r.w * r.h
+
+-- Overloaded over any Shape; Describe comes with it as the superclass.
+report :: Shape a => [a] -> String
+report xs = unwords (map name xs) ++ ": largest area " ++ show (maximum (map area xs))
+
+-- Derived Ord: constructors in declaration order, then fields left to right.
+data Priority = Low | Medium | High deriving (Eq, Ord, Show)
+data Task = Task Priority String deriving (Eq, Ord, Show)
+
+-- Hand-written instances.
+data Celsius = Celsius Float
+
+instance Show Celsius where
+  show (Celsius t) = show t ++ " C"
+
+data Tag = Tag String
+
+instance Eq Tag where
+  Tag a == Tag b = map toLower a == map toLower b
+
+-- An instance with a context: a pair of Describe values describes itself.
+instance (Describe a, Describe b) => Describe (a, b) where
+  name (a, b) = name a ++ " and " ++ name b
+
+main = do
+  print (total [1, 2, 3], total [0.5, 0.25], total [Vec 1.0 2.0, Vec 3.0 4.0, 10])
+  print (Vec 1.0 1.0 * 3 - 1)
+  putStrLn (summary (Circle 1.0))
+  putStrLn (summary (Rect 2.0 2.0))
+  putStrLn (summary Rect { w = 3.0, h = 1.5 })
+  putStrLn (report [Rect 1.0 2.0, Rect 3.0 3.0])
+  putStrLn (describe (Circle 2.0, Rect 1.0 1.0))
+  print (sort [Task Low "tidy", Task High "ship", Task Medium "test", Task High "fix"])
+  print (maximum [Low, High, Medium], Low < High, compare (Task Low "a") (Task Low "b"))
+  print [Celsius 21.5, Celsius (-3.0)]
+  print (Tag "Funk" == Tag "FUNK", elem (Tag "c") [Tag "A", Tag "C"])
+  print (Just (Circle 1.5), lookup "w" [("w", Rect 1.0 2.0)])

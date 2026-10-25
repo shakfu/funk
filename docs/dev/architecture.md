@@ -8,7 +8,8 @@ How funk 0.1 is built. The reasons behind each choice are in
 ```text
 source --lex.c--> tokens (layout applied)
        --parse.c--> AST, desugared
-       --check.c--> SCC groups, inferred types
+       --check.c--> SCC groups, inferred types, class constraints
+       --elab.c--> dictionaries passed explicitly, specializations
        --resolve.c--> frame slots, free-variable lists
            |--interp.c--> evaluate (REPL, funk run)
            '--cgen.c----> C source --$CC--> executable
@@ -18,17 +19,18 @@ Both backends link the same runtime, `rt.c`.
 
 | File | Lines | Role |
 |-|-|-|
-| `src/lex.c` | 348 | tokenizer, layout rule |
-| `src/parse.c` | 1152 | recursive-descent parser, desugaring |
-| `src/check.c` | 1578 | data types, SCC analysis, type inference, chunk driver |
-| `src/resolve.c` | 159 | closure conversion |
-| `src/interp.c` | 169 | interpreter |
-| `src/cgen.c` | 320 | C generator |
-| `src/rt.c`, `rt.h` | 926 | values, GC, apply, `show`, compare, primitives |
-| `src/prims.def` | 39 | primitive table: C name, funk name, arity, type |
-| `src/main.c` | 291 | CLI, REPL, `cc` invocation |
-| `src/util.c`, `funk.h` | 464 | allocation, interning, maps with undo, AST types |
-| `lib/prelude.fk` | 180 | standard functions in funk |
+| `src/lex.c` | 353 | tokenizer, layout rule |
+| `src/parse.c` | 1431 | recursive-descent parser, desugaring |
+| `src/check.c` | 1966 | data types, classes, SCC analysis, type inference, chunk driver |
+| `src/elab.c` | 475 | dictionary passing, specialization |
+| `src/resolve.c` | 158 | closure conversion |
+| `src/interp.c` | 173 | interpreter |
+| `src/cgen.c` | 321 | C generator |
+| `src/rt.c`, `rt.h` | 898 | values, GC, apply, `show`, compare, primitives |
+| `src/prims.def` | 64 | primitive table: C name, funk name, arity, type |
+| `src/main.c` | 323 | CLI, REPL, `cc` invocation |
+| `src/util.c`, `funk.h` | 549 | allocation, interning, maps with undo, AST types |
+| `lib/prelude.fk` | 274 | standard functions in funk |
 | `tools/embed.c` | 35 | embeds `rt.c` and the prelude into the binary |
 
 ## Lexing and layout (`lex.c`)
@@ -59,6 +61,7 @@ Expressions use precedence climbing. Fixities come from the built-in table `fixi
 | `x op y` | `op x y` |
 | `(op e)`, `(e op)` | `flip op e`, `op e` |
 | `[a, b]`, `"ab"` | cons chains |
+| `do { p <- e; e2; let ds; e3 }` | `case e of p -> case e2 of _ -> let ds in e3` |
 | `[a..b]`, `[a, b..c]` | `enumFromTo`, `enumFromThenTo` |
 | `(p1, p2) = e` | `$p = e` plus one `case $p of` binding per variable |
 
@@ -70,19 +73,23 @@ Generated names start with `$`, which user identifiers cannot contain.
 
 `compile_chunk` processes one module or REPL input:
 
-1. Register data types and constructors. Constructor ids are shared with the runtime table `fk_cons`.
+1. Register data types and constructors. Constructor ids are shared with the runtime table `fk_cons`. `deriving` was already expanded by the parser into instance declarations.
 
-2. Add a global for each binding.
+2. Register classes and instances. A class gets a dictionary constructor `$D.C`, one selector per method, and one per superclass. Default methods become bindings `$def.C.m`. Each instance method becomes a binding `$m.C.T.m` whose given type is the method type at the instance.
 
-3. Split top-level, `let` and `where` binding groups into strongly connected components (Tarjan) in dependency order. Free-name analysis respects shadowing. A recursive component that contains a non-lambda is an error.
+3. Add a global for each binding.
 
-4. Infer each component. Record construction and record patterns are rewritten to positional form here. Field access and record update wait until the record's type is known, then become `case` (see [records.md](records.md#resolution)); backends never see them.
+4. Split top-level, `let` and `where` binding groups into strongly connected components (Tarjan) in dependency order. Free-name analysis respects shadowing. A recursive component that contains a non-lambda is an error.
 
-5. Default remaining `Num` variables to `Int`, and move `main` last.
+5. Infer each component. Record construction and record patterns are rewritten to positional form here. Field access and record update wait until the record's type is known, then become `case` (see [records.md](records.md#resolution)); backends never see them.
 
-6. Run `resolve_top` on each binding.
+6. Default remaining `Num` variables to `Int`, report other open constrained variables as ambiguous, and move `main` last.
 
-7. Warn about each `case` whose alternatives do not cover every constructor. This uses Maranget's usefulness algorithm, extended to return an unmatched pattern. An alternative counts only if one of its guards cannot fail. Int and Char literals count as infinite domains.
+7. Elaborate each binding (`elab.c`), then build each new instance's dictionary `$dict.C.T`. Selectors, dictionaries and specializations go to `Chunk.raw`.
+
+8. Run `resolve_top` on each binding.
+
+9. Warn about each `case` whose alternatives do not cover every constructor. This uses Maranget's usefulness algorithm, extended to return an unmatched pattern. An alternative counts only if one of its guards cannot fail. Int and Char literals count as infinite domains.
 
 On any error the chunk rolls back: name maps through an undo log, and global, constructor and type tables by truncation. A failed REPL line leaves no trace.
 
@@ -92,11 +99,19 @@ Inference:
 
 - Each variable has a `level`. Generalization marks variables above the current level as `GENERIC` in place; instantiation copies them.
 
-- Flags on variables: `num` for the `Num` constraint, `skolem` for rigid signature variables. A skolem's level detects escape, using the same check that adjusts levels during unification.
+- A variable carries `cls`, a bitmask of the classes it must be an instance of, closed under superclasses. Binding it to a constructor type looks up an instance for each class, and the instance context adds classes to the type's arguments.
+
+- `skolem` marks rigid signature variables. A skolem's level detects escape, using the same check that adjusts levels during unification. A skolem's classes are fixed by its signature.
 
 - Every integer literal records its type. Resolution later rewrites literals whose type is `Float` into float literals.
 
-- A reference to the `show` or `print` primitive records its instantiated type. Resolution turns the argument type into a descriptor string (`show_desc`; the format is documented in `rt.c`). It has one entry per distinct type, so recursive types refer to themselves. The descriptor is omitted when the type contains no `Float` or `Char`.
+- Each variable reference records the instantiated constraints of its scheme (`Expr.preds`). Each binding records the constraints it generalized (`Bind.preds`), in the order `preds_of` gives. Elaboration needs both.
+
+## Elaboration (`elab.c`)
+
+A binding with constraints gets one dictionary parameter per constraint, prepended to its lambda. A use gets its dictionaries as leading arguments of the same application, so a call to a known function stays saturated. A dictionary is a parameter in scope, a superclass selector applied to one, or an instance dictionary, applied to its context's dictionaries if it has one. The rewrites that avoid dictionaries at known types are described in [type-classes.md](type-classes.md#performance).
+
+Installation runs in three steps per chunk, in both backends: function closures, then dictionaries (superclasses first), then top-level values. Dictionaries refer to method functions, and values may use dictionaries.
 
 ## Closure conversion (`resolve.c`)
 

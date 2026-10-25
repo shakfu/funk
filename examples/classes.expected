@@ -1,0 +1,12 @@
+(6,0.75,Vec 14.0 16.0)
+Vec 2.0 2.0
+a circle of area 3.0
+square 2.0 by 2.0 of area 4.0
+rectangle 3.0 by 1.5 of area 4.5
+rectangle square: largest area 9.0
+a circle and square
+[Task Low "tidy",Task Medium "test",Task High "fix",Task High "ship"]
+(High,True,LT)
+[21.5 C,-3.0 C]
+(True,True)
+(Just (Circle {radius = 1.5}),Just (Rect {w = 1.0, h = 2.0}))

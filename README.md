@@ -57,9 +57,11 @@ Syntax follows Haskell 2010 where a feature exists:
 
 - Layout (indentation) rule, or explicit `{ ; }`.
 
-- `data T a = A a | B deriving (...)`. `deriving` is accepted and ignored.
+- `data T a = A a | B deriving (Eq, Ord, Show)`.
 
-- Optional signatures: `f :: Num a => a -> a`, `(e :: Int)`.
+- Optional signatures: `f :: (Ord a, Num a) => a -> a`, `(e :: Int)`.
+
+- `class` and `instance` declarations: single-parameter classes with superclasses and default methods.
 
 - Lists `[1, 2]`, ranges `[1..n]` and `[1, 3..n]`, tuples up to 7, strings as `[Char]`, sections `(+ 1)`, `(1 +)` and `` (`div` 2) ``, operator definitions `x <+> y = ...`.
 
@@ -79,7 +81,7 @@ main =
      print (r { h = 1.0 })            -- update: Rect {w = 2.0, h = 1.0}
 ```
 
-`p.x` needs the type of `p`. A function like `getW s = s.w` needs a signature, except inside `Shape.f`, where an unconstrained first parameter is a `Shape`. Details are in [docs/dev/records.md](docs/dev/records.md).
+`p.x` needs the type of `p`. A function like `getW s = s.w` needs a signature, except inside `Shape.f`, where an unconstrained first parameter is a `Shape`. Details are in [docs/dev/records.md](docs/dev/records.md); [examples/shop.fk](examples/shop.fk) is a longer example.
 
 Function operators:
 
@@ -100,13 +102,11 @@ infixl 7 `times`
 
 Not supported:
 
-- type classes, apart from the `Num` constraint
+- multi-parameter and higher-kinded classes (`Functor`), class methods that are not functions
 
 - modules and imports
 
 - list comprehensions
-
-- `do`
 
 - as-patterns
 
@@ -116,21 +116,55 @@ Not supported:
 
 Hindley-Milner inference with let-polymorphism. Signatures are optional and checked against the inferred type.
 
-`Num a` restricts `a` to `Int` or `Float`. It replaces type classes for arithmetic:
+Type classes follow Haskell 2010 for classes over a single type:
 
-- `+ - *`, `negate`, `abs` have type `Num a => a -> a -> a`. Both operands have one type, so `Int` + `Float` is a type error; write `toFloat n + x`.
+```haskell
+class Shape a where
+  area :: a -> Float
+  describe :: a -> String
+  describe x = "area " ++ show (area x)      -- default method
 
-- Integer literals are polymorphic: `x + 1` and `2.5 * 2` both check.
+data Sq = Sq Float deriving (Eq, Show)
+instance Shape Sq where
+  area (Sq s) = s * s
+```
 
-- `/` is `Float` only; `div`, `mod`, `quot` and `rem` are `Int` only.
+The prelude defines:
 
-- A binding that is not a function (`n = 1`) gets its number type from its uses, or defaults to `Int`.
+| Class | Methods | Instances |
+|-|-|-|
+| `Eq` | `==`, `/=` | `Int`, `Float`, `Char`, `Bool`, `()`, lists, tuples, `Maybe`, `Either`, `Ordering` |
+| `Ord` (superclass `Eq`) | `compare`; `<`, `<=`, `>`, `>=`, `min`, `max` are functions over it | as `Eq` |
+| `Show` | `showPrec`, `show`, `showList` | as `Eq` |
+| `Num` | `+`, `-`, `*`, `negate`, `abs`, `fromInt` | `Int`, `Float` |
 
-`==`, `<`, `compare`, `show` and `print` work on every type except functions.
+- `deriving (Eq, Ord, Show)` is required to compare or print a data type. Without it, `A == B` is a type error.
+
+- Integer literals have type `Num a => a`: `x + 1` and `2.5 * 2` both check, and `1` at a user `Num` type calls its `fromInt`.
+
+- `/` is `Float` only; `div`, `mod`, `quot` and `rem` are `Int` only. `Int` + `Float` is a type error; write `toFloat n + x`.
+
+- A constrained type nothing fixes is ambiguous: `print []` is an error, as in Haskell. A remaining `Num` type defaults to `Int`.
+
+- A binding that is not a function (`n = 1`) gets its number type from its uses, or defaults to `Int`. A local function without a signature takes the types of its constrained variables from its uses, unlike Haskell; give it a signature to use it at two number types.
+
+- The REPL prints a result with its `Show` instance. Without one, it prints the value's structure, or `<function> :: type`.
 
 ## Semantics
 
 - Strict, left-to-right evaluation. `print`, `putStrLn` and `getLine ()` act when evaluated. `a >> b` orders effects.
+
+- A `do` block runs its statements in order:
+
+  ```haskell
+  main = do
+    line <- getLine ()          -- runs here, binds line
+    let n = readInt line        -- lazy: computed where n is first used
+    print (n * 2)
+    putStrLn "done"
+  ```
+
+  `p <- e` evaluates `e` on its line and matches it against `p`. It works on any expression, not only effects: there is no `IO` type. A `let` statement is lazy, so an effect bound with `let` runs where the binding is first used. Recursion in the last statement is a tail call. A top-level `act = do ...` is a value and runs once, at startup; write `act () = do ...` to run it on each call.
 
 - Top-level values are evaluated in dependency order, with `main` last.
 
@@ -150,7 +184,7 @@ Hindley-Milner inference with let-polymorphism. Signatures are optional and chec
 
 - `.` without spaces is field access: `f.g` is no longer composition. Write `f . g`.
 
-- `show` and `print` use the static type at the call site. Inside a polymorphic function they cannot. There, a literal used as a `Float` prints without `.0`, and `""` prints `[]`. With `one _ = 1` and `sh x = show x`, `sh (one () :: Float)` gives `"1"`, but `show (one () :: Float)` gives `"1.0"`.
+- A numeric literal pattern (`f 0 = ...`) works only at `Int` and `Float`; at another `Num` type it is a runtime error.
 
 - `Int` is 63 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
 
@@ -164,5 +198,6 @@ Hindley-Milner inference with let-polymorphism. Signatures are optional and chec
 | [docs/dev/architecture.md](docs/dev/architecture.md) | compiler passes, runtime, GC, backends |
 | [docs/dev/roadmap.md](docs/dev/roadmap.md) | planned releases |
 | [bench/README.md](bench/README.md) | benchmarks against C and the results history |
+| [examples/](examples/) | complete programs; `make test` checks their output |
 | [TODO.md](TODO.md) | next steps |
 | [CHANGELOG.md](CHANGELOG.md) | changes by release |

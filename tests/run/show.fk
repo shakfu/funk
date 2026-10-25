@@ -1,5 +1,5 @@
 -- show and print follow the static type where it is known.
-data Tree a = Leaf | Node (Tree a) a (Tree a)
+data Tree a = Leaf | Node (Tree a) a (Tree a) deriving (Show)
 
 one _ = 1
 

@@ -1,4 +1,4 @@
--- expect: no Num instance for rigid type variable `a`
+-- expect: no instance `Num a` for a rigid type variable; add `Num a` to the signature
 g :: a -> a
 g x = x + 1
 main = g 1

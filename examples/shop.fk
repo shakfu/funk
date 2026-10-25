@@ -1,0 +1,59 @@
+-- A small order system: records, field access, update, type namespaces.
+
+data Money = Money { cents :: Int } deriving (Show)
+
+Money.add :: Money -> Money -> Money
+Money.add a b = Money (a.cents + b.cents)
+Money.times m n = Money (m.cents * n)
+Money.show m = "$" ++ show (div m.cents 100) ++ "." ++ pad (mod m.cents 100)
+  where pad n = if n < 10 then "0" ++ show n else show n
+
+data Item = Item { sku :: String, name :: String, price :: Money, stock :: Int }
+
+data Line = Line { item :: Item, qty :: Int }
+
+Line.total l = l.item.price.times l.qty
+
+data Status = Open | Paid { amount :: Money } | Cancelled { reason :: String } deriving (Show)
+
+data Order = Order { id :: Int, customer :: String, lines :: [Line], status :: Status }
+
+Order.total o = foldl Money.add (Money 0) (map (.total) o.lines)
+
+-- An update that changes one field and keeps the rest.
+Order.pay o = o { status = Paid { amount = o.total } }
+
+Order.describe o = case o.status of
+  Open -> "open"
+  Paid { amount = a } -> "paid " ++ a.show
+  Cancelled { reason = r } -> "cancelled: " ++ r
+
+-- Remove the ordered quantities from stock.
+Item.take :: Item -> Int -> Item
+Item.take i n = i { stock = i.stock - n }
+
+ship :: Order -> [Item] -> [Item]
+ship o items = map (\i -> foldl (\acc l -> if l.item.sku == acc.sku then acc.take l.qty else acc) i o.lines) items
+
+pen = Item { sku = "P1", name = "pen", price = Money 150, stock = 40 }
+pad = Item { sku = "N2", name = "notepad", price = Money 425, stock = 10 }
+ink = Item { sku = "I3", name = "ink", price = Money 899, stock = 3 }
+
+order = Order
+  { id = 1
+  , customer = "Ada"
+  , lines = [Line pen 4, Line { item = pad, qty = 2 }]
+  , status = Open
+  }
+
+main = do
+  let paid = order.pay
+      gone = order { status = Cancelled { reason = "out of ink" } }
+      stock = ship order [pen, pad, ink]
+  putStrLn (order.customer ++ " owes " ++ order.total.show)
+  mapM_ (\l -> putStrLn ("  " ++ l.item.name ++ " x" ++ show l.qty ++ " = " ++ l.total.show)) order.lines
+  putStrLn (order.describe ++ " -> " ++ paid.describe)
+  putStrLn gone.describe
+  print (map (.stock) stock)
+  print (stock |> filter (\i -> i.stock < 5) |> map (.name))
+  print paid.status

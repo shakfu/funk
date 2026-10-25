@@ -1,7 +1,7 @@
 #!/bin/sh
 # Run the funk test suite. Exit status is the number of failures (capped).
 #   tests/run/NAME.fk      interpreted and compiled output must equal NAME.expected
-#                          (stdin from NAME.stdin if present)
+#   examples/NAME.fk       (stdin from NAME.stdin if present)
 #   tests/errors/NAME.fk   must exit non-zero; stderr must contain the text
 #                          after "-- expect: " on line 1
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
@@ -15,15 +15,16 @@ fail=0
 ok() { pass=$((pass + 1)); }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; [ -n "$2" ] && sed 's/^/    /' "$2" | head -20; }
 
-for f in tests/run/*.fk; do
+for f in tests/run/*.fk examples/*.fk; do
   n=$(basename "$f" .fk)
+  d=$(dirname "$f")
   in=/dev/null
-  [ -f "tests/run/$n.stdin" ] && in="tests/run/$n.stdin"
+  [ -f "$d/$n.stdin" ] && in="$d/$n.stdin"
   "$FUNK" "$f" <"$in" >"$tmp/$n.interp" 2>&1
-  if diff "tests/run/$n.expected" "$tmp/$n.interp" >"$tmp/diff" 2>&1; then ok; else bad "$n (interpreter)" "$tmp/diff"; fi
+  if diff "$d/$n.expected" "$tmp/$n.interp" >"$tmp/diff" 2>&1; then ok; else bad "$n (interpreter)" "$tmp/diff"; fi
   if "$FUNK" build "$f" -o "$tmp/$n.exe" >"$tmp/cc" 2>&1; then
     "$tmp/$n.exe" <"$in" >"$tmp/$n.compiled" 2>&1
-    if diff "tests/run/$n.expected" "$tmp/$n.compiled" >"$tmp/diff" 2>&1; then ok; else bad "$n (compiled)" "$tmp/diff"; fi
+    if diff "$d/$n.expected" "$tmp/$n.compiled" >"$tmp/diff" 2>&1; then ok; else bad "$n (compiled)" "$tmp/diff"; fi
   else
     bad "$n (build)" "$tmp/cc"
   fi

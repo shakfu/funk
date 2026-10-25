@@ -4,16 +4,19 @@
    levels for generalization (Remy; as in OCaml). Generalized variables are
    marked in place with level GENERIC; instantiation copies them.
 
-   Numbers: a type variable may carry a `num` flag, written `Num a =>`.
-   Such a variable can only unify with Int, Float, or another variable,
-   which inherits the flag. Integer literals get a fresh num variable, so
-   `x + 1` works for both Int and Float without type classes.
+   Classes: a type variable carries the set of classes it must be an
+   instance of (`cls`, closed under superclasses). Binding it to `T args`
+   requires an instance for each class, and the instance context adds
+   classes to `args`. A generalized variable keeps its classes, which gives
+   schemes `Eq a => ...`; elab.c later turns each constraint into a
+   dictionary argument. Integer literals get a fresh `Num` variable.
 
    Monomorphism restriction: a binding that is not syntactically a lambda
-   does not generalize its num variables. They stay open until a later use
-   fixes them, else default to Int at the end of the chunk. Without this,
-   `x = 1` would be polymorphic and its runtime value would be an Int even
-   where it is used as a Float.
+   does not generalize its constrained variables, so it is not recomputed
+   per use. Local bindings without a signature never generalize them; see
+   docs/dev/type-classes.md. They stay open until a later use fixes them. At the end of the
+   chunk a remaining `Num` variable defaults to Int; any other constrained
+   variable is ambiguous.
 
    Records: construction and record patterns name their constructor, so
    inference lowers them to positional form directly. Field access `p.x`
@@ -32,11 +35,15 @@ __typeof__(globals) globals;
 __typeof__(condefs) condefs;
 __typeof__(tydefs) tydefs;
 __typeof__(all_lambdas) all_lambdas;
+__typeof__(classes) classes;
+__typeof__(insts) insts;
 
-static Map gmap, cmap, tmap;
+static Map gmap, cmap, tmap, clsmap;
 static int level;
 static int tvid;
-static VEC(Type *) numvars;
+static VEC(Type *) cvars; /* variables that gained classes, for defaulting */
+static uint64_t num_bit;  /* the Num class, once the prelude declares it */
+int num_class = -1;
 static const char *s_int, *s_float, *s_char, *s_bool, *s_list, *s_arrow, *s_unit, *s_string, *s_otherwise;
 
 static const struct { const char *cname, *type; } prim_info[] = {
@@ -66,6 +73,7 @@ static Type *tcon(const char *name, int n, Type **args) {
 }
 
 static Type *tcon0(const char *name) { return tcon(name, 0, NULL); }
+Type *tcon_new(const char *name, int n, Type **args) { return tcon(name, n, args); }
 static Type *tarrow(Type *a, Type *b) { return tcon(s_arrow, 2, (Type *[]){a, b}); }
 static Type *tlist(Type *a) { return tcon(s_list, 1, &a); }
 
@@ -77,18 +85,43 @@ static Type *newvar(void) {
   return t;
 }
 
-static Type *numvar(void) {
+static Type *numvar(int line, int col) {
   Type *t = newvar();
-  t->num = true;
-  VPUSH(numvars, t);
+  t->cls = num_bit;
+  t->line = line;
+  t->col = col;
+  if (num_bit) VPUSH(cvars, t);
   return t;
 }
 
-static Type *gvar(bool num) {
+static Type *gvar(uint64_t cls) {
   Type *t = newvar();
   t->level = GENERIC;
-  t->num = num;
+  t->cls = cls;
   return t;
+}
+
+#define BIT(c) ((uint64_t)1 << (c))
+
+static uint64_t closure_of(uint64_t m) {
+  uint64_t r = 0;
+  for (int c = 0; c < classes.n; c++)
+    if (m & BIT(c)) r |= classes.a[c].closure;
+  return r;
+}
+
+/* Drop classes implied by another class in m: {Eq, Ord} -> {Ord}. */
+static uint64_t minimal(uint64_t m) {
+  uint64_t r = m;
+  for (int c = 0; c < classes.n; c++)
+    if (m & BIT(c)) r &= ~(classes.a[c].closure & ~BIT(c));
+  return r;
+}
+
+InstDef *find_inst(int cls, const char *tycon) {
+  for (int i = 0; i < insts.n; i++)
+    if (insts.a[i].cls == cls && insts.a[i].tycon == tycon) return &insts.a[i];
+  return NULL;
 }
 
 Type *repr(Type *t) {
@@ -153,21 +186,19 @@ static char *tstr(Type *t, Names *nm) {
 const char *type_str(Type *t) {
   Names nm = {0};
   char *body = tstr(t, &nm);
-  SB ctx = {0};
+  SB ctx = {0}, cs = {0};
   sb_puts(&ctx, "");
-  int nnum = 0;
-  for (int i = 0; i < nm.n; i++) nnum += nm.a[i]->num;
-  if (nnum) {
-    if (nnum > 1) sb_puts(&ctx, "(");
-    for (int i = 0, k = 0; i < nm.n; i++) {
-      if (!nm.a[i]->num) continue;
-      if (k++) sb_puts(&ctx, ", ");
-      sb_puts(&ctx, "Num ");
-      if (i < 26) sb_printf(&ctx, "%c", 'a' + i);
-      else sb_printf(&ctx, "t%d", i);
+  int nc = 0;
+  for (int i = 0; i < nm.n; i++) {
+    uint64_t m = minimal(nm.a[i]->cls);
+    for (int c = 0; c < classes.n; c++) {
+      if (!(m & BIT(c))) continue;
+      sb_printf(&cs, "%s%s ", nc++ ? ", " : "", classes.a[c].name);
+      if (i < 26) sb_printf(&cs, "%c", 'a' + i);
+      else sb_printf(&cs, "t%d", i);
     }
-    sb_puts(&ctx, nnum > 1 ? ") => " : " => ");
   }
+  if (nc) sb_printf(&ctx, nc > 1 ? "(%s) => " : "%s => ", cs.s);
   sb_puts(&ctx, body);
   return ctx.s;
 }
@@ -208,29 +239,61 @@ static void occurs_adjust(Type *v, Type *t) {
   for (int i = 0; i < t->n; i++) occurs_adjust(v, t->args[i]);
 }
 
+static void entail(Type *t, uint64_t m);
+
+/* v must be an instance of the classes in m. */
+static void add_classes(Type *v, uint64_t m, int line, int col) {
+  m = closure_of(m);
+  if (!(m & ~v->cls)) return;
+  if (v->skolem) {
+    Names nm = {0};
+    int c = 0;
+    while (!(m & ~v->cls & BIT(c))) c++;
+    const char *s = tstr(v, &nm);
+    cerror(uline, ucol, "no instance `%s %s` for a rigid type variable; add `%s %s` to the signature",
+           classes.a[c].name, s, classes.a[c].name, s);
+  }
+  v->cls |= m;
+  if (!v->line) {
+    v->line = line;
+    v->col = col;
+  }
+  VPUSH(cvars, v);
+}
+
+/* The constructor type t must be an instance of every class in m. */
+static void entail(Type *t, uint64_t m) {
+  for (int c = 0; c < classes.n; c++) {
+    if (!(m & BIT(c))) continue;
+    InstDef *in = find_inst(c, t->name);
+    if (!in) {
+      Names nm = {0};
+      const char *s = tstr(t, &nm);
+      bool paren = t->n && !is_tuple_name(t->name) && t->name != s_list;
+      cerror(uline, ucol, paren ? "no instance `%s (%s)`" : "no instance `%s %s`", classes.a[c].name, s);
+    }
+    for (int i = 0; i < in->arity; i++) {
+      uint64_t need = in->vars[i]->cls;
+      if (!need) continue;
+      Type *a = repr(t->args[i]);
+      if (a->k == TY_VAR) add_classes(a, need, uline, ucol);
+      else entail(a, closure_of(need));
+    }
+  }
+}
+
 static void bind_var(Type *v, Type *t) {
   if (t->k == TY_VAR) {
+    add_classes(t, v->cls, v->line, v->col);
     if (t->skolem) {
-      if (v->num && !t->num) {
-        Names nm = {0};
-        cerror(uline, ucol, "no Num instance for rigid type variable `%s`; add `Num %s =>` to the signature",
-               tstr(t, &nm), tstr(t, &nm));
-      }
       if (t->level > v->level) escape_error();
-    } else {
-      if (v->num && !t->num) {
-        t->num = true;
-        VPUSH(numvars, t);
-      }
-      if (v->level < t->level) t->level = v->level;
+    } else if (v->level < t->level) {
+      t->level = v->level;
     }
     v->link = t;
     return;
   }
-  if (v->num && t->name != s_int && t->name != s_float) {
-    Names nm = {0};
-    cerror(uline, ucol, "no Num instance for `%s` (numbers are Int or Float)", tstr(t, &nm));
-  }
+  if (v->cls) entail(t, v->cls);
   occurs_adjust(v, t);
   v->link = t;
 }
@@ -267,9 +330,9 @@ static Type *inst_rec(Type *t, Subst *s, bool skolem) {
     for (int i = 0; i < s->n; i += 2)
       if (s->a[i] == t) return s->a[i + 1];
     Type *v = newvar();
-    v->num = t->num;
+    v->cls = t->cls;
     v->skolem = skolem;
-    if (v->num && !skolem) VPUSH(numvars, v);
+    if (v->cls && !skolem) VPUSH(cvars, v);
     VPUSH(*s, t);
     VPUSH(*s, v);
     return v;
@@ -294,10 +357,60 @@ static Type *inst(Type *t, bool skolem) {
   return r;
 }
 
+/* Generic constrained variables of a scheme, one entry per class in
+   canonical order: variables by first occurrence, classes by id, implied
+   superclasses dropped. Definitions and uses agree on this order. */
+static void collect_generic(Type *t, Names *vs) {
+  t = repr(t);
+  if (t->k == TY_VAR) {
+    if (t->level != GENERIC || !t->cls) return;
+    for (int i = 0; i < vs->n; i++)
+      if (vs->a[i] == t) return;
+    VPUSH(*vs, t);
+    return;
+  }
+  for (int i = 0; i < t->n; i++) collect_generic(t->args[i], vs);
+}
+
+int preds_of(Type *scheme, Pred **out) {
+  Names vs = {0};
+  VEC(Pred) ps = {0};
+  if (scheme) collect_generic(scheme, &vs);
+  for (int i = 0; i < vs.n; i++) {
+    uint64_t m = minimal(vs.a[i]->cls);
+    for (int c = 0; c < classes.n; c++)
+      if (m & BIT(c)) VPUSH(ps, ((Pred){vs.a[i], c}));
+  }
+  free(vs.a);
+  *out = ps.a;
+  return ps.n;
+}
+
+/* Instantiate the scheme of variable e and record the instantiated
+   constraints on e, for elaboration. */
+static Type *inst_var(Type *scheme, Expr *e) {
+  Pred *ps;
+  int n = preds_of(scheme, &ps);
+  Subst s = {0};
+  Type *t = inst_rec(scheme, &s, false);
+  for (int i = 0; i < n; i++) {
+    for (int k = 0; k < s.n; k += 2)
+      if (s.a[k] == ps[i].t) ps[i].t = s.a[k + 1];
+    if (!ps[i].t->line) {
+      ps[i].t->line = e->line;
+      ps[i].t->col = e->col;
+    }
+  }
+  free(s.a);
+  e->preds = ps;
+  e->npreds = n;
+  return t;
+}
+
 static void gen(Type *t, bool mr) {
   t = repr(t);
   if (t->k == TY_VAR) {
-    if (!t->skolem && t->level != GENERIC && t->level > level) t->level = mr && t->num ? level : GENERIC;
+    if (!t->skolem && t->level != GENERIC && t->level > level) t->level = mr && t->cls ? level : GENERIC;
     return;
   }
   for (int i = 0; i < t->n; i++) gen(t->args[i], mr);
@@ -315,9 +428,14 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
       if (tv->names.a[i] == te->name) return tv->types.a[i];
     if (!sig) cerror(te->line, te->col, "type variable `%s` is not a parameter of the data type", te->name);
     {
-      bool num = false;
-      for (int i = 0; i < sig->nctx; i++) num |= sig->ctx[i] == te->name;
-      Type *v = gvar(num);
+      uint64_t m = 0;
+      for (int i = 0; i < sig->nctx; i++) {
+        if (sig->ctx[i] != te->name) continue;
+        int c = map_get(&clsmap, sig->ctx_cls[i]);
+        if (c < 0) cerror(sig->line, sig->col, "unknown class `%s`", sig->ctx_cls[i]);
+        m |= classes.a[c].closure;
+      }
+      Type *v = gvar(m);
       VPUSH(tv->names, te->name);
       VPUSH(tv->types, v);
       return v;
@@ -351,7 +469,13 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
 
 static Type *sig_scheme(Sig *s) {
   TVars tv = {0};
-  return te_type(s->t, &tv, s);
+  Type *t = te_type(s->t, &tv, s);
+  for (int i = 0; i < s->nctx; i++) {
+    bool found = false;
+    for (int k = 0; k < tv.names.n; k++) found |= tv.names.a[k] == s->ctx[i];
+    if (!found) cerror(s->line, s->col, "constraint on `%s`, which is not in the type", s->ctx[i]);
+  }
+  return t;
 }
 
 /* ----------------------------------------------------------------- data */
@@ -377,7 +501,7 @@ static void register_datas(Module *m) {
       for (int k = 0; k < j; k++)
         if (d->params[k] == d->params[j]) cerror(d->line, d->col, "duplicate type parameter `%s`", d->params[j]);
       VPUSH(tv.names, d->params[j]);
-      VPUSH(tv.types, gvar(false));
+      VPUSH(tv.types, gvar(0));
     }
     Type *res = tcon(d->name, d->np, tv.types.a);
     VEC(FieldSeen) seen = {0};
@@ -912,10 +1036,11 @@ static bool lower_method(Pending *pd, Type *r) {
   const char *q = intern(xsprintf("%s.%s", r->name, e->name));
   int g = map_get(&gmap, q);
   if (g < 0 || !globals.a[g].type) return false;
-  unify(inst(globals.a[g].type, false), tarrow(pd->rec, pd->res), e->line, e->col);
+  Expr *f = ex_var(q, e->line, e->col);
+  unify(inst_var(globals.a[g].type, f), tarrow(pd->rec, pd->res), e->line, e->col);
   Expr **a = xmalloc(sizeof *a);
   a[0] = e->body;
-  *e = *ex_app(ex_var(q, e->line, e->col), 1, a);
+  *e = *ex_app(f, 1, a);
   return true;
 }
 
@@ -984,7 +1109,13 @@ static void resolve_fields(bool final) {
   lower_known();
   for (int i = 0; i < pending.n; i++) { /* 21.double: a number defaults to Int, as at the end of a chunk */
     Type *r = repr(pending.a[i].rec);
-    if (r->k == TY_VAR && r->num && !r->skolem && (final || r->level >= level)) r->link = tcon0(s_int);
+    if (r->k == TY_VAR && (r->cls & num_bit) && !r->skolem && (final || r->level >= level)) {
+      uline = r->line;
+      ucol = r->col;
+      Type *it = tcon0(s_int);
+      entail(it, r->cls);
+      r->link = it;
+    }
   }
   lower_known();
   for (int i = 0; i < pending.n; i++) {
@@ -1032,7 +1163,7 @@ static Type *infer_pat(Pat *p, Env **env, Env *stop) {
     return t;
   }
   case P_WILD: return newvar();
-  case P_INT: return numvar();
+  case P_INT: return numvar(p->line, p->col);
   case P_CHAR: return tcon0(s_char);
   case P_CON: {
     int id = con_lookup(p->name, p->line, p->col);
@@ -1067,19 +1198,16 @@ static Type *infer(Expr *e, Env *env) {
   switch (e->k) {
   case E_VAR: {
     for (Env *x = env; x; x = x->next)
-      if (x->name == e->name) return inst(x->t, false);
+      if (x->name == e->name) return inst_var(x->t, e);
     int g = map_get(&gmap, e->name);
     if (g < 0 && isupper((unsigned char)e->name[0])) return infer_qualified_field(e, env);
     if (g < 0) cerror(e->line, e->col, "variable not in scope: `%s`", e->name);
-    Type *t = inst(globals.a[g].type, false);
-    int p = globals.a[g].prim;
-    if (p >= 0 && (fk_prims[p].code == fk_p_show || fk_prims[p].code == fk_p_print)) e->ty = t;
-    return t;
+    return inst_var(globals.a[g].type, e);
   }
   case E_CON:
     e->idx = con_lookup(e->name, e->line, e->col);
     return inst(condefs.a[e->idx].scheme, false);
-  case E_INT: return e->ty = numvar();
+  case E_INT: return e->ty = numvar(e->line, e->col);
   case E_FLOAT: return tcon0(s_float);
   case E_CHAR: return tcon0(s_char);
   case E_STR: return tlist(tcon0(s_char));
@@ -1163,38 +1291,62 @@ static void infer_group(Group *g, Env **env, bool top) {
   Type **sch = xmalloc((size_t)g->n * sizeof *sch);
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
-    sch[i] = b->sig ? sig_scheme(b->sig) : NULL;
+    sch[i] = b->scheme ? b->scheme : b->sig ? sig_scheme(b->sig) : NULL;
     mono[i] = sch[i] ? sch[i] : newvar();
+    b->type = mono[i];
     if (top) globals.a[b->gidx].type = mono[i];
     else *env = env_push(*env, b->name, mono[i]);
   }
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
     Type *t = infer(b->e, *env);
-    if (sch[i]) unify(inst(sch[i], true), t, b->line, b->col);
-    else unify(mono[i], t, b->line, b->col);
+    if (sch[i]) {
+      Subst s = {0};
+      Type *rigid = inst_rec(sch[i], &s, true);
+      b->skolem = s.a;
+      b->nskolem = s.n / 2;
+      unify(rigid, t, b->line, b->col);
+    } else {
+      unify(mono[i], t, b->line, b->col);
+    }
   }
   lower_known();
   default_receivers(g, mono, sch);
   resolve_fields(false);
   level--;
+  /* Local bindings without a signature never generalize constrained
+     variables: they take them from their uses, so specializing the
+     enclosing function specializes them too. */
   for (int i = 0; i < g->n; i++)
-    if (!sch[i]) gen(mono[i], g->b[i]->e->k != E_LAM);
+    if (!sch[i]) gen(mono[i], !top || g->b[i]->e->k != E_LAM);
+  /* Only variables generic now belong to this binding; an enclosing
+     binding's generalization later must not add to them. */
+  for (int i = 0; i < g->n; i++) g->b[i]->npreds = preds_of(mono[i], &g->b[i]->preds);
   free(mono);
   free(sch);
 }
 
-static void default_nums(void) {
-  for (int i = 0; i < numvars.n; i++) {
-    Type *r = repr(numvars.a[i]);
-    if (r->k == TY_VAR && !r->skolem && r->level != GENERIC) r->link = tcon0(s_int);
+/* A Num variable left open at the end of the chunk becomes Int; any other
+   constrained variable is ambiguous. */
+static void default_classes(void) {
+  for (int i = 0; i < cvars.n; i++) {
+    Type *r = repr(cvars.a[i]);
+    if (r->k != TY_VAR || r->skolem || r->level == GENERIC || !r->cls) continue;
+    uline = r->line;
+    ucol = r->col;
+    if (r->cls & num_bit) {
+      Type *it = tcon0(s_int);
+      entail(it, r->cls);
+      r->link = it;
+      continue;
+    }
+    uint64_t m = minimal(r->cls);
+    int c = 0;
+    while (!(m & BIT(c))) c++;
+    cerror(r->line, r->col, "ambiguous type: cannot choose a type for `%s a`; add a type annotation", classes.a[c].name);
   }
-  numvars.n = 0;
+  cvars.n = 0;
 }
-
-/* ------------------------------------------------------ show descriptors */
-
-typedef struct { VEC(Type *) ty; VEC(const char *) txt; } DescTab;
 
 static bool type_eq(Type *a, Type *b) {
   a = repr(a);
@@ -1204,64 +1356,6 @@ static bool type_eq(Type *a, Type *b) {
   for (int i = 0; i < a->n; i++)
     if (!type_eq(a->args[i], b->args[i])) return false;
   return true;
-}
-
-static Type *subst(Type *t, Type **from, Type **to, int n) {
-  t = repr(t);
-  if (t->k == TY_VAR) {
-    for (int i = 0; i < n; i++)
-      if (repr(from[i]) == t) return to[i];
-    return t;
-  }
-  if (!t->n) return t;
-  Type **args = xmalloc((size_t)t->n * sizeof *args);
-  for (int i = 0; i < t->n; i++) args[i] = subst(t->args[i], from, to, n);
-  return tcon(t->name, t->n, args);
-}
-
-/* One entry per distinct type, so recursive types refer back to their
-   own entry. Non-regular types stop at 64 entries with `?`. */
-static int desc_entry(DescTab *d, Type *t) {
-  t = repr(t);
-  for (int i = 0; i < d->ty.n; i++)
-    if (type_eq(d->ty.a[i], t)) return i;
-  int i = d->ty.n, ti = t->k == TY_CON ? map_get(&tmap, t->name) : -1;
-  VPUSH(d->ty, t);
-  VPUSH(d->txt, "?");
-  if (ti < 0) return i;
-  if (t->name == s_int) d->txt.a[i] = "I";
-  else if (t->name == s_float) d->txt.a[i] = "F";
-  else if (t->name == s_char) d->txt.a[i] = "C";
-  if (!tydefs.a[ti].ncons || i >= 64) return i;
-  int first = 0, nc = tydefs.a[ti].ncons;
-  while (condefs.a[first].tydef != ti) first++;
-  SB b = {0};
-  sb_printf(&b, "D%d,%d", first, nc);
-  for (int c = first; c < first + nc; c++) {
-    Type *res = repr(condefs.a[c].scheme);
-    for (int f = 0; f < condefs.a[c].arity; f++) res = repr(res->args[1]);
-    Type *f = repr(condefs.a[c].scheme);
-    for (int k = 0; k < condefs.a[c].arity; k++, f = repr(f->args[1]))
-      sb_printf(&b, ",%d", desc_entry(d, subst(f->args[0], res->args, t->args, res->n)));
-  }
-  d->txt.a[i] = b.s;
-  return i;
-}
-
-/* Runtime descriptor of t for show (format in rt.c), or NULL when t has
-   no Float or Char, since structural show is then exact. */
-const char *show_desc(Type *t) {
-  DescTab d = {0};
-  desc_entry(&d, t);
-  bool need = false;
-  SB b = {0};
-  for (int i = 0; i < d.txt.n; i++) {
-    need |= d.txt.a[i][0] == 'F' || d.txt.a[i][0] == 'C';
-    sb_printf(&b, "%s%s", i ? ";" : "", d.txt.a[i]);
-  }
-  free(d.ty.a);
-  free(d.txt.a);
-  return need ? b.s : NULL;
 }
 
 /* -------------------------------------------------------- exhaustiveness */
@@ -1434,6 +1528,269 @@ static void cover_expr(Expr *e, const char *fn) {
   }
 }
 
+/* -------------------------------------------------------------- classes */
+
+/* Prelude overloads that elab.c replaces by primitives at Int, Float and
+   Char: `x == y` at Int calls primEqInt. */
+static const char *const spec_table[][2] = {
+    {"==", "Eq"}, {"/=", "Ne"}, {"<", "Lt"}, {"<=", "Le"}, {">", "Gt"}, {">=", "Ge"}, {"+", "Add"},
+    {"-", "Sub"}, {"*", "Mul"}, {"negate", "Negate"}, {"abs", "Abs"}, {"show", "Show"}, {"print", "Print"}};
+
+static const char *spec_stem(const char *name) {
+  if (strcmp(cur_file, "<prelude>") != 0) return NULL;
+  for (size_t i = 0; i < sizeof spec_table / sizeof spec_table[0]; i++)
+    if (strcmp(spec_table[i][0], name) == 0) return spec_table[i][1];
+  return NULL;
+}
+
+static int arrows(Type *t) {
+  int n = 0;
+  for (t = repr(t); t->k == TY_CON && t->name == s_arrow; t = repr(t->args[1])) n++;
+  return n;
+}
+
+static bool mentions(Type *t, Type *v) {
+  t = repr(t);
+  if (t == v) return true;
+  for (int i = 0; t->k == TY_CON && i < t->n; i++)
+    if (mentions(t->args[i], v)) return true;
+  return false;
+}
+
+/* Copy of t with variable from replaced by to. */
+static Type *subst_var(Type *t, Type *from, Type *to) {
+  t = repr(t);
+  if (t == from) return to;
+  if (t->k == TY_VAR || !t->n) return t;
+  Type **args = xmalloc((size_t)t->n * sizeof *args);
+  for (int i = 0; i < t->n; i++) args[i] = subst_var(t->args[i], from, to);
+  return tcon(t->name, t->n, args);
+}
+
+static Expr *ex_lam(int n, const char **params, Expr *body) {
+  Expr *e = ex_new(E_LAM, body->line, body->col);
+  Lambda *L = NEW(Lambda);
+  L->n = n;
+  L->params = params;
+  L->body = body;
+  L->line = body->line;
+  L->col = body->col;
+  e->lam = L;
+  return e;
+}
+
+static const char **fresh_params(const char *prefix, int n) {
+  const char **ps = xmalloc((size_t)n * sizeof *ps + 1);
+  for (int i = 0; i < n; i++) ps[i] = intern(xsprintf("$%s%d", prefix, i));
+  return ps;
+}
+
+/* \$d $x.. -> case $d of $D.C $s.. -> $s<field> $x.. */
+static Bind *selector(const char *name, int con, int field, int arity, int line, int col) {
+  const char **ps = fresh_params("x", arity + 1);
+  ps[0] = intern("$d");
+  Pat *p = con_pat(con, line, col);
+  const char *s = intern("$s");
+  p->args[field] = var_pat(s, line, col);
+  Expr *body = ex_var(s, line, col);
+  if (arity) {
+    Expr **a = xmalloc((size_t)arity * sizeof *a);
+    for (int i = 0; i < arity; i++) a[i] = ex_var(ps[i + 1], line, col);
+    body = ex_app(body, arity, a);
+  }
+  Alt **alts = xmalloc(sizeof *alts);
+  alts[0] = alt1(p, body);
+  Expr *c = ex_new(E_CASE, line, col);
+  make_case(c, ex_var(ps[0], line, col), 1, alts);
+  Bind *b = NEW(Bind);
+  *b = (Bind){.name = name, .e = ex_lam(arity + 1, ps, c), .line = line, .col = col};
+  b->e->lam->name = name;
+  return b;
+}
+
+static void add_global(const char *name, Type *t, Lambda *lam) {
+  VPUSH(globals, ((Global){name, t, -1, lam, spec_stem(name), NULL, -1, -1}));
+  map_put(&gmap, name, globals.n - 1);
+}
+
+int global_add(const char *name, Type *t, Lambda *lam) {
+  add_global(name, t, lam);
+  return globals.n - 1;
+}
+
+typedef VEC(Bind *) BindVec;
+
+static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
+  for (int k = 0; k < m->ncl; k++) {
+    ClassDecl *cd = m->classes[k];
+    if (map_get(&clsmap, cd->name) >= 0) cerror(cd->line, cd->col, "class `%s` is already defined", cd->name);
+    if (classes.n == 64) cerror(cd->line, cd->col, "too many classes (at most 64)");
+    int id = classes.n;
+    ClassDef c = {.name = cd->name, .closure = BIT(id), .nsup = cd->nsup, .sups = xmalloc((size_t)cd->nsup * sizeof(int) + 1)};
+    for (int i = 0; i < cd->nsup; i++) {
+      int s = map_get(&clsmap, cd->sups[i]);
+      if (s < 0) cerror(cd->line, cd->col, "unknown class `%s`", cd->sups[i]);
+      c.sups[i] = s;
+      c.closure |= classes.a[s].closure;
+    }
+    c.var = gvar(c.closure);
+    c.nmeth = cd->nsig;
+    c.meths = cd->names;
+    c.arity = xmalloc((size_t)c.nmeth * sizeof(int) + 1);
+    c.hasdef = xcalloc((size_t)c.nmeth + 1, sizeof(bool));
+    c.mtypes = xmalloc((size_t)c.nmeth * sizeof(Type *) + 1);
+    for (int i = 0; i < c.nmeth; i++) {
+      for (int j = 0; j < i; j++)
+        if (c.meths[j] == c.meths[i]) cerror(cd->line, cd->col, "duplicate method `%s`", c.meths[i]);
+      TVars tv = {0};
+      VPUSH(tv.names, cd->var);
+      VPUSH(tv.types, c.var);
+      c.mtypes[i] = te_type(cd->sigs[i]->t, &tv, cd->sigs[i]);
+      c.arity[i] = arrows(c.mtypes[i]);
+      if (!mentions(c.mtypes[i], c.var))
+        cerror(cd->sigs[i]->line, cd->sigs[i]->col, "the type of method `%s` must mention `%s`", c.meths[i], cd->var);
+      if (!c.arity[i])
+        cerror(cd->sigs[i]->line, cd->sigs[i]->col, "method `%s` must be a function (constant methods are not supported)",
+               c.meths[i]);
+    }
+    const char *dname = intern(xsprintf("$D.%s", cd->name));
+    VPUSH(tydefs, ((TyDef){dname, 0, 1}));
+    c.con = (int)fk_register_con(dname, c.nmeth + c.nsup);
+    VPUSH(condefs, ((ConDef){dname, c.nmeth + c.nsup, NULL, tydefs.n - 1, NULL}));
+    VPUSH(classes, c);
+    map_put(&clsmap, cd->name, id);
+    if (strcmp(cd->name, "Num") == 0) {
+      num_bit = BIT(id);
+      num_class = id;
+    }
+    ClassDef *cp = &classes.a[id];
+    for (int i = 0; i < cp->nmeth; i++) {
+      Bind *s = selector(cp->meths[i], cp->con, i, cp->arity[i], cd->line, cd->col);
+      VPUSH(*raw, s);
+      add_global(cp->meths[i], cp->mtypes[i], s->e->lam);
+      globals.a[globals.n - 1].mcls = id;
+      globals.a[globals.n - 1].midx = i;
+      if (num_class == id && strcmp(cp->meths[i], "fromInt") == 0) map_put(&gmap, intern("$fromInt"), globals.n - 1);
+    }
+    for (int i = 0; i < cp->nsup; i++) {
+      const char *n = intern(xsprintf("$sup.%s.%s", cp->name, classes.a[cp->sups[i]].name));
+      Bind *s = selector(n, cp->con, cp->nmeth + i, 0, cd->line, cd->col);
+      VPUSH(*raw, s);
+      add_global(n, NULL, s->e->lam);
+    }
+    for (int i = 0; i < cd->ndef; i++) {
+      Bind *b = cd->defs[i];
+      int mi = 0;
+      while (mi < cp->nmeth && cp->meths[mi] != b->name) mi++;
+      if (mi == cp->nmeth) cerror(b->line, b->col, "`%s` is not a method of class `%s`", b->name, cp->name);
+      cp->hasdef[mi] = true;
+      b->name = intern(xsprintf("$def.%s.%s", cp->name, cp->meths[mi]));
+      b->scheme = cp->mtypes[mi];
+      VPUSH(*extra, b);
+    }
+  }
+}
+
+/* An instance head `T a b`: the type constructor and its variables. */
+static const char *head_tycon(InstDecl *in, Strs *vars) {
+  TypeExpr *h = in->head;
+  const char *tc;
+  switch (h->k) {
+  case TE_CON: tc = h->name; break;
+  case TE_LIST: tc = s_list; break;
+  case TE_TUPLE: {
+    if (!h->n) { tc = s_unit; break; }
+    char buf[16] = "(";
+    for (int i = 1; i < h->n; i++) strcat(buf, ",");
+    strcat(buf, ")");
+    tc = intern(buf);
+    break;
+  }
+  default: cerror(h->line, h->col, "instances for function types are not supported");
+  }
+  int ti = map_get(&tmap, tc);
+  if (ti < 0) cerror(h->line, h->col, tc == s_string ? "an instance for `String` must be written for `[a]`" : "unknown type `%s`", tc);
+  if (tydefs.a[ti].arity != h->n)
+    cerror(h->line, h->col, "type `%s` expects %d argument%s, got %d", tc, tydefs.a[ti].arity,
+           tydefs.a[ti].arity == 1 ? "" : "s", h->n);
+  for (int i = 0; i < h->n; i++) {
+    TypeExpr *a = h->args[i];
+    if (a->k != TE_VAR) cerror(a->line, a->col, "an instance head must be a type constructor applied to type variables");
+    for (int j = 0; j < vars->n; j++)
+      if (vars->a[j] == a->name) cerror(a->line, a->col, "type variable `%s` appears twice in the instance head", a->name);
+    VPUSH(*vars, a->name);
+  }
+  return tc;
+}
+
+static void register_instances(Module *m, BindVec *extra, int *first) {
+  *first = insts.n;
+  for (int k = 0; k < m->ni; k++) {
+    InstDecl *in = m->insts[k];
+    int cls = map_get(&clsmap, in->cls);
+    if (cls < 0) cerror(in->line, in->col, "unknown class `%s`", in->cls);
+    Strs vars = {0};
+    const char *tc = head_tycon(in, &vars);
+    if (find_inst(cls, tc)) cerror(in->line, in->col, "duplicate instance `%s %s`", in->cls, tc);
+    Type **vs = xmalloc((size_t)vars.n * sizeof *vs + 1);
+    for (int i = 0; i < vars.n; i++) vs[i] = gvar(0);
+    Sig *cx = in->ctx;
+    for (int i = 0; i < cx->nctx; i++) {
+      int v = 0;
+      while (v < vars.n && vars.a[v] != cx->ctx[i]) v++;
+      if (v == vars.n) cerror(in->line, in->col, "constraint on `%s`, which is not in the instance head", cx->ctx[i]);
+      int c = map_get(&clsmap, cx->ctx_cls[i]);
+      if (c < 0) cerror(in->line, in->col, "unknown class `%s`", cx->ctx_cls[i]);
+      vs[v]->cls |= classes.a[c].closure;
+    }
+    const char *dname = intern(xsprintf("$dict.%s.%s", in->cls, tc));
+    add_global(dname, NULL, NULL);
+    VPUSH(insts, ((InstDef){cls, tc, vars.n, vs, globals.n - 1, in->line, in->col}));
+    Type *head = tcon(tc, vars.n, vs);
+    ClassDef *cp = &classes.a[cls];
+    for (int i = 0; i < in->nb; i++) {
+      int mi = 0;
+      while (mi < cp->nmeth && cp->meths[mi] != in->binds[i]->name) mi++;
+      if (mi == cp->nmeth)
+        cerror(in->binds[i]->line, in->binds[i]->col, "`%s` is not a method of class `%s`", in->binds[i]->name, cp->name);
+    }
+    for (int mi = 0; mi < cp->nmeth; mi++) {
+      Bind *b = NULL;
+      for (int i = 0; i < in->nb; i++)
+        if (in->binds[i]->name == cp->meths[mi]) b = in->binds[i];
+      int ar = cp->arity[mi];
+      const char **ps = fresh_params("x", ar);
+      Expr **args = xmalloc((size_t)ar * sizeof *args);
+      for (int i = 0; i < ar; i++) args[i] = ex_var(ps[i], in->line, in->col);
+      if (!b) { /* \x.. -> $def.C.m x.. */
+        if (!cp->hasdef[mi])
+          cerror(in->line, in->col, "instance `%s %s` does not define `%s`, which has no default", in->cls, tc, cp->meths[mi]);
+        b = NEW(Bind);
+        Expr *f = ex_var(intern(xsprintf("$def.%s.%s", cp->name, cp->meths[mi])), in->line, in->col);
+        *b = (Bind){.e = ex_lam(ar, ps, ex_app(f, ar, args)), .line = in->line, .col = in->col};
+      } else if (b->e->k != E_LAM) { /* lambdas, so dictionaries can refer to them before values run */
+        b->e = ex_lam(ar, ps, ex_app(b->e, ar, args));
+      }
+      b->name = intern(xsprintf("$m.%s.%s.%s", cp->name, tc, cp->meths[mi]));
+      b->scheme = subst_var(cp->mtypes[mi], cp->var, head);
+      VPUSH(*extra, b);
+    }
+  }
+  for (int i = *first; i < insts.n; i++) {
+    ClassDef *cp = &classes.a[insts.a[i].cls];
+    for (int s = 0; s < cp->nsup; s++)
+      if (!find_inst(cp->sups[s], insts.a[i].tycon))
+        cerror(insts.a[i].line, insts.a[i].col, "instance `%s %s` needs an instance `%s %s`", cp->name,
+               insts.a[i].tycon, classes.a[cp->sups[s]].name, insts.a[i].tycon);
+  }
+}
+
+static int popcount(uint64_t m) {
+  int n = 0;
+  for (; m; m &= m - 1) n++;
+  return n;
+}
+
 /* ---------------------------------------------------------------- driver */
 
 static void add_tydef(const char *name, int arity, int ncons) {
@@ -1472,19 +1829,19 @@ void compiler_init(void) {
   add_con(intern("False"), bool_t, 0, s_bool);
   add_con(intern("True"), bool_t, 0, s_bool);
   add_con(s_unit, tcon0(s_unit), 0, s_unit);
-  Type *a = gvar(false);
+  Type *a = gvar(0);
   add_con(s_list, tlist(a), 0, s_list);
   add_con(intern(":"), tarrow(a, tarrow(tlist(a), tlist(a))), 2, s_list);
   for (int i = 0; i < FK_MAXTUPLE - 1; i++) {
     int n = i + 2;
     Type *vs[FK_MAXTUPLE];
-    for (int j = 0; j < n; j++) vs[j] = gvar(false);
+    for (int j = 0; j < n; j++) vs[j] = gvar(0);
     Type *t = tcon(intern(tuples[i]), n, vs);
     for (int j = n; j-- > 0;) t = tarrow(vs[j], t);
     add_con(intern(tuples[i]), t, n, intern(tuples[i]));
   }
   for (int i = 0; i < fk_nprims; i++) {
-    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL};
+    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1};
     VPUSH(globals, g);
     map_put(&gmap, g.name, globals.n - 1);
   }
@@ -1493,8 +1850,10 @@ void compiler_init(void) {
 
 bool compile_chunk(Module *m, Chunk *out) {
   jmp_buf jb, *saved = cerr_jmp;
-  int mark = undo_mark(), ng0 = globals.n, nc0 = condefs.n, nt0 = tydefs.n;
-  numvars.n = 0;
+  int mark = undo_mark(), ng0 = globals.n, nc0 = condefs.n, nt0 = tydefs.n, ncl0 = classes.n, ni0 = insts.n;
+  uint64_t nb0 = num_bit;
+  int nk0 = num_class;
+  cvars.n = 0;
   level = 0;
   if (setjmp(jb)) {
     cerr_jmp = saved;
@@ -1502,8 +1861,12 @@ bool compile_chunk(Module *m, Chunk *out) {
     globals.n = ng0;
     condefs.n = nc0;
     tydefs.n = nt0;
+    classes.n = ncl0;
+    insts.n = ni0;
+    num_bit = nb0;
+    num_class = nk0;
     fk_truncate_cons((uint32_t)nc0);
-    numvars.n = 0;
+    cvars.n = 0;
     pending.n = 0;
     level = 0;
     return false;
@@ -1511,6 +1874,13 @@ bool compile_chunk(Module *m, Chunk *out) {
   cerr_jmp = &jb;
   pending.n = 0;
   register_datas(m);
+  BindVec extra = {0}, raw = {0};
+  int first_inst;
+  register_classes(m, &extra, &raw);
+  register_instances(m, &extra, &first_inst);
+  for (int i = 0; i < m->nb; i++) VPUSH(extra, m->binds[i]);
+  m->binds = extra.a; /* generated bindings first; order within a group follows */
+  m->nb = extra.n;
   for (int i = 0; i < m->nb; i++) {
     Bind *b = m->binds[i];
     const char *dot = strchr(b->name, '.');
@@ -1523,15 +1893,15 @@ bool compile_chunk(Module *m, Chunk *out) {
     }
     if (b->e->k == E_LAM) b->e->lam->name = b->name;
     b->gidx = globals.n;
-    VPUSH(globals, ((Global){b->name, NULL, -1, b->e->k == E_LAM ? b->e->lam : NULL}));
-    map_put(&gmap, b->name, b->gidx);
+    add_global(b->name, NULL, b->e->k == E_LAM ? b->e->lam : NULL);
+    globals.a[b->gidx].bind = b;
   }
   Group tmp = {m->binds, m->nb, false};
   split_group_exprs(&tmp);
   int ng;
   Group *gs = scc(m->binds, m->nb, &ng);
   for (int i = 0; i < ng; i++) infer_group(&gs[i], NULL, true);
-  default_nums();
+  default_classes();
   /* Evaluate `main` last, unless another binding uses it. */
   for (int i = 0; i < ng; i++) {
     if (gs[i].n != 1 || strcmp(gs[i].b[0]->name, "main") != 0) continue;
@@ -1545,11 +1915,28 @@ bool compile_chunk(Module *m, Chunk *out) {
     }
     break;
   }
+  for (int i = 0; i < m->nb; i++)
+    if (m->binds[i]->npreds && m->binds[i]->e->k == E_LAM) m->binds[i]->orig = copy_expr(m->binds[i]->e);
+  specialized.n = 0;
+  for (int i = 0; i < m->nb; i++) elab_bind(m->binds[i]);
+  for (int i = 0; i < specialized.n; i++) VPUSH(raw, specialized.a[i]);
+  /* Dictionaries after the selectors, superclass dictionaries first. */
+  for (int depth = 1; depth <= 64; depth++)
+    for (int i = first_inst; i < insts.n; i++)
+      if (popcount(classes.a[insts.a[i].cls].closure) == depth) VPUSH(raw, dict_bind(&insts.a[i]));
   for (int i = 0; i < m->nb; i++) resolve_top(m->binds[i]);
+  for (int i = 0; i < raw.n; i++) {
+    Bind *b = raw.a[i];
+    b->gidx = global_lookup(b->name);
+    if (b->e->k == E_LAM) globals.a[b->gidx].lam = b->e->lam;
+    resolve_top(b);
+  }
   warn_line = warn_col = 0;
   for (int i = 0; i < m->nb; i++) cover_expr(m->binds[i]->e, m->binds[i]->name);
   out->groups = gs;
   out->ng = ng;
+  out->raw = raw.a;
+  out->nraw = raw.n;
   cerr_jmp = saved;
   return true;
 }
@@ -1558,13 +1945,13 @@ const char *infer_type_text(Expr *e) {
   jmp_buf jb, *saved = cerr_jmp;
   if (setjmp(jb)) {
     cerr_jmp = saved;
-    numvars.n = 0;
+    cvars.n = 0;
     pending.n = 0;
     level = 0;
     return NULL;
   }
   cerr_jmp = &jb;
-  numvars.n = 0;
+  cvars.n = 0;
   pending.n = 0;
   split_expr(e);
   level = 1;
@@ -1572,7 +1959,7 @@ const char *infer_type_text(Expr *e) {
   resolve_fields(true);
   level = 0;
   gen(t, false);
-  numvars.n = 0;
+  cvars.n = 0;
   cerr_jmp = saved;
   return type_str(t);
 }

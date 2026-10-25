@@ -1,0 +1,10 @@
+(4.0,"square of area 4.0","a round circle",12.0)
+(V2 11.0 12.0,V2 2.0 2.0,V2 10.0 13.0)
+(1.0,1,V2 1.0 1.0)
+Reading "kitchen" 21C
+[Card 2 Hearts,Card 3 Hearts,Card 3 Spades]
+(True,Spades,GT)
+(6.0,5.0)
+(2,Deep (Flat [1,2]))
+(True,Just 2)
+("",[""],[[1.5]],((),True,'q',-3,Left (-2.5)))

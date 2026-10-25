@@ -45,12 +45,6 @@ static void c_string(SB *b, const char *s, int n) {
   sb_puts(b, "\"");
 }
 
-static const char *desc_lit(const char *d) {
-  SB b = {0};
-  c_string(&b, d, (int)strlen(d));
-  return b.s;
-}
-
 static const char *arg_array(const char **a, int n) {
   SB b = {0};
   sb_puts(&b, "(V[]){");
@@ -108,8 +102,7 @@ static const char *cg_call(CG *c, Expr *e) {
   } else if (prim >= 0) {
     arity = fk_prims[prim].arity;
     if (n < arity) return xsprintf("fk_apply(G[%d], %d, %s)", g, n, arg_array(a, n));
-    if (f->tdesc) call = xsprintf("fk_%s_typed(%s, %s)", prim_cname(prim), desc_lit(f->tdesc), a[0]);
-    else call = xsprintf("fk_p_%s(0, %s)", prim_cname(prim), arg_array(a, arity));
+    call = xsprintf("fk_p_%s(0, %s)", prim_cname(prim), arg_array(a, arity));
   } else if (direct) {
     arity = f->known->n;
     if (n < arity) return xsprintf("fk_apply(%s, %d, %s)", var_ref(f), n, arg_array(a, n));
@@ -194,9 +187,6 @@ static const char *cg_expr(CG *c, Expr *e) {
   const char *t;
   switch (e->k) {
   case E_VAR:
-    if (e->tdesc)
-      return xsprintf("fk_typed_show_fn(%d, %s)", fk_prims[globals.a[e->idx].prim].code == fk_p_print,
-                      desc_lit(e->tdesc));
     if (!e->lazy) return var_ref(e);
     t = newtmp(c); /* a temporary keeps forcing in evaluation order */
     sb_printf(c->out, "  V %s = fk_force(%s);\n", t, var_ref(e));
@@ -279,12 +269,23 @@ static void cg_lambda(SB *out, Lambda *L) {
   sb_puts(&body, "");
   CG c = {&body, L, 0, 0, false};
   cg_tail(&c, L->body);
-  sb_printf(out, "static V fn_%d(V self, V *a) { /* %s */\n", L->id, L->name ? L->name : "lambda");
+  char *nm = xsprintf("%s", L->name ? L->name : "lambda");
+  for (char *s = nm; (s = strstr(s, "*/"));) s[1] = '|'; /* keep the comment closed */
+  sb_printf(out, "static V fn_%d(V self, V *a) { /* %s */\n", L->id, nm);
   for (int i = 0; i < L->nslots; i++) sb_printf(out, "  V l%d = %s;\n", i, i < L->n ? xsprintf("a[%d]", i) : "0");
   if (c.looped) sb_puts(out, "  top:;\n");
   sb_puts(out, "  FK_STACK_CHECK();\n");
   sb_puts(out, body.s);
   sb_puts(out, "}\n\n");
+}
+
+/* Pass 0 creates function closures, pass 1 runs value initializers. Raw
+   values (dictionaries) come before group values within pass 1, since
+   init_global is called for them first. */
+static void init_global(SB *out, Bind *b, int pass) {
+  if (!pass && !b->init)
+    sb_printf(out, "  G[%d] = fk_closure(fn_%d, %d, 0, 0);\n", b->gidx, b->e->lam->id, b->e->lam->n);
+  if (pass && b->init) sb_printf(out, "  G[%d] = fn_%d(0, 0);\n", b->gidx, b->init->id);
 }
 
 char *cgen_program(Chunk *chunks, int nchunks) {
@@ -305,16 +306,16 @@ char *cgen_program(Chunk *chunks, int nchunks) {
   }
   for (int i = 0; i < globals.n; i++)
     if (globals.a[i].prim >= 0) sb_printf(&out, "  G[%d] = fk_prim_value(%d);\n", i, globals.a[i].prim);
-  for (int k = 0; k < nchunks; k++)
-    for (int i = 0; i < chunks[k].ng; i++) {
-      Group *g = &chunks[k].groups[i];
-      for (int j = 0; j < g->n; j++) {
-        Bind *b = g->b[j];
-        if (b->init) sb_printf(&out, "  G[%d] = fn_%d(0, 0); /* %s */\n", b->gidx, b->init->id, b->name);
-        else sb_printf(&out, "  G[%d] = fk_closure(fn_%d, %d, 0, 0); /* %s */\n", b->gidx, b->e->lam->id,
-                       b->e->lam->n, b->name);
-      }
+  /* Per chunk, as in interp_install: functions, dictionaries, values. */
+  for (int k = 0; k < nchunks; k++) {
+    Chunk *c = &chunks[k];
+    for (int pass = 0; pass < 2; pass++) {
+      for (int i = 0; i < c->nraw; i++) init_global(&out, c->raw[i], pass);
+      for (int i = 0; i < c->ng; i++)
+        for (int j = 0; j < c->groups[i].n; j++)
+          if (!pass || c->groups[i].b[j]->init) init_global(&out, c->groups[i].b[j], pass);
     }
+  }
   sb_puts(&out, "}\n\nint main(void) { return fk_run(program, 0); }\n");
   return out.s;
 }

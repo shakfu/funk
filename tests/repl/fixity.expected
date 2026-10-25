@@ -2,5 +2,5 @@
 7
 [8,9]
 <repl>:1:1: error: fixity declaration for `<&>` lacks a binding
-<repl>:3:5: error: no Num instance for `Bool` (numbers are Int or Float)
+<repl>:3:5: error: no instance `Num Bool`
 4

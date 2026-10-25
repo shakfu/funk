@@ -1,8 +1,91 @@
 -- prelude.fk -- compiled before every program. Primitives live in src/prims.def.
+-- Instances for Bool, () and tuples are generated (builtin_instances_src).
 
-data Maybe a = Nothing | Just a
-data Either a b = Left a | Right b
-data Ordering = LT | EQ | GT
+-- classes
+
+class Eq a where
+  (==), (/=) :: a -> a -> Bool
+  x /= y = not (x == y)
+
+class Eq a => Ord a where
+  compare :: a -> a -> Ordering
+
+class Show a where
+  showPrec :: Int -> a -> String
+  show :: a -> String
+  showList :: [a] -> String
+  showPrec _ x = show x
+  show x = showPrec 0 x
+  showList [] = "[]"
+  showList (x:xs) = "[" ++ showPrec 0 x ++ concatMap (\y -> "," ++ showPrec 0 y) xs ++ "]"
+
+class Num a where
+  (+), (-), (*) :: a -> a -> a
+  negate, abs :: a -> a
+  fromInt :: Int -> a
+
+data Maybe a = Nothing | Just a deriving (Eq, Ord, Show)
+data Either a b = Left a | Right b deriving (Eq, Ord, Show)
+data Ordering = LT | EQ | GT deriving (Eq, Ord, Show)
+
+-- instances for primitive types; `x == y` at Int compiles to primEqInt directly
+
+instance Eq Int where
+  (==) = primEqInt
+  (/=) = primNeInt
+instance Ord Int where
+  compare x y = if primLtInt x y then LT else if primEqInt x y then EQ else GT
+instance Show Int where
+  showPrec d n = if d > 6 && n < 0 then "(" ++ primShowInt n ++ ")" else primShowInt n
+instance Num Int where
+  (+) = primAddInt
+  (-) = primSubInt
+  (*) = primMulInt
+  negate = primNegateInt
+  abs = primAbsInt
+  fromInt n = n
+
+instance Eq Float where
+  (==) = primEqFloat
+  (/=) = primNeFloat
+instance Ord Float where
+  compare x y = if primLtFloat x y then LT else if primEqFloat x y then EQ else GT
+instance Show Float where
+  showPrec d x = if d > 6 && x < 0.0 then "(" ++ primShowFloat x ++ ")" else primShowFloat x
+instance Num Float where
+  (+) = primAddFloat
+  (-) = primSubFloat
+  (*) = primMulFloat
+  negate = primNegateFloat
+  abs = primAbsFloat
+  fromInt = toFloat
+
+instance Eq Char where
+  (==) = primEqChar
+  (/=) = primNeChar
+instance Ord Char where
+  compare x y = if primLtChar x y then LT else if primEqChar x y then EQ else GT
+instance Show Char where
+  showPrec _ c = primShowChar c
+  showList cs = primShowString cs
+
+instance Eq a => Eq [a] where
+  [] == [] = True
+  (x:xs) == (y:ys) = x == y && xs == ys
+  _ == _ = False
+instance Ord a => Ord [a] where
+  compare [] [] = EQ
+  compare [] _ = LT
+  compare _ [] = GT
+  compare (x:xs) (y:ys) = case compare x y of
+    EQ -> compare xs ys
+    o -> o
+instance Show a => Show [a] where
+  showPrec _ xs = showList xs
+
+showParen b s = if b then "(" ++ s ++ ")" else s
+
+print x = putStrLn (show x)
 
 -- functions
 
@@ -27,25 +110,34 @@ snd (_, b) = b
 curry f a b = f (a, b)
 uncurry f (a, b) = f a b
 
+-- comparison, through compare
+
+x < y = case compare x y of
+  LT -> True
+  _ -> False
+x <= y = case compare x y of
+  GT -> False
+  _ -> True
+x > y = case compare x y of
+  GT -> True
+  _ -> False
+x >= y = case compare x y of
+  LT -> False
+  _ -> True
+min a b = if a <= b then a else b
+max a b = if a >= b then a else b
+
 -- numbers
 
 subtract x y = y - x
 even n = mod n 2 == 0
 odd n = mod n 2 /= 0
-min a b = if a <= b then a else b
-max a b = if a >= b then a else b
-
-compare a b
-  | a < b = LT
-  | a == b = EQ
-  | otherwise = GT
 
 gcd a b = if b == 0 then abs a else gcd b (mod a b)
 
--- x * 0 + 1 rather than 1, so a Float base yields a Float at runtime
 x ^ n
   | n < 0 = error "^: negative exponent"
-  | n == 0 = x * 0 + 1
+  | n == 0 = 1
   | even n = let h = x ^ div n 2 in h * h
   | otherwise = x * x ^ (n - 1)
 
@@ -143,7 +235,9 @@ sortBy cmp xs = mergeAll (map (\x -> [x]) xs)
     mergePairs xss = xss
     merge [] ys = ys
     merge xs [] = xs
-    merge (x:xs) (y:ys) = if cmp x y == GT then y : merge (x:xs) ys else x : merge xs (y:ys)
+    merge (x:xs) (y:ys) = case cmp x y of
+      GT -> y : merge (x:xs) ys
+      _ -> x : merge xs (y:ys)
 
 -- Maybe, Either
 

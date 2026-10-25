@@ -138,6 +138,41 @@ static void build(Opts *o) {
 
 /* ------------------------------------------------------------------- REPL */
 
+/* Print a REPL result with its Show instance. Without one, print it
+   structurally; a function prints as `<function> :: type`. */
+static void print_result(Bind *it) {
+  Bind *b = NEW(Bind);
+  b->name = intern("$shown");
+  b->line = it->line;
+  b->col = it->col;
+  Expr *f = NEW(Expr), *x = NEW(Expr);
+  *f = (Expr){.k = E_VAR, .line = b->line, .col = b->col, .name = intern("show")};
+  *x = (Expr){.k = E_VAR, .line = b->line, .col = b->col, .name = it->name};
+  b->e = NEW(Expr);
+  *b->e = (Expr){.k = E_APP, .line = b->line, .col = b->col, .fn = f, .n = 1, .args = xmalloc(sizeof(Expr *))};
+  b->e->args[0] = x;
+  Module m = {.binds = &b, .nb = 1};
+  Chunk c;
+  cerr_quiet = true;
+  bool ok = compile_chunk(&m, &c);
+  cerr_quiet = false;
+  if (ok) {
+    interp_install(&c);
+    char *s = fk_cstring(interp_global(b->gidx), NULL);
+    puts(s);
+    free(s);
+    return;
+  }
+  V v = interp_global(it->gidx);
+  if (FK_ISPTR(v) && FK_HDR(v)->kind != K_CON && FK_HDR(v)->kind != K_FLOAT) {
+    printf("<function> :: %s\n", type_str(globals.a[it->gidx].type));
+    return;
+  }
+  char *s = fk_show_cstr(v);
+  puts(s);
+  free(s);
+}
+
 static void eval_input(const char *src) {
   size_t len = strlen(src);
   jmp_buf rt;
@@ -159,16 +194,12 @@ static void eval_input(const char *src) {
     b->e = e;
     b->line = e->line;
     b->col = e->col;
-    Module m = {&b, 1, NULL, 0};
+    Module m = {.binds = &b, .nb = 1};
     if (compile_chunk(&m, &c)) {
       interp_install(&c);
       global_alias(intern("it"), b->gidx);
       V v = interp_global(b->gidx);
-      if (v != fk_unit) {
-        char *s = fk_show_typed_cstr(show_desc(globals.a[b->gidx].type), v);
-        puts(s);
-        free(s);
-      }
+      if (v != fk_unit) print_result(b);
     }
   }
   fk_error_jmp = NULL;
@@ -253,7 +284,8 @@ static void task(void *arg) {
   Opts *o = arg;
   compiler_init();
   cur_file = "<prelude>";
-  Module *m = parse_caught(fk_prelude_src, strlen(fk_prelude_src));
+  char *src = xsprintf("%s\n%s", fk_prelude_src, builtin_instances_src());
+  Module *m = parse_caught(src, strlen(src));
   if (!m || !compile_chunk(m, &prelude)) die("%s", "internal error: prelude failed to compile");
   if (o->mode == M_BUILD || o->mode == M_EMITC) build(o);
   interp_install(&prelude);

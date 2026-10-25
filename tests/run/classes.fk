@@ -1,0 +1,69 @@
+-- Type classes: user classes, superclasses, defaults, instance contexts,
+-- deriving, a user Num type, and literals at any Num type.
+class Shape a where
+  area :: a -> Float
+  name :: a -> String
+  describe :: a -> String
+  describe x = name x ++ " of area " ++ show (area x)
+
+data Sq = Sq Float
+data Circ = Circ Float
+
+instance Shape Sq where
+  area (Sq s) = s * s
+  name _ = "square"
+
+instance Shape Circ where
+  area (Circ r) = 3.0 * r * r
+  name _ = "circle"
+  describe c = "a round " ++ name c
+
+class Shape a => Solid a where
+  volume :: a -> Float -> Float
+  volume x h = area x * h
+
+instance Solid Sq
+
+-- a user number type, with literals
+data V2 = V2 Float Float deriving (Eq, Show)
+instance Num V2 where
+  V2 a b + V2 c d = V2 (a + c) (b + d)
+  V2 a b - V2 c d = V2 (a - c) (b - d)
+  V2 a b * V2 c d = V2 (a * c) (b * d)
+  negate (V2 a b) = V2 (negate a) (negate b)
+  abs (V2 a b) = V2 (abs a) (abs b)
+  fromInt n = V2 (toFloat n) (toFloat n)
+
+-- custom Show, used inside derived Show
+data Temp = Temp Int
+instance Show Temp where
+  show (Temp t) = show t ++ "C"
+data Reading = Reading String Temp deriving (Show)
+
+data Suit = Hearts | Spades deriving (Eq, Ord, Show)
+data Card = Card Int Suit deriving (Eq, Ord, Show)
+
+one _ = 1
+double x = x + x
+sumSq xs = sum (map (\x -> x * x) xs)
+
+-- a local function without a signature takes its number type from its uses
+pairs x = (go x, go 2.5) where go y = y * 2
+
+-- polymorphic recursion needs a signature
+data Nest a = Flat a | Deep (Nest [a]) deriving (Show)
+depth :: Nest a -> Int
+depth (Flat _) = 0
+depth (Deep n) = 1 + depth n
+
+main =
+  print (area (Sq 2.0), describe (Sq 2.0), describe (Circ 1.0), volume (Sq 2.0) 3.0) >>
+  print (V2 1.0 2.0 + 10, double (V2 1.0 1.0), sumSq [V2 1.0 2.0, 3]) >>
+  print (one () :: Float, one () :: Int, one () :: V2) >>
+  print (Reading "kitchen" (Temp 21)) >>
+  print (sort [Card 3 Spades, Card 2 Hearts, Card 3 Hearts]) >>
+  print (Card 1 Hearts < Card 1 Spades, maximum [Hearts, Spades], compare (Just 1) Nothing) >>
+  print (pairs 3) >>
+  print (depth (Deep (Deep (Flat [[1]]))), Deep (Flat [1, 2])) >>
+  print (elem (Just 'x') [Nothing, Just 'x'], lookup "b" [("a", 1), ("b", 2)]) >>
+  print ("", [""], [[1.5]], ((), True, 'q', -3, Left (-2.5) :: Either Float Int))
