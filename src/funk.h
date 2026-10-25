@@ -256,6 +256,7 @@ struct Type {
   uint64_t cls; /* classes a variable must be an instance of, closed under superclasses */
   bool skolem;
   int line, col; /* where a constrained variable arose, for ambiguity errors */
+  const char *vname; /* signature variable: its name, for messages */
   const char *name;
   int n;
   Type **args;

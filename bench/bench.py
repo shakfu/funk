@@ -16,6 +16,7 @@ See bench/README.md for the benchmarks and the row format.
 import argparse
 import datetime
 import json
+import math
 import os
 import platform
 import subprocess
@@ -203,7 +204,22 @@ def cmd_report(args):
             regressed += change > args.threshold
             line += f" {min(b['wall']):7.3f}s {change:+7.1%}{flag}"
         print(line)
+    for title, run in (("run", cur), ("baseline", base)):
+        g = geomean(run)
+        if g:
+            print(f"\ngeomean compiled/C ({title}): {g:.2f}x over {g_count(run)} benchmarks; target 2x", end="")
+    print()
     sys.exit(1 if regressed else 0)
+
+
+def g_count(run):
+    return sum(1 for (b, k) in run if k == "compiled" and (b, "c") in run)
+
+
+def geomean(run):
+    """Geometric mean of compiled over C min wall times: the performance goal."""
+    rs = [min(r["wall"]) / min(run[(b, "c")]["wall"]) for (b, k), r in run.items() if k == "compiled" and (b, "c") in run]
+    return math.exp(sum(map(math.log, rs)) / len(rs)) if rs else None
 
 
 def cmd_history(args):

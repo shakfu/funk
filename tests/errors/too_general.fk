@@ -1,4 +1,4 @@
--- expect: expected `a -> b`, found `a -> a`
+-- expect: 3:9: error: type mismatch: expected `b`, found `a`
 id2 :: a -> b
 id2 x = x
 main = id2 1

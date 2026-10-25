@@ -6,48 +6,49 @@ A provisional plan, ordered by value per unit of work. The concrete items for th
 
 Core language, HM inference with `Num`, interpreter, REPL, C backend, conservative GC. See [CHANGELOG.md](../../CHANGELOG.md).
 
-## 0.2 -- remove semantic surprises
+## 0.2 -- Haskell semantics and the core of 0.4 (unreleased)
 
-Every item here makes funk behave as Haskell programmers expect, without changing the core design.
+Done, see [CHANGELOG.md](../../CHANGELOG.md):
 
-- Lazy `where` bindings: delay non-function bindings until first use.
-
+- Lazy `let` and `where` value bindings.
 - Compile-time warning for non-exhaustive patterns.
-
-- Type-directed `show`: print `Float` and `[Char]` correctly where the static type is known.
-
 - `infixl`, `infixr` and `infix` declarations.
+- Records with type-scoped fields and dot access ([records.md](records.md)).
+- Type classes, phase 1: `Eq`, `Ord`, `Show`, `Num`, user classes, deriving ([type-classes.md](type-classes.md)).
+- `do` blocks with `<-` and `let`.
+- A benchmark suite against C (`make bench`).
 
-- Error locations at the offending sub-expression, not the binding.
+- Type errors at the offending sub-expression, not the binding.
 
-## 0.3 -- performance
+## 0.3 -- performance (the primary goal)
 
-Measure first with `make bench`, then compare with `bench/bench.py report`. Baseline on an M1 before 0.3: compiled funk is 2.7-65x slower than equivalent C, and the interpreter is 24-203x slower. See [bench/README.md](../../bench/README.md).
+Generated C speed outranks every other goal; see [performance-first.md](performance-first.md). The metric is the geometric mean of compiled time over C time on the benchmark suite: 10.0x on an M1 (2.6-62x). The target is 2x. Measure with `make bench` and `bench/bench.py report`.
 
-- Split `eval` so the common cases avoid its large prologue (26% of interpreter time in callgrind).
+1. ~~Inline primitives at known types in generated C.~~
+2. ~~Collector hot paths: reject tagged words before searching, stop zeroing dead objects.~~
+3. ~~Stack overflow through a guard page, removing the per-call check.~~
+4. ~~Drop unreachable code, prelude instances included.~~
 
-- Inline Int fast paths for arithmetic and comparison in generated C.
+   Steps 1-4 took the geometric mean from 10.3x to 6.6x.
+5. Typed backend: full monomorphization, unboxed scalars, typed layouts, direct calls. Needs a design note.
+6. Nursery allocation, or Perceus reference counting. Needs a design note.
+7. Evaluate pure, total, cheap `let` bindings eagerly.
 
-- Drop unreachable prelude functions from generated C.
-
-- Optional: tail recursion modulo cons for `map`-style functions, which removes the stack limit on long lists.
+Interpreter speed (splitting `eval`, 26% in its prologue) is not part of this goal.
 
 ## 0.4 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
-- Type classes with dictionary passing ([type-classes.md](type-classes.md)). Phase 1 is done; phases 2 (kinds, `Functor`) and 3 (existential types) remain.
-
+- Decide on typed effects ([typed-effects.md](typed-effects.md)). Several items depend on it.
+- Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.
 - Modules and `import`. Lowercase module names with `.` paths are reserved in [records.md](records.md#modules).
-
-- Records ([records.md](records.md)), as-patterns, list comprehensions.
-
-- A `do` block for sequencing, with `<-` and `let`: done.
+- As-patterns, list comprehensions.
 
 ## Open questions
 
-- Should effects become typed (an `IO` type) once type classes exist? This would break `print x >> ...` code written against 0.1.
+- Should effects become typed (an `IO` type)? It needs type classes phase 2 (`Monad` abstracts over `IO`, not `IO a`). It would make `<-` a real bind, stop top-level `do` values from running at startup, and show effects in types. It breaks every program that sequences effects with `>>` or `do` today.
 
-- Should `Int` become a full 64 bits? That would need boxing or a different tag scheme.
+- Should `Int` become a full 64 bits? Under the performance goal, yes: the typed backend gives unboxed `int64_t`.
 
 - Should the interpreter be kept once compile-and-load is fast enough? Two backends double the cost of every semantic change.

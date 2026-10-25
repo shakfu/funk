@@ -213,10 +213,15 @@ static Expr *op_expr(Token *t) {
   return con ? mkcon(t->s, t->line, t->col) : mkvar(t->s, t->line, t->col);
 }
 
+/* `l op r` is located at l, where the expression starts. */
 static Expr *binop(Token *op, Expr *l, Expr *r) {
-  if (op->s == intern("&&")) return mkif(l, r, mkcon("False", op->line, op->col));
-  if (op->s == intern("||")) return mkif(l, mkcon("True", op->line, op->col), r);
-  return app2(op_expr(op), l, r);
+  Expr *e;
+  if (op->s == intern("&&")) e = mkif(l, r, mkcon("False", op->line, op->col));
+  else if (op->s == intern("||")) e = mkif(l, mkcon("True", op->line, op->col), r);
+  else e = app2(op_expr(op), l, r);
+  e->line = l->line;
+  e->col = l->col;
+  return e;
 }
 
 static Pat *mkpat(int k, int line, int col) {

@@ -138,14 +138,35 @@ static bool is_tuple_name(const char *s) { return s[0] == '(' && s[1] == ','; }
 
 typedef VEC(Type *) Names;
 
+/* Name of the i-th variable seen in a message. A rigid variable keeps its
+   name from the signature; the others are lettered, skipping those names. */
+static const char *var_name(Names *nm, int i) {
+  if (nm->a[i]->skolem && nm->a[i]->vname) return nm->a[i]->vname;
+  int k = 0;
+  for (int j = 0; j <= i; j++) {
+    if (nm->a[j]->skolem && nm->a[j]->vname) continue;
+    for (;;) {
+      const char *s = k < 26 ? xsprintf("%c", 'a' + k) : xsprintf("t%d", k);
+      k++;
+      bool taken = false;
+      for (int m = 0; m < nm->n; m++)
+        taken |= nm->a[m]->skolem && nm->a[m]->vname && strcmp(nm->a[m]->vname, s) == 0;
+      if (!taken) {
+        if (j == i) return s;
+        break;
+      }
+    }
+  }
+  abort();
+}
+
 static void pr(SB *b, Type *t, int prec, Names *nm) {
   t = repr(t);
   if (t->k == TY_VAR) {
     int i = 0;
     while (i < nm->n && nm->a[i] != t) i++;
     if (i == nm->n) VPUSH(*nm, t);
-    if (i < 26) sb_printf(b, "%c", 'a' + i);
-    else sb_printf(b, "t%d", i);
+    sb_puts(b, var_name(nm, i));
     return;
   }
   if (t->name == s_arrow) {
@@ -193,9 +214,7 @@ const char *type_str(Type *t) {
     uint64_t m = minimal(nm.a[i]->cls);
     for (int c = 0; c < classes.n; c++) {
       if (!(m & BIT(c))) continue;
-      sb_printf(&cs, "%s%s ", nc++ ? ", " : "", classes.a[c].name);
-      if (i < 26) sb_printf(&cs, "%c", 'a' + i);
-      else sb_printf(&cs, "t%d", i);
+      sb_printf(&cs, "%s%s %s", nc++ ? ", " : "", classes.a[c].name, var_name(&nm, i));
     }
   }
   if (nc) sb_printf(&ctx, nc > 1 ? "(%s) => " : "%s => ", cs.s);
@@ -332,6 +351,7 @@ static Type *inst_rec(Type *t, Subst *s, bool skolem) {
     Type *v = newvar();
     v->cls = t->cls;
     v->skolem = skolem;
+    v->vname = t->vname;
     if (v->cls && !skolem) VPUSH(cvars, v);
     VPUSH(*s, t);
     VPUSH(*s, v);
@@ -436,6 +456,7 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
         m |= classes.a[c].closure;
       }
       Type *v = gvar(m);
+      v->vname = te->name;
       VPUSH(tv->names, te->name);
       VPUSH(tv->types, v);
       return v;
@@ -1186,12 +1207,88 @@ static Type *infer_pat(Pat *p, Env **env, Env *stop) {
   abort();
 }
 
+static void check(Expr *e, Env *env, Type *expected);
+
 static void infer_rhs(Rhs *r, Env *env, Type *res) {
   for (int i = 0; i < r->nwg; i++) infer_group(&r->wg[i], &env, false);
   for (int i = 0; i < r->ng; i++) {
-    if (r->guards[i]) unify(tcon0(s_bool), infer(r->guards[i], env), r->guards[i]->line, r->guards[i]->col);
-    unify(res, infer(r->bodies[i], env), r->bodies[i]->line, r->bodies[i]->col);
+    if (r->guards[i]) check(r->guards[i], env, tcon0(s_bool));
+    check(r->bodies[i], env, res);
   }
+}
+
+static Type *infer_case(Expr *e, Env *env, Type *res) {
+  Type **ts = xmalloc((size_t)e->ns * sizeof *ts + 1);
+  for (int i = 0; i < e->ns; i++) ts[i] = infer(e->scruts[i], env);
+  for (int a = 0; a < e->na; a++) {
+    Alt *alt = e->alts[a];
+    Env *ae = env;
+    for (int i = 0; i < alt->np; i++)
+      unify(ts[i], infer_pat(alt->pats[i], &ae, env), alt->pats[i]->line, alt->pats[i]->col);
+    infer_rhs(&alt->rhs, ae, res);
+  }
+  free(ts);
+  return res;
+}
+
+/* Infer e against a known type. The expected type is pushed into lambdas,
+   `let`, `if` and `case` alternatives, so a mismatch is reported at the
+   innermost expression that has the wrong type, with the expected type's
+   information (a signature's parameter types) already in place. */
+static void check(Expr *e, Env *env, Type *expected) {
+  switch (e->k) {
+  case E_LAM: {
+    Type *t = expected;
+    for (int i = 0; i < e->lam->n; i++) {
+      Type *f = repr(t), *p, *r;
+      if (f->k == TY_CON && f->name == s_arrow) {
+        p = f->args[0];
+        r = f->args[1];
+      } else {
+        p = newvar();
+        r = newvar();
+        unify(f, tarrow(p, r), e->line, e->col);
+      }
+      env = env_push(env, e->lam->params[i], p);
+      t = r;
+    }
+    check(e->lam->body, env, t);
+    return;
+  }
+  case E_LET:
+    infer_group(&e->g, &env, false);
+    check(e->body, env, expected);
+    return;
+  case E_IF:
+    check(e->cond, env, tcon0(s_bool));
+    check(e->then_, env, expected);
+    check(e->else_, env, expected);
+    return;
+  case E_CASE: infer_case(e, env, expected); return;
+  case E_APP: { /* a constructor: result first, then each argument against its field */
+    if (e->fn->k != E_CON) break;
+    Type *t = infer(e->fn, env);
+    Type **ps = xmalloc((size_t)e->n * sizeof *ps);
+    for (int i = 0; i < e->n; i++) {
+      Type *f = repr(t);
+      if (f->k == TY_CON && f->name == s_arrow) {
+        ps[i] = f->args[0];
+        t = f->args[1];
+      } else {
+        ps[i] = newvar();
+        Type *r = newvar();
+        unify(f, tarrow(ps[i], r), e->line, e->col);
+        t = r;
+      }
+    }
+    unify(expected, t, e->line, e->col);
+    for (int i = 0; i < e->n; i++) check(e->args[i], env, ps[i]);
+    free(ps);
+    return;
+  }
+  default: break;
+  }
+  unify(expected, infer(e, env), e->line, e->col);
 }
 
 static Type *infer(Expr *e, Env *env) {
@@ -1240,25 +1337,12 @@ static Type *infer(Expr *e, Env *env) {
     infer_group(&e->g, &env, false);
     return infer(e->body, env);
   case E_IF: {
-    unify(tcon0(s_bool), infer(e->cond, env), e->cond->line, e->cond->col);
+    check(e->cond, env, tcon0(s_bool));
     Type *t = infer(e->then_, env);
-    unify(t, infer(e->else_, env), e->else_->line, e->else_->col);
+    check(e->else_, env, t);
     return t;
   }
-  case E_CASE: {
-    Type **ts = xmalloc((size_t)e->ns * sizeof *ts + 1);
-    for (int i = 0; i < e->ns; i++) ts[i] = infer(e->scruts[i], env);
-    Type *res = newvar();
-    for (int a = 0; a < e->na; a++) {
-      Alt *alt = e->alts[a];
-      Env *ae = env;
-      for (int i = 0; i < alt->np; i++)
-        unify(ts[i], infer_pat(alt->pats[i], &ae, env), alt->pats[i]->line, alt->pats[i]->col);
-      infer_rhs(&alt->rhs, ae, res);
-    }
-    free(ts);
-    return res;
-  }
+  case E_CASE: return infer_case(e, env, newvar());
   case E_ANN: {
     Type *t = infer(e->body, env);
     unify(inst(sig_scheme(e->sig), false), t, e->line, e->col);
@@ -1299,15 +1383,14 @@ static void infer_group(Group *g, Env **env, bool top) {
   }
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
-    Type *t = infer(b->e, *env);
     if (sch[i]) {
       Subst s = {0};
       Type *rigid = inst_rec(sch[i], &s, true);
       b->skolem = s.a;
       b->nskolem = s.n / 2;
-      unify(rigid, t, b->line, b->col);
+      check(b->e, *env, rigid);
     } else {
-      unify(mono[i], t, b->line, b->col);
+      check(b->e, *env, mono[i]);
     }
   }
   lower_known();

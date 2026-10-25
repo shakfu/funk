@@ -1,4 +1,4 @@
--- expect: expected `Int -> Bool`, found `Int -> Int`
+-- expect: 3:7: error: type mismatch: expected `Bool`, found `Int`
 f :: Int -> Bool
 f x = x
 main = f 1

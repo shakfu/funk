@@ -1,0 +1,4 @@
+-- expect: 3:11: error: type mismatch: expected `[Char]`, found `Int`
+p :: Int -> (Int, String)
+p x = (x, x)
+main = print (p 1)

@@ -1,0 +1,4 @@
+-- Stack overflow is a runtime error in both backends: compiled code has no
+-- stack check and faults on the guard region below the stack.
+count n = 1 + count (n - 1)
+main = print (count 2000000000)

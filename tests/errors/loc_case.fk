@@ -1,0 +1,6 @@
+-- expect: 5:8: error: type mismatch: expected `[Char]`, found `Int`
+m :: Int -> String
+m n = case n of
+  0 -> "zero"
+  _ -> n
+main = putStrLn (m 1)

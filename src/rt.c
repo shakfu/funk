@@ -18,7 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/mman.h>
+#include <unistd.h>
 
 /* ---------------------------------------------------------------- errors */
 
@@ -142,11 +144,13 @@ static V *find_obj(uintptr_t w, uint8_t **mark, size_t *words) {
 }
 
 static void mark_word(uintptr_t w) {
+  if (!FK_ISPTR(w)) return; /* Ints and Chars are tagged: never pointers */
   uint8_t *m;
   size_t words;
   V *o = find_obj(w, &m, &words);
   if (!o || *m) return;
   *m = 1;
+  if (((FkHdr *)o)->kind == K_FLOAT) return; /* a double, no pointers */
   if (msp + 2 > mcap) {
     mcap = mcap ? 2 * mcap : 4096;
     mstack = rt_realloc(mstack, mcap * sizeof *mstack);
@@ -182,7 +186,7 @@ static void sweep(void) {
       V *o = (V *)(c->objs + i * bytes);
       if (((FkHdr *)o)->kind != K_FREE) {
         if (c->marks[i]) { c->marks[i] = 0; live += bytes; continue; }
-        memset(o, 0, bytes);
+        o[0] = 0; /* K_FREE; constructors overwrite every payload word */
       }
       push_free(c->words, o);
     }
@@ -579,57 +583,79 @@ int fk_num_eq_int(V v, long long i) {
 
 /* ------------------------------------------------------------ primitives */
 
-/* Int + Int stays Int; a Float operand promotes. Mixed tags only arise
-   when a polymorphic literal meets a Float, since the checker makes both
-   operands the same type. Unsigned arithmetic gives defined wraparound. */
-#define NUMOP(c, op)                                                           \
-  V fk_p_##c(V self, V *a) {                                                   \
-    if (FK_ISINT(a[0]) && FK_ISINT(a[1]))                                      \
-      return FK_MKINT((intptr_t)((uintptr_t)FK_INT(a[0]) op(uintptr_t) FK_INT(a[1]))); \
-    return fk_float(num_d(a[0]) op num_d(a[1]));                               \
-  }
-NUMOP(add, +)
-NUMOP(sub, -)
-NUMOP(mul, *)
+/* Typed primitives as inline functions on tagged words. Generated C calls
+   the fk_i_ forms directly, so the C compiler inlines them; the fk_p_
+   wrappers serve the interpreter and function values. Int arithmetic
+   wraps (unsigned in C, so defined). Tagged Ints and Chars are ordered
+   like their values, so they compare as words. Float follows IEEE:
+   NaN /= NaN. */
+#define I2(name, expr)                                                         \
+  static inline V fk_i_##name(V x, V y) { return expr; }                     \
+  V fk_p_##name(V self, V *a) { return fk_i_##name(a[0], a[1]); }
+#define I1(name, expr)                                                         \
+  static inline V fk_i_##name(V x) { return expr; }                          \
+  V fk_p_##name(V self, V *a) { return fk_i_##name(a[0]); }
+#define IWRAP(op) FK_MKINT((intptr_t)((uintptr_t)FK_INT(x) op (uintptr_t)FK_INT(y)))
 
-V fk_p_negate(V self, V *a) {
-  return FK_ISINT(a[0]) ? FK_MKINT(-FK_INT(a[0])) : fk_float(-FK_FLOATV(a[0]));
-}
+I2(addi, IWRAP(+))
+I2(subi, IWRAP(-))
+I2(muli, IWRAP(*))
+I2(addf, fk_float(FK_FLOATV(x) + FK_FLOATV(y)))
+I2(subf, fk_float(FK_FLOATV(x) - FK_FLOATV(y)))
+I2(mulf, fk_float(FK_FLOATV(x) * FK_FLOATV(y)))
+I1(negi, FK_MKINT((intptr_t)(0 - (uintptr_t)FK_INT(x))))
+I1(negf, fk_float(-FK_FLOATV(x)))
+I1(absi, FK_INT(x) < 0 ? FK_MKINT((intptr_t)(0 - (uintptr_t)FK_INT(x))) : x)
+I1(absf, fk_float(fabs(FK_FLOATV(x))))
+I2(fdiv, fk_float(FK_FLOATV(x) / FK_FLOATV(y)))
 
-V fk_p_abs(V self, V *a) {
-  if (FK_ISINT(a[0])) return FK_MKINT(FK_INT(a[0]) < 0 ? -FK_INT(a[0]) : FK_INT(a[0]));
-  return fk_float(fabs(FK_FLOATV(a[0])));
-}
+/* Comparisons also have a C truth value form, fk_b_NAME, for conditions. */
+#define B2(name, expr)                                                         \
+  static inline bool fk_b_##name(V x, V y) { return expr; }                  \
+  I2(name, FK_BOOL(fk_b_##name(x, y)))
 
-V fk_p_fdiv(V self, V *a) { return fk_float(num_d(a[0]) / num_d(a[1])); }
+B2(eqw, x == y) /* Int, Char */
+B2(new, x != y)
+B2(ltw, (intptr_t)x < (intptr_t)y)
+B2(lew, (intptr_t)x <= (intptr_t)y)
+B2(gtw, (intptr_t)x > (intptr_t)y)
+B2(gew, (intptr_t)x >= (intptr_t)y)
+B2(eqf, FK_FLOATV(x) == FK_FLOATV(y))
+B2(nef, FK_FLOATV(x) != FK_FLOATV(y))
+B2(ltf, FK_FLOATV(x) < FK_FLOATV(y))
+B2(lef, FK_FLOATV(x) <= FK_FLOATV(y))
+B2(gtf, FK_FLOATV(x) > FK_FLOATV(y))
+B2(gef, FK_FLOATV(x) >= FK_FLOATV(y))
 
-static intptr_t divisor(V v) {
-  intptr_t y = FK_INT(v);
-  if (y == 0) fk_error("divide by zero");
-  return y;
-}
+_Noreturn static void div_zero(void) { fk_error("divide by zero"); }
 
-V fk_p_div(V self, V *a) {
-  intptr_t x = FK_INT(a[0]), y = divisor(a[1]), q = x / y;
+/* div and mod round toward negative infinity, quot and rem toward zero. */
+static inline V fk_i_div(V a, V b) {
+  intptr_t x = FK_INT(a), y = FK_INT(b);
+  if (y == 0) div_zero();
+  intptr_t q = x / y;
   if (x % y != 0 && ((x < 0) != (y < 0))) q--;
   return FK_MKINT(q);
 }
-
-V fk_p_mod(V self, V *a) {
-  intptr_t x = FK_INT(a[0]), y = divisor(a[1]), r = x % y;
+static inline V fk_i_mod(V a, V b) {
+  intptr_t x = FK_INT(a), y = FK_INT(b);
+  if (y == 0) div_zero();
+  intptr_t r = x % y;
   if (r != 0 && ((r < 0) != (y < 0))) r += y;
   return FK_MKINT(r);
 }
-
-V fk_p_quot(V self, V *a) { intptr_t y = divisor(a[1]); return FK_MKINT(FK_INT(a[0]) / y); }
-V fk_p_rem(V self, V *a) { intptr_t y = divisor(a[1]); return FK_MKINT(FK_INT(a[0]) % y); }
-
-V fk_p_eq(V self, V *a) { return FK_BOOL(fk_compare(a[0], a[1]) == 0); }
-V fk_p_ne(V self, V *a) { return FK_BOOL(fk_compare(a[0], a[1]) != 0); }
-V fk_p_lt(V self, V *a) { return FK_BOOL(fk_compare(a[0], a[1]) < 0); }
-V fk_p_le(V self, V *a) { return FK_BOOL(fk_compare(a[0], a[1]) <= 0); }
-V fk_p_gt(V self, V *a) { return FK_BOOL(fk_compare(a[0], a[1]) > 0); }
-V fk_p_ge(V self, V *a) { return FK_BOOL(fk_compare(a[0], a[1]) >= 0); }
+static inline V fk_i_quot(V a, V b) {
+  if (FK_INT(b) == 0) div_zero();
+  return FK_MKINT(FK_INT(a) / FK_INT(b));
+}
+static inline V fk_i_rem(V a, V b) {
+  if (FK_INT(b) == 0) div_zero();
+  return FK_MKINT(FK_INT(a) % FK_INT(b));
+}
+V fk_p_div(V self, V *a) { return fk_i_div(a[0], a[1]); }
+V fk_p_mod(V self, V *a) { return fk_i_mod(a[0], a[1]); }
+V fk_p_quot(V self, V *a) { return fk_i_quot(a[0], a[1]); }
+V fk_p_rem(V self, V *a) { return fk_i_rem(a[0], a[1]); }
 
 V fk_p_tofloat(V self, V *a) { return fk_float((double)FK_INT(a[0])); }
 
@@ -770,8 +796,32 @@ void fk_init(void) {
 
 typedef struct { void (*fn)(void *); void *arg; } Task;
 
+/* Generated code has no stack check: overflowing reaches the guard
+   region below the stack and faults. The handler runs on its own stack. */
+static char *guard_lo, *guard_hi;
+
+static void on_fault(int sig, siginfo_t *si, void *ctx) {
+  char *a = si->si_addr;
+  if (a >= guard_lo && a < guard_hi) {
+    static const char msg[] = "runtime error: stack overflow\n";
+    fflush(stdout); /* not async-signal-safe, but the process exits next */
+    if (write(2, msg, sizeof msg - 1) < 0) {}
+    _exit(1);
+  }
+  signal(sig, SIG_DFL); /* a real fault: let it crash */
+}
+
 static void *task_main(void *p) {
   Task *t = p;
+  stack_t ss = {.ss_sp = malloc(1 << 16), .ss_size = 1 << 16};
+  struct sigaction sa = {0};
+  sa.sa_sigaction = on_fault;
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+  sigemptyset(&sa.sa_mask);
+  if (ss.ss_sp && sigaltstack(&ss, NULL) == 0) {
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+  }
   t->fn(t->arg);
   fflush(stdout);
   return NULL;
@@ -779,9 +829,11 @@ static void *task_main(void *p) {
 
 /* Deep non-tail recursion (map, foldr) is normal in this language, so
    funk code runs on a thread with a 4 GiB stack. MAP_NORESERVE commits
-   pages only as the stack grows; the size halves if the mapping fails. */
+   pages only as the stack grows; the size halves if the mapping fails.
+   The interpreter and the runtime check the stack and report overflow as
+   an error the REPL recovers from; compiled code relies on the guard. */
 int fk_run(void (*fn)(void *), void *arg) {
-  size_t size = (size_t)4 << 30, guard = 1 << 16;
+  size_t size = (size_t)4 << 30, guard = (size_t)16 << 20; /* larger than any frame */
   fk_init();
   char *mem = MAP_FAILED;
   while (size >= ((size_t)8 << 20)) {
@@ -791,6 +843,8 @@ int fk_run(void (*fn)(void *), void *arg) {
   }
   if (mem == MAP_FAILED) { perror("funk: mmap stack"); return 1; }
   mprotect(mem, guard, PROT_NONE);
+  guard_lo = mem;
+  guard_hi = mem + guard;
   fk_stack_base = mem + size;
   fk_stack_limit = mem + guard + ((size_t)1 << 20);
   pthread_attr_t attr;

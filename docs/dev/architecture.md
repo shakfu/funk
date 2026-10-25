@@ -97,6 +97,10 @@ Inference:
 
 - Types are mutable union-find variables or constructor applications.
 
+- A binding's body is checked against its expected type (a signature's rigid instance, or the binding's variable), not inferred and then unified. `check` pushes the expected type into lambdas, `let`, `if`, `case` alternatives and constructor arguments, so a mismatch is reported at the innermost expression with the wrong type, with the signature's types already known. Other expressions are inferred and unified at their own location. Infix applications are located at their left operand.
+
+- Rigid variables print with their signature names in messages; other variables are lettered, skipping those names.
+
 - Each variable has a `level`. Generalization marks variables above the current level as `GENERIC` in place; instantiation copies them.
 
 - A variable carries `cls`, a bitmask of the classes it must be an instance of, closed under superclasses. Binding it to a constructor type looks up an instance for each class, and the instance context adds classes to the type's arguments.
@@ -161,7 +165,9 @@ Non-moving conservative mark-sweep:
 
 - Collection runs when allocation since the last GC exceeds max(32 MiB, live bytes). Sweep rebuilds the free lists.
 
-`fk_run` starts the program on a thread with a 4 GiB `MAP_NORESERVE` stack. That fixes the stack bounds for scanning. `FK_STACK_CHECK` turns overflow into a runtime error.
+`fk_run` starts the program on a thread with a 4 GiB `MAP_NORESERVE` stack. That fixes the stack bounds for scanning. A 16 MiB inaccessible region lies below the stack. The interpreter and the runtime check the stack (`FK_STACK_CHECK`) and report overflow as an error the REPL recovers from. Generated code has no check: overflowing it faults on the guard region, and a handler on an alternate signal stack reports the overflow and exits.
+
+The collector skips tagged words before looking up an object, does not scan `Float` boxes, and marks dead objects free without zeroing them. Every allocation overwrites its whole payload before the next allocation.
 
 ## Interpreter (`interp.c`)
 
@@ -176,6 +182,10 @@ Output: the embedded runtime source, a global array `G`, one `static V fn_N(V se
 - Arguments go into temporaries in order before each call, since C leaves argument evaluation order unspecified.
 
 - Saturated calls to known lambdas, primitives and constructors are direct C calls; everything else goes through `fk_apply`.
+
+- Typed primitives on `Int`, `Float` and `Char` are `static inline` functions in `rt.c` (`fk_i_addi`, `fk_i_mod`, ...), so the C compiler inlines them. A condition that is such a comparison becomes a C comparison (`fk_b_ltw`), without building a `Bool`.
+
+- Only code reachable from the program's top-level values is emitted. They run at startup whether used or not, so they are the roots, `main` among them.
 
 - A self call in tail position assigns the parameters and jumps to `top`.
 

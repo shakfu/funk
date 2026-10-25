@@ -10,11 +10,7 @@ Always organize according to sections descending priority (Critical, High, Mediu
 
 - [ ] Generated C triggers `-Wall` warnings: unused labels and temporaries in `cg_case`.
 
-- [ ] Generated C includes every prelude function; emit only those reachable from `main`.
-
 ## Medium
-
-- [ ] Type errors point at the binding (`f x = x` reports line 2:1), not the sub-expression. Track the location of the expression being unified.
 
 - [ ] The interpreter spends 26% of its time in `eval`'s prologue and epilogue; split out the hot cases.
 

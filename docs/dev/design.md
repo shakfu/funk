@@ -4,6 +4,8 @@ Decisions behind funk 0.1, with the alternative each one was chosen over. Implem
 
 ## Goals
 
+The primary goal is generated C that runs as fast as possible. The goals below are subordinate to it, and a decision that slows generated code must say why. [performance-first.md](performance-first.md) reviews the decisions on this page against that goal; where they conflict, it is the newer record.
+
 - Haskell surface syntax: equations, layout, `::` for annotations, `:` for cons.
 
 - Currying, Hindley-Milner inference, optional signatures.

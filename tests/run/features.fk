@@ -32,6 +32,7 @@ main =
   print ((show . (+ 1) . (* 2)) 5) >>
   print ((length >>> (* 2)) "hello") >>
   print (10 |> (+1) |> (*2)) >>
+  print (let n = 0.0 / 0.0 in (n == n, n /= n)) >>
   print (sumTo 1000000) >>
   print (map classify [-5, 0, 7]) >>
   print (Just (Circle 2.0), Left 3 :: Either Int Bool) >>
