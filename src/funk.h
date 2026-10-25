@@ -144,6 +144,7 @@ struct Expr {
   int vk, idx;    /* VAR: resolved location; CON: constructor id */
   bool lazy;      /* VAR: bound to a thunk, forced on load */
   bool global_ref; /* VAR: refers to the global of this name, even if a local shadows it */
+  bool own;       /* VAR scrutinee: a matched cons cell is dead and may be reused (reuse.md) */
   struct Pred *preds; /* VAR: class constraints of this instantiation */
   int npreds;
   Lambda *known;  /* VAR bound to a known lambda: direct calls */
@@ -192,6 +193,9 @@ struct Bind {
   struct Pred *preds; /* constraints generalized at this binding: its dictionary parameters */
   int npreds;
   Expr *orig;    /* overloaded function before elaboration, copied for specializations */
+  bool fresh;    /* returns only cells it allocated (reuse.md) */
+  uint32_t consumes, gain; /* bit i: list parameter i is consuming; and reusing it can pay */
+  int reuse;     /* a reuse copy: 1 + the parameter whose cells it reuses */
 };
 
 typedef struct {
@@ -337,6 +341,7 @@ Bind *dict_bind(InstDef *in);
 Expr *copy_expr(Expr *e);
 void ho_specialize(Bind **bs, int n); /* copies made go to `specialized` */
 void lift_locals(Bind **bs, int n);   /* lifted functions go to `specialized` */
+void reuse_cells(Bind **bs, int n, Bind **cs, int nc); /* copies go to `specialized` */
 extern VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 
 /* --------------------------------------------------------------- backends */

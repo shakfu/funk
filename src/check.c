@@ -2139,6 +2139,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   lift_locals(specialized.a, nspec); /* type-class clones made above */
   ho_specialize(m->binds, m->nb);
   ho_specialize(specialized.a, specialized.n); /* clones and lifted functions */
+  reuse_cells(m->binds, m->nb, specialized.a, specialized.n);
   for (int i = nspec; i < specialized.n; i++) VPUSH(raw, specialized.a[i]);
   /* Dictionaries after the selectors, superclass dictionaries first. */
   for (int depth = 1; depth <= 64; depth++)

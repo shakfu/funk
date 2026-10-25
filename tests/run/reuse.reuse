@@ -1,0 +1,12 @@
+$m.Append.[].++@reuse0
+filter@{0=even}@reuse0
+init@reuse0
+map@{0=(\1 (mod (primMulInt #0 7) 11))}@reuse0
+map@{0=(flip@{0=primAddInt} 1)}@reuse0
+map@{0=(flip@{0=primMulInt} 10)}@reuse0
+map@{0=(flip@{0=primMulInt} 2)}@reuse0
+map@{0=(flip@{0=primMulInt} 3)}@reuse0
+map@{0=primNegateInt}@reuse0
+take@Int,Int@reuse1
+zip@reuse0
+zipWith@{0=primAddInt}@reuse0

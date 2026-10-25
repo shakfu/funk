@@ -1,0 +1,31 @@
+-- In-place reuse of list cells (docs/dev/reuse.md). Every program here
+-- must print what the interpreter prints: a wrong reuse corrupts a list
+-- still in use.
+
+nums = enumFromTo 1 5
+
+both xs = (map (* 2) xs, xs)
+
+pairUp xs = (xs, map negate xs)
+
+skipEven = filter odd
+
+data Box = Box [Int] deriving Show
+
+main = do
+  -- fresh arguments: reused
+  print (map (* 10) (filter even (enumFromTo 1 10)))
+  print (take 3 (map (+ 1) (enumFromTo 1 10)), zip (map (* 2) [1, 2, 3]) (unpack "abc"))
+  print (init (map negate [1, 2, 3]), zipWith (+) (replicate 3 1) (enumFromTo 1 3))
+  print (map (+ 1) (1 : 2 : map (* 3) [4, 5]))
+  -- shared values: never reused
+  print (map (* 2) nums, nums)
+  print (let ys = filter even (enumFromTo 1 8) in (map (* 2) ys, ys))
+  print (both (enumFromTo 1 4), pairUp (enumFromTo 1 3))
+  print (span even (map (* 2) [1, 2, 3]))
+  print (map (* 2) ([1, 2] ++ nums), nums)
+  print (skipEven (map (+ 1) nums), nums)
+  print (Box (map (+ 1) nums), nums)
+  -- reconstruction: merge and dropWhile return the matched cell
+  print (sort (map (\x -> mod (x * 7) 11) (enumFromTo 1 10)), dropWhile (< 3) nums)
+  print (length (filter even (map (* 3) (enumFromTo 1 100000))))

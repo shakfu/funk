@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.79x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.68x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
@@ -10,7 +10,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## High
 
-- [ ] **Perceus reference counting.** Collection is about 35% of `lists`, `sort` and `strings`, mostly marking live data; a nursery would not help ([docs/dev/memory.md](docs/dev/memory.md#after-trmc)). Perceus removes marking and sweeping, but is the largest change on this list: design it before writing code.
+- [x] **In-place reuse of unique list cells.** Done: 1.79x to 1.68x ([docs/dev/reuse.md](docs/dev/reuse.md#result)).
 
 - [ ] Generated C triggers `-Wall` warnings: unused labels and temporaries in `cg_case`.
 

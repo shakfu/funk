@@ -94,4 +94,23 @@ Collection is about 35% of these programs, in one or two collections. Stack scan
 - **The collector is near its limit.** A reciprocal in place of the division per marked word saved 3-8% of marking, and was kept. Marking follows millions of cells and pays a cache miss for each; a tracing collector pays this in proportion to live data.
 - **C, Perceus, is the option that removes marking and sweeping.** Its cost is unchanged: reference-count operations in generated code, the interpreter and the runtime, and lambda lifting of the remaining recursive closures to avoid cycles. It is deferred: the geometric mean is already 1.93x, under the target, and C is the largest change on the list. It needs its own design pass before any code.
 
+## Perceus, prototyped by hand
+
+Before implementing C, its effect was measured on `lists`. The generated `filter`, `map` and `foldl` copies were rewritten by hand as Perceus would compile them. The reference count is the header's spare byte, and a cell is freed or reused only when the count shows it unique. All cells in this program are unique, so the prototype needs none of the increments a real implementation would add; it is an upper bound.
+
+| Variant | `lists` (C: 22 ms) |
+|-|-|
+| tracing collector, today | 70 ms |
+| reuse in place only (`filter` and `map` write their output into their input's cells) | **54 ms** |
+| freeing only (cells freed as consumed, onto the free lists) | 152 ms |
+| both, as Perceus does | 136 ms |
+| both, freed cells kept in an array stack instead of linked free lists | 109 ms |
+
+Freeing makes the program slower, with either free-list layout. With the tracing collector, consecutive allocations come from swept or fresh memory in address order, so a list's cells are contiguous and every traversal reads memory sequentially. Cells freed as they die are reused in the order they died, so the next list is scattered, and every traversal of it misses the cache. Reuse in place has no such cost: the output occupies exactly the input's cells, in order.
+
+Consequences:
+
+- **Perceus as designed is not implemented.** It would need an allocator that keeps locality under explicit freeing (mimalloc's per-page free lists are one approach) before it could pay off. That is a second large project on top of the first.
+- **The gain is in reuse, about 20% on `lists`** (18-23%, with only `filter` and `map` changed). Reuse needs to know that a cell is unique. Full reference counting gives that, at the cost of increments and decrements throughout generated code, which the prototype did not include. A cheaper route: a static check that an argument is a fresh list, such as the direct result of a TRMC-built call like `filter p (enumFromTo 1 n)`, passed to a parameter the callee uses only once. The static route is implemented: [reuse.md](reuse.md).
+
 The OCaml citation is from memory and was not checked in this session.

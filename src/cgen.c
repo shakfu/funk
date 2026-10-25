@@ -27,6 +27,7 @@ typedef struct {
   bool looped;
   Rep *slot; /* representation of each frame slot */
   bool trmc; /* results go through dst; see cg_tail */
+  const char *reuse; /* a dead cons cell, matched from an `own` scrutinee */
 } CG;
 
 static TV cg_expr(CG *c, Expr *e);
@@ -267,9 +268,14 @@ static TV cg_case(CG *c, Expr *e, bool tail) {
     r = newtmp(c);
     sb_printf(c->out, "  %s %s = 0;\n", ctype[rr], r);
   }
+  const char *reuse = c->reuse;
   for (int a = 0; a < e->na; a++) {
     Alt *alt = e->alts[a];
     int next = c->label++;
+    c->reuse = reuse;
+    for (int i = 0; i < alt->np; i++)
+      if (e->scruts[i]->k == E_VAR && e->scruts[i]->own && alt->pats[i]->k == P_CON && alt->pats[i]->con == FK_C_CONS)
+        c->reuse = sv[i].s;
     SB cond = {0};
     sb_puts(&cond, "");
     for (int i = 0; i < alt->np; i++) pat_cond(&cond, alt->pats[i], sv[i].s, sv[i].r);
@@ -296,6 +302,7 @@ static TV cg_case(CG *c, Expr *e, bool tail) {
     }
     sb_printf(c->out, "  }\n  L%d: ;\n", next);
   }
+  c->reuse = reuse;
   SB where = {0};
   const char *loc = xsprintf("%s:%d:%d", e->name, e->line, e->col);
   c_string(&where, loc, (int)strlen(loc));
@@ -412,7 +419,10 @@ static void cg_tail(CG *c, Expr *e) {
       for (int i = 0; i < n - 1; i++) a[i] = as_v(cg_expr(c, e->args[i]));
       a[n - 1] = "fk_unit"; /* the placeholder */
       const char *cell = newtmp(c);
-      sb_printf(c->out, "  V %s = fk_mkcon(%d, %d, %s);\n", cell, e->fn->idx, n, arg_array(a, n));
+      if (c->reuse && e->fn->idx == FK_C_CONS) /* the old tail stays until *dst overwrites it */
+        sb_printf(c->out, "  V %s = %s;\n  FK_FIELD(%s, 0) = %s;\n", cell, c->reuse, cell, a[0]);
+      else
+        sb_printf(c->out, "  V %s = fk_mkcon(%d, %d, %s);\n", cell, e->fn->idx, n, arg_array(a, n));
       sb_printf(c->out, "  *dst = %s;\n  dst = &FK_FIELD(%s, %d);\n", cell, cell, n - 1);
       self_jump(c, e->args[n - 1]);
       return;
@@ -491,7 +501,7 @@ static void cg_lambda(SB *out, Lambda *L) {
   slots_expr(slot, L->body);
   SB body = {0};
   sb_puts(&body, "");
-  CG c = {&body, L, 0, 0, false, slot, has_trmc(L, L->body)};
+  CG c = {&body, L, 0, 0, false, slot, has_trmc(L, L->body), NULL};
   cg_tail(&c, L->body);
   char *nm = xsprintf("%s", L->name ? L->name : "lambda");
   for (char *s = nm; (s = strstr(s, "*/"));) s[1] = '|'; /* keep the comment closed */

@@ -1456,3 +1456,452 @@ void lift_locals(Bind **bs, int n) {
   for (int i = 0; i < lifted.n; i++) VPUSH(specialized, lifted.a[i]);
   lifted.n = 0;
 }
+
+/* ------------------------------------------------- reuse of list cells */
+
+/* A call passing a fresh list at a consuming parameter calls a copy,
+   `f@reuseK`, which may write its output cells into the input's
+   (reuse.md). In the copy, case scrutinees holding the input's spine are
+   marked `own`; cgen reuses a cell matched from one for a TRMC output
+   cell. Both properties are greatest fixpoints over the chunk's
+   functions. Matched cells rebuilt unchanged are replaced by the
+   scrutinee first, independently. */
+
+static bool pat_binds(Pat *p, const char *x) { return in(pat_nm(p, NULL), x); }
+
+static Nm *group_nm(Group *g, Nm *s) {
+  for (int i = 0; i < g->n; i++) s = nm(s, g->b[i]->name);
+  return s;
+}
+
+/* Occurrences of the variable x, counting shadowed ones too. */
+static int occ(Expr *e, const char *x);
+
+static int occ_group(Group *g, const char *x) {
+  int n = 0;
+  for (int i = 0; i < g->n; i++) n += occ(g->b[i]->e, x);
+  return n;
+}
+
+static int occ_rhs(Rhs *r, const char *x) {
+  int n = 0;
+  for (int i = 0; i < r->nwg; i++) n += occ_group(&r->wg[i], x);
+  for (int i = 0; i < r->ng; i++) n += (r->guards[i] ? occ(r->guards[i], x) : 0) + occ(r->bodies[i], x);
+  return n;
+}
+
+static int occ(Expr *e, const char *x) {
+  int n = 0;
+  switch (e->k) {
+  case E_VAR: return e->name == x && !e->global_ref;
+  case E_APP:
+    n = occ(e->fn, x);
+    for (int i = 0; i < e->n; i++) n += occ(e->args[i], x);
+    return n;
+  case E_LAM: return occ(e->lam->body, x);
+  case E_LET: return occ_group(&e->g, x) + occ(e->body, x);
+  case E_IF: return occ(e->cond, x) + occ(e->then_, x) + occ(e->else_, x);
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) n += occ(e->scruts[i], x);
+    for (int a = 0; a < e->na; a++) n += occ_rhs(&e->alts[a]->rhs, x);
+    return n;
+  case E_ANN: return occ(e->body, x);
+  default: return 0;
+  }
+}
+
+static bool is_list(Type *t) {
+  t = t ? repr(t) : NULL;
+  return t && t->k == TY_CON && !strcmp(t->name, "[]");
+}
+
+/* The top-level function f calls, unless a local shadows it. */
+static Bind *callee(Expr *f, Nm *loc) {
+  if (f->k != E_VAR || (!f->global_ref && in(loc, f->name))) return NULL;
+  int g = global_lookup(f->name);
+  Bind *b = g >= 0 ? globals.a[g].bind : NULL;
+  return b && b->e->k == E_LAM && b->e->lam->ptypes ? b : NULL;
+}
+
+/* Does e evaluate to cells nothing else references? */
+static bool fresh(Expr *e, Nm *loc) {
+  switch (e->k) {
+  case E_CON: return e->idx == FK_C_NIL;
+  case E_ANN: return fresh(e->body, loc);
+  case E_LET: return fresh(e->body, group_nm(&e->g, loc));
+  case E_IF: return fresh(e->then_, loc) && fresh(e->else_, loc);
+  case E_CASE:
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = loc;
+      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
+      for (int i = 0; i < alt->rhs.nwg; i++) t = group_nm(&alt->rhs.wg[i], t);
+      for (int i = 0; i < alt->rhs.ng; i++)
+        if (!fresh(alt->rhs.bodies[i], t)) return false;
+    }
+    return true;
+  case E_APP: {
+    if (e->fn->k == E_CON) return e->fn->idx == FK_C_CONS && e->n == 2 && fresh(e->args[1], loc);
+    Bind *b = callee(e->fn, loc);
+    if (b) return b->fresh && e->n == b->e->lam->n;
+    Expr *f = e->fn; /* error never returns */
+    return f->k == E_VAR && (f->global_ref || !in(loc, f->name)) && !strcmp(f->name, "error");
+  }
+  default: return false;
+  }
+}
+
+/* The variable continuing a matched list's spine: the pattern itself if a
+   variable, else the innermost tail of its cons cells. */
+static const char *spine_rest(Pat *p) {
+  while (p->k == P_CON && p->con == FK_C_CONS) p = p->args[1];
+  return p->k == P_VAR ? p->name : NULL;
+}
+
+static bool consumes(Expr *e, const char *v, Nm *loc);
+
+static bool consumes_rhs(Rhs *r, const char *v, Nm *loc) {
+  if (!occ_rhs(r, v)) return true;
+  for (int i = 0; i < r->nwg; i++) {
+    if (binds_in(&r->wg[i], v) || occ_group(&r->wg[i], v)) return false;
+    loc = group_nm(&r->wg[i], loc);
+  }
+  for (int i = 0; i < r->ng; i++)
+    if ((r->guards[i] && occ(r->guards[i], v)) || !consumes(r->bodies[i], v, loc)) return false;
+  return true;
+}
+
+/* Is the list v taken apart at most once on each path through e, with no
+   reference kept to a cell taken apart? */
+static bool consumes(Expr *e, const char *v, Nm *loc) {
+  if (!occ(e, v)) return true;
+  switch (e->k) {
+  case E_ANN: return consumes(e->body, v, loc);
+  case E_LET:
+    if (binds_in(&e->g, v) || occ_group(&e->g, v)) return false;
+    return consumes(e->body, v, group_nm(&e->g, loc));
+  case E_IF:
+    if (occ(e->cond, v)) return !occ(e->then_, v) && !occ(e->else_, v) && consumes(e->cond, v, loc);
+    return consumes(e->then_, v, loc) && consumes(e->else_, v, loc);
+  case E_APP: {
+    if (occ(e->fn, v)) return false;
+    int k = -1;
+    for (int i = 0; i < e->n; i++)
+      if (occ(e->args[i], v)) {
+        if (k >= 0) return false;
+        k = i;
+      }
+    Expr *a = e->args[k];
+    if (a->k != E_VAR) return consumes(a, v, loc);
+    Bind *b = callee(e->fn, loc);
+    return b && e->n >= b->e->lam->n && k < 32 && (b->consumes >> k & 1);
+  }
+  case E_CASE: {
+    int k = -1;
+    for (int i = 0; i < e->ns; i++)
+      if (occ(e->scruts[i], v)) {
+        if (k >= 0) return false;
+        k = i;
+      }
+    if (k >= 0 && e->scruts[k]->k != E_VAR) { /* taken apart inside the scrutinee */
+      for (int a = 0; a < e->na; a++)
+        if (occ_rhs(&e->alts[a]->rhs, v)) return false;
+      return consumes(e->scruts[k], v, loc);
+    }
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = loc;
+      bool shadow = false;
+      for (int i = 0; i < alt->np; i++) {
+        t = pat_nm(alt->pats[i], t);
+        shadow |= pat_binds(alt->pats[i], v);
+      }
+      const char *w = v;
+      if (k >= 0) { /* the matched cell is dead; its tail continues the spine */
+        w = spine_rest(alt->pats[k]);
+        if (!shadow && occ_rhs(&alt->rhs, v)) return false;
+      } else if (shadow) {
+        if (occ_rhs(&alt->rhs, v)) return false;
+        continue;
+      }
+      if (w && !consumes_rhs(&alt->rhs, w, t)) return false;
+    }
+    return true;
+  }
+  default: return false; /* returned, stored or captured */
+  }
+}
+
+/* A tail result `x : self ...`, where cgen's TRMC allocates a cell. */
+static bool trmc_site(Expr *e, const char *self) {
+  switch (e->k) {
+  case E_APP:
+    return e->fn->k == E_CON && e->fn->idx == FK_C_CONS && e->n == 2 && e->args[1]->k == E_APP &&
+           e->args[1]->fn->k == E_VAR && e->args[1]->fn->name == self;
+  case E_LET: return trmc_site(e->body, self);
+  case E_IF: return trmc_site(e->then_, self) || trmc_site(e->else_, self);
+  case E_ANN: return trmc_site(e->body, self);
+  case E_CASE:
+    for (int a = 0; a < e->na; a++)
+      for (int i = 0; i < e->alts[a]->rhs.ng; i++)
+        if (trmc_site(e->alts[a]->rhs.bodies[i], self)) return true;
+    return false;
+  default: return false;
+  }
+}
+
+static VEC(Bind *) reuse_work;
+
+static const char *reuse_copy(Bind *fb, int k) {
+  const char *name = intern(xsprintf("%s@reuse%d", fb->name, k));
+  if (global_lookup(name) < 0) {
+    Bind *b = NEW(Bind);
+    *b = (Bind){.name = name, .e = copy_expr(fb->e), .line = fb->line, .col = fb->col, .type = fb->type,
+                .fresh = fb->fresh, .consumes = fb->consumes, .gain = fb->gain, .reuse = k + 1};
+    b->e->lam->name = name;
+    b->gidx = global_add(name, NULL, b->e->lam);
+    globals.a[b->gidx].bind = b;
+    VPUSH(specialized, b);
+    VPUSH(reuse_work, b);
+  }
+  return name;
+}
+
+/* Redirect calls passing a fresh list, or the spine v of a reuse copy, at
+   a parameter whose cells can be reused; mark v's scrutinees. */
+static void rw(Expr *e, const char *v, Nm *loc);
+
+static void rw_rhs(Rhs *r, const char *v, Nm *loc) {
+  for (int i = 0; i < r->nwg; i++) {
+    if (binds_in(&r->wg[i], v)) v = NULL;
+    loc = group_nm(&r->wg[i], loc);
+    for (int j = 0; j < r->wg[i].n; j++) rw(r->wg[i].b[j]->e, NULL, loc);
+  }
+  for (int i = 0; i < r->ng; i++) {
+    if (r->guards[i]) rw(r->guards[i], NULL, loc);
+    rw(r->bodies[i], v, loc);
+  }
+}
+
+static void rw(Expr *e, const char *v, Nm *loc) {
+  switch (e->k) {
+  case E_APP: {
+    Bind *b = callee(e->fn, loc);
+    for (int i = 0; b && !b->reuse && i < e->n && i < b->e->lam->n && i < 32; i++) {
+      Expr *a = e->args[i];
+      if (!(b->gain >> i & 1) || e->n < b->e->lam->n) continue;
+      if ((v && a->k == E_VAR && a->name == v && !a->global_ref) || fresh(a, loc)) {
+        Expr *f = var(reuse_copy(b, i), e->fn->line, e->fn->col);
+        f->global_ref = true;
+        f->ty = e->fn->ty;
+        e->fn = f;
+        break;
+      }
+    }
+    rw(e->fn, NULL, loc);
+    for (int i = 0; i < e->n; i++) rw(e->args[i], v, loc);
+    return;
+  }
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) loc = nm(loc, e->lam->params[i]);
+    rw(e->lam->body, NULL, loc);
+    return;
+  case E_LET:
+    loc = group_nm(&e->g, loc);
+    for (int i = 0; i < e->g.n; i++) rw(e->g.b[i]->e, NULL, loc);
+    rw(e->body, binds_in(&e->g, v) ? NULL : v, loc);
+    return;
+  case E_IF:
+    rw(e->cond, v, loc);
+    rw(e->then_, v, loc);
+    rw(e->else_, v, loc);
+    return;
+  case E_CASE: {
+    int k = -1;
+    for (int i = 0; i < e->ns; i++) {
+      Expr *s = e->scruts[i];
+      if (v && s->k == E_VAR && s->name == v && !s->global_ref) {
+        s->own = true;
+        k = i;
+      }
+      rw(s, v, loc);
+    }
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Nm *t = loc;
+      const char *w = v;
+      for (int i = 0; i < alt->np; i++) {
+        t = pat_nm(alt->pats[i], t);
+        if (pat_binds(alt->pats[i], v)) w = NULL;
+      }
+      if (k >= 0) w = spine_rest(alt->pats[k]);
+      rw_rhs(&alt->rhs, w, t);
+    }
+    return;
+  }
+  case E_ANN: rw(e->body, v, loc); return;
+  default: return;
+  }
+}
+
+/* In an alternative matching s against C x1 .. xn, C x1 .. xn is s. */
+static void recon_in(Expr *e, Expr *s, Pat *p);
+
+static bool recon_binds(Nm *names, Expr *s, Pat *p) {
+  for (; names; names = names->next) {
+    if (names->name == s->name) return true;
+    for (int i = 0; i < p->n; i++)
+      if (names->name == p->args[i]->name) return true;
+  }
+  return false;
+}
+
+static void recon_rhs(Rhs *r, Expr *s, Pat *p) {
+  for (int i = 0; i < r->nwg; i++)
+    if (recon_binds(group_nm(&r->wg[i], NULL), s, p)) return;
+  for (int i = 0; i < r->nwg; i++)
+    for (int j = 0; j < r->wg[i].n; j++) recon_in(r->wg[i].b[j]->e, s, p);
+  for (int i = 0; i < r->ng; i++) {
+    if (r->guards[i]) recon_in(r->guards[i], s, p);
+    recon_in(r->bodies[i], s, p);
+  }
+}
+
+static void recon_in(Expr *e, Expr *s, Pat *p) {
+  switch (e->k) {
+  case E_APP: {
+    bool same = e->fn->k == E_CON && e->fn->idx == p->con && e->n == p->n;
+    for (int i = 0; same && i < e->n; i++)
+      same = e->args[i]->k == E_VAR && !e->args[i]->global_ref && e->args[i]->name == p->args[i]->name;
+    if (same) {
+      Type *t = e->ty;
+      *e = *copy_expr(s);
+      e->ty = t;
+      return;
+    }
+    recon_in(e->fn, s, p);
+    for (int i = 0; i < e->n; i++) recon_in(e->args[i], s, p);
+    return;
+  }
+  case E_LAM: {
+    Nm *ps = NULL;
+    for (int i = 0; i < e->lam->n; i++) ps = nm(ps, e->lam->params[i]);
+    if (!recon_binds(ps, s, p)) recon_in(e->lam->body, s, p);
+    return;
+  }
+  case E_LET:
+    if (recon_binds(group_nm(&e->g, NULL), s, p)) return;
+    for (int i = 0; i < e->g.n; i++) recon_in(e->g.b[i]->e, s, p);
+    recon_in(e->body, s, p);
+    return;
+  case E_IF:
+    recon_in(e->cond, s, p);
+    recon_in(e->then_, s, p);
+    recon_in(e->else_, s, p);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) recon_in(e->scruts[i], s, p);
+    for (int a = 0; a < e->na; a++) {
+      Nm *names = NULL;
+      for (int i = 0; i < e->alts[a]->np; i++) names = pat_nm(e->alts[a]->pats[i], names);
+      if (!recon_binds(names, s, p)) recon_rhs(&e->alts[a]->rhs, s, p);
+    }
+    return;
+  case E_ANN: recon_in(e->body, s, p); return;
+  default: return;
+  }
+}
+
+static void recon(Expr *e);
+
+static void recon_all_rhs(Rhs *r) {
+  for (int i = 0; i < r->nwg; i++)
+    for (int j = 0; j < r->wg[i].n; j++) recon(r->wg[i].b[j]->e);
+  for (int i = 0; i < r->ng; i++) {
+    if (r->guards[i]) recon(r->guards[i]);
+    recon(r->bodies[i]);
+  }
+}
+
+static void recon(Expr *e) {
+  switch (e->k) {
+  case E_APP:
+    recon(e->fn);
+    for (int i = 0; i < e->n; i++) recon(e->args[i]);
+    return;
+  case E_LAM: recon(e->lam->body); return;
+  case E_LET:
+    for (int i = 0; i < e->g.n; i++) recon(e->g.b[i]->e);
+    recon(e->body);
+    return;
+  case E_IF:
+    recon(e->cond);
+    recon(e->then_);
+    recon(e->else_);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) recon(e->scruts[i]);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      for (int i = 0; i < e->ns; i++) {
+        Expr *s = e->scruts[i];
+        Pat *p = alt->pats[i];
+        if (s->k != E_VAR || p->k != P_CON || !p->n || pat_binds(p, s->name)) continue;
+        bool vars = true;
+        for (int j = 0; j < p->n; j++) vars &= p->args[j]->k == P_VAR;
+        Nm *others = NULL;
+        for (int j = 0; j < alt->np; j++)
+          if (j != i) others = pat_nm(alt->pats[j], others);
+        if (vars && !in(others, s->name)) recon_rhs(&alt->rhs, s, p);
+      }
+      recon_all_rhs(&alt->rhs);
+    }
+    return;
+  case E_ANN: recon(e->body); return;
+  default: return;
+  }
+}
+
+void reuse_cells(Bind **bs, int n, Bind **cs, int nc) {
+  VEC(Bind *) all = {0}, fns = {0};
+  for (int i = 0; i < n + nc; i++) VPUSH(all, i < n ? bs[i] : cs[i - n]);
+  for (int i = 0; i < all.n; i++) {
+    Bind *b = all.a[i];
+    if (b->e->k == E_LAM && !globals.a[b->gidx].bind) globals.a[b->gidx].bind = b; /* type-class clones */
+    recon(b->e);
+    if (b->e->k != E_LAM || !b->e->lam->ptypes) continue;
+    Lambda *L = b->e->lam;
+    b->fresh = true;
+    b->consumes = 0;
+    for (int j = 0; j < L->n && j < 32; j++)
+      if (is_list(L->ptypes[j])) b->consumes |= 1u << j;
+    VPUSH(fns, b);
+  }
+  for (bool changed = true; changed;) {
+    changed = false;
+    for (int i = 0; i < fns.n; i++) {
+      Bind *b = fns.a[i];
+      Lambda *L = b->e->lam;
+      Nm *loc = NULL;
+      for (int j = 0; j < L->n; j++) loc = nm(loc, L->params[j]);
+      if (b->fresh && !fresh(L->body, loc)) {
+        b->fresh = false;
+        changed = true;
+      }
+      for (int j = 0; j < L->n && j < 32; j++)
+        if ((b->consumes >> j & 1) && !consumes(L->body, L->params[j], loc)) {
+          b->consumes &= ~(1u << j);
+          changed = true;
+        }
+    }
+  }
+  for (int i = 0; i < fns.n; i++) fns.a[i]->gain = trmc_site(fns.a[i]->e->lam->body, fns.a[i]->name) ? fns.a[i]->consumes : 0;
+  for (int i = 0; i < all.n; i++) rw(all.a[i]->e, NULL, NULL);
+  while (reuse_work.n) {
+    Bind *b = reuse_work.a[--reuse_work.n];
+    Lambda *L = b->e->lam;
+    Nm *loc = NULL;
+    for (int j = 0; j < L->n; j++) loc = nm(loc, L->params[j]);
+    rw(L->body, L->params[b->reuse - 1], loc);
+  }
+}
