@@ -1,0 +1,5 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through a function value.
+p = putStrLn
+r = p "x"
+main = ()

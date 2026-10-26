@@ -30,19 +30,19 @@ Consequences:
 
 - `&&` and `||` short-circuit only when written infix: the parser turns them into `if`. `(&&)` as a value is a strict prelude function.
 
-- Exception: non-recursive `let` and `where` value bindings are memoized thunks, forced on first use. Without this, a `where` binding runs before the guards that protect it. A binding whose right side cannot fail, loop or have an effect is evaluated where it is bound instead; nothing can tell the difference. That covers arithmetic, comparisons and constructors over evaluated variables, which are most loop bindings. Without it, a thunk per binding made the `lazywhere` and `floats` benchmarks 8-11x slower than C; with it they run at 1.0-1.1x. Effects bound by `let` now run at first use rather than in binding order.
+- Exception: non-recursive `let` and `where` value bindings are memoized thunks, forced on first use. Without this, a `where` binding runs before the guards that protect it. A binding that can act is not a thunk: it runs where it is bound ([typed-effects.md](typed-effects.md), option E). A binding whose right side cannot fail, loop or have an effect is evaluated where it is bound instead; nothing can tell the difference. That covers arithmetic, comparisons and constructors over evaluated variables, which are most loop bindings. Without it, a thunk per binding made the `lazywhere` and `floats` benchmarks 8-11x slower than C; with it they run at 1.0-1.1x. Effects bound by `let` run in binding order, because such bindings are never thunks.
 
 - Infinite lists, `iterate` and `cycle` do not exist.
 
-## Effects: impure primitives sequenced by `>>`
+## Effects: effect arrows
 
-`print`, `putStrLn` and `getLine ()` act when evaluated. `a >> b` evaluates `a`, then `b`. This was chosen over an `IO` type because a monadic `IO` without type classes needs its own bind operator and `do` desugaring, and strictness already fixes evaluation order.
+`print`, `putStrLn` and `getLine ()` act when called, and `a >> b` evaluates `a`, then `b`, as in 0.2. Since 0.3, every function arrow carries an effect: `a -> b` does not act by itself, `a ->> b` may. Effects are inferred and checked against signatures, top-level values other than `main` must be pure, and a binding that can act runs where it is bound. This is option E of [typed-effects.md](typed-effects.md), chosen over Haskell's `IO` (B1) because calls stay direct, at no runtime cost, while types tell the truth. The compared options, the prototype and the measurements are there.
 
-Haskell's `>>` and `print` spellings are kept, so typical `main` code reads the same. Haskell's purity guarantee is lost: a function's type does not show whether it prints.
+Haskell's `>>` and `print` spellings are kept, so typical `main` code reads the same. Haskell's `IO`-typed code does not port ([haskell-compat.md](haskell-compat.md)).
 
 Top-level values run in dependency order, with `main` moved last unless another binding uses it.
 
-A `do` block is syntax for `case`: each statement `p <- e`, or `e` alone, becomes `case e of p -> rest`. `case` evaluates its scrutinee first, so statements run in order, and the rest of the block stays in tail position. A strict primitive `bindNow e (\x -> rest)` was rejected, because the rest would run inside the primitive's C call, one level deeper per statement. Desugaring statements to `>>` had the same problem, since `>>` evaluates the rest as an argument. Without an `IO` type, `<-` accepts any expression: `x <- 1 + 2` is valid. A `let` statement stays lazy, as everywhere else.
+A `do` block is syntax for `case`: each statement `p <- e`, or `e` alone, becomes `case e of p -> rest`. `case` evaluates its scrutinee first, so statements run in order, and the rest of the block stays in tail position. A strict primitive `bindNow e (\x -> rest)` was rejected, because the rest would run inside the primitive's C call, one level deeper per statement. Desugaring statements to `>>` had the same problem, since `>>` evaluates the rest as an argument. Without an `IO` type, `<-` accepts any expression: `x <- 1 + 2` is valid. A `let` statement follows the binding rule: lazy if pure, run on its line if it can act.
 
 ## Overloading: type classes with dictionary passing
 

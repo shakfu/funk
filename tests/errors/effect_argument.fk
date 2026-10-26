@@ -1,0 +1,5 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through a higher-order argument.
+apply f x = f x
+r = apply print 3
+main = ()

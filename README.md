@@ -167,25 +167,41 @@ The prelude defines:
 
 ## Semantics
 
-- Strict, left-to-right evaluation. `print`, `putStrLn` and `getLine ()` act when evaluated. `a >> b` orders effects.
+- Strict, left-to-right evaluation. `print`, `putStrLn` and `getLine ()` act when called. `a >> b` orders effects.
+
+- Effects are in types: `a -> b` is a function that does not act by itself, `a ->> b` one that may. They are inferred, so unannotated code needs no change, and checked against signatures:
+
+  ```haskell
+  greet :: String ->> ()          -- acts
+  greet name = putStrLn ("hello " ++ name)
+
+  area :: Float -> Float          -- `->`: an error if area could act
+  area r = 3.14159 * r * r
+
+  map :: (a -> b) -> [a] -> [b]   -- acts exactly when its argument does
+  ```
+
+  All `->` arrows of one signature share an effect, so a higher-order function is as effectful as its arguments. A function that acts itself and calls a function argument writes that argument with `->>`: `withEach :: (a ->> ()) -> [a] ->> ()`. A data field or class method written with `->` holds only pure functions. To print from pure code while debugging, use `trace :: String -> a -> a`, which writes to standard error and is pure in its type.
 
 - A `do` block runs its statements in order:
 
   ```haskell
   main = do
     line <- getLine ()          -- runs here, binds line
-    let n = readInt line        -- lazy: computed where n is first used
+    let n = readInt line        -- pure, so lazy: computed where n is first used
     print (n * 2)
     putStrLn "done"
   ```
 
-  `p <- e` evaluates `e` on its line and matches it against `p`. It works on any expression, not only effects: there is no `IO` type. A `let` statement is lazy, so an effect bound with `let` runs where the binding is first used. Recursion in the last statement is a tail call. A top-level `act = do ...` is a value and runs once, at startup; write `act () = do ...` to run it on each call.
+  `p <- e` evaluates `e` on its line and matches it against `p`. It works on any expression, not only effects: there is no `IO` type. A `let` statement that acts runs on its line; a pure one is lazy. Recursion in the last statement is a tail call.
+
+- Top-level values must be pure, except `main`, whose evaluation is the program: `early = print 1` is an error. Write `act () = do ...`, and call it.
 
 - Top-level values are evaluated in dependency order, with `main` last.
 
 - Recursive bindings must be functions; `xs = 1 : xs` is rejected.
 
-- Local value bindings in `let` and `where` are evaluated on first use, at most once. `f x | x == 0 = 0 | otherwise = y where y = div 1 x` returns 0 for `x == 0`. An effect bound this way runs when the binding is first used, not where it is defined.
+- Local value bindings in `let` and `where` are evaluated on first use, at most once. `f x | x == 0 = 0 | otherwise = y where y = div 1 x` returns 0 for `x == 0`. A binding that can act is evaluated where it is bound instead, in order: its effect happens at its line, never later. "Can act" means its effect is `->>`, or the effect of one of the enclosing function's arguments.
 
 - Constructor fields are strict: `let (a, b) = (head [], 1) in b` fails.
 

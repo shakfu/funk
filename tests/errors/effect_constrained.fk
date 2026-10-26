@@ -1,0 +1,5 @@
+-- expect: declared with `->` but calls an effectful function
+-- A class-constrained signature that says pure over a body that prints.
+showAll :: Show a => [a] -> ()
+showAll xs = mapM_ print xs
+main = ()

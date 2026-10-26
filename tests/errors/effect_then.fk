@@ -1,0 +1,4 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through `>>`.
+r = print 1 >> print 2
+main = ()

@@ -94,7 +94,7 @@ static Scope *group(Group *g, Fn *f, Scope *sc) {
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
     b->slot = f->nslots++;
-    if (!g->rec && !eager(b->e, sc)) {
+    if (!g->rec && !eager(b->e, sc) && !b->acts) { /* an effectful binding runs where it is bound */
       Lambda *L = NEW(Lambda);
       L->body = b->e;
       L->line = b->line;

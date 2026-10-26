@@ -1,0 +1,4 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through a local polymorphic function.
+r = let ap f x = f x in ap print 1
+main = ()

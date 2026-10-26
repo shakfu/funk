@@ -9,8 +9,6 @@
 #                          after "-- expect: " on line 1
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
 #   the command line       exit status 0 on success, 1 on a failing program, 2 on a usage error
-#   tests/effects/         the effect-arrow prototype (FK_EFFECTS=3): every binding of
-#                          reject.fk marked `r`, plus three others, rejected; none of accept.fk
 cd "$(dirname "$0")/.." || exit 1
 FUNK=${FUNK:-./funk}
 tmp=$(mktemp -d) || exit 1
@@ -90,13 +88,6 @@ cli 2 -- run
 cli 2 -- build tests/run/strings.fk -Ofast
 cli 2 -- emit-c tests/run/strings.fk -x
 cli 1 -- run tests/run/no-such-file.fk
-
-# Effect arrows, prototype (typed-effects.md, E).
-FK_EFFECTS=3 "$FUNK" check tests/effects/reject.fk >"$tmp/eff" 2>&1
-n=$(grep "^effects: .*: in " "$tmp/eff" | grep -vc ": note: ")
-if [ "$n" -eq 15 ]; then ok; else echo "    $n rejections, wanted 15" >>"$tmp/eff"; bad "effects (reject)" "$tmp/eff"; fi
-FK_EFFECTS=3 "$FUNK" check tests/effects/accept.fk >"$tmp/eff" 2>&1
-if [ $? -eq 0 ] && ! grep "^effects: .*: in " "$tmp/eff" | grep -vq ": note: "; then ok; else bad "effects (accept)" "$tmp/eff"; fi
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

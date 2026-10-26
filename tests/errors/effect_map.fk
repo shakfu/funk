@@ -1,0 +1,4 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through map, in a value.
+r = map print [1, 2]
+main = ()

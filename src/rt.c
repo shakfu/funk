@@ -945,6 +945,16 @@ V fk_p_readfloat(V self, V *a) {
   return fk_float(d);
 }
 
+/* trace msg x prints msg to standard error and returns x: a debugging aid
+   that is pure in its type (typed-effects.md). Standard output is flushed
+   first, so the two streams stay in program order. */
+V fk_p_trace(V self, V *a) {
+  fflush(stdout);
+  fwrite(FK_STRBYTES(a[0]), 1, FK_STRLEN(a[0]), stderr);
+  fputc('\n', stderr);
+  return a[1];
+}
+
 V fk_p_error(V self, V *a) {
   char *s = fk_cstring(a[0], NULL);
   fk_error("%s", s);

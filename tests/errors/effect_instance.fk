@@ -1,0 +1,7 @@
+-- expect: in `shout` of `instance Shout Bool`: declared with `->` but calls an effectful function
+-- An instance of a method declared pure, whose body prints.
+class Shout a where
+  shout :: a -> ()
+instance Shout Bool where
+  shout b = print b
+main = ()

@@ -28,7 +28,7 @@ C is B done at compile time: the stages are known, so the loop is generated dire
 
 Evaluation is strict, so `sum (map f (filter p xs))` runs `p` on every element, then `f` on every kept element, then sums. Fused, the calls interleave: `p x1`, `f x1`, `p x2`. Three things could become observable:
 
-- **Effects.** `print` acts when evaluated ([design.md](design.md#effects-impure-primitives-sequenced-by-)), so interleaving reorders output.
+- **Effects.** `print` acts when evaluated ([design.md](design.md#effects-effect-arrows)), so interleaving reorders output.
 
 - **Which error.** If `p` fails on element 5 and `f` on element 1, the original raises `p`'s error and the fused loop raises `f`'s.
 

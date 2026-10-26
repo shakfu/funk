@@ -1,0 +1,6 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through a local function.
+outer x = go x
+  where go y = print y
+r = outer 1
+main = ()

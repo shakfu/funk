@@ -22,12 +22,15 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Medium
 
-- [ ] **Foreign function interface**, for libm, sqlite3 and libremidi in that order. Design and open questions: [docs/dev/ffi.md](docs/dev/ffi.md). Depends on the typed-effects decision.
+- [ ] **Foreign function interface**, for libm, sqlite3 and libremidi in that order. Design and open questions: [docs/dev/ffi.md](docs/dev/ffi.md). Effectful imports are typed with `->>` ([docs/dev/typed-effects.md](docs/dev/typed-effects.md)).
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 
 ## Low
 
 - [ ] `showPrec` for `Float` omits the parentheses around `-0.0` (`Vec -0.0 1.0`); Haskell prints `Vec (-0.0) 1.0`. Needs an `isNegativeZero` check in the prelude instance.
-- [ ] `printing` is 1.9x C. Its `enumFromTo` list is built and kept live, because `mapM_`'s function prints, so fusion refuses it: the collector is about 25% at 20M lines. `show` at `Int` goes through `vfprintf` and `malloc`, and `++` copies, about 20% each. Typed effects would let fusion treat the stage function as pure ([docs/dev/typed-effects.md](docs/dev/typed-effects.md)).
+- [ ] `printing` is 1.9x C. Its `enumFromTo` list is built and kept live, because `mapM_`'s function prints, so fusion refuses it: the collector is about 25% at 20M lines. `show` at `Int` goes through `vfprintf` and `malloc`, and `++` copies, about 20% each. Effect arrows do not change this: `mapM_`'s function acts. Fusion could accept an effectful consumer when every stage before it is pure and total, since only the consumer's effects would then be observable.
+- [x] **Typed effects: effect arrows** (`a ->> b`), option E of [docs/dev/typed-effects.md](docs/dev/typed-effects.md).
+- [ ] Fusion still uses its own purity analysis. With effects in types it could see through closures, parameters and dictionaries, but elaboration's type copies drop the arrows' effects first.
+- [ ] Effect arrows: a binding that calls an argument of a local polymorphic function stays lazy, so its effect runs at first use. Only arguments of the enclosing top-level function are tracked.
 - [ ] The interpreter spends 26% of its time in `eval`'s prologue and epilogue; split out the hot cases. Interpreter speed is not part of the primary goal.

@@ -65,12 +65,12 @@ foreign import ccall "sqlite3.h sqlite3_open" sqliteOpen :: String -> Ptr (Ptr D
 
 ## Effects
 
-A foreign call can do anything. Its effect follows the typed-effects decision:
+A foreign call can do anything. funk types effects with effect arrows ([typed-effects.md](typed-effects.md), option E), so an import says which it is:
 
-- **B1:** an effectful import has an `IO` result, as in Haskell. An import without `IO` is the importer's promise of purity, unchecked: `c_sin :: Float -> Float`.
-- **A'':** an import is impure unless declared `pure`. For a foreign function, `pure` is a trusted assertion, the one place it is not checked.
+- `foreign import ccall "stdio.h puts" c_puts :: String ->> CInt` may act.
+- `foreign import ccall "math.h sin" c_sin :: Float -> Float` is pure. For a foreign function, `->` is the importer's promise, the one place an effect is not checked.
 
-Either way the optimizer treats an import as acting unless its type or declaration says otherwise. So fusion, eager `let` and reuse do not move it.
+The optimizer treats an import written `->>` as acting, so fusion, eager `let` and reuse do not move it.
 
 ## Compiled backend
 

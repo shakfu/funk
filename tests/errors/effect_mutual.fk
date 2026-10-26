@@ -1,0 +1,6 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through mutual recursion.
+f1 n = g1 n
+g1 n = if n == 0 then print n else f1 (n - 1)
+r = f1 3
+main = ()

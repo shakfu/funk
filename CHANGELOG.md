@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Effects are in types. A function arrow is `a -> b` if the function does not act by itself and `a ->> b` if it may; effects are inferred, and checked against signatures. A signature's `->` arrows share one effect, so `map :: (a -> b) -> [a] -> [b]` acts exactly when its argument does. Breaking: a signature that says `->` over a body that prints is an error; a top-level value that acts is an error, except `main` (make it a function); a `let` or `where` binding that can act runs where it is bound, not at its first use; a data field or class method written with `->` holds only pure functions. Chosen over Haskell's `IO` type because calls stay direct, with no runtime cost, and unannotated code needs no change. Design, prototype and alternatives: [docs/dev/typed-effects.md](docs/dev/typed-effects.md).
+
 ## [0.2.0] - 2026-10-25
 
 ### Changed

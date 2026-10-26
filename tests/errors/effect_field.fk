@@ -1,0 +1,5 @@
+-- expect: an effectful function (`->>`) where a pure one (`->`) is required
+-- An effectful function stored in a field declared pure.
+data H = H (Int -> ())
+r = H print
+main = ()

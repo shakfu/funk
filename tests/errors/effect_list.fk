@@ -1,0 +1,5 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through a function taken from a list.
+fs = [print]
+r = head fs 1
+main = ()

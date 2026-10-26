@@ -1,0 +1,6 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through an argument of a signature's shared effect.
+twiceEff :: (Int -> ()) -> ()
+twiceEff f = f 1
+r = twiceEff print
+main = ()

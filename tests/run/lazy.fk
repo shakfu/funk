@@ -1,6 +1,7 @@
 -- Local value bindings are evaluated on first use, at most once. Bindings
 -- that cannot fail, loop or act are evaluated early instead, which must not
--- be observable: the cases below stay lazy.
+-- be observable: the cases below stay lazy. A binding that acts runs where
+-- it is bound (typed-effects.md, E): `late` prints before `then used`.
 safeRecip x
   | x == 0 = 0
   | otherwise = y
@@ -31,4 +32,4 @@ main =
   print (count 5) >>
   print (shared ()) >>
   print (zeroDiv 1, loops 2, chained 3) >>
-  (let late = putStrLn "second" in putStrLn "first" >> late)
+  (let late = putStrLn "bound first" in putStrLn "then used" >> late)

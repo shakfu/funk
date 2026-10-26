@@ -1,4 +1,4 @@
--- Every binding below must be accepted by E (typed-effects.md), and the program must run.
+-- Effect arrows (typed-effects.md, E): every binding here must be accepted.
 greeter = putStrLn . ("hi " ++)                     -- composition builds a closure
 handlers :: [Int ->> ()]
 handlers = [print, putStrLn . show]                 -- functions in a list, not called
@@ -20,10 +20,42 @@ total :: [Shape] -> Float
 total ss = sum (map area ss)                        -- pure function through map
 counter :: Int ->> ()
 counter n = if n == 0 then () else case print n of _ -> counter (n - 1)
-main = do
+main = main1 () >> main2 () >> main3 ()
+main1 () = do
   greeter "x"
   mapM_ print (map (* 2) [1, 2])
   pr 3
   l1 4
   counter 2
   print (total [Circle 1.0, Sq 2.0], pureUse)
+
+-- Effectful bindings run where they are bound, in source order.
+inOrder () = do
+  let a = putStrLn "bound 1"
+      b = putStrLn "bound 2"
+  putStrLn "body"
+  where c = putStrLn "where binding, before the body"
+
+-- A pure recursive call under a guard stays lazy: evaluated early, it would not terminate.
+depth :: Int -> Int
+depth n
+  | n == 0 = 0
+  | otherwise = y
+  where y = depth (n - 1) + 1
+
+-- A binding that calls a function argument can act: its callers choose the effect.
+-- `withArg` acts itself, so its argument is written `->>` too: a body has one effect.
+withArg :: (Int ->> ()) ->> ()
+withArg f = let r = f 1 in putStrLn "after r"
+
+main2 () = do
+  inOrder ()
+  print (depth 3)
+  withArg (\n -> print n)
+  withArg (\n -> ())
+
+-- trace prints from pure code: a debugging aid, pure in its type.
+traced :: Int -> Int
+traced n = trace ("traced " ++ show n) (n * 2)
+
+main3 () = print (traced 21)

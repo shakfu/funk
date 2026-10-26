@@ -1,6 +1,6 @@
 # Typed effects: design note
 
-Status: proposal, decision needed. The status line used to say that under the performance goal ([performance-first.md](performance-first.md)) the recommendation changes from B1 to A', because B1's runner allocates per action. "Investigation" below measures that at +5% on an effect-heavy benchmark and recommends B1 again, with two corrections to its semantics. It settles the first open question in [roadmap.md](roadmap.md#open-questions). The current design is in [design.md](design.md#effects-impure-primitives-sequenced-by-).
+Status: decided and implemented (unreleased): option E, effect arrows, spelled `a ->> b`; see "Implementation" in "E in detail". This note records the options, the measurements and the prototype that led there. Earlier status lines recommended A', for performance, then B1; "Investigation" measured B1's cost at +5%, and E avoids it. The current design is summarized in [design.md](design.md#effects-effect-arrows).
 
 ## Problem
 
@@ -341,6 +341,18 @@ The design changed in three places to get there:
 - **Substituting a class's type variable** into a method's scheme for an instance must keep the effects, or the instance escapes the check.
 
 Mode 3 is the design: E as described, with the arity rule and deferred calls. The repo's programs are small, so they do not show whether merging all of a body's calls into one effect is precise enough on larger code. Neither do they show the error messages' quality.
+
+### Implementation (2026-10-26)
+
+Mode 3 of the prototype is now the checker, always on; `FK_EFFECTS` and modes 1 and 2 are gone. Effect errors are compile errors. Where the implementation goes beyond the design:
+
+- **Which bindings act.** A local value binding runs where it is bound if its evaluation effect is `Eff`, or is the effect of one of the enclosing top-level function's arguments, which callers choose. The decision is made after that function is generalized. A free effect variable otherwise means pure. Without that rule, a pure recursive call under a guard (`where y = depth (n - 1) + 1`) would become eager and not terminate. A binding that calls an argument of a local polymorphic function is not tracked and stays lazy ([TODO.md](../../TODO.md)).
+- **A function that acts and calls a function argument** writes that argument with `->>`: `withArg :: (Int ->> ()) ->> ()`. A body has one effect, and calling the argument merges the argument's effect into it, so a `->` argument would have to be `Eff`. Callers lose little: a lambda or a pure global passed as the argument is polymorphic in its effect.
+- **Error messages** name the binding, and for an instance method the instance: "in `shout` of `instance Shout Bool`: declared with `->` but calls an effectful function; its signature needs `->>`".
+- **`trace :: String -> a -> a`** is a primitive. It flushes standard output, writes its message to standard error, and is pure in its type.
+- **Not done:** `fuse.c` keeps its own purity analysis; elaboration's type copies drop arrow effects, so it cannot read them yet ([TODO.md](../../TODO.md)).
+
+Tests: 15 error tests, one per effect channel (`tests/errors/effect_*.fk`), and `tests/run/effects.fk`, which covers accepted programs, binding order, the lazy recursive call, an argument's effect and `trace`. `syntax.fk` and `fuse.fk` no longer run effects at startup; `do.fk` and `lazy.fk` now expect effectful bindings to run in binding order. The benchmarks do not change: their generated code is identical, except that `let n = readInt (getLine ())` no longer allocates a thunk.
 
 ## Investigation (2026-10-25)
 

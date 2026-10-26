@@ -22,7 +22,7 @@ notElem' q (c:cs) = q /= c && notElem' q cs
 -- not fused
 viaParam h xs = sum (map h xs)                -- h unknown
 shadowed xs = let map f ys = ys in sum (map (+ 1) xs)
-printing = length (map (\x -> print x) [1, 2])
+printing () = length (map (\x -> print x) [1, 2])
 twoFailing = sum (map half (filter big [1, 2, 3, 4]))
   where
     half x = if x == 0 then error "half" else div x 2
@@ -33,4 +33,4 @@ main = do
   print (firsts 10, firsts 2, pairs 3, boards 3 [[1], [2]])
   print (small [1, 2, 3, 4, 5, 6], allEven 5, hashed, flat, lazySource 4, recursive 4)
   print (viaParam (* 2) [1, 2], shadowed [1, 2], twoFailing)
-  print printing
+  print (printing ())

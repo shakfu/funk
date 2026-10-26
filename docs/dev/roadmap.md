@@ -54,7 +54,7 @@ Interpreter speed (splitting `eval`, 26% in its prologue) is not part of this go
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
-- Decide on typed effects ([typed-effects.md](typed-effects.md)). Several items depend on it.
+- ~~Decide on typed effects ([typed-effects.md](typed-effects.md)).~~ Effect arrows, option E: `a ->> b`. Implemented, unreleased.
 - A foreign function interface ([ffi.md](ffi.md)): libm, then sqlite3, then libremidi.
 - Haskell compatibility: what stops Haskell source from running, and what would close it ([haskell-compat.md](haskell-compat.md)).
 

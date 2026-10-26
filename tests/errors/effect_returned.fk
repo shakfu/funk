@@ -1,0 +1,5 @@
+-- expect: a top-level value acts when evaluated
+-- An effect through a returned function, called.
+mk n = \x -> print (x + n)
+r = mk 1 2
+main = ()

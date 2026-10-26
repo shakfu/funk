@@ -34,15 +34,16 @@ main = do
   spin 25000000
   putStrLn "done"
 
--- A let statement is lazy: its effect runs where the binding is used. `order`
--- takes () because a top-level value would run once, at startup.
+-- A let binding that acts runs where it is bound, in order, not where it is
+-- used (typed-effects.md, E). `order` takes (): a top-level value must be pure.
 order () = do
   let a = putStrLn "a runs"
       b = putStrLn "b runs"
   b
   a
 
--- `then` and `else` may align with the statements, as in Haskell 2010.
+-- `then` and `else` may align with the statements, as in Haskell 2010. The
+-- effectful `where` binding runs where it is bound: before the `if`.
 aligned n = do
   if n > 0
   then putStrLn "positive"

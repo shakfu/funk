@@ -1,0 +1,5 @@
+-- expect: an effectful function (`->>`) where a pure one (`->`) is required
+-- An effectful function stored in a record field declared pure.
+data R = R { act :: Int -> () }
+r = R { act = print }
+main = ()

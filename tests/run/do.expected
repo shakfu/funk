@@ -13,10 +13,10 @@ first: 1
 1
 2
 4
-b runs
 a runs
-positive
+b runs
 where after do
+positive
 second: answer
 first: 41
 (42,"answer")
