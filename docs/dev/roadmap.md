@@ -50,11 +50,17 @@ Generated C speed outranks every other goal; see [performance-first.md](performa
 
 Interpreter speed (splitting `eval`, 26% in its prologue) is not part of this goal.
 
-## 0.3 -- language growth
+## 0.3 -- done: typed effects
+
+Released 2026-10-26; see [CHANGELOG.md](../../CHANGELOG.md).
+
+- Effect arrows, option E of [typed-effects.md](typed-effects.md): `a ->> b`, inferred and checked; effectful bindings are `do` statements; `trace`.
+- Prelude functions, methods, types and constructors are reserved.
+
+## 0.4 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
-- ~~Decide on typed effects ([typed-effects.md](typed-effects.md)).~~ Effect arrows, option E: `a ->> b`. Implemented, unreleased.
 - A foreign function interface ([ffi.md](ffi.md)): libm, then sqlite3, then libremidi.
 - Haskell compatibility: what stops Haskell source from running, and what would close it ([haskell-compat.md](haskell-compat.md)).
 
@@ -65,9 +71,5 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 - As-patterns, list comprehensions.
 
 ## Open questions
-
-- Should effects become typed? `IO` alone (B1) needs no type-class work; a `Monad` class over it (B2) needs kinds and type classes phase 2. Effect arrows (E), `a ->> b` as in Roc, put effects in types without `IO` and keep calls direct. The options, including staying impure with inferred purity (A''), are compared in [typed-effects.md](typed-effects.md#the-options-compared).
-
-- Should `Int` become a full 64 bits? Under the performance goal, yes: the typed backend gives unboxed `int64_t`.
 
 - Should the interpreter be kept once compile-and-load is fast enough? Two backends double the cost of every semantic change.

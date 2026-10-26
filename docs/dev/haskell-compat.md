@@ -64,7 +64,7 @@ The items that do not touch laziness, roughly by value per unit of work. Sizes a
 
 | Item | Change | Estimate |
 |-|-|-|
-| Prelude names: `divMod`, `quotRem`, `zipWith3`, `zip3`, `unzip3`, `succ`, `pred`, `seq`, `interact`, `getContents` | prelude functions and a few primitives | 80 lines |
+| Prelude names: `divMod`, `quotRem`, `zipWith3`, `zip3`, `unzip3`, `succ`, `pred`, `seq`, `interact`, `getContents` | prelude functions and a few primitives. Prelude names are reserved ([design.md](design.md#prelude-names-are-reserved)), so each addition breaks programs defining that name | 80 lines |
 | `type` synonyms | expanded when a type is read (`te_type`) | 60 lines |
 | `newtype` | a one-constructor `data` at first; without its run-time cost later | 30 lines |
 | List comprehensions | desugared to `concatMap` and `filter`; fusion then removes the lists | 80 lines |

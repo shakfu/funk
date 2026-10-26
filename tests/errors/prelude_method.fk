@@ -1,0 +1,4 @@
+-- expect: method `length` is defined in the prelude and cannot be redefined
+class Container f where
+  length :: f -> Int
+main = ()

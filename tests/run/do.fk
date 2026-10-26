@@ -42,14 +42,14 @@ order () = do
   b
   a
 
--- `then` and `else` may align with the statements, as in Haskell 2010. The
--- effectful `where` binding runs where it is bound: before the `if`.
+-- `then` and `else` may align with the statements, as in Haskell 2010. An
+-- effectful `where` binding is an error, so `helper` is a function.
 aligned n = do
   if n > 0
   then putStrLn "positive"
   else putStrLn "not positive"
-  helper
-  where helper = putStrLn "where after do"
+  helper ()
+  where helper () = putStrLn "where after do"
 
 -- `<-` runs its expression on its line, whatever order the names are used in.
 readTwo () = do

@@ -1,7 +1,8 @@
 -- Local value bindings are evaluated on first use, at most once. Bindings
 -- that cannot fail, loop or act are evaluated early instead, which must not
--- be observable: the cases below stay lazy. A binding that acts runs where
--- it is bound (typed-effects.md, E): `late` prints before `then used`.
+-- be observable: the cases below stay lazy. `trace` shows `a` forced once.
+-- An effectful binding must be a `let` statement in `do`, which runs on its
+-- line (typed-effects.md, E): `late` prints before `then used`.
 safeRecip x
   | x == 0 = 0
   | otherwise = y
@@ -15,7 +16,7 @@ count n = go 0
     k = n * 2
     go i = if i >= k then i else go (i + 1)
 
-shared () = let a = putStrLn "forced once" >> 21 in a + a
+shared () = let a = trace "forced once" 21 in a + a
 
 -- A literal zero divisor fails; a call to a user function might not return.
 zeroDiv x = if x > 0 then x else z where z = div 1 0
@@ -32,4 +33,7 @@ main =
   print (count 5) >>
   print (shared ()) >>
   print (zeroDiv 1, loops 2, chained 3) >>
-  (let late = putStrLn "bound first" in putStrLn "then used" >> late)
+  (do
+    let late = putStrLn "bound first"
+    putStrLn "then used"
+    late)

@@ -30,13 +30,13 @@ Consequences:
 
 - `&&` and `||` short-circuit only when written infix: the parser turns them into `if`. `(&&)` as a value is a strict prelude function.
 
-- Exception: non-recursive `let` and `where` value bindings are memoized thunks, forced on first use. Without this, a `where` binding runs before the guards that protect it. A binding that can act is not a thunk: it runs where it is bound ([typed-effects.md](typed-effects.md), option E). A binding whose right side cannot fail, loop or have an effect is evaluated where it is bound instead; nothing can tell the difference. That covers arithmetic, comparisons and constructors over evaluated variables, which are most loop bindings. Without it, a thunk per binding made the `lazywhere` and `floats` benchmarks 8-11x slower than C; with it they run at 1.0-1.1x. Effects bound by `let` run in binding order, because such bindings are never thunks.
+- Exception: non-recursive `let` and `where` value bindings are memoized thunks, forced on first use. Without this, a `where` binding runs before the guards that protect it. A binding that can act must be a `let` statement in `do`, which runs on its line and is not a thunk; in `where` or `let ... in` it is an error ([typed-effects.md](typed-effects.md), option E). A binding whose right side cannot fail, loop or have an effect is evaluated where it is bound instead; nothing can tell the difference. That covers arithmetic, comparisons and constructors over evaluated variables, which are most loop bindings. Without it, a thunk per binding made the `lazywhere` and `floats` benchmarks 8-11x slower than C; with it they run at 1.0-1.1x. Effects bound by `let` run in binding order, because such bindings are never thunks.
 
 - Infinite lists, `iterate` and `cycle` do not exist.
 
 ## Effects: effect arrows
 
-`print`, `putStrLn` and `getLine ()` act when called, and `a >> b` evaluates `a`, then `b`, as in 0.2. Since 0.3, every function arrow carries an effect: `a -> b` does not act by itself, `a ->> b` may. Effects are inferred and checked against signatures, top-level values other than `main` must be pure, and a binding that can act runs where it is bound. This is option E of [typed-effects.md](typed-effects.md), chosen over Haskell's `IO` (B1) because calls stay direct, at no runtime cost, while types tell the truth. The compared options, the prototype and the measurements are there.
+`print`, `putStrLn` and `getLine ()` act when called, and `a >> b` evaluates `a`, then `b`, as in 0.2. Since 0.3, every function arrow carries an effect: `a -> b` does not act by itself, `a ->> b` may. Effects are inferred and checked against signatures, top-level values other than `main` must be pure, and a binding that can act is a `let` statement in `do`, never a lazy `where` or `let ... in` binding. This is option E of [typed-effects.md](typed-effects.md), chosen over Haskell's `IO` (B1) because calls stay direct, at no runtime cost, while types tell the truth. The compared options, the prototype and the measurements are there.
 
 Haskell's `>>` and `print` spellings are kept, so typical `main` code reads the same. Haskell's `IO`-typed code does not port ([haskell-compat.md](haskell-compat.md)).
 
@@ -69,6 +69,10 @@ Instances for `Int`, `Float` and `Char` call primitives that compare tagged word
 ## Strings: packed, not `[Char]`
 
 `String` is a builtin packed type, with `pack` and `unpack` to and from `[Char]`. This breaks Haskell's `String = [Char]`, chosen for speed while funk has no users: a list costs one 3-word cell per character, and the string functions are single C passes over bytes. See [strings.md](strings.md).
+
+## Prelude names are reserved
+
+A top-level definition or class method whose name the prelude defines is an error, rather than shadowing it as Haskell's module scoping allows. A program then always means the prelude's `map` when it says `map`, and readers need not check for a redefinition. funk has no modules, so there would be no qualified name to reach a shadowed prelude function; type namespaces (`Shape.lookup`) are the way to reuse a name. Local bindings and parameters may shadow prelude names, as in Haskell. The prelude's types and constructors (`Maybe`, `Just`) are reserved likewise. A consequence: adding a function or type to the prelude breaks programs that define that name.
 
 ## Syntax choices
 

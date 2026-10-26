@@ -1,0 +1,3 @@
+-- expect: type `Maybe` is defined in the prelude and cannot be redefined
+data Maybe a = Nope | Yep a
+main = ()

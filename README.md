@@ -201,7 +201,9 @@ The prelude defines:
 
 - Recursive bindings must be functions; `xs = 1 : xs` is rejected.
 
-- Local value bindings in `let` and `where` are evaluated on first use, at most once. `f x | x == 0 = 0 | otherwise = y where y = div 1 x` returns 0 for `x == 0`. A binding that can act is evaluated where it is bound instead, in order: its effect happens at its line, never later. "Can act" means its effect is `->>`, or the effect of one of the enclosing function's arguments.
+- Prelude functions, methods, types and constructors cannot be redefined at top level: `lookup k xs = ...` and `data Maybe a = ...` are errors. Use another name, or a type namespace (`Shape.lookup`). Local bindings and parameters may still reuse a prelude name.
+
+- Local value bindings in `let` and `where` are evaluated on first use, at most once. `f x | x == 0 = 0 | otherwise = y where y = div 1 x` returns 0 for `x == 0`. A binding that can act must be a `let` statement in `do`, where it runs on its line; in `where` or `let ... in` it is an error, since a lazy effect would run at some later use, or under the wrong guard. Bind it with `<-`, or make it a function: `where rest () = print n >> loop (n - 1)`. "Can act" means its effect is `->>`, or the effect of an argument of a function around it.
 
 - Constructor fields are strict: `let (a, b) = (head [], 1) in b` fails.
 

@@ -1,6 +1,6 @@
 # Typed effects: design note
 
-Status: decided and implemented (unreleased): option E, effect arrows, spelled `a ->> b`; see "Implementation" in "E in detail". This note records the options, the measurements and the prototype that led there. Earlier status lines recommended A', for performance, then B1; "Investigation" measured B1's cost at +5%, and E avoids it. The current design is summarized in [design.md](design.md#effects-effect-arrows).
+Status: decided and implemented in 0.3.0: option E, effect arrows, spelled `a ->> b`; see "Implementation" in "E in detail". This note records the options, the measurements and the prototype that led there. Earlier status lines recommended A', for performance, then B1; "Investigation" measured B1's cost at +5%, and E avoids it. The current design is summarized in [design.md](design.md#effects-effect-arrows).
 
 ## Problem
 
@@ -30,7 +30,7 @@ For a strict `let`:
 
 Speed does not decide it. Eager `let` already evaluates a binding where it is bound when its right side cannot fail, loop or act, so both rules generate the same code for most bindings ([performance-first.md](performance-first.md)). The choice is about meaning only, and it depends on the options below:
 
-- **Under E,** an effectful binding is evaluated where it is bound, which removes the harm. What laziness keeps is that an unused binding cannot fail or loop, and there lazy is the Haskell-compatible choice. `let` stays lazy.
+- **Under E,** an effectful binding must be a `let` statement in `do`, which runs on its line; in `where` or `let ... in` it is an error. That removes the harm. What laziness keeps is that an unused binding cannot fail or loop, and there lazy is the Haskell-compatible choice. `let` stays lazy.
 - **Under A or A',** the question stands. Strict `let` statements in `do`, as A' proposes, with expression `let` left lazy for compatibility, give `let` two rules, which is A''s price.
 - **Under B1,** binding an action does not run it, so a lazy `let` is harmless for effects, as for E.
 
@@ -235,7 +235,7 @@ What changes is which programs are accepted:
 |-|-|
 | A signature with `->` is checked | `loud :: Int -> ()` that prints is an error; write `->>` |
 | Top-level values are pure, except `main` | `early = print 1` is an error; make it a function, `early () = ...`, or run it from `main` |
-| An effectful `let` or `where` binding is evaluated where it is bound | same syntax; the effect happens at its line, not at its first use |
+| An effectful binding is a `let` statement in `do` | it runs on its line; in `where` or `let ... in`, it is an error |
 | Pure fields and methods stay pure | `Handler print` is an error if the field is `Int -> ()` |
 
 Against B1's changes:
@@ -263,7 +263,7 @@ Both would need an explicit effect variable in the syntax, as Koka writes it. Ne
 - Each arrow carries an effect: pure, effectful, or a variable. A function's effect is effectful if its body, when the function is applied, calls a function whose arrow is effectful.
 - A pure function can be used where an effectful one is expected. Inference treats a pure function as polymorphic in its effect, so it unifies with either. This is the standard trick of effect systems, as in Koka, where a total function is polymorphic in its effect row.
 - Evaluation is strict and left to right, as today, so effects happen in source order. There is no runner, and `>>` stays an ordinary primitive.
-- **Lazy bindings.** A `let` or `where` binding whose evaluation can act is evaluated where it is bound, not at first use. Lazy bindings were the first problem in this note; this rule removes it. Pure bindings stay lazy, so `y = div 1 x` under a guard still does not fail.
+- **Lazy bindings.** A binding whose evaluation can act must be a `let` statement in `do`, and runs on its line. In `where` or `let ... in` it is an error, with a hint: bind it with `<-` or a `let` statement, or make it a function. Lazy bindings were the first problem in this note; this rule removes it without moving any effect silently. Pure bindings stay lazy, so `y = div 1 x` under a guard still does not fail. The design first evaluated every effectful binding where it is bound; see "Implementation" for why that was wrong for `where`.
 - **Top-level values** must be pure: a top-level value with an effect is an error, except `main`, whose evaluation is the program. `act () = do ...`, a function, may act. Pure top-level values could then be evaluated at compile time, as in Roc.
 - **Data fields** of function type are pure if written with `->`, effectful if written with `->>`. A field written `Int -> ()` cannot hold `print`.
 - **Class methods** follow their signature. `show :: a -> String` is pure in every instance, so an instance cannot print, except through `trace`. A class that needs effects says so: `log :: a ->> ()`.
@@ -346,13 +346,23 @@ Mode 3 is the design: E as described, with the arity rule and deferred calls. Th
 
 Mode 3 of the prototype is now the checker, always on; `FK_EFFECTS` and modes 1 and 2 are gone. Effect errors are compile errors. Where the implementation goes beyond the design:
 
-- **Which bindings act.** A local value binding runs where it is bound if its evaluation effect is `Eff`, or is the effect of one of the enclosing top-level function's arguments, which callers choose. The decision is made after that function is generalized. A free effect variable otherwise means pure. Without that rule, a pure recursive call under a guard (`where y = depth (n - 1) + 1`) would become eager and not terminate. A binding that calls an argument of a local polymorphic function is not tracked and stays lazy ([TODO.md](../../TODO.md)).
+- **Effectful bindings are `do` statements; elsewhere they are errors.** The design evaluated every effectful `let` and `where` binding where it is bound. That breaks a common idiom: in
+
+  ```haskell
+  countdown n
+    | n == 0 = putStrLn "liftoff"
+    | otherwise = rest
+    where rest = print n >> countdown (n - 1)
+  ```
+
+  `rest` ran before the guards that protect it, so `countdown` never stopped. In Haskell this works because `rest` is an `IO` action, a value that runs only when sequenced; under E, evaluating `rest` is running it. Now such a binding is an error, with the hint "bind it in `do` (`rest <- ...`, or a `let` statement), or make it a function (`rest () = ...`)". A `let` statement in `do` still runs on its line. No effect moves silently, under either rule.
+- **Which bindings can act.** A local value binding can act if its own effect is `Eff`, or the effect of an argument of any function around it, top-level or local, which callers choose. It is decided at the end of the binding's group, before its effect is merged into the enclosing function's. Merging first made a pure binding inside a function that prints look effectful, and `where y = div 1 x` under a guard failed. A free effect means only pure calls, and is not merged. An effect tied to something outside the binding, such as a recursive call of the function being inferred, is decided after that function is generalized: a recursive call of a pure function (`where y = depth (n - 1) + 1`) stays lazy.
 - **A function that acts and calls a function argument** writes that argument with `->>`: `withArg :: (Int ->> ()) ->> ()`. A body has one effect, and calling the argument merges the argument's effect into it, so a `->` argument would have to be `Eff`. Callers lose little: a lambda or a pure global passed as the argument is polymorphic in its effect.
 - **Error messages** name the binding, and for an instance method the instance: "in `shout` of `instance Shout Bool`: declared with `->` but calls an effectful function; its signature needs `->>`".
 - **`trace :: String -> a -> a`** is a primitive. It flushes standard output, writes its message to standard error, and is pure in its type.
 - **Not done:** `fuse.c` keeps its own purity analysis; elaboration's type copies drop arrow effects, so it cannot read them yet ([TODO.md](../../TODO.md)).
 
-Tests: 15 error tests, one per effect channel (`tests/errors/effect_*.fk`), and `tests/run/effects.fk`, which covers accepted programs, binding order, the lazy recursive call, an argument's effect and `trace`. `syntax.fk` and `fuse.fk` no longer run effects at startup; `do.fk` and `lazy.fk` now expect effectful bindings to run in binding order. The benchmarks do not change: their generated code is identical, except that `let n = readInt (getLine ())` no longer allocates a thunk.
+Tests: 18 error tests (`tests/errors/effect_*.fk`), one per effect channel plus effectful `where`, `let ... in`, and `let ... in` over an argument's effect; and `tests/run/effects.fk`, which covers accepted programs, the order of `let` statements, the lazy recursive call, an argument's effect and `trace`. `syntax.fk` and `fuse.fk` no longer run effects at startup. `io.fk` reads with `<-`, `do.fk`'s `where` helper is a function, and `lazy.fk` shows at-most-once evaluation with `trace`. The benchmarks' `main = let n = readInt (getLine ()) in ...` became `main = do` with a `let` statement; their C versions and results do not change.
 
 ## Investigation (2026-10-25)
 
@@ -564,7 +574,9 @@ average ss = div (sum (map (\s -> s.score) ss)) (length ss)
 readStudents :: Int ->> [Student]
 readStudents k =
   if k == 0 then []
-  else let s = parse (getLine ()) in s : readStudents (k - 1)
+  else do
+    s <- parse (getLine ())
+    s : readStudents (k - 1)
 
 report :: Student ->> ()
 report s = putStrLn (s.name ++ ": " ++ grade s.score)
@@ -576,14 +588,14 @@ main = do
   putStrLn ("average: " ++ show (average students))
 ```
 
-Two lines differ from A:
+Three things differ from A: the two signatures say `->>`,
 
 ```text
 readStudents :: Int ->> [Student]
 report :: Student ->> ()
 ```
 
-The prototype infers the rest, and rejects A's text for exactly those two signatures. `let s = parse (getLine ())` is an effectful binding, so E evaluates it at its line; its timing no longer depends on when the cons cell forces it.
+and the input loop's `let s = parse (getLine ()) in ...` becomes a `do` block. E rejects the `let ... in` form, because `s` reads input and would run at its first use; in `do`, `s <- ...` reads on its line. The checker infers everything else.
 
 ### Summary
 
@@ -594,7 +606,7 @@ The prototype infers the rest, and rejects A's text for exactly those two signat
 | A'' | 1 added | `grade`, `parse`, `average` |
 | B1 | the input loop, `report`'s and `main`'s types, `main`'s first line | every function's effects |
 | B2 | as B1; more where another monad is used | as B1, for every monad |
-| E | 2: the two effectful signatures | every function's effects |
+| E | 3: the two effectful signatures, and the input loop's `let ... in` as a `do` | every function's effects |
 
 ## The options compared
 

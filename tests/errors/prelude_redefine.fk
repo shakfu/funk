@@ -1,0 +1,3 @@
+-- expect: `lookup` is defined in the prelude and cannot be redefined
+lookup k xs = 42
+main = print (lookup 1 [])

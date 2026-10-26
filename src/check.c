@@ -85,6 +85,8 @@ Type *tcon_new(const char *name, int n, Type **args) { return tcon(name, n, args
    binding group. */
 static Type *eff_pure, *eff_eff, *cur_eff, *te_eff;
 static const char *cur_bind;
+static int nprelude; /* globals defined by the prelude and the primitives: their names are reserved */
+static int nprelude_types = NBUILTIN_TYPES, nprelude_cons = FK_NBUILTIN_CONS; /* likewise, types and constructors */
 static Type *newvar(void);
 
 static Type *tarrow(Type *a, Type *b) {
@@ -389,6 +391,15 @@ static void unify_rec(Type *a, Type *b) {
 typedef struct { Type *eff, *ctx; int line, col; const char *bind; } Deferred;
 static VEC(Deferred) deferred;
 
+/* A local value binding whose effect is tied to something outside it,
+   such as a recursive call of the function being inferred, is decided once
+   its top-level binding is general, against the parameter types of the
+   functions around it. */
+typedef VEC(Type *) Types;
+typedef struct { Bind *b; Type *eff; Types params; const char *in; } LocalEff;
+static VEC(LocalEff) local_effs;
+static Types param_stack; /* parameter types of the lambdas being checked */
+
 static void call_effect(Type *e);
 
 static void settle_deferred(int from) {
@@ -610,7 +621,8 @@ static void register_datas(Module *m) {
     for (int j = 0; j < i; j++)
       if (m->datas[j]->name == d->name) cerror(d->line, d->col, "duplicate data type `%s`", d->name);
     int ti = map_get(&tmap, d->name);
-    if (ti >= 0 && ti < NBUILTIN_TYPES) cerror(d->line, d->col, "cannot redefine builtin type `%s`", d->name);
+    if (ti >= 0 && ti < nprelude_types)
+      cerror(d->line, d->col, "type `%s` is defined in the prelude and cannot be redefined", d->name);
     VPUSH(tydefs, ((TyDef){d->name, d->np, d->nc}));
     map_put(&tmap, d->name, tydefs.n - 1);
   }
@@ -630,8 +642,8 @@ static void register_datas(Module *m) {
       int prev = map_get(&cmap, cd->name);
       if (prev >= (int)FK_NBUILTIN_CONS && condefs.a[prev].tydef >= tydefs.n - m->nd)
         cerror(cd->line, cd->col, "duplicate constructor `%s`", cd->name);
-      if (prev >= 0 && prev < (int)FK_NBUILTIN_CONS)
-        cerror(cd->line, cd->col, "cannot redefine builtin constructor `%s`", cd->name);
+      if (prev >= 0 && prev < nprelude_cons)
+        cerror(cd->line, cd->col, "constructor `%s` is defined in the prelude and cannot be redefined", cd->name);
       Type *t = res;
       for (int f = cd->nfields; f-- > 0;) {
         Type *ft = te_type(cd->fields[f], &tv, NULL);
@@ -1386,7 +1398,9 @@ static void check(Expr *e, Env *env, Type *expected) {
     }
     Type *saved = cur_eff;
     cur_eff = last && last->eff ? last->eff : newvar();
+    for (int i = 0; i < e->lam->n; i++) VPUSH(param_stack, e->lam->ptypes[i]);
     check(e->lam->body, env, t);
+    param_stack.n -= e->lam->n;
     cur_eff = saved;
     return;
   }
@@ -1506,7 +1520,9 @@ static Type *infer0(Expr *e, Env *env) {
     L->ptypes = ps;
     Type *saved = cur_eff, *body = newvar();
     cur_eff = body;
+    for (int i = 0; i < L->n; i++) VPUSH(param_stack, ps[i]);
     Type *t = infer(L->body, env);
+    param_stack.n -= L->n;
     cur_eff = saved;
     for (int i = L->n; i-- > 0;) {
       t = tarrow(ps[i], t);
@@ -1548,13 +1564,6 @@ static Type *infer0(Expr *e, Env *env) {
   abort();
 }
 
-/* Local value bindings, with their evaluation effect and the top-level
-   binding they are in: whether one can act is decided once that binding's
-   type is general. */
-typedef struct { Bind *b; Type *eff; Bind *owner; } LocalEff;
-static VEC(LocalEff) local_effs;
-static Bind *cur_top;
-
 /* Does v occur as the effect of an arrow within t? */
 static bool eff_in(Type *t, Type *v) {
   t = repr(t);
@@ -1565,18 +1574,27 @@ static bool eff_in(Type *t, Type *v) {
   return false;
 }
 
-/* Can a local binding with evaluation effect e act? If e is Eff, or the
-   effect of one of the enclosing function's arguments, which its callers
-   choose. A free variable otherwise is pure: `where y = div 1 x` and a
-   recursive call of a pure function stay lazy. */
-static bool binding_acts(Type *e, Bind *owner) {
+/* Can a binding with effect e act? If e is effectful, or the effect of an
+   argument of a function around it, which callers choose. */
+static void effectful_binding(Bind *b, const char *in) {
+  if (b->stmt) { /* a `let` statement in `do` runs on its line */
+    b->acts = true;
+    return;
+  }
+  uline = b->line;
+  ucol = b->col;
+  cerror(uline, ucol,
+         "in `%s`: `%s` can act, so it cannot be a lazy `where` or `let ... in` binding; bind it in `do` (`%s <- ...`, "
+         "or a `let` statement), or make it a function (`%s () = ...`)",
+         in, b->name, b->name, b->name);
+}
+
+static bool acts_by(Type *e, Types *params) {
   e = repr(e);
   if (e == eff_eff) return true;
-  if (e->k != TY_VAR || !owner) return false;
-  for (int k = 0; k < owner->nskolem; k++) /* a signature's rigid copy stands for its generic variable */
-    if (repr(owner->skolem[2 * k + 1]) == e) e = repr(owner->skolem[2 * k]);
-  for (Type *t = repr(owner->type); t->k == TY_CON && t->name == s_arrow; t = repr(t->args[1]))
-    if (eff_in(t->args[0], e)) return true;
+  if (e->k != TY_VAR) return false;
+  for (int k = 0; k < params->n; k++)
+    if (eff_in(params->a[k], e)) return true;
   return false;
 }
 
@@ -1603,7 +1621,6 @@ static void infer_group(Group *g, Env **env, bool top) {
     Bind *b = g->b[i];
     cur_bind = top || !saved_bind ? b->name : saved_bind;
     cur_eff = evals[i] = newvar();
-    if (top) cur_top = b;
     if (sch[i]) {
       Subst s = {0};
       Type *rigid = inst_rec(sch[i], &s, true);
@@ -1627,10 +1644,21 @@ static void infer_group(Group *g, Env **env, bool top) {
     /* main's evaluation is the program, and $it is an expression typed at the REPL */
     if (top && value && repr(evals[i]) == eff_eff && strcmp(b->name, "main") != 0 && b->name[0] != '$')
       eff_error("a top-level value acts when evaluated; make it a function, or run it from `main`");
-    if (!top && value) VPUSH(local_effs, ((LocalEff){b, evals[i], cur_top}));
     if (!top && outer) { /* a local binding runs within the enclosing code */
-      cur_eff = outer;
-      call_effect(evals[i]);
+      Type *e = repr(evals[i]);
+      bool tied = e->k == TY_VAR && e->level < level; /* to something outside the binding */
+      if (value && acts_by(e, &param_stack)) effectful_binding(b, cur_bind);
+      else if (value && tied) {
+        LocalEff l = {b, e, {0}, cur_bind};
+        for (int k = 0; k < param_stack.n; k++) VPUSH(l.params, param_stack.a[k]);
+        VPUSH(local_effs, l);
+      }
+      /* A free effect means only pure calls: merging it would let the
+         enclosing function's effect make the binding look effectful. */
+      if (!value || e->k != TY_VAR || tied || b->acts) {
+        cur_eff = outer;
+        call_effect(evals[i]);
+      }
     }
   }
   cur_bind = saved_bind;
@@ -1645,7 +1673,8 @@ static void infer_group(Group *g, Env **env, bool top) {
      binding's generalization later must not add to them. */
   for (int i = 0; i < g->n; i++) g->b[i]->npreds = preds_of(mono[i], &g->b[i]->preds);
   if (top) {
-    for (int i = nlocal; i < local_effs.n; i++) local_effs.a[i].b->acts = binding_acts(local_effs.a[i].eff, local_effs.a[i].owner);
+    for (int i = nlocal; i < local_effs.n; i++)
+      if (acts_by(local_effs.a[i].eff, &local_effs.a[i].params)) effectful_binding(local_effs.a[i].b, local_effs.a[i].in);
     local_effs.n = nlocal;
   }
   free(mono);
@@ -2012,6 +2041,10 @@ static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
     }
     ClassDef *cp = &classes.a[id];
     for (int i = 0; i < cp->nmeth; i++) {
+      int prev = map_get(&gmap, cp->meths[i]);
+      if (prev >= 0 && prev < nprelude)
+        cerror(cd->sigs[i]->line, cd->sigs[i]->col, "method `%s` is defined in the prelude and cannot be redefined; choose another name",
+               cp->meths[i]);
       Bind *s = selector(cp->meths[i], cp->con, i, cp->arity[i], cd->line, cd->col);
       VPUSH(*raw, s);
       add_global(cp->meths[i], cp->mtypes[i], s->e->lam);
@@ -2330,6 +2363,10 @@ bool compile_chunk(Module *m, Chunk *out) {
       if (tydefs.a[ti].ncons && has_label(ti, intern(dot + 1)))
         cerror(b->line, b->col, "type `%s` already has a field `%s`", tn, dot + 1);
     }
+    int prev = map_get(&gmap, b->name);
+    if (prev >= 0 && prev < nprelude && b->name[0] != '$') /* the prelude's names are reserved */
+      cerror(b->line, b->col, "`%s` is defined in the prelude and cannot be redefined; choose another name, or a type namespace (`T.%s`)",
+             b->name, b->name);
     if (b->e->k == E_LAM) b->e->lam->name = b->name;
     b->gidx = globals.n;
     add_global(b->name, NULL, b->e->k == E_LAM ? b->e->lam : NULL);
@@ -2385,6 +2422,11 @@ bool compile_chunk(Module *m, Chunk *out) {
   }
   warn_line = warn_col = 0;
   for (int i = 0; i < m->nb; i++) cover_expr(m->binds[i]->e, m->binds[i]->name);
+  if (!strcmp(cur_file, "<prelude>")) {
+    nprelude = globals.n;
+    nprelude_types = tydefs.n;
+    nprelude_cons = condefs.n;
+  }
   out->groups = gs;
   out->ng = ng;
   out->raw = raw.a;

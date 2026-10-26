@@ -1,5 +1,5 @@
 -- show, unwords and words over packed Strings.
-main =
+main = do
   let n = readInt (getLine ())
       s = unwords (map show (enumFromTo 1 n))
-  in print (length s + length (words s))
+  print (length s + length (words s))

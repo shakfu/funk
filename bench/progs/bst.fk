@@ -25,6 +25,6 @@ build n s t = if n == 0 then t else build (n - 1) (rand s) (insert (mod s 100000
 probe :: Int -> Int -> Tree -> Int -> Int
 probe n s t acc = if n == 0 then acc else probe (n - 1) (rand s) t (acc + find (mod s 1000000) t)
 
-main =
+main = do
   let n = readInt (getLine ())
-  in print (probe n 7 (build n 42 Leaf) 0)
+  print (probe n 7 (build n 42 Leaf) 0)

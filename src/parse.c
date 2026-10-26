@@ -820,6 +820,7 @@ static Expr *parse_do(P *p, Token *t) {
       alts[0] = mkalt(1, ps, simple_rhs(e));
       e = mkcase(1, sc, 1, alts, s->line, s->col);
     } else if (s->let.n) {
+      for (int k = 0; k < s->let.n; k++) s->let.a[k]->stmt = true;
       Expr *l = mk(E_LET, s->line, s->col);
       l->g.b = s->let.a;
       l->g.n = s->let.n;

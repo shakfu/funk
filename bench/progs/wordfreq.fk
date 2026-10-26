@@ -20,6 +20,6 @@ runs (w:ws) = go w 1 ws 1 0
     go cur k [] d best = (d, max k best)
     go cur k (x:xs) d best = if x == cur then go cur (k + 1) xs d best else go x 1 xs (d + 1) (max k best)
 
-main =
+main = do
   let n = readInt (getLine ())
-  in print (runs (sort (words (unwords (map word (seeds n 42))))))
+  print (runs (sort (words (unwords (map word (seeds n 42))))))

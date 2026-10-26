@@ -199,7 +199,8 @@ struct Bind {
   struct Bind *from; /* type-class clone: the definition it was cloned from */
   bool pure, total;  /* no effects; and cannot fail, given such arguments (fusion.md) */
   bool prelude;      /* defined in the prelude */
-  bool acts;         /* a local value binding whose evaluation can act: evaluated where bound, not lazily */
+  bool acts;         /* a `let` statement in `do` whose evaluation can act: evaluated on its line, not lazily */
+  bool stmt;         /* bound by a `let` statement in a `do` block */
 };
 
 typedef struct {

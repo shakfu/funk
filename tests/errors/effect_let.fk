@@ -1,0 +1,2 @@
+-- expect: in `main`: `line` can act, so it cannot be a lazy `where` or `let ... in` binding
+main = let line = getLine () in putStrLn line

@@ -11,7 +11,7 @@ energy ps = foldl (\acc p -> acc + p.px * p.px + p.py * p.py + p.vx * p.vx + p.v
 run :: Int -> [P] -> [P]
 run k ps = if k == 0 then ps else run (k - 1) (map step ps)
 
-main =
+main = do
   let n = readInt (getLine ())
       ps = map (\i -> P (toFloat i) 0.0 0.0 1.0) (enumFromTo 1 n)
-  in print (round (energy (run 100 ps)))
+  print (round (energy (run 100 ps)))

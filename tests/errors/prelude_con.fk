@@ -1,0 +1,3 @@
+-- expect: constructor `Just` is defined in the prelude and cannot be redefined
+data Box = Just Int
+main = ()

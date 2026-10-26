@@ -15,8 +15,8 @@ first: 1
 4
 a runs
 b runs
-where after do
 positive
+where after do
 second: answer
 first: 41
 (42,"answer")

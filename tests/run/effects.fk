@@ -29,12 +29,11 @@ main1 () = do
   counter 2
   print (total [Circle 1.0, Sq 2.0], pureUse)
 
--- Effectful bindings run where they are bound, in source order.
+-- Effectful `let` statements in `do` run on their lines, in source order.
 inOrder () = do
   let a = putStrLn "bound 1"
       b = putStrLn "bound 2"
   putStrLn "body"
-  where c = putStrLn "where binding, before the body"
 
 -- A pure recursive call under a guard stays lazy: evaluated early, it would not terminate.
 depth :: Int -> Int
@@ -46,7 +45,9 @@ depth n
 -- A binding that calls a function argument can act: its callers choose the effect.
 -- `withArg` acts itself, so its argument is written `->>` too: a body has one effect.
 withArg :: (Int ->> ()) ->> ()
-withArg f = let r = f 1 in putStrLn "after r"
+withArg f = do
+  let r = f 1
+  putStrLn "after r"
 
 main2 () = do
   inOrder ()

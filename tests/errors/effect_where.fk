@@ -1,0 +1,7 @@
+-- expect: in `countdown`: `rest` can act, so it cannot be a lazy `where` or `let ... in` binding
+countdown :: Int ->> ()
+countdown n
+  | n == 0 = putStrLn "liftoff"
+  | otherwise = rest
+  where rest = print n >> countdown (n - 1)
+main = countdown 3

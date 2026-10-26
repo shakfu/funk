@@ -1,0 +1,3 @@
+-- expect: in `withArg`: `r` can act, so it cannot be a lazy `where` or `let ... in` binding
+withArg f = let r = f 1 in 5
+main = print (withArg (\n -> ()))
