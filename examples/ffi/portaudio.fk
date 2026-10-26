@@ -2,8 +2,9 @@
 -- audio callback is a foreign export: compiled code that cannot allocate
 -- or fail, run on PortAudio's thread. It plays a sine from an Array,
 -- takes frequency changes from a Ring that funk's thread fills, and reads
--- the gain with atomicPeek; funk's thread collects garbage meanwhile. The
--- callback times itself and counts underflows. It reads the gain from
+-- the gain with atomicPeek; funk's thread collects garbage meanwhile. Its
+-- state is a foreign struct, laid out by C. The callback times itself and
+-- counts underflows. It reads the gain from
 -- standard input; 0 is silent:
 --
 --   funk build examples/ffi/portaudio.fk -o synth -I /opt/homebrew/include -L /opt/homebrew/lib
@@ -26,10 +27,9 @@ foreign import ccall "portaudio.h Pa_GetErrorText" paErrorText :: CInt ->> Strin
 foreign import ccall "portaudio.h Pa_Sleep" paSleep :: CLong ->> ()
 foreign import ccall "portaudio.h paFloat32" paFloat32 :: CULong
 
-foreign import ccall "time.h clock_gettime" clockGettime :: CUInt -> Ptr () ->> CInt
+foreign import ccall "time.h clock_gettime" clockGettime :: CUInt -> Ptr Timespec ->> CInt
 foreign import ccall "time.h CLOCK_MONOTONIC" monotonic :: CUInt
-foreign import ccall "time.h offsetof(struct timespec, tv_sec)" offSec :: CSize
-foreign import ccall "time.h offsetof(struct timespec, tv_nsec)" offNsec :: CSize
+foreign struct "time.h struct timespec" Timespec { sec "tv_sec" :: CLong, nsec "tv_nsec" :: CLong }
 
 sampleRate :: Float
 sampleRate = 48000.0
@@ -37,14 +37,21 @@ sampleRate = 48000.0
 frames :: CULong
 frames = 64
 
--- The state, 128 bytes of C memory at the callback's context pointer:
---   0 frequency (CFloat): the callback's, from the ring at 48
---   4 gain (CFloat): written by funk's thread, atomically
---   8 phase, in table entries (Float): the callback's own
---   16 callbacks, 24 underflows, 32 longest, 40 total time in ns (CLLong):
---      written by the callback, read by funk's thread
---   48 frequency changes (Ring Float), 56 the sine table (Array CFloat)
---   64, 96: struct timespec, before and after
+-- The callback's state, at its context pointer, laid out by C
+foreign struct Synth
+  { freq :: CFloat           -- the callback's, from changes
+  , gain :: CFloat           -- written by funk's thread, atomically
+  , phase :: Float           -- in table entries: the callback's own
+  , changes :: Ring Float    -- frequency changes from funk's thread
+  , table :: Array CFloat    -- one period of a sine
+  , calls :: CLLong          -- written by the callback with atomicAdd,
+  , underflows :: CLLong     --   read by funk's thread
+  , longest :: CLLong        -- in ns
+  , total :: CLLong
+  , before :: Ptr Timespec
+  , after :: Ptr Timespec
+  }
+
 tableSize :: Int
 tableSize = 1024
 
@@ -60,42 +67,31 @@ render out table i n phase step gain =
     render out table (i + 1) n (wrap (phase + step)) step gain
 
 -- frequency changes from funk's thread, the last one wins
-takeChanges :: Ptr () -> Ring Float ->> ()
+takeChanges :: Ptr Synth -> Ring Float ->> ()
 takeChanges st r =
   if ringCount r == 0 then ()
   else do
-    pokeByteOff st 0 (toCFloat (ringFront r))
+    writeField st Synth.freq (toCFloat (ringFront r))
     ringDrop r
     takeChanges st r
 
-nanos :: Ptr () -> Int ->> Int
-nanos st at = do
-  s <- (peekByteOff st (at + fromIntegral offSec) :: CLong)
-  ns <- (peekByteOff st (at + fromIntegral offNsec) :: CLong)
-  fromIntegral s * 1000000000 + fromIntegral ns
-
-count :: Ptr () -> Int -> Int ->> ()
-count st at k = do
-  n <- (atomicPeek (plusPtr st at) :: CLLong)
-  atomicPoke (plusPtr st at) (n + fromIntegral k)
+nanos :: Ptr Timespec ->> Int
+nanos t = fromIntegral (readField t Timespec.sec) * 1000000000 + fromIntegral (readField t Timespec.nsec)
 
 synth :: Ptr () -> Ptr CFloat -> CULong -> Ptr () -> CULong -> Ptr () ->> CInt
-synth input out n timeInfo flags st = do
-  clockGettime monotonic (plusPtr st 64)
-  takeChanges st (peekByteOff st 48 :: Ring Float)
-  freq <- (peekByteOff st 0 :: CFloat)
-  gain <- (atomicPeek (plusPtr st 4) :: CFloat)
-  phase <- (peekByteOff st 8 :: Float)
-  table <- (peekByteOff st 56 :: Array CFloat)
-  end <- render out table 0 (fromIntegral n) phase (toFloat tableSize * fromCFloat freq / sampleRate) gain
-  pokeByteOff st 8 end
-  count st 24 (mod (div (fromIntegral flags) 4) 2) -- paOutputUnderflow, bit 2
-  clockGettime monotonic (plusPtr st 96)
-  took <- nanos st 96 - nanos st 64
-  longest <- (atomicPeek (plusPtr st 32) :: CLLong)
-  if fromIntegral took > longest then atomicPoke (plusPtr st 32) (fromIntegral took :: CLLong) else ()
-  count st 40 took
-  count st 16 1
+synth input out n timeInfo flags ctx = do
+  st <- (castPtr ctx :: Ptr Synth)
+  clockGettime monotonic (readField st Synth.before)
+  takeChanges st (readField st Synth.changes)
+  gain <- atomicPeek (fieldPtr st Synth.gain)
+  step <- toFloat tableSize * fromCFloat (readField st Synth.freq) / sampleRate
+  writeField st Synth.phase (render out (readField st Synth.table) 0 (fromIntegral n) (readField st Synth.phase) step gain)
+  atomicAdd (fieldPtr st Synth.underflows) (fromIntegral (mod (div (fromIntegral flags) 4) 2)) -- paOutputUnderflow, bit 2
+  clockGettime monotonic (readField st Synth.after)
+  took <- (fromIntegral (nanos (readField st Synth.after) - nanos (readField st Synth.before)) :: CLLong)
+  if took > atomicPeek (fieldPtr st Synth.longest) then atomicPoke (fieldPtr st Synth.longest) took else ()
+  atomicAdd (fieldPtr st Synth.total) took
+  atomicAdd (fieldPtr st Synth.calls) 1
   0
 
 check :: String -> CInt ->> ()
@@ -111,33 +107,38 @@ play changes fs = mapM_ (\f -> do
   churn 3000 0
   paSleep 250) fs
 
-stat :: Ptr () -> Int ->> Int
-stat st at = fromIntegral (atomicPeek (plusPtr st at) :: CLLong)
+stat :: Ptr Synth -> Field Synth CLLong ->> Int
+stat st f = fromIntegral (atomicPeek (fieldPtr st f))
 
 main = do
   gain <- readFloat (getLine ())
-  st <- mallocBytes 128
-  mapM_ (\at -> pokeByteOff st at (0 :: CLLong)) [8, 16, 24, 32, 40]
-  atomicPoke (plusPtr st 4) (toCFloat gain)
-  pokeByteOff st 0 (toCFloat 440.0)
+  st <- (mallocBytes Synth.size :: Ptr Synth)
   changes <- newRing 16 0.0
   table <- newArray tableSize (toCFloat 0.0)
   mapM_ (\i -> writeArray table i (toCFloat (sin (6.283185307179586 * toFloat i / toFloat tableSize)))) (enumFromTo 0 (tableSize - 1))
-  pokeByteOff st 48 changes
-  pokeByteOff st 56 table
+  writeField st Synth.freq (toCFloat 440.0)
+  atomicPoke (fieldPtr st Synth.gain) (toCFloat gain)
+  writeField st Synth.phase 0.0
+  writeField st Synth.changes changes
+  writeField st Synth.table table
+  mapM_ (\f -> writeField st f 0) [Synth.calls, Synth.underflows, Synth.longest, Synth.total]
+  writeField st Synth.before (mallocBytes Timespec.size)
+  writeField st Synth.after (mallocBytes Timespec.size)
   check "Pa_Initialize" (paInitialize ())
   stream <- alloca (\cell -> do
-    check "Pa_OpenDefaultStream" (paOpenDefaultStream cell 0 1 paFloat32 sampleRate frames synthPtr st)
+    check "Pa_OpenDefaultStream" (paOpenDefaultStream cell 0 1 paFloat32 sampleRate frames synthPtr (castPtr st))
     peek cell)
   check "Pa_StartStream" (paStartStream stream)
   play changes [440.0, 550.0, 660.0, 880.0]
   check "Pa_StopStream" (paStopStream stream)
   check "Pa_CloseStream" (paCloseStream stream)
   check "Pa_Terminate" (paTerminate ())
-  let calls = stat st 16
-  putStrLn ("callbacks " ++ show calls ++ ", underflows " ++ show (stat st 24))
-  putStrLn ("callback time: longest " ++ show (div (stat st 32) 1000) ++ " us, mean " ++ show (div (div (stat st 40) (max calls 1)) 1000)
+  let calls = stat st Synth.calls
+  putStrLn ("callbacks " ++ show calls ++ ", underflows " ++ show (stat st Synth.underflows))
+  putStrLn ("callback time: longest " ++ show (div (stat st Synth.longest) 1000) ++ " us, mean " ++ show (div (div (stat st Synth.total) (max calls 1)) 1000)
             ++ " us, of a " ++ show (div (fromIntegral frames * 1000000) 48000) ++ " us buffer")
+  free (readField st Synth.before)
+  free (readField st Synth.after)
   freeRing changes
   freeArray table
   free st

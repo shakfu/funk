@@ -261,6 +261,10 @@ static const Scalar scalars[] = {
     {"apeekf", "fk_s_apeekf(%s, %s)", 2, -1, R_F, "ip"},
     {"apokei", "fk_s_apokei(%s, %s, %s)", 3, -1, R_V, "ipi"},
     {"apokef", "fk_s_apokef(%s, %s, %s)", 3, -1, R_V, "ipf"},
+    {"aaddi", "fk_s_aaddi(%s, %s, %s)", 3, -1, R_I, "ipi"},
+    {"aaddf", "fk_s_aaddf(%s, %s, %s)", 3, -1, R_F, "ipf"},
+    {"acasi", "fk_s_acasi(%s, %s, %s, %s)", 4, -1, R_B, "ipii"},
+    {"acasf", "fk_s_acasf(%s, %s, %s, %s)", 4, -1, R_B, "ipff"},
     {"tocfloat", "(double)(float)%s", 1, R_F, R_F, NULL},
     {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B, NULL},
 };
@@ -281,9 +285,9 @@ static TV cg_call(CG *c, Expr *e) {
   const Scalar *sc = prim >= 0 && n == fk_prims[prim].arity ? scalar_prim(prim_cname(prim)) : NULL;
   if (sc && sc->reps) {
     static const char codes[] = "vifcbp"; /* Rep order */
-    const char *a[3];
+    const char *a[4];
     for (int i = 0; i < n; i++) a[i] = conv(cg_expr(c, e->args[i]), (Rep)(strchr(codes, sc->reps[i]) - codes));
-    return tv(n == 2 ? xsprintf(sc->fmt, a[0], a[1]) : xsprintf(sc->fmt, a[0], a[1], a[2]), sc->res);
+    return tv(n == 2 ? xsprintf(sc->fmt, a[0], a[1]) : n == 3 ? xsprintf(sc->fmt, a[0], a[1], a[2]) : xsprintf(sc->fmt, a[0], a[1], a[2], a[3]), sc->res);
   }
   if (sc) {
     TV x[2];
@@ -370,7 +374,7 @@ static TV cg_call(CG *c, Expr *e) {
    C scalars and addresses: literals, variables of scalar types, unboxed
    primitives, C imports, calls to checked functions at full arity, if,
    case on scalars, and strict local values. */
-static signed char *af_state; /* by lambda id: 0 unknown, 1 checking or allocation-free, 2 allocates */
+static signed char *af_state; /* by lambda id: 0 unknown, 1 being checked, 2 rejected, 3 accepted */
 static const char **af_why;
 static int af_cap;
 
@@ -395,7 +399,7 @@ static bool af_type(Type *t) { /* held without a heap object */
 }
 
 static const char *af_lambda(Lambda *L);
-static const char *af_expr(Expr *e, Lambda *L);
+static const char *af_expr(Expr *e, Lambda *L, bool tail);
 
 static const char *af_at(const char *what, Expr *e, Lambda *L) {
   return xsprintf("%s, at %d:%d in `%s`", what, e->line, e->col, L->name ? L->name : "a local function");
@@ -406,7 +410,7 @@ static const char *af_group(Group *g, Lambda *L) {
     Bind *b = g->b[i];
     if (g->rec || b->thunk) return af_at(xsprintf("`%s` is a lazy or recursive local binding", b->name), b->e, L);
     if (b->e->k == E_LAM) return af_at(xsprintf("`%s` is a local function, a closure", b->name), b->e, L);
-    const char *w = af_expr(b->e, L);
+    const char *w = af_expr(b->e, L, false);
     if (w) return w;
   }
   return NULL;
@@ -416,7 +420,7 @@ static bool af_pat(Pat *p) {
   return p->k == P_VAR || p->k == P_WILD || p->k == P_INT || p->k == P_CHAR || (p->k == P_CON && !p->n);
 }
 
-static const char *af_expr(Expr *e, Lambda *L) {
+static const char *af_expr(Expr *e, Lambda *L, bool tail) { /* tail: a self call here is a loop */
   const char *w;
   switch (e->k) {
   case E_INT: case E_FLOAT: case E_CHAR: return NULL;
@@ -429,17 +433,17 @@ static const char *af_expr(Expr *e, Lambda *L) {
     if (e->lazy) return af_at(xsprintf("`%s` is lazy", e->name), e, L);
     if (!af_type(e->ty)) return af_at(xsprintf("`%s` has type `%s`, a heap value", e->name, type_str(e->ty)), e, L);
     return NULL;
-  case E_ANN: return af_expr(e->body, L);
+  case E_ANN: return af_expr(e->body, L, tail);
   case E_IF:
-    if ((w = af_expr(e->cond, L)) || (w = af_expr(e->then_, L))) return w;
-    return af_expr(e->else_, L);
+    if ((w = af_expr(e->cond, L, false)) || (w = af_expr(e->then_, L, tail))) return w;
+    return af_expr(e->else_, L, tail);
   case E_LET:
     if ((w = af_group(&e->g, L))) return w;
-    return af_expr(e->body, L);
+    return af_expr(e->body, L, tail);
   case E_CASE:
     if (!case_covers(e, true)) return af_at("a case that does not cover every value", e, L);
     for (int i = 0; i < e->ns; i++)
-      if ((w = af_expr(e->scruts[i], L))) return w;
+      if ((w = af_expr(e->scruts[i], L, false))) return w;
     for (int a = 0; a < e->na; a++) {
       Alt *alt = e->alts[a];
       for (int i = 0; i < alt->np; i++)
@@ -447,12 +451,12 @@ static const char *af_expr(Expr *e, Lambda *L) {
       for (int i = 0; i < alt->rhs.nwg; i++)
         if ((w = af_group(&alt->rhs.wg[i], L))) return w;
       for (int i = 0; i < alt->rhs.ng; i++)
-        if ((alt->rhs.guards[i] && (w = af_expr(alt->rhs.guards[i], L))) || (w = af_expr(alt->rhs.bodies[i], L))) return w;
+        if ((alt->rhs.guards[i] && (w = af_expr(alt->rhs.guards[i], L, false))) || (w = af_expr(alt->rhs.bodies[i], L, tail))) return w;
     }
     return NULL;
   case E_APP: {
     for (int i = 0; i < e->n; i++)
-      if ((w = af_expr(e->args[i], L))) return w;
+      if ((w = af_expr(e->args[i], L, false))) return w;
     Expr *f = e->fn;
     if (f->k == E_CON) return af_at(xsprintf("the constructor `%s`", f->name), e, L);
     if (f->k != E_VAR || f->vk != VK_GLOBAL) return af_at("a call of an unknown function", e, L);
@@ -477,6 +481,9 @@ static const char *af_expr(Expr *e, Lambda *L) {
     }
     Lambda *K = f->known;
     if (!K || e->n != K->n) return af_at(xsprintf("`%s` is called with %d of %d arguments", g->name, e->n, K ? K->n : 0), e, L);
+    if (K == L && tail) return NULL; /* a loop */
+    if (K->id < af_cap && af_state[K->id] == 1) /* the stack would grow with each call: an export runs on its caller's stack */
+      return af_at(xsprintf("`%s` recurses other than as a call of itself in tail position", g->name), e, L);
     return af_lambda(K);
   }
   default: return af_at("an expression the check does not handle", e, L);
@@ -491,19 +498,17 @@ static const char *af_lambda(Lambda *L) {
     memset(af_state + af_cap, 0, (size_t)(cap - af_cap));
     af_cap = cap;
   }
-  if (af_state[L->id]) return af_state[L->id] == 2 ? af_why[L->id] : NULL;
-  af_state[L->id] = 1; /* a recursive call is checked by the walk in progress */
+  if (af_state[L->id] > 1) return af_state[L->id] == 2 ? af_why[L->id] : NULL;
+  af_state[L->id] = 1;
   const char *w = NULL;
   for (int i = 0; i < L->n && !w; i++)
     if (!L->ptypes || !af_type(L->ptypes[i]))
       w = xsprintf("`%s` takes `%s`, a heap value", L->name ? L->name : "a function", L->ptypes ? type_str(L->ptypes[i]) : "an untyped argument");
   if (!w && !af_type(L->body->ty)) w = xsprintf("`%s` returns `%s`, a heap value", L->name ? L->name : "a function", type_str(L->body->ty));
   if (!w && L->nfree) w = xsprintf("`%s` is a closure", L->name ? L->name : "a function");
-  if (!w) w = af_expr(L->body, L);
-  if (w) {
-    af_state[L->id] = 2;
-    af_why[L->id] = w;
-  }
+  if (!w) w = af_expr(L->body, L, true);
+  af_state[L->id] = w ? 2 : 3;
+  af_why[L->id] = w;
   return w;
 }
 

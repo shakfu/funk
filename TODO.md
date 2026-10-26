@@ -22,7 +22,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Medium
 
-- [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): R0-R4 are done, and a PortAudio synth runs. A cycle's start pause still scans the whole stack, 29 us per 1,000 frames. Exports run on the caller's stack without a depth check. No atomic read-modify-write (`fetch_add`). Structs in C memory are still laid out by hand with `pokeByteOff`.
+- [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): R0-R4, the stack snapshot, atomics, structs and the export recursion check are done. An export's stack bound is not computed, and `foreign struct` has no nested structs by value.
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 

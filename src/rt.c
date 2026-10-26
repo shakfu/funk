@@ -96,6 +96,14 @@ static size_t nroots;
 static size_t alloc_since_gc, gc_threshold = (size_t)128 << 20; /* gc_min below */
 static V **mstack;
 static size_t msp, mcap;
+static V *stack_copy; /* the stack when the cycle started: see snapshot_stack */
+static size_t stack_words, stack_cap, stack_scanned;
+static size_t page_size;
+static char *snap_lo, *snap_hi, *snap_next; /* read-only pages of the snapshot; the next to scan */
+static char *snap_area;                     /* reserved: copies of the pages written while read-only */
+static uint8_t *snap_copied;                /* by page */
+static size_t snap_pages;
+int fk_callback_depth; /* direct callbacks running: C frames below them may be written by the kernel */
 static size_t live_bytes;  /* marked this collection */
 static size_t black_bytes; /* of which allocated during the cycle: mostly garbage by its end */
 
@@ -238,10 +246,19 @@ static void scan_range(V *lo, V *hi) {
   for (V *p = lo; p < hi; p++) mark_word(*p);
 }
 
+static bool scan_snapshot(double end, bool timed);
+
 /* Marks for up to budget_ms, checking the clock every 256 objects; true
    when the mark stack is empty. */
 static bool drain(double budget_ms) {
   double end = now_ms() + budget_ms;
+  while (stack_scanned < stack_words) { /* the stack's snapshot first, 8 Ki words at a time */
+    size_t k = stack_words - stack_scanned < 8192 ? stack_words - stack_scanned : 8192;
+    scan_range(stack_copy + stack_scanned, stack_copy + stack_scanned + k);
+    stack_scanned += k;
+    if (budget_ms < INFINITY && now_ms() > end) return false;
+  }
+  if (!scan_snapshot(end, budget_ms < INFINITY)) return false;
   for (int n = 0; msp;) {
     size_t words = (size_t)(uintptr_t)mstack[--msp];
     V *o = mstack[--msp];
@@ -270,9 +287,76 @@ static __attribute__((noinline)) void alloc_black(V *o) {
   if ((uintptr_t)o >= heap_lo && (uintptr_t)o < heap_hi) ((Chunk *)((uintptr_t)o & ~(uintptr_t)(CHUNK_SIZE - 1)))->nmarked++;
 }
 
-static __attribute__((noinline)) void scan_stack(void) {
+/* A cycle's snapshot of the stack (realtime.md): the start pause copies
+   the words up to the next page boundary and makes the older pages read
+   only; a write to one of them copies the page first (on_fault). Steps
+   scan each page, from its copy if it was written, and make it writable
+   again. The pause is then an mprotect, not a scan of the whole stack.
+   Nothing is freed before the cycle ends, so what the snapshot points to
+   stays in place. While a direct callback runs, the C frames below it may
+   pass stack memory to the kernel, which a read-only page would fail with
+   EFAULT; then the whole stack is copied instead. */
+static void copy_words(V *from, size_t n) {
+  if (n > stack_cap) {
+    free(stack_copy);
+    stack_cap = n + n / 4;
+    stack_copy = malloc(stack_cap * sizeof(V));
+    if (!stack_copy) { fputs("funk: out of memory\n", stderr); exit(1); }
+  }
+  memcpy(stack_copy, from, n * sizeof(V));
+  stack_words = n;
+  stack_scanned = 0;
+}
+
+static char *guard_lo, *guard_hi; /* the stack's guard region, set by fk_run */
+
+static __attribute__((noinline)) void snapshot_stack(void) {
   V *sp = (V *)__builtin_frame_address(0);
-  scan_range(sp, (V *)fk_stack_base);
+  if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
+  if (gcstress) { /* the dead stack below holds old words, which new frames' unset slots would show the check */
+    char *dead = (char *)(((uintptr_t)sp - 2 * page_size) & ~(uintptr_t)(page_size - 1));
+    if (dead > guard_hi) madvise(guard_hi, (size_t)(dead - guard_hi), MADV_DONTNEED);
+    memset(dead, 0, (size_t)((char *)sp - 1024 - dead));
+  }
+  char *lo = (char *)(((uintptr_t)sp + page_size - 1) & ~(uintptr_t)(page_size - 1)), *hi = fk_stack_base;
+  if (fk_callback_depth || lo >= hi) {
+    copy_words(sp, (size_t)((V *)hi - sp));
+    return;
+  }
+  size_t pages = (size_t)(hi - lo) / page_size;
+  if (pages > snap_pages) { /* address space for copies, touched only where a page is written */
+    if (snap_area) munmap(snap_area, snap_pages * page_size);
+    snap_area = mmap(NULL, pages * page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    free(snap_copied);
+    snap_copied = malloc(pages);
+    if (snap_area == MAP_FAILED || !snap_copied) { fputs("funk: out of memory\n", stderr); exit(1); }
+    snap_pages = pages;
+  }
+  memset(snap_copied, 0, pages);
+  copy_words(sp, (size_t)((V *)lo - sp));
+  if (mprotect(lo, (size_t)(hi - lo), PROT_READ) != 0) { /* not expected; a copy is always correct */
+    copy_words(sp, (size_t)((V *)hi - sp));
+    return;
+  }
+  snap_lo = snap_next = lo;
+  snap_hi = hi;
+}
+
+/* Scans the snapshot's pages for up to the step's budget; true when done. */
+static bool scan_snapshot(double end, bool timed) {
+  while (snap_next < snap_hi) {
+    char *from = snap_next;
+    for (int k = 0; k < 1 && snap_next < snap_hi; k++, snap_next += page_size) { /* a page, then the clock */
+      size_t i = (size_t)(snap_next - snap_lo) / page_size;
+      V *p = (V *)(snap_copied[i] ? snap_area + i * page_size : snap_next);
+      scan_range(p, p + page_size / sizeof(V));
+    }
+    mprotect(from, (size_t)(snap_next - from), PROT_READ | PROT_WRITE);
+    if (timed && now_ms() > end) break;
+  }
+  if (snap_next < snap_hi) return false;
+  snap_lo = snap_hi = snap_next = NULL;
+  return true;
 }
 
 static Chunk *chunk_at(size_t i) { return (Chunk *)(heap_base + i * CHUNK_SIZE); }
@@ -361,7 +445,7 @@ static void gc_start(void) {
   live_bytes = black_bytes = 0;
   fk_marking = 1;
   cycle_start_threshold = gc_threshold;
-  scan_stack();
+  snapshot_stack();
   for (size_t i = 0; i < nroots; i++) scan_range(*roots[i].base, *roots[i].base + *roots[i].count);
   if (gcstats) {
     cycle_start = now_ms() - t0;
@@ -1162,6 +1246,10 @@ V fk_p_apeeki(V self, V *a) { return FK_MKINT(fk_s_apeeki(FK_INT(a[0]), FK_PTRV(
 V fk_p_apokei(V self, V *a) { return fk_s_apokei(FK_INT(a[0]), FK_PTRV(a[1]), FK_INT(a[2])); }
 V fk_p_apeekf(V self, V *a) { return fk_float(fk_s_apeekf(FK_INT(a[0]), FK_PTRV(a[1]))); }
 V fk_p_apokef(V self, V *a) { return fk_s_apokef(FK_INT(a[0]), FK_PTRV(a[1]), FK_FLOATV(a[2])); }
+V fk_p_aaddi(V self, V *a) { return FK_MKINT(fk_s_aaddi(FK_INT(a[0]), FK_PTRV(a[1]), FK_INT(a[2]))); }
+V fk_p_acasi(V self, V *a) { return FK_BOOL(fk_s_acasi(FK_INT(a[0]), FK_PTRV(a[1]), FK_INT(a[2]), FK_INT(a[3]))); }
+V fk_p_aaddf(V self, V *a) { return fk_float(fk_s_aaddf(FK_INT(a[0]), FK_PTRV(a[1]), FK_FLOATV(a[2]))); }
+V fk_p_acasf(V self, V *a) { return FK_BOOL(fk_s_acasf(FK_INT(a[0]), FK_PTRV(a[1]), FK_FLOATV(a[2]), FK_FLOATV(a[3]))); }
 V fk_p_peekp(V self, V *a) { return fk_ptr(*(void **)FK_PTRV(a[0])); }
 V fk_p_pokep(V self, V *a) { *(void **)FK_PTRV(a[0]) = FK_PTRV(a[1]); return fk_unit; }
 V fk_p_peekcstring(V self, V *a) { return fk_cstr_result(FK_PTRV(a[0]), "peekCString"); }
@@ -1538,10 +1626,20 @@ typedef struct { void (*fn)(void *); void *arg; } Task;
 
 /* Generated code has no stack check: overflowing reaches the guard
    region below the stack and faults. The handler runs on its own stack. */
-static char *guard_lo, *guard_hi;
+
 
 static void on_fault(int sig, siginfo_t *si, void *ctx) {
   char *a = si->si_addr;
+  if (a >= snap_lo && a < snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
+    char *pg = (char *)((uintptr_t)a & ~(uintptr_t)(page_size - 1));
+    size_t i = (size_t)(pg - snap_lo) / page_size;
+    if (!snap_copied[i]) {
+      memcpy(snap_area + i * page_size, pg, page_size);
+      snap_copied[i] = 1;
+    }
+    mprotect(pg, page_size, PROT_READ | PROT_WRITE);
+    return;
+  }
   if (a >= guard_lo && a < guard_hi) {
     static const char msg[] = "runtime error: stack overflow\n";
     fflush(stdout); /* not async-signal-safe, but the process exits next */

@@ -256,9 +256,18 @@ typedef struct {
   char cb;     /* "callback" 'c', "queue" 'q': the import is a trampoline */
   bool exported; /* foreign export: the C function cname runs the funk function name */
   Type *xtype;   /* an export's declared type */
+  const char *cdef; /* C emitted after the headers: a struct's definition and field checks */
   bool pure;   /* written with `->` only */
   FkCode code; /* interpreter: the loaded glue's entry */
 } ForeignDecl;
+
+/* foreign struct ["header.h ctype"] T { field ["c.path"] :: type, ... } (realtime.md) */
+typedef struct { const char *name, *cpath; TypeExpr *type; } StructField;
+typedef struct {
+  const char *name, *header, *ctype; /* header and ctype NULL: laid out as C would, by funk */
+  StructField *fields;
+  int nf, line, col;
+} StructDecl;
 
 typedef struct {
   Bind **binds;
@@ -273,6 +282,8 @@ typedef struct {
   int nforeign;
   const char **libs; /* foreign library "name" */
   int nlibs;
+  StructDecl **structs;
+  int nstructs;
 } Module;
 
 Module *parse_module(const char *src, size_t len);

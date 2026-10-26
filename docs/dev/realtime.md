@@ -1,6 +1,6 @@
 # Real time: design note
 
-Status: R0-R4 implemented, 2026-10-26; see the "Implementation" sections. Open: the stack term of R2's start pause, and generational collection (E) for throughput. It bounds the collector's pauses for any real-time use: audio, MIDI, games and control loops, not MIDI only. It replaces "Pauses" in [ffi.md](ffi.md#pauses).
+Status: R0-R4 implemented, 2026-10-26; see the "Implementation" sections. The stack term of R2's start pause is removed ("The stack snapshot"). Open: generational collection (E), for throughput. It bounds the collector's pauses for any real-time use: audio, MIDI, games and control loops, not MIDI only. It replaces "Pauses" in [ffi.md](ffi.md#pauses).
 
 ## Requirements
 
@@ -207,6 +207,32 @@ Both live in C memory, allocated by funk's thread and freed explicitly, so a for
 - **`plusPtr`** now adds as integers: on a null pointer, C's pointer arithmetic is undefined, which UBSan reported for `plusPtr nullPtr 16`.
 
 Tests: `tests/run/array.fk`, in both backends: indices checked and wrapped, a ring of capacity 3 taking four values, and arrays of pointers and `CFloat`. Two error tests: an index out of range, and a length of 0. `tests/ffi/control.fk`: funk pushes 50 gains into a ring before the test host starts; the export takes one per block of 2000, plays a 100-entry wavetable through `readArrayWrap`, and pushes every 100th block's number back through a second ring, while funk's thread collects. Its sample sum, 1564804.0014787447, matches a Python recomputation with the same float rounding; also under `FUNK_GCSTRESS`.
+
+## The stack snapshot
+
+R2 scanned the whole stack in a cycle's start pause, about 29 us per 1,000 frames. Snapshot at the beginning needs only the stack's contents at the start, not their scan, so the start pause now takes the snapshot cheaply and steps scan it:
+
+- **Copy on write by page protection.** The start pause copies the words from the current frame to the next page boundary (16 KiB on an M1) and makes the older pages read-only with one `mprotect`. A write to one of them faults; the handler (`on_fault`) copies the page to a reserved area, makes it writable, and the write proceeds. Steps scan each page, from its copy if one was made, and make it writable again. For 96 MiB, about a million frames here, `mprotect` took 0.14 to 0.26 ms, against 9 to 12 ms for `memcpy`, which a first version used.
+- **The kernel does not fault.** A system call that writes into a read-only page fails with `EFAULT` instead. Only C code can pass stack memory to the kernel, and C frames older than a cycle's start exist only while a direct callback runs; the runtime itself reads input through stdio's heap buffer. While `fk_callback_depth` is positive, the start pause copies the whole stack instead.
+
+Pauses, `deep` (allocation at the bottom of a recursion), longest of each run:
+
+| Frames | R2 start pause | Now: start pause | Now: longest pause |
+|-|-|-|-|
+| 1,000 | 0.06 ms | 0.07 ms | 0.14 ms |
+| 100,000 | 2.9 ms | 0.06 ms | 0.42 ms |
+| 1,000,000 | 28.9 ms | 0.20 to 0.27 ms | 0.47 ms |
+
+The start pause still grows with the stack, through `mprotect`'s cost per page, about 0.25 ms at a million frames.
+
+- **A false report by the check, found here.** `FUNK_GCSTRESS`'s check reported unmarked objects in `tests/run/gcdeep.fk`, with R2's direct scan as with the snapshot. They came from slots of frames made after the cycle started, below its stack pointer, where unset slots still held words from dead frames; the program never read them, and the collector was right. The check now zeroes the dead stack below the stack pointer at each cycle's start, under `FUNK_GCSTRESS` only.
+- **Tests.** `tests/run/gcdeep.fk` recurses 20,000 deep, keeping lists of lists in each frame and moving the inner lists into new cells on the way back, under `FUNK_GCSTRESS` in both backends: 76 cycles, with snapshot pages written while read-only 27 times. With the handler's page copy removed, the check stopped it in 3 runs of 3, with wrong output.
+
+## Atomics, structs and stack depth
+
+- **Read-modify-write.** `Atomic` gains `atomicAdd`, returning the old value, and `atomicCompareSwap`, sequentially consistent, for every instance: integers with `__atomic_fetch_add` and `__atomic_compare_exchange_n`, floats with a compare-and-swap loop on their bits. In `tests/ffi/export.fk`, the export and funk's thread each add 1,280,000 to a counter at once, and it ends at 2,560,000; with a plain read and write instead, one run in five lost updates, so the test can tell.
+- **Structs.** `foreign struct "time.h struct timespec" Timespec { sec "tv_sec" :: CLong, ... }` takes C's struct from a header; `foreign struct State { freq :: CFloat, ... }` has the glue define one. Either way `State.freq :: Field State CFloat` is the field's offset, from `offsetof`, and `State.size` its size, so C lays it out. `readField`, `writeField` and `fieldPtr` use them; a `Field` is an `Int` in typed code, so exports may. For a header's struct, the glue asserts each field's type: the C type, or an enumeration of its size, for a scalar; a pointer, for a pointer. A string gives a member path, such as `"on_message.callback"` through libremidi's anonymous union. A field is a scalar or a pointer; nested structs by value are not supported.
+- **Stack depth.** The export check rejects recursion other than a call of the function itself in tail position, which compiles to a loop. The rest of the call graph has no cycles, so an export's stack use is bounded. The bound is not computed.
 
 ## Questions
 

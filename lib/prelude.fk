@@ -377,6 +377,16 @@ ringPush r x =
 ringFront :: Storable a => Ring a ->> a
 ringFront r = peek (primRingFront r)
 
+-- a field of a foreign struct (docs/dev/realtime.md): T.f is its offset
+readField :: Storable b => Ptr s -> Field s b ->> b
+readField p f = peekByteOff p (primFieldOffset f)
+
+writeField :: Storable b => Ptr s -> Field s b -> b ->> ()
+writeField p f x = pokeByteOff p (primFieldOffset f) x
+
+fieldPtr :: Ptr s -> Field s b -> Ptr b
+fieldPtr p f = castPtr (plusPtr p (primFieldOffset f))
+
 -- an Array or a Ring stored in C memory, such as a callback's context, is its address
 instance Storable (Array a) where
   sizeOf _ = 8
@@ -389,16 +399,24 @@ instance Storable (Ring a) where
 
 -- memory another thread reads or writes: an acquire load and a release
 -- store, so a value is read whole, after what was written before it
+-- atomicAdd adds and returns the old value; atomicCompareSwap p old new
+-- writes new if p holds old, comparing bits, and says whether it did
 class Atomic a where
   atomicPeek :: Ptr a ->> a
   atomicPoke :: Ptr a -> a ->> ()
+  atomicAdd :: Ptr a -> a ->> a
+  atomicCompareSwap :: Ptr a -> a -> a ->> Bool
 
 instance Atomic Int where
   atomicPeek p = primAtomicPeekInt 8 p
   atomicPoke p x = primAtomicPokeInt 8 p x
+  atomicAdd p x = primAtomicAddInt 8 p x
+  atomicCompareSwap p old x = primAtomicCasInt 8 p old x
 instance Atomic Float where
   atomicPeek p = primAtomicPeekFloat 8 p
   atomicPoke p x = primAtomicPokeFloat 8 p x
+  atomicAdd p x = primAtomicAddFloat 8 p x
+  atomicCompareSwap p old x = primAtomicCasFloat 8 p old x
 
 instance Eq (Ptr a) where
   p == q = primEqPtr p q

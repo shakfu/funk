@@ -1,0 +1,3 @@
+-- expect: struct `S`: field `name` has type `String`; a field is a C scalar or pointer
+foreign struct S { name :: String }
+main = print S.size

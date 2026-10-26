@@ -1,4 +1,4 @@
--- expect: foreign export `ratio` may allocate or fail, which code called from a foreign thread must not: `div` may fail; divide only by a non-zero literal
+-- expect: foreign export `ratio` is not safe to call from a foreign thread: `div` may fail; divide only by a non-zero literal
 foreign export ccall "fk_ratio" ratio :: CInt -> CInt -> CInt
 ratio :: CInt -> CInt -> CInt
 ratio a b = fromIntegral (div (fromIntegral a) (fromIntegral b :: Int))

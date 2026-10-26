@@ -1,4 +1,4 @@
--- expect: may allocate or fail, which code called from a foreign thread must not: the primitive `primShowInt`
+-- expect: is not safe to call from a foreign thread: the primitive `primShowInt`
 foreign export ccall "fk_digits" digits :: CInt -> CInt
 digits :: CInt -> CInt
 digits n = fromIntegral (length (show (fromIntegral n :: Int)))

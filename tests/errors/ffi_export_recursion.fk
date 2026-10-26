@@ -1,0 +1,5 @@
+-- expect: `depth` recurses other than as a call of itself in tail position
+foreign export ccall "fk_depth" depth :: CInt -> CInt
+depth :: CInt -> CInt
+depth n = if n <= 0 then 0 else 1 + depth (n - 1)
+main = print (depth 3)

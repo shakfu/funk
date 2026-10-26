@@ -1,4 +1,4 @@
--- expect: foreign export `pick` may allocate or fail, which code called from a foreign thread must not: a case that does not cover every value
+-- expect: foreign export `pick` is not safe to call from a foreign thread: a case that does not cover every value
 foreign export ccall "fk_pick" pick :: CInt -> CInt
 pick :: CInt -> CInt
 pick 0 = 10

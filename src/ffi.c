@@ -45,6 +45,8 @@ static const FfiType *ffi_type(Type *t) {
   static const FfiType ptr = {"Ptr", "void *", 'p', (int)sizeof(void *)};
   t = repr(t);
   if (t->k != TY_CON) return NULL;
+  static const FfiType field = {"Field", "int64_t", 'i', 8};
+  if (t->n == 2 && !strcmp(t->name, "Field")) return &field; /* an offset */
   if (t->n == 1 && (!strcmp(t->name, "Ptr") || !strcmp(t->name, "FunPtr") || !strcmp(t->name, "StablePtr") || !strcmp(t->name, "Array") ||
                     !strcmp(t->name, "Ring")))
     return &ptr; /* an Array or Ring passes as its header's address */
@@ -140,8 +142,8 @@ static void trampoline(SB *b, ForeignDecl *f, bool exported) {
     int rk = ffi_kind(r);
     const char *ret = rk == 'v' ? "return;" : "return 0;"; /* C gets 0 while a failure is pending */
     sb_printf(b, "static %s fk_cb_%d(%s) { /* %s */\n  if (!fk_on_funk_thread()) fk_callback_thread(\"%s\");\n  if (fk_cb_failed) %s\n"
-                 "  jmp_buf jb, *saved = fk_error_jmp;\n  if (setjmp(jb)) {\n    fk_error_jmp = saved;\n    fk_cb_failed = 1;\n    %s\n  }\n"
-                 "  fk_error_jmp = &jb;\n  V a[%d] = {%s};\n  V r = fk_apply(fk_stable_deref(ctx), %d, a);\n  fk_error_jmp = saved;\n",
+                 "  jmp_buf jb, *saved = fk_error_jmp;\n  if (setjmp(jb)) {\n    fk_error_jmp = saved;\n    fk_cb_failed = 1;\n    fk_callback_depth--;\n    %s\n  }\n"
+                 "  fk_error_jmp = &jb;\n  fk_callback_depth++;\n  V a[%d] = {%s};\n  V r = fk_apply(fk_stable_deref(ctx), %d, a);\n  fk_callback_depth--;\n  fk_error_jmp = saved;\n",
               rt, id, params.s, f->name, f->name, ret, ret, na, args.s, na);
     if (rk == 'v') sb_puts(b, "  (void)r;\n}\n");
     else sb_printf(b, "  return %s;\n}\n", unbox(r, "r"));
@@ -161,6 +163,11 @@ char *ffi_glue(ForeignDecl **fs, int n, bool exported) {
     bool seen = false;
     for (int j = 0; j < i; j++) seen |= fs[j]->header == fs[i]->header;
     if (!seen && fs[i]->header) sb_printf(&b, "#include <%s>\n", fs[i]->header);
+  }
+  for (int i = 0; i < n; i++) { /* foreign structs: definitions, and checks of header structs; once each */
+    bool seen = false;
+    for (int j = 0; j < i; j++) seen |= fs[j]->cdef == fs[i]->cdef;
+    if (fs[i]->cdef && !seen) sb_puts(&b, fs[i]->cdef);
   }
   sb_puts(&b, "#pragma GCC diagnostic push\n"
               "#pragma GCC diagnostic error \"-Wconversion\"\n"

@@ -1,7 +1,8 @@
 -- A foreign export (realtime.md, R4), called from the test library's own
 -- thread, an audio host, while funk's thread collects garbage. `process`
 -- must compile to code that does not allocate; its state is a counter in C
--- memory, at the context pointer.
+-- memory, at the context pointer. Both threads also add to a shared counter
+-- at the context plus 8, with atomicAdd: no update may be lost.
 foreign export ccall "fk_process" process :: Ptr () -> Ptr CFloat -> CInt ->> ()
 foreign import ccall "fkt.h &fk_process" processPtr :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ())
 foreign import ccall "fkt.h fkt_audio_start" audioStart :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CInt -> CInt ->> CInt
@@ -10,26 +11,34 @@ foreign import ccall "fkt.h fkt_audio_join" audioJoin :: () ->> Float
 sample :: CInt -> CFloat
 sample k = toCFloat (toFloat (mod (fromIntegral k) 100) * 0.5)
 
-fill :: Ptr CFloat -> CInt -> CInt -> CInt ->> ()
-fill buf start i n =
+fill :: Ptr () -> Ptr CFloat -> CInt -> CInt -> CInt ->> ()
+fill ctx buf start i n =
   if i == n then ()
   else do
     pokeByteOff buf (fromIntegral i * 4) (sample (start + i))
-    fill buf start (i + 1) n
+    atomicAdd (plusPtr ctx 8) (1 :: Int)
+    fill ctx buf start (i + 1) n
 
 process :: Ptr () -> Ptr CFloat -> CInt ->> ()
 process ctx buf frames = do
   start <- (peek (castPtr ctx) :: CInt)
-  fill buf start 0 frames
+  fill ctx buf start 0 frames
   poke (castPtr ctx) (start + frames)
 
 churn :: Int -> Int -> Int
 churn k acc = if k == 0 then acc else churn (k - 1) (acc + length (reverse (enumFromTo 1 1000)))
 
+bump :: Ptr () -> Int ->> ()
+bump p k = if k == 0 then () else do
+  atomicAdd (plusPtr p 8) (1 :: Int)
+  bump p (k - 1)
+
 main = do
-  counter <- mallocBytes 4
+  counter <- mallocBytes 16
   poke (castPtr counter) (0 :: CInt)
-  print (audioStart processPtr counter 64 2000)
+  pokeByteOff counter 8 (0 :: Int)
+  print (audioStart processPtr counter 64 20000)
+  bump counter 1280000
   print (churn 3000 0)
   print (audioJoin ())
-  print (peek (castPtr counter) :: CInt)
+  print (peek (castPtr counter) :: CInt, atomicPeek (plusPtr counter 8) :: Int)

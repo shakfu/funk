@@ -1,0 +1,3 @@
+-- expect: struct Timespec: the C field tv_sec is not int
+foreign struct "time.h struct timespec" Timespec { sec "tv_sec" :: CInt }
+main = print (primFieldOffset Timespec.sec)

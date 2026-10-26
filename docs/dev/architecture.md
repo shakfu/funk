@@ -180,7 +180,7 @@ Non-moving conservative mark-sweep:
 
 - Collection runs when allocation since the last GC exceeds max(128 MiB, 2x live bytes). Each collection scans the whole stack, which deep recursion makes large, so fewer collections are faster, at about twice the peak memory of max(32 MiB, live). Allocation pops a free list inline; collection and new chunks are out of line.
 
-- Marking is incremental, snapshot at the beginning ([realtime.md](realtime.md)). A cycle starts with a pause that scans the stack and the roots, then marks in steps of at most 0.4 ms, one per MiB allocated. Objects allocated during a cycle are marked; three writes that overwrite a heap pointer shade the old value first (`FK_SHADE`): a thunk's update, and a reused cell's head and tail.
+- Marking is incremental, snapshot at the beginning ([realtime.md](realtime.md)). A cycle starts with a pause that scans the roots and snapshots the stack, making its older pages read-only so a write copies its page first, then marks in steps of at most 0.4 ms, one per MiB allocated. Objects allocated during a cycle are marked; three writes that overwrite a heap pointer shade the old value first (`FK_SHADE`): a thunk's update, and a reused cell's head and tail.
 
 - Sweeping is lazy. Each size class keeps a list of unswept chunks in address order, and allocation that finds its free list empty sweeps the next one, except while marking. A chunk whose objects were all marked only has its marks cleared. Sweeping finishes, in steps, before the next cycle marks. Large objects are swept when a cycle ends.
 

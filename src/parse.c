@@ -12,7 +12,7 @@
 
 typedef struct { Token *t; int n, pos; } P;
 
-enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY, D_CLASS, D_INST, D_FOREIGN, D_LIBRARY };
+enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY, D_CLASS, D_INST, D_FOREIGN, D_LIBRARY, D_STRUCT };
 typedef struct {
   int k, line, col;
   const char *name;
@@ -27,6 +27,7 @@ typedef struct {
   ClassDecl *cls;
   InstDecl *inst;
   ForeignDecl *ffi; /* D_FOREIGN */
+  StructDecl *st;   /* D_STRUCT */
   const char *lib;  /* D_LIBRARY */
 } Decl;
 typedef VEC(Decl) Decls;
@@ -1140,7 +1141,9 @@ char *builtin_instances_src(void) {
                     "  x * y = toCFloat (fromCFloat x * fromCFloat y)\n  negate x = toCFloat (negate (fromCFloat x))\n"
                     "  abs x = toCFloat (abs (fromCFloat x))\n  fromInt n = toCFloat (toFloat n)\n"
                     "instance Storable %s where\n  sizeOf _ = 4\n  peek p = toCFloat (primPeekFloat 4 p)\n  poke p x = primPokeFloat 4 p (fromCFloat x)\n"
-                    "instance Atomic %s where\n  atomicPeek p = toCFloat (primAtomicPeekFloat 4 p)\n  atomicPoke p x = primAtomicPokeFloat 4 p (fromCFloat x)\n",
+                    "instance Atomic %s where\n  atomicPeek p = toCFloat (primAtomicPeekFloat 4 p)\n  atomicPoke p x = primAtomicPokeFloat 4 p (fromCFloat x)\n"
+                    "  atomicAdd p x = toCFloat (primAtomicAddFloat 4 p (fromCFloat x))\n"
+                    "  atomicCompareSwap p old x = primAtomicCasFloat 4 p (fromCFloat old) (fromCFloat x)\n",
                 t, t, t, t, t, t);
       continue;
     }
@@ -1163,8 +1166,11 @@ char *builtin_instances_src(void) {
     sb_printf(&b, "  fromInt n = primTo%s n\ninstance Integral %s where\n  toInt n = primFrom%s n\n", t, t, t);
     sb_printf(&b, "instance Storable %s where\n  sizeOf _ = %d\n  peek p = primTo%s (primPeekInt (%d) p)\n  poke p x = primPokeInt (%d) p (primFrom%s x)\n", t,
               abs(ffi_types[i].width), t, ffi_types[i].width, ffi_types[i].width, t);
-    sb_printf(&b, "instance Atomic %s where\n  atomicPeek p = primTo%s (primAtomicPeekInt (%d) p)\n  atomicPoke p x = primAtomicPokeInt (%d) p (primFrom%s x)\n",
-              t, t, ffi_types[i].width, ffi_types[i].width, t);
+    int w = ffi_types[i].width;
+    sb_printf(&b, "instance Atomic %s where\n  atomicPeek p = primTo%s (primAtomicPeekInt (%d) p)\n  atomicPoke p x = primAtomicPokeInt (%d) p (primFrom%s x)\n"
+                  "  atomicAdd p x = primTo%s (primAtomicAddInt (%d) p (primFrom%s x))\n"
+                  "  atomicCompareSwap p old x = primAtomicCasInt (%d) p (primFrom%s old) (primFrom%s x)\n",
+              t, t, w, w, t, t, w, t, w, t, t);
   }
   return b.s;
 }
@@ -1252,12 +1258,44 @@ static bool sig_start(P *p) {
 /* `foreign import` or `foreign library`; `foreign` is a keyword only here. */
 static bool foreign_start(Token *t) {
   return t[0].k == T_VARID && !strcmp(t[0].s, "foreign") && t[1].k == T_VARID &&
-         (!strcmp(t[1].s, "import") || !strcmp(t[1].s, "export") || !strcmp(t[1].s, "library"));
+         (!strcmp(t[1].s, "import") || !strcmp(t[1].s, "export") || !strcmp(t[1].s, "library") || !strcmp(t[1].s, "struct"));
 }
 
 static void parse_foreign(P *p, Decl *d) {
   Token *t = next(p); /* foreign */
   const char *what = next(p)->s;
+  if (!strcmp(what, "struct")) {
+    StructDecl *s = NEW(StructDecl);
+    s->line = t->line;
+    s->col = t->col;
+    if (is(p, T_STRING)) { /* "header.h ctype": C's struct, checked against the header */
+      Token *ent = next(p);
+      char *e = xsprintf("%.*s", ent->len, ent->s), *sp = strchr(e, ' ');
+      if (!sp || !sp[1]) cerror(ent->line, ent->col, "a foreign struct names a header and a C type: \"time.h struct timespec\"");
+      *sp = 0;
+      s->header = intern(e);
+      s->ctype = intern(sp + 1);
+    }
+    s->name = expect(p, T_CONID, "the struct's type name")->s;
+    expect(p, T_LBRACE, "`{` and the fields");
+    VEC(StructField) fs = {0};
+    do {
+      StructField f = {expect(p, T_VARID, "a field name")->s, NULL, NULL};
+      if (is(p, T_STRING)) { /* the C member, if not the field's name: "on_message.callback" */
+        Token *c = next(p);
+        f.cpath = intern(xsprintf("%.*s", c->len, c->s));
+      }
+      expect(p, T_DCOLON, NULL);
+      f.type = parse_type(p);
+      VPUSH(fs, f);
+    } while (accept(p, T_COMMA));
+    expect(p, T_RBRACE, "',' or '}'");
+    s->fields = fs.a;
+    s->nf = fs.n;
+    d->k = D_STRUCT;
+    d->st = s;
+    return;
+  }
   if (!strcmp(what, "library")) {
     d->k = D_LIBRARY;
     d->lib = expect(p, T_STRING, "a library name, such as \"sqlite3\"")->s;
@@ -1420,7 +1458,10 @@ static void build_binds(Decls *ds, Binds *out, Datas *datas) {
       i++;
       continue;
     }
-    if (d->k == D_SIG || d->k == D_FIXITY || d->k == D_CLASS || d->k == D_INST || d->k == D_FOREIGN || d->k == D_LIBRARY) { i++; continue; }
+    if (d->k == D_SIG || d->k == D_FIXITY || d->k == D_CLASS || d->k == D_INST || d->k == D_FOREIGN || d->k == D_LIBRARY || d->k == D_STRUCT) {
+      i++;
+      continue;
+    }
     if (d->k == D_PATBIND) {
       const char *tmp = fresh("p");
       VPUSH(*out, mkbind(tmp, rhs_expr(&d->rhs, d->line, d->col), d->line, d->col));
@@ -1519,7 +1560,9 @@ Module *parse_module(const char *src, size_t len) {
   VEC(InstDecl *) is = {0};
   VEC(ForeignDecl *) fs = {0};
   VEC(const char *) libs = {0};
+  VEC(StructDecl *) sts = {0};
   for (int i = 0; i < ds.n; i++) {
+    if (ds.a[i].k == D_STRUCT) VPUSH(sts, ds.a[i].st);
     if (ds.a[i].k == D_CLASS) VPUSH(cs, ds.a[i].cls);
     if (ds.a[i].k == D_INST) VPUSH(is, ds.a[i].inst);
     if (ds.a[i].k == D_FOREIGN) VPUSH(fs, ds.a[i].ffi);
@@ -1529,6 +1572,8 @@ Module *parse_module(const char *src, size_t len) {
   m->nforeign = fs.n;
   m->libs = libs.a;
   m->nlibs = libs.n;
+  m->structs = sts.a;
+  m->nstructs = sts.n;
   m->classes = cs.a;
   m->ncl = cs.n;
   m->insts = is.a;

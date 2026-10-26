@@ -76,6 +76,7 @@ V fk_stable_deref(void *p);
 bool fk_on_funk_thread(void);
 _Noreturn void fk_callback_thread(const char *name);
 extern int fk_cb_failed; /* a direct callback failed; its message is printed */
+extern int fk_callback_depth; /* direct callbacks running, for the collector's stack snapshot */
 _Noreturn void fk_cb_rethrow(void);
 static inline void fk_cb_check(void) { if (fk_cb_failed) fk_cb_rethrow(); }
 /* A slot of the queued-callback ring (realtime.md, R3). The trampoline
@@ -216,6 +217,52 @@ static inline double fk_s_apeekf(int64_t w, void *p) {
   double d;
   memcpy(&d, &b, sizeof d);
   return d;
+}
+/* Atomic read-modify-write, sequentially consistent: the old value. */
+static inline int64_t fk_s_aaddi(int64_t w, void *p, int64_t x) {
+  switch (w) {
+  case 1: return __atomic_fetch_add((int8_t *)p, (int8_t)x, __ATOMIC_SEQ_CST);
+  case -1: return __atomic_fetch_add((uint8_t *)p, (uint8_t)x, __ATOMIC_SEQ_CST);
+  case 2: return __atomic_fetch_add((int16_t *)p, (int16_t)x, __ATOMIC_SEQ_CST);
+  case -2: return __atomic_fetch_add((uint16_t *)p, (uint16_t)x, __ATOMIC_SEQ_CST);
+  case 4: return __atomic_fetch_add((int32_t *)p, (int32_t)x, __ATOMIC_SEQ_CST);
+  case -4: return __atomic_fetch_add((uint32_t *)p, (uint32_t)x, __ATOMIC_SEQ_CST);
+  default: return (int64_t)__atomic_fetch_add((uint64_t *)p, (uint64_t)x, __ATOMIC_SEQ_CST); /* wraps */
+  }
+}
+static inline bool fk_s_acasi(int64_t w, void *p, int64_t old, int64_t x) {
+  switch (w) {
+  case 1: case -1: { uint8_t o = (uint8_t)old; return __atomic_compare_exchange_n((uint8_t *)p, &o, (uint8_t)x, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+  case 2: case -2: { uint16_t o = (uint16_t)old; return __atomic_compare_exchange_n((uint16_t *)p, &o, (uint16_t)x, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+  case 4: case -4: { uint32_t o = (uint32_t)old; return __atomic_compare_exchange_n((uint32_t *)p, &o, (uint32_t)x, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+  default: { uint64_t o = (uint64_t)old; return __atomic_compare_exchange_n((uint64_t *)p, &o, (uint64_t)x, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); }
+  }
+}
+/* Floats: a compare-and-swap on the bits; compare-and-swap compares bits too, so -0.0 is not 0.0 */
+static inline double fk_s_aaddf(int64_t w, void *p, double x) {
+  if (w == 4) {
+    uint32_t o = __atomic_load_n((uint32_t *)p, __ATOMIC_RELAXED), n;
+    float f;
+    do { memcpy(&f, &o, sizeof f); float g = (float)(f + x); memcpy(&n, &g, sizeof n); }
+    while (!__atomic_compare_exchange_n((uint32_t *)p, &o, n, true, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED));
+    return f;
+  }
+  uint64_t o = __atomic_load_n((uint64_t *)p, __ATOMIC_RELAXED), n;
+  double d;
+  do { memcpy(&d, &o, sizeof d); double g = d + x; memcpy(&n, &g, sizeof n); }
+  while (!__atomic_compare_exchange_n((uint64_t *)p, &o, n, true, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED));
+  return d;
+}
+static inline bool fk_s_acasf(int64_t w, void *p, double old, double x) {
+  if (w == 4) {
+    float fo = (float)old, fx = (float)x;
+    uint32_t o, n;
+    memcpy(&o, &fo, sizeof o), memcpy(&n, &fx, sizeof n);
+    return __atomic_compare_exchange_n((uint32_t *)p, &o, n, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+  }
+  uint64_t o, n;
+  memcpy(&o, &old, sizeof o), memcpy(&n, &x, sizeof n);
+  return __atomic_compare_exchange_n((uint64_t *)p, &o, n, false, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
 static inline V fk_s_apokef(int64_t w, void *p, double x) {
   if (w == 4) {

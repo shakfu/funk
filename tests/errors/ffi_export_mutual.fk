@@ -1,0 +1,7 @@
+-- expect: recurses other than as a call of itself in tail position
+foreign export ccall "fk_ping" ping :: CInt -> CInt
+ping :: CInt -> CInt
+ping n = if n <= 0 then 0 else pong (n - 1)
+pong :: CInt -> CInt
+pong n = if n <= 0 then 1 else ping (n - 1)
+main = print (ping 3)

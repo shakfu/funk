@@ -18,7 +18,7 @@
 #   tests/ffi/sqlite.fk    sqlite3, in both backends; skipped without sqlite3.h
 #   the command line       exit status 0 on success, 1 on a failing program, 2 on a usage error
 #   FUNK_GCSTATS=1         gc.fk reports each collection and a summary
-#   FUNK_GCSTRESS=1        gc.fk and gcbarrier.fk, in both backends, under constant
+#   FUNK_GCSTRESS=1        gc.fk, gcbarrier.fk and gcdeep.fk, in both backends, under constant
 #                          incremental collection, which checks every cycle's marks
 cd "$(dirname "$0")/.." || exit 1
 FUNK=${FUNK:-./funk}
@@ -124,7 +124,7 @@ for f in tests/repl/*.in; do
   if diff "tests/repl/$n.expected" "$tmp/$n.repl" >"$tmp/diff" 2>&1; then ok; else bad "$n (repl)" "$tmp/diff"; fi
 done
 
-for n in gc gcbarrier; do
+for n in gc gcbarrier gcdeep; do
   FUNK_GCSTRESS=1 "$FUNK" tests/run/$n.fk >"$tmp/$n.stress" 2>&1
   if diff tests/run/$n.expected "$tmp/$n.stress" >"$tmp/diff" 2>&1; then ok; else bad "$n (interpreter, FUNK_GCSTRESS)" "$tmp/diff"; fi
   FUNK_GCSTRESS=1 "$tmp/$n.exe" >"$tmp/$n.stress" 2>&1

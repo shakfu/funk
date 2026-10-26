@@ -1,4 +1,4 @@
--- expect: foreign export `total` may allocate or fail, which code called from a foreign thread must not: `enumFromTo@Int,Int` returns `[Int]`, a heap value
+-- expect: foreign export `total` is not safe to call from a foreign thread: `enumFromTo@Int,Int` returns `[Int]`, a heap value
 foreign export ccall "fk_total" total :: CInt -> CInt
 total :: CInt -> CInt
 total n = fromIntegral (length (reverse (enumFromTo 1 (fromIntegral n :: Int))))

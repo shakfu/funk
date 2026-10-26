@@ -1,0 +1,3 @@
+-- expect: struct Timespec: the C field tv_nsec is not a pointer
+foreign struct "time.h struct timespec" Timespec { nsec "tv_nsec" :: Ptr () }
+main = print (primFieldOffset Timespec.nsec)

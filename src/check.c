@@ -2299,6 +2299,7 @@ void compiler_init(void) {
   add_tydef(intern("StablePtr"), 1, 0);
   add_tydef(intern("Array"), 1, 0); /* C memory: realtime.md */
   add_tydef(intern("Ring"), 1, 0);
+  add_tydef(intern("Field"), 2, 0); /* Field s a: the offset of an a in a foreign struct s */
   for (int i = 0; i < ffi_ntypes; i++) /* CInt and the other C types */
     if (map_get(&tmap, intern(ffi_types[i].name)) < 0) add_tydef(intern(ffi_types[i].name), 0, 0);
 
@@ -2410,6 +2411,61 @@ static void register_foreigns(Module *m) {
   }
 }
 
+/* foreign struct (realtime.md): an opaque type T, a constant T.f :: Field T a
+   per field, its offset, and T.size :: Int. They are C values, computed by
+   the glue with offsetof and sizeof, so C lays the struct out: the header's
+   struct, whose field types the glue checks, or one the glue defines. */
+static void register_structs(Module *m) {
+  for (int i = 0; i < m->nstructs; i++) {
+    StructDecl *s = m->structs[i];
+    int ti = map_get(&tmap, s->name);
+    if (ti >= 0) cerror(s->line, s->col, "type `%s` is already defined", s->name);
+    VPUSH(tydefs, ((TyDef){s->name, 0, 0}));
+    map_put(&tmap, s->name, tydefs.n - 1);
+    const char *ct = s->ctype ? s->ctype : xsprintf("struct fk_struct_%s", s->name);
+    SB def = {0};
+    VEC(ForeignDecl *) made = {0}; /* each carries the definition: the glue holds only what the program uses */
+    if (!s->ctype) sb_printf(&def, "%s {", ct);
+    Type *st = tcon0(s->name);
+    for (int k = 0; k < s->nf; k++) {
+      StructField *f = &s->fields[k];
+      for (int j = 0; j < k; j++)
+        if (s->fields[j].name == f->name) cerror(s->line, s->col, "struct `%s`: duplicate field `%s`", s->name, f->name);
+      TVars tv = {0};
+      Type *ft = te_type(f->type, &tv, NULL);
+      int kind = ffi_kind(ft);
+      if (!kind || kind == 'v' || kind == 's' || kind == 'L')
+        cerror(s->line, s->col, "struct `%s`: field `%s` has type `%s`; a field is a C scalar or pointer", s->name, f->name, type_str(ft));
+      const char *path = f->cpath ? f->cpath : f->name, *c = ffi_param_type(ft);
+      if (!s->ctype) sb_printf(&def, " %s %s;", c, f->name);
+      else if (kind == 'p') /* any C pointer: the field's own pointer type is the header's */
+        sb_printf(&def, "_Static_assert(__builtin_classify_type(((%s *)0)->%s) == 5 && sizeof(((%s *)0)->%s) == sizeof(void *), "
+                        "\"struct %s: the C field %s is not a pointer\");\n", ct, path, ct, path, s->name, path);
+      else /* the C type, or an enumeration of its size */
+        sb_printf(&def, "_Static_assert(__builtin_types_compatible_p(__typeof__(((%s *)0)->%s), %s) || (__builtin_classify_type(((%s *)0)->%s) == 3 && "
+                        "sizeof(((%s *)0)->%s) == sizeof(%s)), \"struct %s: the C field %s is not %s\");\n",
+                  ct, path, c, ct, path, ct, path, c, s->name, path, c);
+      Type *args[2] = {st, ft};
+      ForeignDecl *d = NEW(ForeignDecl);
+      *d = (ForeignDecl){.name = intern(xsprintf("%s.%s", s->name, f->name)), .header = s->header,
+                         .cname = intern(xsprintf("(int64_t)offsetof(%s, %s)", ct, path)), .line = s->line, .col = s->col, .pure = true};
+      d->gidx = globals.n;
+      add_global(d->name, tcon(intern("Field"), 2, args), NULL);
+      globals.a[d->gidx].ffi = d;
+      VPUSH(made, d);
+    }
+    if (!s->ctype) sb_puts(&def, " };\n");
+    ForeignDecl *z = NEW(ForeignDecl);
+    *z = (ForeignDecl){.name = intern(xsprintf("%s.size", s->name)), .header = s->header, .cname = intern(xsprintf("(int64_t)sizeof(%s)", ct)),
+                       .line = s->line, .col = s->col, .pure = true};
+    z->gidx = globals.n;
+    add_global(z->name, tcon0(s_int), NULL);
+    globals.a[z->gidx].ffi = z;
+    VPUSH(made, z);
+    for (int k = 0; k < made.n; k++) made.a[k]->cdef = def.s;
+  }
+}
+
 /* foreign export ccall "cname" name :: type (realtime.md, R4): name is a
    function of this chunk with that type, whose arguments and result are C
    types. Its compiled code is checked allocation-free after resolve. */
@@ -2444,7 +2500,7 @@ static void check_export_code(Module *m) {
     if (!f->exported) continue;
     const char *why = cgen_alloc_free(globals.a[f->gidx].lam);
     if (why)
-      cerror(f->line, f->col, "foreign export `%s` may allocate or fail, which code called from a foreign thread must not: %s", f->name, why);
+      cerror(f->line, f->col, "foreign export `%s` is not safe to call from a foreign thread: %s", f->name, why);
     VPUSH(ffi_exports, f);
   }
 }
@@ -2479,6 +2535,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   int first_inst;
   register_classes(m, &extra, &raw);
   register_instances(m, &extra, &first_inst);
+  register_structs(m);
   register_foreigns(m);
   for (int i = 0; i < m->nb; i++) VPUSH(extra, m->binds[i]);
   m->binds = extra.a; /* generated bindings first; order within a group follows */

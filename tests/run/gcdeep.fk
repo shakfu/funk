@@ -1,0 +1,20 @@
+-- Collection cycles that start deep in a recursion and continue as it
+-- returns (docs/dev/realtime.md): each frame holds lists of lists across
+-- its recursive call and moves the inner lists into new cells on the way
+-- back, so frames older than a cycle's start are written while it marks.
+-- Under FUNK_GCSTRESS the writes fault on the stack's read-only snapshot
+-- pages; without the copy each fault keeps, inner lists would be lost.
+climb :: Int -> [[Int]]
+climb k =
+  if k == 0 then []
+  else do
+    let here = map (\j -> enumFromTo j (j + 3)) (enumFromTo k (k + mod k 5))
+        below = climb (k - 1)
+        mixed = map (\xs -> reverse xs) here ++ take 2 below
+    mixed
+
+main = do
+  r <- climb 20000
+  print (length r, sum (map sum r))
+  r2 <- climb 15000
+  print (length r2, sum (map sum r2), sum (map sum r))

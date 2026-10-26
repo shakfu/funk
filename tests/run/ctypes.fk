@@ -11,3 +11,9 @@ main = do
   print (alloca (\p -> do { atomicPoke p (toCFloat 0.1); atomicPeek p }), alloca (\p -> do { atomicPoke p (-4611686018427387905 :: Int); atomicPeek p }))
   print (alloca (\p -> do { atomicPoke p 2.5e300; atomicPeek p }), alloca (\p -> do { atomicPoke p (100 :: CChar); atomicPeek p }))
   print (truncateSat 2.9, truncateSat (-2.9), truncateSat 1.0e30, truncateSat (-1.0e30), truncateSat (0.0 / 0.0))
+  -- atomic read-modify-write: the old value, and whether a swap happened
+  print (alloca (\p -> do { atomicPoke p (5 :: CInt); old <- atomicAdd p 3; (old, atomicPeek p) }))
+  print (alloca (\p -> do { atomicPoke p (2147483647 :: CInt); atomicAdd p 1; atomicPeek p }))
+  print (alloca (\p -> do { atomicPoke p (toCFloat 1.5); old <- atomicAdd p (toCFloat 0.25); (old, atomicPeek p) }))
+  print (alloca (\p -> do { atomicPoke p (7 :: Int); a <- atomicCompareSwap p 6 9; b <- atomicCompareSwap p 7 9; (a, b, atomicPeek p) }))
+  print (alloca (\p -> do { atomicPoke p 0.5; a <- atomicCompareSwap p 0.5 2.0; (a, atomicPeek p) }))
