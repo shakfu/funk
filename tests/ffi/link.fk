@@ -1,0 +1,10 @@
+-- Imports from tests/ffi/fkt.h; tests/run.sh passes -I, -L and -lfkt.
+foreign import ccall "fkt.h fkt_scale" scale :: CInt -> CFloat -> CInt
+foreign import ccall "fkt.h fkt_twice" twice :: CSize -> CSize
+foreign import ccall "fkt.h fkt_wrap" wrap :: CUInt -> CUInt
+foreign import ccall "fkt.h FKT_LIMIT" limit :: CUInt
+
+main = do
+  print (scale 7 (toCFloat 1.5))
+  print (twice 21, twice (fromIntegral (-1 :: Int)))
+  print (wrap 4294967295, limit)

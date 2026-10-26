@@ -1,12 +1,8 @@
 /* main.c -- command line driver and REPL. */
 #define _DEFAULT_SOURCE
-#include <spawn.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include "funk.h"
-
-extern char **environ;
 
 #ifndef FUNK_VERSION
 #define FUNK_VERSION "dev" /* CMake defines it from the project version */
@@ -17,7 +13,7 @@ typedef struct {
   int mode;
   const char *file, *out, *expr;
   const char *opt; /* C optimization level for build */
-  VEC(const char *) cc_args; /* -l and -L for build */
+  Strs cc_args; /* -I, -l and -L: for build, and for the interpreter's foreign-import glue */
 } Opts;
 
 static Chunk prelude;
@@ -33,13 +29,20 @@ static _Noreturn void die(const char *fmt, const char *arg) {
 typedef struct { const char *name, *synopsis, *help; } Command;
 
 static const Command commands[] = {
-    {"repl", "repl [FILE]", "Start the REPL, after loading FILE if given. This is the default with no arguments.\n"
-                            "In the REPL, :t EXPR shows a type, :l FILE loads, :{ ... :} is multi-line, :q quits.\n"},
-    {"run", "run FILE", "Interpret FILE and run its `main`. `funk FILE` does the same.\n"},
-    {"build", "build FILE [-o OUT] [-O LEVEL] [-l LIB] [-L DIR]",
+    {"repl", "repl [FILE] [-I DIR] [-l LIB] [-L DIR]", "Start the REPL, after loading FILE if given. This is the default with no arguments.\n"
+                            "In the REPL, :t EXPR shows a type, :l FILE loads, :{ ... :} is multi-line, :q quits.\n"
+                            "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
+                            "  -l LIB    link foreign imports with LIB; repeatable\n"
+                            "  -L DIR    search DIR for libraries; repeatable\n"},
+    {"run", "run FILE [-I DIR] [-l LIB] [-L DIR]", "Interpret FILE and run its `main`. `funk FILE` does the same.\n"
+                                          "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
+                                          "  -l LIB    link foreign imports with LIB; repeatable\n"
+                                          "  -L DIR    search DIR for libraries; repeatable\n"},
+    {"build", "build FILE [-o OUT] [-O LEVEL] [-I DIR] [-l LIB] [-L DIR]",
      "Compile FILE to a native executable with $CC (default cc).\n"
      "  -o OUT    the executable; default FILE without .fk\n"
      "  -O LEVEL  the C optimization level passed to $CC; default 2\n"
+     "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
      "  -l LIB    link with LIB; repeatable\n"
      "  -L DIR    search DIR for libraries; repeatable\n"},
     {"emit-c", "emit-c FILE [-o OUT]", "Write the C program that build compiles, to OUT or standard output.\n"},
@@ -134,26 +137,21 @@ static void write_text(const char *path, const char *text) {
 }
 
 static int run_cc(const char *csrc, const char *exe, Opts *o) {
-  const char *cc = getenv("CC");
-  if (!cc || !*cc) cc = "cc";
-  VEC(char *) argv = {0};
-  char *ccw = strdup(cc);
-  for (char *w = strtok(ccw, " "); w; w = strtok(NULL, " ")) VPUSH(argv, w);
+  Argv argv = cc_argv();
   char *fixed[] = {xsprintf("-O%s", o->opt), "-o", (char *)exe, (char *)csrc, NULL};
   for (int i = 0; fixed[i]; i++) VPUSH(argv, fixed[i]);
   for (int i = 0; i < o->cc_args.n; i++) VPUSH(argv, (char *)o->cc_args.a[i]);
+  for (int i = 0; i < ffi_libs.n; i++) VPUSH(argv, xsprintf("-l%s", ffi_libs.a[i])); /* before -lm, which they may use */
   static const char *const runtime_libs[] = {"-lm", "-lpthread"};
   for (int i = 0; i < 2; i++) {
     bool given = false; /* the linker warns about a library named twice */
     for (int j = 0; j < o->cc_args.n; j++) given |= strcmp(o->cc_args.a[j], runtime_libs[i]) == 0;
+    for (int j = 0; j < ffi_libs.n; j++) given |= strcmp(ffi_libs.a[j], runtime_libs[i] + 2) == 0;
     if (!given) VPUSH(argv, (char *)runtime_libs[i]);
   }
-  VPUSH(argv, NULL);
-  pid_t pid;
-  if (posix_spawnp(&pid, argv.a[0], NULL, NULL, argv.a, environ)) die("cannot run %s", argv.a[0]);
-  int status;
-  waitpid(pid, &status, 0);
-  return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+  int status = spawn_wait(&argv);
+  if (status < 0) die("cannot run %s", argv.a[0]);
+  return status;
 }
 
 static char *default_exe(const char *file) {
@@ -418,7 +416,7 @@ int main(int argc, char **argv) {
       o.mode = M_RUN;
     }
   }
-  bool build = o.mode == M_BUILD, out = build || o.mode == M_EMITC;
+  bool build = o.mode == M_BUILD, out = build || o.mode == M_EMITC, links = build || o.mode == M_RUN || o.mode == M_REPL;
   for (; i < argc; i++) {
     const char *a = argv[i];
     bool more = i + 1 < argc;
@@ -435,7 +433,7 @@ int main(int argc, char **argv) {
       o.opt = a[2] ? a + 2 : more ? argv[++i] : NULL;
       if (!o.opt || strspn(o.opt, "0123sz") != strlen(o.opt) || strlen(o.opt) != 1)
         usage_error(cmd, "`-O` takes one of 0, 1, 2, 3, s, z", NULL);
-    } else if (build && (strncmp(a, "-l", 2) == 0 || strncmp(a, "-L", 2) == 0)) {
+    } else if (links && (strncmp(a, "-l", 2) == 0 || strncmp(a, "-L", 2) == 0 || strncmp(a, "-I", 2) == 0)) {
       if (!a[2] && !more) usage_error(cmd, "`%s` needs an argument", a);
       VPUSH(o.cc_args, a[2] ? a : xsprintf("%s%s", a, argv[++i]));
     } else if (a[0] == '-' && a[1]) {
@@ -449,5 +447,6 @@ int main(int argc, char **argv) {
   if (o.mode == M_EVAL && !o.expr) usage_error(cmd, "missing EXPR", NULL);
   if (o.mode != M_REPL && o.mode != M_EVAL && !o.file) usage_error(cmd, "missing FILE", NULL);
   if (o.file && access(o.file, R_OK) != 0) die("cannot read %s", o.file);
+  if (!build) ffi_cc_args = o.cc_args;
   return fk_run(task, &o);
 }

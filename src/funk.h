@@ -25,6 +25,10 @@ char *read_file(const char *path, size_t *len);
 #define NEW(T) ((T *)xcalloc(1, sizeof(T)))
 
 #define VEC(T) struct { T *a; int n, cap; }
+typedef VEC(char *) Argv;
+typedef VEC(const char *) Strs;
+Argv cc_argv(void);      /* the words of $CC, or `cc` */
+int spawn_wait(Argv *a); /* runs a, which it NULL-terminates; the exit status, or -1 */
 #define VPUSH(v, x)                                                     \
   do {                                                                  \
     if ((v).n == (v).cap) {                                             \
@@ -243,6 +247,16 @@ typedef struct {
   int line, col;
 } InstDecl;
 
+/* foreign import ccall "header.h cname" name :: type (ffi.md) */
+typedef struct {
+  const char *name, *header, *cname;
+  Sig *sig;
+  int line, col;
+  int gidx, arity;
+  bool pure;   /* written with `->` only */
+  FkCode code; /* interpreter: the loaded glue's entry */
+} ForeignDecl;
+
 typedef struct {
   Bind **binds;
   int nb;
@@ -252,6 +266,10 @@ typedef struct {
   int ncl;
   InstDecl **insts;
   int ni;
+  ForeignDecl **foreigns;
+  int nforeign;
+  const char **libs; /* foreign library "name" */
+  int nlibs;
 } Module;
 
 Module *parse_module(const char *src, size_t len);
@@ -285,6 +303,7 @@ typedef struct {
   const char *spec; /* prelude overload with primitives primSPECInt etc. */
   Bind *bind;       /* top-level binding, for specialization */
   int mcls, midx;   /* class method: class and method index, else -1 */
+  ForeignDecl *ffi; /* a foreign import */
 } Global;
 
 typedef struct { const char *name; int arity; Type *scheme; int tydef; const char **labels; } ConDef;
@@ -317,6 +336,8 @@ typedef struct {
 
 /* Dictionaries, selectors: bindings built after inference. */
 typedef struct { Group *groups; int ng; Bind **raw; int nraw; } Chunk;
+extern Strs ffi_libs;    /* libraries named by `foreign library`, in all chunks so far */
+extern Strs ffi_cc_args; /* -I, -l and -L given to funk run or repl */
 
 extern VEC(Global) globals;
 extern VEC(ConDef) condefs;
@@ -363,6 +384,16 @@ V interp_global(int gidx);
 char *cgen_program(Chunk *chunks, int nchunks);
 
 extern const char fk_rt_src[];
+extern const char fk_rth_src[]; /* rt.h, for the interpreter's foreign glue */
+
+/* ffi.c: foreign imports */
+char *ffi_glue(ForeignDecl **fs, int n, bool exported); /* the C wrappers fk_ffi_GIDX */
+const char *ffi_param_type(Type *t);                    /* NULL if t cannot be passed to C */
+int ffi_kind(Type *t);                                  /* 'i' held as Int, 'f' as Float, 'c', 'b', 'v' (); 0 */
+typedef struct { const char *name, *ctype; char kind; } FfiType;
+extern const FfiType ffi_types[];
+extern const int ffi_ntypes;
+void ffi_load(ForeignDecl **fs, int n);                 /* interpreter: compile, cache, load; sets each code */
 extern const char fk_prelude_src[];
 
 #endif

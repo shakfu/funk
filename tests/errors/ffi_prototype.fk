@@ -1,0 +1,3 @@
+-- expect: foreign import c_abs :: Int -> Int needs function `abs` to have the C type int64_t (int64_t)
+foreign import ccall "stdlib.h abs" c_abs :: Int -> Int
+main = print (c_abs 3)

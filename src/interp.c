@@ -158,9 +158,15 @@ void interp_install(Chunk *c) {
     if (!capgvals) fk_add_roots(&gvals, &ngvals);
     capgvals = ncap;
   }
-  for (size_t i = ngvals; i < (size_t)globals.n; i++)
+  VEC(ForeignDecl *) fs = {0};
+  for (size_t i = ngvals; i < (size_t)globals.n; i++) {
     if (globals.a[i].prim >= 0) gvals[i] = fk_prim_value(globals.a[i].prim);
-  ngvals = (size_t)globals.n;
+    if (globals.a[i].ffi) VPUSH(fs, globals.a[i].ffi);
+  }
+  ngvals = (size_t)globals.n; /* if loading fails, the imports stay undefined */
+  ffi_load(fs.a, fs.n);
+  for (int i = 0; i < fs.n; i++) /* arity 0: a C value, read once */
+    gvals[fs.a[i]->gidx] = fs.a[i]->arity ? fk_closure(fs.a[i]->code, fs.a[i]->arity, 0, NULL) : fs.a[i]->code(0, NULL);
   /* Functions first, then dictionaries, which refer to them, then values,
      which may use dictionaries. Creating a closure runs no code. */
   for (int i = 0; i < c->nraw; i++)

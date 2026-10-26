@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Foreign imports, phase 1 of [docs/dev/ffi.md](docs/dev/ffi.md): `foreign import ccall "math.h cbrt" cbrt :: Float -> Float` calls a C function, and `foreign library "name"` links `-lname`. Arguments and results are `Int`, `Float`, `Char`, `Bool`, `()` and the C types below; `->>` marks an import that acts. An import of a non-function type reads a C value once (`"math.h M_PI"`). Compiled code calls the C function directly, as fast as a primitive. The interpreter compiles the same glue with `$CC` into a shared library, cached by its hash in `$XDG_CACHE_HOME/funk/ffi`, and loads it: about 90 ms the first time, nothing after. Compiled glue, over libffi in the interpreter, lets imports call macros and `static inline` functions, and keeps both backends' conversions identical. `funk run` and `repl` take `-I`, `-L` and `-l` for the glue, and `build` takes `-I`.
+- The declared type of an import must be the C prototype's, checked by the C compiler: `abs :: Int -> Int` is an error, since `abs` takes an `int`. Without the check, C converts an argument of the wrong width silently. Function-like macros are not checked.
+- `CInt`, `CUInt`, `CLong`, `CULong`, `CLLong`, `CSize` and `CFloat`, C's scalar types, with `Eq`, `Ord`, `Show` and `Num` instances whose arithmetic wraps to the C width. `CULong` and `CSize` compare and show unsigned. A new class `Integral`, with `toInt`, and `fromIntegral :: (Integral a, Num b) => a -> b` convert between integer types; `toCFloat` and `fromCFloat` between `Float` and `CFloat`. These names are now reserved. Real types, over names that mean a range-checked `Int` in foreign signatures only, keep Haskell bindings close to their source and give C's wrapping arithmetic.
+
 ## [0.3.0] - 2026-10-26
 
 ### Changed

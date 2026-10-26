@@ -1,0 +1,3 @@
+-- expect: foreign import `f`: an argument of type `[Int]` cannot be passed to C
+foreign import ccall "stdlib.h f" f :: [Int] -> Int
+main = print 1

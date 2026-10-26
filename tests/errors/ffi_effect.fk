@@ -1,0 +1,5 @@
+-- expect: in `seed`: declared with `->` but calls an effectful function
+foreign import ccall "stdlib.h srand" c_srand :: Int ->> ()
+seed :: Int -> ()
+seed n = c_srand n
+main = seed 1

@@ -27,12 +27,13 @@ Both backends link the same runtime, `rt.c`.
 | `src/resolve.c` | 158 | closure conversion |
 | `src/interp.c` | 173 | interpreter |
 | `src/cgen.c` | 321 | C generator |
+| `src/ffi.c` | 122 | foreign-import glue; the interpreter's compile, cache and load |
 | `src/rt.c`, `rt.h` | 898 | values, GC, apply, `show`, compare, primitives |
 | `src/prims.def` | 64 | primitive table: C name, funk name, arity, type |
 | `src/main.c` | 323 | CLI, REPL, `cc` invocation |
 | `src/util.c`, `funk.h` | 549 | allocation, interning, maps with undo, AST types |
 | `lib/prelude.fk` | 274 | standard functions in funk |
-| `tools/embed.c` | 45 | embeds `rt.c` and the prelude into the binary |
+| `tools/embed.c` | 45 | embeds `rt.c`, `rt.h` and the prelude into the binary |
 | `CMakeLists.txt` | 50 | the build; `Makefile` is a frontend to it |
 
 ## Lexing and layout (`lex.c`)

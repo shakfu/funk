@@ -1,0 +1,3 @@
+-- expect: a foreign import names a header and a C function: "math.h sin"
+foreign import ccall "sin" c_sin :: Float -> Float
+main = print 1

@@ -1,7 +1,12 @@
+#define _DEFAULT_SOURCE
+#include <spawn.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <sys/wait.h>
 
 #include "funk.h"
+
+extern char **environ;
 
 void *xmalloc(size_t n) {
   void *p = malloc(n ? n : 1);
@@ -200,4 +205,20 @@ void cwarning(int line, int col, const char *fmt, ...) {
   vfprintf(stderr, fmt, ap);
   va_end(ap);
   fputc('\n', stderr);
+}
+
+Argv cc_argv(void) {
+  const char *cc = getenv("CC");
+  Argv a = {0};
+  for (char *w = strtok(xsprintf("%s", cc && *cc ? cc : "cc"), " "); w; w = strtok(NULL, " ")) VPUSH(a, w);
+  return a;
+}
+
+int spawn_wait(Argv *a) {
+  VPUSH(*a, NULL);
+  pid_t pid;
+  if (posix_spawnp(&pid, a->a[0], NULL, NULL, a->a, environ)) return -1;
+  int status;
+  waitpid(pid, &status, 0);
+  return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }

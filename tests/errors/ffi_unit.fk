@@ -1,0 +1,3 @@
+-- expect: foreign import `g`: `()` can only be the one argument
+foreign import ccall "stdlib.h g" g :: Int -> () -> Int
+main = print 1

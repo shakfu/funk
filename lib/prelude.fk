@@ -32,6 +32,10 @@ class Num a where
   negate, abs :: a -> a
   fromInt :: Int -> a
 
+-- Int, and the C integer types of foreign imports (CInt, CSize, ...)
+class Num a => Integral a where
+  toInt :: a -> Int
+
 data Maybe a = Nothing | Just a deriving (Eq, Ord, Show)
 data Either a b = Left a | Right b deriving (Eq, Ord, Show)
 data Ordering = LT | EQ | GT deriving (Eq, Ord, Show)
@@ -52,6 +56,8 @@ instance Num Int where
   negate = primNegateInt
   abs = primAbsInt
   fromInt n = n
+instance Integral Int where
+  toInt n = n
 
 instance Eq Float where
   (==) = primEqFloat
@@ -156,6 +162,10 @@ min a b = if a <= b then a else b
 max a b = if a >= b then a else b
 
 -- numbers
+
+-- conversion between integer types; out-of-range values wrap, as in C
+fromIntegral :: (Integral a, Num b) => a -> b
+fromIntegral x = fromInt (toInt x)
 
 subtract x y = y - x
 even n = mod n 2 == 0

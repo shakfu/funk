@@ -463,15 +463,16 @@ char *fk_cstring(V s, size_t *len) {
 static bool is_float(V v) { return FK_ISPTR(v) && FK_HDR(v)->kind == K_FLOAT; }
 
 /* Haskell's format: shortest round-trip digits, fixed notation for
-   0.1 <= |d| < 10^7, otherwise d.ddde<exp>. */
-static void show_double(Buf *b, double d) {
+   0.1 <= |d| < 10^7, otherwise d.ddde<exp>. single: digits that round-trip
+   as a float, for CFloat. */
+static void show_digits(Buf *b, double d, bool single) {
   if (isnan(d)) { buf_puts(b, "NaN"); return; }
   if (isinf(d)) { buf_puts(b, d < 0 ? "-Infinity" : "Infinity"); return; }
   if (d == 0) { buf_puts(b, signbit(d) ? "-0.0" : "0.0"); return; }
   char tmp[64];
   for (int p = 1; p <= 17; p++) {
     snprintf(tmp, sizeof tmp, "%.*e", p - 1, d);
-    if (strtod(tmp, NULL) == d) break;
+    if (single ? (float)strtod(tmp, NULL) == (float)d : strtod(tmp, NULL) == d) break;
   }
   char *s = tmp, digits[32];
   int nd = 0;
@@ -517,7 +518,7 @@ static void show_char_esc(Buf *b, int c, char quote) {
 static void show_float(Buf *b, double d, int prec) {
   bool paren = prec > 6 && (d < 0 || signbit(d));
   if (paren) buf_putc(b, '(');
-  show_double(b, d);
+  show_digits(b, d, false);
   if (paren) buf_putc(b, ')');
 }
 
@@ -786,6 +787,32 @@ V fk_p_print(V self, V *a) {
   puts(s);
   free(s);
   return fk_unit;
+}
+
+/* The C types of foreign imports (ffi.md) are held as Int or Float words,
+   wrapped to their width. */
+V fk_p_idi(V self, V *a) { return a[0]; }
+V fk_p_idf(V self, V *a) { return a[0]; }
+V fk_p_tocint(V self, V *a) { return FK_MKINT((int32_t)(uint32_t)FK_INT(a[0])); }
+V fk_p_tocuint(V self, V *a) { return FK_MKINT((uint32_t)FK_INT(a[0])); }
+V fk_p_toclong(V self, V *a) { return FK_MKINT((long)FK_INT(a[0])); }
+V fk_p_toculong(V self, V *a) { return FK_MKINT((int64_t)(unsigned long)FK_INT(a[0])); }
+V fk_p_tocsize(V self, V *a) { return FK_MKINT((int64_t)(size_t)FK_INT(a[0])); }
+V fk_p_tocfloat(V self, V *a) { return fk_float((float)FK_FLOATV(a[0])); }
+V fk_p_ltu(V self, V *a) { return FK_BOOL((uint64_t)FK_INT(a[0]) < (uint64_t)FK_INT(a[1])); }
+
+V fk_p_showu(V self, V *a) {
+  char tmp[24];
+  snprintf(tmp, sizeof tmp, "%llu", (unsigned long long)(uint64_t)FK_INT(a[0]));
+  return fk_str(tmp, strlen(tmp));
+}
+
+V fk_p_showcf(V self, V *a) {
+  Buf b = {0};
+  show_digits(&b, FK_FLOATV(a[0]), true);
+  V r = fk_str(b.s, b.n);
+  free(b.s);
+  return r;
 }
 
 /* show for a String, and for a [Char], which shows as one: quoted, escaped. */

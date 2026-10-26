@@ -72,6 +72,8 @@ The items that do not touch laziness, roughly by value per unit of work. Sizes a
 | `Integral`, `Fractional`, `fromIntegral`, `read` | numeric classes beside `Num`, and a `Read` class or a fixed `read` at known types | 300 lines, and a design note |
 | Modules and `import` | already on the roadmap ([roadmap.md](roadmap.md)); needs its own design note | large |
 
+Since this survey, foreign imports added `fromIntegral` and an `Integral` class whose one method is `toInt`, not Haskell's `toInteger` and division methods ([ffi.md](ffi.md#implementation-phase-1)). Haskell's `Integral` would extend that class.
+
 Two items are decisions taken in 0.2 and kept deliberately, not gaps to close: packed `String` ([strings.md](strings.md)) and fields scoped to their type ([records.md](records.md)). Undoing either for compatibility would cost speed or the field design.
 
 ## Questions

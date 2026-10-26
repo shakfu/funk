@@ -8,11 +8,13 @@
 #   tests/errors/NAME.fk   must exit non-zero; stderr must contain the text
 #                          after "-- expect: " on line 1
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
+#   tests/ffi/link.fk      foreign imports from a library found with -I, -L and -l
 #   the command line       exit status 0 on success, 1 on a failing program, 2 on a usage error
 cd "$(dirname "$0")/.." || exit 1
 FUNK=${FUNK:-./funk}
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
+export XDG_CACHE_HOME="$tmp/cache" # foreign-import glue, compiled afresh
 pass=0
 fail=0
 
@@ -58,6 +60,18 @@ for f in tests/errors/*.fk; do
     bad "$n" "$tmp/out"
   fi
 done
+
+if cc -fPIC -c tests/ffi/fkt.c -o "$tmp/fkt.o" && ar rcs "$tmp/libfkt.a" "$tmp/fkt.o"; then
+  link="-I tests/ffi -L $tmp -lfkt"
+  # shellcheck disable=SC2086
+  "$FUNK" run tests/ffi/link.fk $link >"$tmp/link.out" 2>&1
+  if diff tests/ffi/link.expected "$tmp/link.out" >"$tmp/diff" 2>&1; then ok; else bad "link (interpreter)" "$tmp/diff"; fi
+  # shellcheck disable=SC2086
+  if "$FUNK" build tests/ffi/link.fk -o "$tmp/link" $link >"$tmp/cc" 2>&1 && "$tmp/link" >"$tmp/link.out" 2>&1 &&
+    diff tests/ffi/link.expected "$tmp/link.out" >"$tmp/diff" 2>&1; then ok; else bad "link (compiled)" "$tmp/diff"; fi
+else
+  bad "link (test library)"
+fi
 
 for f in tests/repl/*.in; do
   n=$(basename "$f" .in)

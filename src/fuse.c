@@ -68,6 +68,7 @@ static bool partial_prim(const char *n) {
 static bool gval_ok(int g, bool tot) {
   if (g < 0) return false;
   if (globals.a[g].prim >= 0) return tot ? !partial_prim(globals.a[g].name) : !impure_prim(globals.a[g].name);
+  if (globals.a[g].ffi) return !tot && globals.a[g].ffi->pure; /* C may fail in ways funk cannot see */
   Bind *b = globals.a[g].bind;
   if (!b) return !globals.a[g].lam; /* a value, evaluated at startup, or an unanalyzed function */
   if (b->e->k != E_LAM) return true;
@@ -114,6 +115,7 @@ static bool ok_e(Expr *e, Nm *loc, Nm *call, bool tot) {
       if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
       return !partial_prim(n);
     }
+    if (globals.a[g].ffi) return e->n <= globals.a[g].ffi->arity && gval_ok(g, tot);
     Bind *b = gbind(g);
     if (!b || e->n > b->e->lam->n) return false;
     return tot ? b->total : b->pure;

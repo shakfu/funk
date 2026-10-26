@@ -1,0 +1,8 @@
+-- The C types of foreign imports: arithmetic wraps to the C width; CSize and
+-- CULong compare and show unsigned; CFloat shows float digits.
+main = do
+  print (fromIntegral (-1 :: Int) :: CUInt, fromIntegral (-1 :: Int) :: CSize, fromIntegral (-1 :: Int) :: CULong)
+  print ((0 :: CSize) - 1 > 5, (0 :: CInt) - 1 < 5, (2147483647 :: CInt) + 1)
+  print (toCFloat 0.1, fromCFloat (toCFloat 0.1), toCFloat 0.1 * 3, negate (toCFloat 2.5))
+  print (map (\x -> x * x) [1, 2, 3 :: CLong], sum [1, 2, 3 :: CUInt], abs (-4 :: CInt))
+  print (show (Just (-3 :: CInt)), toInt (7 :: CSize) + 1, fromIntegral (65 :: CInt) == (65 :: Int))

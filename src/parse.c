@@ -12,7 +12,7 @@
 
 typedef struct { Token *t; int n, pos; } P;
 
-enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY, D_CLASS, D_INST };
+enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY, D_CLASS, D_INST, D_FOREIGN, D_LIBRARY };
 typedef struct {
   int k, line, col;
   const char *name;
@@ -26,6 +26,8 @@ typedef struct {
   DataDecl *data;
   ClassDecl *cls;
   InstDecl *inst;
+  ForeignDecl *ffi; /* D_FOREIGN */
+  const char *lib;  /* D_LIBRARY */
 } Decl;
 typedef VEC(Decl) Decls;
 typedef VEC(Bind *) Binds;
@@ -1124,6 +1126,39 @@ char *builtin_instances_src(void) {
       sb_puts(&b, "\n");
     }
   }
+  /* The C types of foreign imports, held as Int or Float words that their
+     arithmetic wraps to width. CULong and CSize compare and show unsigned. */
+  for (int i = 0; i < ffi_ntypes; i++) {
+    const char *t = ffi_types[i].name;
+    if (t[0] != 'C' || !strcmp(t, "Char")) continue;
+    if (ffi_types[i].kind == 'f') {
+      sb_printf(&b, "instance Eq %s where\n  x == y = fromCFloat x == fromCFloat y\n  x /= y = fromCFloat x /= fromCFloat y\n"
+                    "instance Ord %s where\n  compare x y = compare (fromCFloat x) (fromCFloat y)\n"
+                    "instance Show %s where\n  showPrec d x = if d > 6 && fromCFloat x < 0.0 then \"(\" ++ primShowCFloat x ++ \")\" else primShowCFloat x\n"
+                    "instance Num %s where\n  x + y = toCFloat (fromCFloat x + fromCFloat y)\n  x - y = toCFloat (fromCFloat x - fromCFloat y)\n"
+                    "  x * y = toCFloat (fromCFloat x * fromCFloat y)\n  negate x = toCFloat (negate (fromCFloat x))\n"
+                    "  abs x = toCFloat (abs (fromCFloat x))\n  fromInt n = toCFloat (toFloat n)\n",
+                t, t, t, t);
+      continue;
+    }
+    bool word = !strcmp(t, "CULong") || !strcmp(t, "CSize"), sign = t[1] != 'U' && !word;
+    sb_printf(&b, "instance Eq %s where\n  x == y = primEqInt (primFrom%s x) (primFrom%s y)\n  x /= y = primNeInt (primFrom%s x) (primFrom%s y)\n", t, t, t, t, t);
+    if (word)
+      sb_printf(&b, "instance Ord %s where\n  compare x y = if primLtWord (primFrom%s x) (primFrom%s y) then LT else if x == y then EQ else GT\n"
+                    "instance Show %s where\n  showPrec _ x = primShowWord (primFrom%s x)\n", t, t, t, t, t);
+    else
+      sb_printf(&b, "instance Ord %s where\n  compare x y = compare (primFrom%s x) (primFrom%s y)\n"
+                    "instance Show %s where\n  showPrec d x = showPrec d (primFrom%s x)\n", t, t, t, t, t);
+    sb_printf(&b, "instance Num %s where\n", t);
+    for (int k = 0; k < 3; k++) {
+      const char *op = (const char *[]){"+", "-", "*"}[k];
+      sb_printf(&b, "  x %s y = primTo%s (primFrom%s x %s primFrom%s y)\n", op, t, t, op, t);
+    }
+    sb_printf(&b, "  negate x = primTo%s (negate (primFrom%s x))\n", t, t);
+    if (sign) sb_printf(&b, "  abs x = primTo%s (abs (primFrom%s x))\n", t, t);
+    else sb_puts(&b, "  abs x = x\n");
+    sb_printf(&b, "  fromInt = primTo%s\ninstance Integral %s where\n  toInt = primFrom%s\n", t, t, t);
+  }
   return b.s;
 }
 
@@ -1207,11 +1242,48 @@ static bool sig_start(P *p) {
   }
 }
 
+/* `foreign import` or `foreign library`; `foreign` is a keyword only here. */
+static bool foreign_start(Token *t) {
+  return t[0].k == T_VARID && !strcmp(t[0].s, "foreign") && t[1].k == T_VARID &&
+         (!strcmp(t[1].s, "import") || !strcmp(t[1].s, "library"));
+}
+
+static void parse_foreign(P *p, Decl *d) {
+  Token *t = next(p); /* foreign */
+  if (!strcmp(next(p)->s, "library")) {
+    d->k = D_LIBRARY;
+    d->lib = expect(p, T_STRING, "a library name, such as \"sqlite3\"")->s;
+    return;
+  }
+  Token *conv = expect(p, T_VARID, "a calling convention, `ccall`");
+  if (strcmp(conv->s, "ccall") != 0) cerror(conv->line, conv->col, "unknown calling convention `%s`; funk has `ccall`", conv->s);
+  Token *ent = expect(p, T_STRING, "\"header.h name\"");
+  ForeignDecl *f = NEW(ForeignDecl);
+  f->line = t->line;
+  f->col = t->col;
+  char *s = xsprintf("%.*s", ent->len, ent->s), *sp = strchr(s, ' ');
+  if (!sp || !sp[1] || strchr(sp + 1, ' '))
+    cerror(ent->line, ent->col, "a foreign import names a header and a C function: \"math.h sin\"");
+  *sp = 0;
+  f->header = intern(s);
+  f->cname = intern(sp + 1);
+  f->name = expect(p, T_VARID, "the funk name of the import")->s;
+  expect(p, T_DCOLON, NULL);
+  f->sig = parse_sig(p);
+  d->k = D_FOREIGN;
+  d->ffi = f;
+}
+
 static void parse_decl(P *p, Decls *out, bool top) {
   Token *t = cur(p);
   Decl d = {0};
   d.line = t->line;
   d.col = t->col;
+  if (top && foreign_start(t)) {
+    parse_foreign(p, &d);
+    VPUSH(*out, d);
+    return;
+  }
   if (t->k == T_DATA) {
     if (!top) cerror(t->line, t->col, "data declarations are only allowed at top level");
     d.k = D_DATA;
@@ -1326,7 +1398,7 @@ static void build_binds(Decls *ds, Binds *out, Datas *datas) {
       i++;
       continue;
     }
-    if (d->k == D_SIG || d->k == D_FIXITY || d->k == D_CLASS || d->k == D_INST) { i++; continue; }
+    if (d->k == D_SIG || d->k == D_FIXITY || d->k == D_CLASS || d->k == D_INST || d->k == D_FOREIGN || d->k == D_LIBRARY) { i++; continue; }
     if (d->k == D_PATBIND) {
       const char *tmp = fresh("p");
       VPUSH(*out, mkbind(tmp, rhs_expr(&d->rhs, d->line, d->col), d->line, d->col));
@@ -1423,10 +1495,18 @@ Module *parse_module(const char *src, size_t len) {
   m->nd = datas.n;
   VEC(ClassDecl *) cs = {0};
   VEC(InstDecl *) is = {0};
+  VEC(ForeignDecl *) fs = {0};
+  VEC(const char *) libs = {0};
   for (int i = 0; i < ds.n; i++) {
     if (ds.a[i].k == D_CLASS) VPUSH(cs, ds.a[i].cls);
     if (ds.a[i].k == D_INST) VPUSH(is, ds.a[i].inst);
+    if (ds.a[i].k == D_FOREIGN) VPUSH(fs, ds.a[i].ffi);
+    if (ds.a[i].k == D_LIBRARY) VPUSH(libs, ds.a[i].lib);
   }
+  m->foreigns = fs.a;
+  m->nforeign = fs.n;
+  m->libs = libs.a;
+  m->nlibs = libs.n;
   m->classes = cs.a;
   m->ncl = cs.n;
   m->insts = is.a;
@@ -1454,7 +1534,7 @@ Sig *parse_sig_text(const char *src) {
 bool is_decl_text(const char *src, size_t len) {
   int n;
   Token *t = lex(src, len, &n);
-  if (t[0].k == T_DATA || t[0].k == T_CLASS || t[0].k == T_INSTANCE || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || sig_start(&(P){t, n, 0}))
+  if (t[0].k == T_DATA || t[0].k == T_CLASS || t[0].k == T_INSTANCE || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || (n > 1 && foreign_start(t)) || sig_start(&(P){t, n, 0}))
     return true;
   int depth = 0;
   for (int i = 0; i < n; i++) {

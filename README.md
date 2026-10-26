@@ -44,7 +44,7 @@ funk                          # REPL
 funk repl prog.fk             # REPL, after loading prog.fk
 funk prog.fk                  # interpret (same as: funk run prog.fk)
 funk build prog.fk -o prog    # native executable via $CC (default cc)
-funk build prog.fk -O3 -lsqlite3   # C optimization level; libraries to link
+funk build prog.fk -O3 -lsqlite3   # C optimization level; libraries to link (-I, -L, -l)
 funk emit-c prog.fk -o prog.c # the generated C
 funk check prog.fk            # type-check only, for editors
 funk -e 'sum [1..10]'         # evaluate an expression (same as: funk eval EXPR)
@@ -114,6 +114,19 @@ Other built-in operators have Haskell's fixities. User-defined operators default
 infixr 5 +++
 infixl 7 `times`
 ```
+
+C functions are called through foreign imports, with Haskell's syntax. The entity string names the header and the C function; the funk type picks the conversions. `->>` marks an import that acts; `->` is the importer's promise that it does not:
+
+```haskell
+foreign library "m"   -- links -lm; the interpreter loads it too
+foreign import ccall "math.h cbrt" cbrt :: Float -> Float
+foreign import ccall "stdlib.h srand" srand :: CUInt ->> ()
+foreign import ccall "math.h M_PI" piC :: Float   -- a C value, read once at startup
+```
+
+The declared type must be the C prototype's, or the program does not compile. `Int` is `int64_t`, `Float` is `double`, `Char` is `char` and `Bool` is `bool`. `CInt`, `CUInt`, `CLong`, `CULong`, `CLLong`, `CSize` and `CFloat` are C's `int`, `unsigned`, `long`, `unsigned long`, `long long`, `size_t` and `float`. Their arithmetic wraps to the C width, and `fromIntegral` converts between integer types (`toCFloat` and `fromCFloat` for `CFloat`). A result may be `()`, and `()` alone as the argument calls a C function without parameters. A C function-like macro is called but not checked.
+
+Compiled code calls the C function directly. The interpreter compiles the same glue with `$CC` once and caches it in `$XDG_CACHE_HOME/funk/ffi` (default `~/.cache/funk/ffi`). `funk run`, `repl` and `build` take `-I`, `-L` and `-l` for headers and libraries outside the default paths. See [docs/dev/ffi.md](docs/dev/ffi.md).
 
 Not supported:
 

@@ -1,0 +1,41 @@
+-- Foreign imports (ffi.md, phase 1): scalar conversions, checked against
+-- the primitives that compute the same functions. Each type must be the C
+-- prototype's: ilogb returns an int, so its result is CInt.
+foreign library "m"
+
+foreign import ccall "math.h sin" c_sin :: Float -> Float
+foreign import ccall "math.h pow" c_pow :: Float -> Float -> Float
+foreign import ccall "math.h floor" c_floor :: Float -> Float
+foreign import ccall "math.h ilogb" c_ilogb :: Float -> CInt
+foreign import ccall "math.h sinf" c_sinf :: CFloat -> CFloat
+foreign import ccall "stdlib.h llabs" c_llabs :: CLLong -> CLLong
+foreign import ccall "stdlib.h abs" c_abs :: CInt -> CInt
+foreign import ccall "ctype.h toupper" c_toupper :: CInt -> CInt
+foreign import ccall "ctype.h isdigit" c_isdigit :: CInt -> CInt
+foreign import ccall "stdlib.h rand" c_rand :: () ->> CInt
+foreign import ccall "stdlib.h srand" c_srand :: CUInt ->> ()
+foreign import ccall "math.h M_PI" c_pi :: Float
+foreign import ccall "limits.h INT_MAX" c_intMax :: CInt
+
+upper :: Char -> Char
+upper c = chr (fromIntegral (c_toupper (fromIntegral (ord c))))
+
+digit :: Char -> Bool
+digit c = c_isdigit (fromIntegral (ord c)) /= 0
+
+xs = [0.0, 0.5, -1.25, 3.0]
+
+main = do
+  print (map c_sin xs == map sin xs)
+  print (map (c_pow 2.0) xs == map (\x -> 2.0 ** x) xs)
+  print (map c_floor xs == map (\x -> toFloat (floor x)) xs)
+  print (c_ilogb 1024.0, c_llabs (-7), c_abs (-7))
+  -- an Int beyond 63 bits, boxed, in both directions
+  print (c_llabs (-4611686018427387905))
+  print (upper 'q', digit '7', digit 'x')
+  print (c_sinf (toCFloat 0.5), c_pi, c_intMax, c_intMax + 1)
+  -- `->>` imports act in order
+  c_srand 1
+  let a = c_rand ()
+  c_srand 1
+  print (a == c_rand ())

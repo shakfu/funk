@@ -1,0 +1,3 @@
+-- expect: `sin` is defined in the prelude and cannot be redefined
+foreign import ccall "math.h sin" sin :: Float -> Float
+main = print 1

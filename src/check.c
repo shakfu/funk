@@ -542,7 +542,6 @@ static void gen(Type *t, bool mr) {
 
 /* --------------------------------------------------------- type syntax */
 
-typedef VEC(const char *) Strs;
 typedef struct { Strs names; VEC(Type *) types; } TVars;
 
 static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
@@ -1458,6 +1457,7 @@ static int known_arity(Expr *fn, Env *env) {
   int g = map_get(&gmap, fn->name);
   if (g < 0) return 0;
   if (globals.a[g].prim >= 0) return fk_prims[globals.a[g].prim].arity;
+  if (globals.a[g].ffi) return globals.a[g].ffi->arity;
   if (globals.a[g].mcls >= 0) return classes.a[globals.a[g].mcls].arity[globals.a[g].midx]; /* not the selector's */
   Bind *b = globals.a[g].bind;
   Expr *x = b ? b->orig ? b->orig : b->e : NULL; /* before elaboration added dictionary parameters */
@@ -1983,7 +1983,7 @@ static Bind *selector(const char *name, int con, int field, int arity, int line,
 }
 
 static void add_global(const char *name, Type *t, Lambda *lam) {
-  VPUSH(globals, ((Global){name, t, -1, lam, spec_stem(name), NULL, -1, -1}));
+  VPUSH(globals, ((Global){name, t, -1, lam, spec_stem(name), NULL, -1, -1, NULL}));
   map_put(&gmap, name, globals.n - 1);
 }
 
@@ -2288,6 +2288,8 @@ void compiler_init(void) {
   add_tydef(intern("Num"), 1, 0); /* reserved */
   add_tydef(s_string, 0, 0);       /* packed; index < NBUILTIN_TYPES marks builtins */
   for (int i = 0; i < FK_MAXTUPLE - 1; i++) add_tydef(intern(tuples[i]), i + 2, 1);
+  for (int i = 0; i < ffi_ntypes; i++) /* CInt and the other C types, for foreign imports (ffi.md) */
+    if (map_get(&tmap, intern(ffi_types[i].name)) < 0) add_tydef(intern(ffi_types[i].name), 0, 0);
 
   fk_init();
   Type *bool_t = tcon0(s_bool);
@@ -2306,7 +2308,7 @@ void compiler_init(void) {
     add_con(intern(tuples[i]), t, n, intern(tuples[i]));
   }
   for (int i = 0; i < fk_nprims; i++) {
-    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1};
+    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1, NULL};
     const char *pn = g.name;
     if ((!strcmp(pn, "putStr") || !strcmp(pn, "putStrLn") || !strcmp(pn, "getLine") || !strncmp(pn, "primPrint", 9))) {
       Type *t = g.type;
@@ -2318,6 +2320,42 @@ void compiler_init(void) {
   }
   dict_type = tcon0(intern("$Dict"));
   map_put(&gmap, intern("$error"), global_lookup(intern("error")));
+}
+
+/* Foreign imports become globals with their declared types (ffi.md). `->`
+   is the importer's promise of purity, as a primitive's is. */
+static void register_foreigns(Module *m) {
+  for (int i = 0; i < m->nforeign; i++) {
+    ForeignDecl *f = m->foreigns[i];
+    int prev = map_get(&gmap, f->name);
+    if (prev >= 0 && prev < nprelude)
+      cerror(f->line, f->col, "`%s` is defined in the prelude and cannot be redefined; choose another name", f->name);
+    for (int j = 0; j < i; j++)
+      if (m->foreigns[j]->name == f->name) cerror(f->line, f->col, "duplicate foreign import `%s`", f->name);
+    for (int j = 0; j < m->nb; j++)
+      if (m->binds[j]->name == f->name) cerror(m->binds[j]->line, m->binds[j]->col, "`%s` is already a foreign import", f->name);
+    Type *t = sig_scheme(f->sig);
+    f->pure = true;
+    f->arity = 0;
+    for (Type *a = repr(t); a->k == TY_CON && a->name == s_arrow; a = repr(a->args[1])) {
+      if (!ffi_param_type(a->args[0]))
+        cerror(f->line, f->col, "foreign import `%s`: an argument of type `%s` cannot be passed to C; use Int, Float, Char, Bool or a C type such as CInt",
+               f->name, type_str(a->args[0]));
+      if (repr(a->args[0])->name == s_unit && (f->arity || repr(repr(a->args[1]))->name == s_arrow))
+        cerror(f->line, f->col, "foreign import `%s`: `()` can only be the one argument, of a C function without parameters", f->name);
+      f->pure &= repr(a->eff) != eff_eff;
+      f->arity++;
+    }
+    Type *r = repr(t);
+    for (int k = 0; k < f->arity; k++) r = repr(r->args[1]);
+    if (!f->arity && r->name == s_unit) cerror(f->line, f->col, "foreign import `%s`: a C value cannot have type `()`", f->name);
+    if (!ffi_param_type(r))
+      cerror(f->line, f->col, "foreign import `%s`: a result of type `%s` cannot come from C; use Int, Float, Char, Bool, (), or a C type such as CInt",
+             f->name, type_str(r));
+    f->gidx = globals.n;
+    add_global(f->name, t, NULL);
+    globals.a[f->gidx].ffi = f;
+  }
 }
 
 bool compile_chunk(Module *m, Chunk *out) {
@@ -2350,6 +2388,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   int first_inst;
   register_classes(m, &extra, &raw);
   register_instances(m, &extra, &first_inst);
+  register_foreigns(m);
   for (int i = 0; i < m->nb; i++) VPUSH(extra, m->binds[i]);
   m->binds = extra.a; /* generated bindings first; order within a group follows */
   m->nb = extra.n;
@@ -2431,6 +2470,11 @@ bool compile_chunk(Module *m, Chunk *out) {
   out->ng = ng;
   out->raw = raw.a;
   out->nraw = raw.n;
+  for (int i = 0; i < m->nlibs; i++) {
+    bool seen = false;
+    for (int j = 0; j < ffi_libs.n; j++) seen |= !strcmp(ffi_libs.a[j], m->libs[i]);
+    if (!seen) VPUSH(ffi_libs, m->libs[i]);
+  }
   cerr_jmp = saved;
   return true;
 }

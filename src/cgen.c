@@ -43,11 +43,13 @@ static Rep rep_of(Type *t) {
   if (!t) return R_V;
   t = repr(t);
   if (t->k != TY_CON || t->n) return R_V;
-  if (!strcmp(t->name, "Int")) return R_I;
-  if (!strcmp(t->name, "Float")) return R_F;
-  if (!strcmp(t->name, "Char")) return R_C;
-  if (!strcmp(t->name, "Bool")) return R_B;
-  return R_V;
+  switch (ffi_kind(t)) { /* the C types of foreign imports are held as Int or Float */
+  case 'i': return R_I;
+  case 'f': return R_F;
+  case 'c': return R_C;
+  case 'b': return R_B;
+  default: return R_V;
+  }
 }
 
 /* v converted to representation to; boxing a Float allocates. */
@@ -223,6 +225,15 @@ static const Scalar scalars[] = {
     {"lef", "(%s <= %s)", 2, R_F, R_B},
     {"gtf", "(%s > %s)", 2, R_F, R_B},
     {"gef", "(%s >= %s)", 2, R_F, R_B},
+    {"idi", "%s", 1, R_I, R_I},
+    {"idf", "%s", 1, R_F, R_F},
+    {"tocint", "(int64_t)(int32_t)(uint32_t)%s", 1, R_I, R_I},
+    {"tocuint", "(int64_t)(uint32_t)%s", 1, R_I, R_I},
+    {"toclong", "(int64_t)(long)%s", 1, R_I, R_I},
+    {"toculong", "(int64_t)(unsigned long)%s", 1, R_I, R_I},
+    {"tocsize", "(int64_t)(size_t)%s", 1, R_I, R_I},
+    {"tocfloat", "(double)(float)%s", 1, R_F, R_F},
+    {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B},
 };
 
 static const Scalar *scalar_prim(const char *c) {
@@ -248,6 +259,22 @@ static TV cg_call(CG *c, Expr *e) {
     if (ar == R_V && sc->arg < 0) /* tagged words: a boxed Int compares by value */
       return tv(xsprintf("fk_b_%s(%s, %s)", sc->name, a0, a1), R_B);
     return tv(n == 1 ? xsprintf(sc->fmt, a0) : xsprintf(sc->fmt, a0, a1), sc->res);
+  }
+  ForeignDecl *ffi = g >= 0 ? globals.a[g].ffi : NULL;
+  if (ffi && n == ffi->arity) { /* the C function itself; its prototype converts the scalars */
+    SB call = {0};
+    sb_printf(&call, "%s(", ffi->cname);
+    Type *t = repr(globals.a[g].type);
+    for (int i = 0; i < ffi->arity; i++, t = repr(t->args[1])) {
+      const char *x = conv(cg_expr(c, e->args[i]), rep_of(t->args[0]));
+      if (ffi_kind(t->args[0]) != 'v') sb_printf(&call, "%s(%s)%s", i ? ", " : "", ffi_param_type(t->args[0]), x);
+    }
+    sb_puts(&call, ")");
+    Rep r = rep_of(t); /* a scalar: the result is never applied further */
+    return r == R_V ? tv(xsprintf("((void)%s, fk_unit)", call.s), R_V)
+           : r == R_B ? tv(xsprintf("(%s != 0)", call.s), R_B)
+           : r == R_C ? tv(xsprintf("(int32_t)(unsigned char)%s", call.s), R_C)
+                      : tv(xsprintf("(%s)%s", ctype[r], call.s), r);
   }
   bool direct = f->k == E_CON || prim >= 0 || (f->k == E_VAR && f->known);
   const char *fv = direct ? NULL : as_v(cg_expr(c, f));
@@ -752,6 +779,10 @@ char *cgen_program(Chunk *chunks, int nchunks) {
   Reach r = reach_program(chunks, nchunks);
   SB out = {0};
   sb_puts(&out, fk_rt_src);
+  VEC(ForeignDecl *) fs = {0};
+  for (int i = 0; i < globals.n; i++)
+    if (globals.a[i].ffi && r.global[i]) VPUSH(fs, globals.a[i].ffi);
+  sb_puts(&out, ffi_glue(fs.a, fs.n, false));
   sb_printf(&out, "\n/* ---- generated program ---- */\n\nstatic V G[%d];\nstatic size_t G_n = %d;\n\n",
             globals.n ? globals.n : 1, globals.n);
   for (int i = 0; i < all_lambdas.n; i++)
@@ -781,6 +812,12 @@ char *cgen_program(Chunk *chunks, int nchunks) {
   }
   for (int i = 0; i < globals.n; i++)
     if (globals.a[i].prim >= 0 && r.global[i]) sb_printf(&out, "  G[%d] = fk_prim_value(%d);\n", i, globals.a[i].prim);
+  for (int i = 0; i < globals.n; i++)
+    if (globals.a[i].ffi && r.global[i]) {
+      int n = globals.a[i].ffi->arity; /* 0: a C value, read once */
+      if (n) sb_printf(&out, "  G[%d] = fk_closure(fk_ffi_%d, %d, 0, 0);\n", i, i, n);
+      else sb_printf(&out, "  G[%d] = fk_ffi_%d(0, 0);\n", i, i);
+    }
   /* Per chunk, as in interp_install: functions, dictionaries, values. */
   for (int k = 0; k < nchunks; k++) {
     Chunk *c = &chunks[k];

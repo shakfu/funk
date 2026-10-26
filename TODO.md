@@ -22,7 +22,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Medium
 
-- [ ] **Foreign function interface**, for libm, sqlite3 and libremidi in that order. Design and open questions: [docs/dev/ffi.md](docs/dev/ffi.md). Effectful imports are typed with `->>` ([docs/dev/typed-effects.md](docs/dev/typed-effects.md)).
+- [ ] **Foreign function interface**, phases 2 and 3: sqlite3 (`String`, `Ptr`, opaque types, out-parameters), then libremidi (callbacks). Phase 1, scalars and libm, is done. Design and open questions: [docs/dev/ffi.md](docs/dev/ffi.md).
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 

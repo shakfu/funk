@@ -1,0 +1,3 @@
+-- expect: foreign import `nothing`: a C value cannot have type `()`
+foreign import ccall "stdlib.h NULL" nothing :: ()
+main = print 1
