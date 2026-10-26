@@ -42,7 +42,7 @@ None of these is a bug in the implementation. They come from Haskell syntax over
 
 - **E** puts one bit in every function arrow: pure or effectful. There is no `IO` type and no runner; an effectful call is a direct call, as today. Roc does this with `->` and `=>` ([roc-lang.md](roc-lang.md#1-effects-in-the-arrow)). funk spells the effectful arrow `~>`, because `=>` already marks class contexts. A higher-order function is polymorphic in its argument's effect, so one `map` serves both (see "E in detail").
 
-Recommendation: E, after a prototype of its inference; see "The options compared". Otherwise B1, with B2 decided later, on its own. B1 is source-compatible with B2, because a `do` over `IO` written for B1 means the same under `Monad IO`. If funk stays impure, choose A'': it includes A' and fixes the `do` surprise.
+Recommendation: E, whose inference has been prototyped; see "Prototype" and "The options compared". Otherwise B1, with B2 decided later, on its own. B1 is source-compatible with B2, because a `do` over `IO` written for B1 means the same under `Monad IO`. If funk stays impure, choose A'': it includes A' and fixes the `do` surprise.
 
 ## B1 in detail
 
@@ -188,6 +188,51 @@ area :: Shape -> Float             -- rejected if area can act
 - **`a ~> b`** means the function may act.
 - **`~>` over `=>`,** Roc's spelling, because `=>` separates a class context in funk and Haskell. `~>` is not a Haskell type operator in the standard. Other spellings would do as well; see question 6.
 
+### What changes in programs
+
+E is mostly a checker change. Its only new syntax is `~>` in types; expressions do not change.
+
+```haskell
+-- 0.2                                   -- E
+greet :: String -> ()                    greet :: String ~> ()
+greet n = putStrLn ("hi " ++ n)          greet n = putStrLn ("hi " ++ n)
+
+data Handler = Handler (Int -> ())       data Handler = Handler (Int ~> ())  -- holds an effectful function
+class Logger a where log :: a -> ()      class Logger a where log :: a ~> ()  -- instances may act
+```
+
+- **`~>` appears** wherever a type is written: signatures, data fields, class methods. Unannotated code needs nothing, since effects are inferred.
+- **Unchanged:** calls (`print x`, `getLine ()`), `do`, `<-`, `let` statements and `>>`. There is no `!` suffix on effectful names: Roc's is a naming convention, and `!` cannot be part of a funk identifier. There is no `IO` type, no `return`, no `>>=`, and no new keyword.
+
+What changes is which programs are accepted:
+
+| Rule | Effect on programs |
+|-|-|
+| A signature with `->` is checked | `loud :: Int -> ()` that prints is an error; write `~>` |
+| Top-level values are pure, except `main` | `early = print 1` is an error; make it a function, `early () = ...`, or run it from `main` |
+| An effectful `let` or `where` binding is evaluated where it is bound | same syntax; the effect happens at its line, not at its first use |
+| Pure fields and methods stay pure | `Handler print` is an error if the field is `Int -> ()` |
+
+Against B1's changes:
+
+| | B1 | E |
+|-|-|-|
+| Effectful signatures | `String -> IO ()` | `String ~> ()` |
+| Reading input | `line <- getLine`, without `()` | `getLine ()`, unchanged |
+| `main` | `main :: IO ()`, built from actions | unchanged |
+| `>>` | a special form, lazy in its second operand | unchanged |
+| New prelude names | `return`, `>>=`, `mapM_`, `when` and others, over `IO` | none: `mapM_` stays a fold |
+| Printing from pure code | `trace` | `trace` |
+
+Pure Haskell code parses and checks unchanged, because its `->` signatures are honest. Haskell code typed with `IO` does not work: funk has no `IO` type. B1 would make that code port.
+
+Two things E's syntax, as designed, cannot say:
+
+- **A pure argument, regardless.** `(a -> b) -> c` means the function acts when its argument does. Requiring the argument itself to be pure needs another marker. Data fields have that rigidity; signatures do not.
+- **Independent effects for two arguments.** All arrows of one signature share one variable, so a function taking two callbacks acts if either does. That is sound, and no program in the prototype's corpus needed more.
+
+Both would need an explicit effect variable in the syntax, as Koka writes it. Neither came up in the prototype.
+
 ### Semantics
 
 - Each arrow carries an effect: pure, effectful, or a variable. A function's effect is effectful if its body, when the function is applied, calls a function whose arrow is effectful.
@@ -211,6 +256,8 @@ Roc's functions take several arguments at once; funk's are curried. If every arr
 
 - **By arity.** A call is effectful only when it saturates a known function of known arity. The checker knows the arity of every global and every local lambda. Unknown function values keep the over-approximation.
 - **Effect on the last arrow only.** `a -> b ~> c` would act only when given both arguments. That is more precise, but signatures have to say where the effect sits.
+
+The prototype chose by arity; see "Prototype". A lambda's inferred type already puts the effect on the arrow that runs its body (`mk :: a -> a ~> ()`), and a signature may write `~>` on its last arrow only.
 
 ### Migration
 
@@ -236,6 +283,39 @@ Unannotated code needs no change, since effects are inferred. Of this repo's fil
 | errors | "`f` is declared `Int -> ()` but calls `putStrLn` (line 4); write `Int ~> ()`" | 50 lines |
 
 About 400 lines, minus the effect half of `fuse.c`'s analysis. These are estimates. The runtime does not change.
+
+### Prototype (2026-10-26)
+
+The inference is prototyped in `check.c`, enabled by `FK_EFFECTS`; without it nothing changes. It reports what E would reject instead of failing, and prints each top-level type with its effects. Not prototyped: evaluating effectful lazy bindings where they are bound, and replacing `fuse.c`'s analysis. Three modes:
+
+| Mode | Rule |
+|-|-|
+| 1 | every applied arrow counts as a call that may act |
+| 2 | only the arrow that saturates a function of known arity: globals, primitives, class methods, lambdas applied directly |
+| 3 | 2, and a call of a function whose type is not yet known, such as a record field resolved after its binding group, is settled at the end of the group instead of at the call |
+
+Results:
+
+| | Mode 1 | Mode 2 | Mode 3 |
+|-|-|-|-|
+| The repo's 39 programs and the prelude | 6 rejections | 6 rejections | 4 rejections |
+| `tests/effects/reject.fk`: 15 channels through which an effect reaches pure code | 15 of 15 rejected | 15 of 15 | 15 of 15 |
+| `tests/effects/accept.fk`: 13 bindings that must be accepted | 1 rejected: `greeter = putStrLn . ("hi " ++)` | 0 | 0 |
+| Time to check `examples/classes.fk` | | | 6.3 ms, against 6.2 ms without effects |
+
+In mode 3 the four rejections in the repo are the ones E intends: top-level values that act at startup, `early`, `main'` and `results` in `syntax.fk` and `printing` in `fuse.fk`. Modes 1 and 2 add two false rejections in `records.fk`. There, `((counter 0).incr ()).get ()` calls a function from a record field before the field's type is resolved. The call took the effect of `main`, and then met the field's pure arrow. Mode 1 also rejects `greeter`: it counts the partial application `(++) "hi "` as a call.
+
+The 15 channels in `reject.fk`: a function argument, a local function, a data field, a list element, a function value, a local polymorphic function, an argument of a signature's shared effect, a signature that says pure over a body that prints, `>>`, a record field, mutual recursion, `map` in a value, a class-constrained signature, an instance of a pure method, and a returned function. All three modes reject all 15.
+
+The prototype also reports 15 lazy bindings that act and that E would evaluate where they are bound. Seven are the benchmarks' `let n = readInt (getLine ())`, used at once, so their order does not change. `lazy.fk` and `do.fk` test effect order under lazy bindings and would change, as "Migration" says.
+
+The design changed in three places to get there:
+
+- **Class methods take a signature's shared effect variable, not rigid `Pure`.** With `Pure`, `putStrLn . (++) "hi "` was rejected: composing a pure method with an effectful function merged their effects. A signature's variable is polymorphic at uses and becomes rigid when an instance is checked against it, so an instance that prints is still rejected.
+- **Arity is the arity before elaboration.** A constrained function gains a dictionary parameter when elaborated, so `print` looked like arity 2, and `print x` did not count as a call. A class method's arity is its signature's, not its selector's.
+- **Substituting a class's type variable** into a method's scheme for an instance must keep the effects, or the instance escapes the check.
+
+Mode 3 is the design: E as described, with the arity rule and deferred calls. The repo's programs are small, so they do not show whether merging all of a body's calls into one effect is precise enough on larger code. Neither do they show the error messages' quality.
 
 ## Investigation (2026-10-25)
 
@@ -291,6 +371,194 @@ Of the monadic options, B1 with the runner, now. Its cost is 5% on a program tha
 
 These simulations stand in for the implementations; they share their allocation pattern, not their code. The prototypes are not in the repo.
 
+## One program in each style
+
+The same program in each style. It reads a count and then `name score` lines, grades each student with a pure function, reports each with an effectful one, and prints the average. With this input:
+
+```text
+3
+ada 95
+bob 80
+cyd 60
+```
+
+it prints `ada: A`, `bob: B`, `cyd: C` and `average: 78`. A and E were run: A as it stands in 0.2, in both backends, and E's version under the prototype checker (`FK_EFFECTS=3`), which accepts it. B1 and B2 use syntax funk does not have; they were not run.
+
+### A: untyped effects, as in 0.2
+
+```haskell
+data Student = Student { name :: String, score :: Int }
+
+grade :: Int -> String
+grade s = if s >= 90 then "A" else if s >= 75 then "B" else "C"
+
+parse :: String -> Student
+parse line = case words line of
+  [n, s] -> Student n (readInt s)
+  _ -> error ("bad line: " ++ line)
+
+average :: [Student] -> Int
+average ss = div (sum (map (\s -> s.score) ss)) (length ss)
+
+readStudents :: Int -> [Student]
+readStudents k =
+  if k == 0 then []
+  else let s = parse (getLine ()) in s : readStudents (k - 1)
+
+report :: Student -> ()
+report s = putStrLn (s.name ++ ": " ++ grade s.score)
+
+main = do
+  n <- readInt (getLine ())
+  students <- readStudents n
+  mapM_ report students
+  putStrLn ("average: " ++ show (average students))
+```
+
+`readStudents` and `report` claim `->`, but read input and print; nothing checks them. Order depends on two rules a reader has to know: `s` is a lazy binding, forced when the cons cell is built, which is before `readStudents (k - 1)` runs; and `<-` evaluates its expression at its line.
+
+### A': strict `let` statements in `do`
+
+The text is A's. A' changes only `let` statements in `do`, and this program has none, so it behaves as A. `let s = ...` in `readStudents` is an ordinary `let`, and stays lazy.
+
+### A'': A' with `pure` declarations
+
+A's text, plus one line:
+
+```haskell
+pure grade, parse, average
+```
+
+The checker verifies the three. `readStudents` and `report` still claim `->` unchecked: A'' checks only what is declared `pure`.
+
+### B1: `IO`
+
+```haskell
+data Student = Student { name :: String, score :: Int }
+
+grade :: Int -> String
+grade s = if s >= 90 then "A" else if s >= 75 then "B" else "C"
+
+parse :: String -> Student
+parse line = case words line of
+  [n, s] -> Student n (readInt s)
+  _ -> error ("bad line: " ++ line)
+
+average :: [Student] -> Int
+average ss = div (sum (map (\s -> s.score) ss)) (length ss)
+
+readStudents :: Int -> IO [Student]
+readStudents k =
+  if k == 0 then return []
+  else do
+    line <- getLine
+    rest <- readStudents (k - 1)
+    return (parse line : rest)
+
+report :: Student -> IO ()
+report s = putStrLn (s.name ++ ": " ++ grade s.score)
+
+main :: IO ()
+main = do
+  line <- getLine
+  let n = readInt line
+  students <- readStudents n
+  mapM_ report students
+  putStrLn ("average: " ++ show (average students))
+```
+
+The pure part is unchanged. Every effectful line changes: `getLine` loses its `()`, results go through `return`, `main` builds an action, and the input loop becomes a `do` block. `parse line : rest` is built after all lines are read, so a bad line fails only then.
+
+### B2: a `Monad` class
+
+B2 runs B1's program unchanged. Its gain shows when another monad is used; here `Maybe` replaces `error` for bad input:
+
+```haskell
+data Student = Student { name :: String, score :: Int }
+
+grade :: Int -> String
+grade s = if s >= 90 then "A" else if s >= 75 then "B" else "C"
+
+parseScore :: String -> Maybe Int
+parseScore s = if s /= "" && all isDigit (unpack s) then Just (readInt s) else Nothing
+
+parse :: String -> Maybe Student
+parse line = case words line of
+  [n, s] -> do
+    v <- parseScore s
+    return (Student n v)
+  _ -> Nothing
+
+average :: [Student] -> Int
+average ss = div (sum (map (\s -> s.score) ss)) (length ss)
+
+report :: Student -> IO ()
+report s = putStrLn (s.name ++ ": " ++ grade s.score)
+
+main :: IO ()
+main = do
+  line <- getLine
+  ls <- replicateM (readInt line) getLine
+  case mapM parse ls of
+    Nothing -> putStrLn "bad input"
+    Just students -> do
+      mapM_ report students
+      putStrLn ("average: " ++ show (average students))
+```
+
+`do` in `parse` is over `Maybe`, `mapM parse ls` is over `Maybe` too, and `replicateM` is over `IO`. Each needs a function generic over `Monad m`.
+
+### E: effect arrows
+
+```haskell
+data Student = Student { name :: String, score :: Int }
+
+grade :: Int -> String
+grade s = if s >= 90 then "A" else if s >= 75 then "B" else "C"
+
+parse :: String -> Student
+parse line = case words line of
+  [n, s] -> Student n (readInt s)
+  _ -> error ("bad line: " ++ line)
+
+average :: [Student] -> Int
+average ss = div (sum (map (\s -> s.score) ss)) (length ss)
+
+readStudents :: Int ~> [Student]
+readStudents k =
+  if k == 0 then []
+  else let s = parse (getLine ()) in s : readStudents (k - 1)
+
+report :: Student ~> ()
+report s = putStrLn (s.name ++ ": " ++ grade s.score)
+
+main = do
+  n <- readInt (getLine ())
+  students <- readStudents n
+  mapM_ report students
+  putStrLn ("average: " ++ show (average students))
+```
+
+Two lines differ from A:
+
+```text
+readStudents :: Int ~> [Student]
+report :: Student ~> ()
+```
+
+The prototype infers the rest, and rejects A's text for exactly those two signatures. `let s = parse (getLine ())` is an effectful binding, so E evaluates it at its line; its timing no longer depends on when the cons cell forces it.
+
+### Summary
+
+| Style | Lines changed from A | Checked |
+|-|-|-|
+| A | | nothing |
+| A' | none, for this program | nothing |
+| A'' | 1 added | `grade`, `parse`, `average` |
+| B1 | the input loop, `report`'s and `main`'s types, `main`'s first line | every function's effects |
+| B2 | as B1; more where another monad is used | as B1, for every monad |
+| E | 2: the two effectful signatures | every function's effects |
+
 ## The options compared
 
 ### Expressiveness
@@ -331,7 +599,7 @@ The last row is B1's and E's performance argument, and for B1 it partly offsets 
 - **B2** adds generality whose costs are specific to a strict language. It is better decided on its own, once a program needs a monad other than `IO`, than committed to now as "B1 then B2".
 - **E** has B1's honest types and optimizer knowledge at A'''s cost, 0%. It keeps composition without coloring and needs little migration, because funk's runtime semantics do not change. It costs Haskell compatibility for `IO` code, about 400 lines in the checker, and two unproven points: whether unification-based effect inference is precise enough on real code, and how partial application is treated. Roc shows the approach in a strict language, but without currying or effect polymorphism.
 
-Recommendation: E, if a prototype of its inference, run over this repo's programs, rejects no correct program that a refinement cannot fix. Otherwise B1, with B2 decided later. A'' if funk stays impure; it subsumes A'.
+Recommendation: E. The prototype of its inference, with two refinements, rejects only what E intends in this repo's programs, and catches all 15 effect channels in its test ("Prototype"). Otherwise B1, with B2 decided later. A'' if funk stays impure; it subsumes A'.
 
 ## Questions for the decision
 
@@ -344,6 +612,6 @@ Recommendation: E, if a prototype of its inference, run over this repo's program
 4. **Keep `trace`?** Without it, printing from pure code is impossible, which is the point of B1 but hurts debugging.
 
 5. **Accept the break?** funk is pre-1.0, and 0.2 already breaks `deriving` and `f.g`. Releasing 0.2 first and then B1 or E as 0.3 gives users one version with `do` over untyped effects.
-6. **Under E, the spelling of the effectful arrow:** `~>`, or another token such as `-!>`? And partial application: by arity, or the effect on the last arrow only?
+6. **Under E, the spelling of the effectful arrow:** `~>`, or another token such as `-!>`? Partial application is settled by arity, as the prototype showed.
 
 The citations are from memory and were not checked in this session.

@@ -76,7 +76,30 @@ static Type *tcon(const char *name, int n, Type **args) {
 
 static Type *tcon0(const char *name) { return tcon(name, 0, NULL); }
 Type *tcon_new(const char *name, int n, Type **args) { return tcon(name, n, args); }
-static Type *tarrow(Type *a, Type *b) { return tcon(s_arrow, 2, (Type *[]){a, b}); }
+
+/* Prototype of effect arrows, option E of typed-effects.md, enabled by
+   FK_EFFECTS: 1 counts every applied arrow as acting, 2 only the arrow
+   that saturates a function of known arity, 3 also settles calls of a
+   function whose type is not yet known at the end of the binding group. Every arrow then carries an
+   effect, Pure, Eff or a variable. Mismatches are reported, not fatal,
+   so one run lists everything E would reject. */
+static int effects;
+static Type *eff_pure, *eff_eff, *cur_eff, *te_eff;
+static const char *cur_bind;
+static Type *newvar(void);
+
+static Type *tarrow(Type *a, Type *b) {
+  Type *t = tcon(s_arrow, 2, (Type *[]){a, b});
+  if (effects) t->eff = newvar();
+  return t;
+}
+
+static Type *gvar(uint64_t cls);
+
+/* A constructor never acts: its own arrows are polymorphic in their effect. */
+static void con_effects(Type *t) {
+  for (t = repr(t); effects && t->k == TY_CON && t->name == s_arrow; t = repr(t->args[1])) t->eff = gvar(0);
+}
 static Type *tlist(Type *a) { return tcon(s_list, 1, &a); }
 
 static Type *newvar(void) {
@@ -174,7 +197,7 @@ static void pr(SB *b, Type *t, int prec, Names *nm) {
   if (t->name == s_arrow) {
     if (prec > 0) sb_puts(b, "(");
     pr(b, t->args[0], 1, nm);
-    sb_puts(b, " -> ");
+    sb_puts(b, t->eff && repr(t->eff) == eff_eff ? " ~> " : " -> ");
     pr(b, t->args[1], 0, nm);
     if (prec > 0) sb_puts(b, ")");
   } else if (t->name == s_list) {
@@ -258,6 +281,8 @@ static void occurs_adjust(Type *v, Type *t) {
     return;
   }
   for (int i = 0; i < t->n; i++) occurs_adjust(v, t->args[i]);
+  if (t->eff && repr(t->eff)->k == TY_VAR && repr(t->eff)->level > v->level && !repr(t->eff)->skolem)
+    repr(t->eff)->level = v->level;
 }
 
 static void entail(Type *t, uint64_t m);
@@ -319,6 +344,36 @@ static void bind_var(Type *v, Type *t) {
   v->link = t;
 }
 
+static int eff_errors;
+
+static void eff_error(const char *fmt, const char *arg) {
+  eff_errors++;
+  fprintf(stderr, "effects: %s:%d:%d: in `%s`: ", cur_file, uline, ucol, cur_bind ? cur_bind : "?");
+  fprintf(stderr, fmt, arg);
+  fputc('\n', stderr);
+}
+
+static const char *eff_str(Type *e) {
+  e = repr(e);
+  return e == eff_pure ? "pure" : e == eff_eff ? "effectful" : e->skolem ? "pure by its signature" : "unknown";
+}
+
+/* Unify two effects; a mismatch is reported. */
+static void unify_eff(Type *a, Type *b) {
+  a = repr(a);
+  b = repr(b);
+  if (a == b) return;
+  if (b->k == TY_VAR && !b->skolem) { Type *t = a; a = b; b = t; }
+  if (a->k == TY_VAR && !a->skolem) {
+    if (b->k == TY_VAR && !b->skolem && b->level > a->level) b->level = a->level;
+    a->link = b;
+    return;
+  }
+  char *m = xsprintf("an %s function where a %s one is required", eff_str(a) == eff_str(eff_eff) ? "effectful" : eff_str(a), eff_str(b));
+  if (a == eff_eff || b == eff_eff) m = xsprintf("an effectful function where a pure one is required (%s)", a == eff_eff ? eff_str(b) : eff_str(a));
+  eff_error("%s", m);
+}
+
 static void unify_rec(Type *a, Type *b) {
   a = repr(a);
   b = repr(b);
@@ -327,9 +382,51 @@ static void unify_rec(Type *a, Type *b) {
   if (b->k == TY_VAR && !b->skolem) { bind_var(b, a); return; }
   if (a->k == TY_CON && b->k == TY_CON && a->name == b->name && a->n == b->n) {
     for (int i = 0; i < a->n; i++) unify_rec(a->args[i], b->args[i]);
+    if (a->eff && b->eff) unify_eff(a->eff, b->eff);
     return;
   }
   mismatch(a, b);
+}
+
+/* Calls of a function whose type was unknown when the call was inferred,
+   such as a record field resolved later: their effect is settled at the
+   end of the binding group, once the type is known. */
+typedef struct { Type *eff, *ctx; int line, col; const char *bind; } Deferred;
+static VEC(Deferred) deferred;
+
+static void call_effect(Type *e);
+
+static void settle_deferred(int from) {
+  Type *saved = cur_eff;
+  const char *sb = cur_bind;
+  for (int i = from; i < deferred.n; i++) {
+    Deferred *d = &deferred.a[i];
+    cur_eff = d->ctx;
+    cur_bind = d->bind;
+    uline = d->line;
+    ucol = d->col;
+    call_effect(d->eff); /* Pure: nothing; Eff or still unknown: as an immediate call */
+  }
+  deferred.n = from;
+  cur_eff = saved;
+  cur_bind = sb;
+}
+
+/* A call through an arrow with effect e, in code whose effect is cur_eff. */
+static void call_effect(Type *e) {
+  if (!e || !cur_eff) return;
+  e = repr(e);
+  if (e == eff_pure) return; /* a pure call constrains nothing */
+  Type *c = repr(cur_eff);
+  if (e == eff_eff && c->skolem) {
+    eff_error("declared with `->` but calls an effectful function; its signature needs `~>`", NULL);
+    return;
+  }
+  if (e == eff_eff && c == eff_pure) {
+    eff_error("a function required to be pure (a data field or class method) calls an effectful function", NULL);
+    return;
+  }
+  unify_eff(c, e);
 }
 
 static void unify(Type *expected, Type *actual, int line, int col) {
@@ -366,8 +463,11 @@ static Type *inst_rec(Type *t, Subst *s, bool skolem) {
     args[i] = inst_rec(t->args[i], s, skolem);
     same &= args[i] == t->args[i];
   }
+  Type *eff = t->eff ? inst_rec(t->eff, s, skolem) : NULL;
+  same &= eff == t->eff;
   if (same) { free(args); return t; }
   Type *r = tcon(t->name, t->n, args);
+  r->eff = eff;
   free(args);
   return r;
 }
@@ -436,6 +536,7 @@ static void gen(Type *t, bool mr) {
     return;
   }
   for (int i = 0; i < t->n; i++) gen(t->args[i], mr);
+  if (t->eff) gen(t->eff, false);
 }
 
 /* --------------------------------------------------------- type syntax */
@@ -463,7 +564,11 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
       VPUSH(tv->types, v);
       return v;
     }
-  case TE_FUN: return tarrow(te_type(te->args[0], tv, sig), te_type(te->args[1], tv, sig));
+  case TE_FUN: {
+    Type *t = tarrow(te_type(te->args[0], tv, sig), te_type(te->args[1], tv, sig));
+    if (effects) t->eff = te->name && !strcmp(te->name, "~>") ? eff_eff : te_eff ? te_eff : eff_pure;
+    return t;
+  }
   case TE_LIST: return tlist(te_type(te->args[0], tv, sig));
   case TE_TUPLE: {
     if (te->n == 0) return tcon0(s_unit);
@@ -491,7 +596,10 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
 
 static Type *sig_scheme(Sig *s) {
   TVars tv = {0};
+  Type *saved = te_eff;
+  te_eff = effects ? gvar(0) : NULL; /* the `->` arrows of a signature share one effect */
   Type *t = te_type(s->t, &tv, s);
+  te_eff = saved;
   for (int i = 0; i < s->nctx; i++) {
     bool found = false;
     for (int k = 0; k < tv.names.n; k++) found |= tv.names.a[k] == s->ctx[i];
@@ -551,6 +659,7 @@ static void register_datas(Module *m) {
       }
       uint32_t id = fk_register_con(cd->name, cd->nfields);
       if ((int)id != condefs.n) abort();
+      con_effects(t);
       fk_con_labels(id, cd->labels);
       VPUSH(condefs, ((ConDef){cd->name, cd->nfields, t, map_get(&tmap, d->name), cd->labels}));
       map_put(&cmap, cd->name, (int)id);
@@ -1268,21 +1377,27 @@ static void check(Expr *e, Env *env, Type *expected) {
     e->ty = expected;
     Type *t = expected;
     e->lam->ptypes = xmalloc((size_t)e->lam->n * sizeof(Type *) + 1);
+    Type *last = NULL;
     for (int i = 0; i < e->lam->n; i++) {
       Type *f = repr(t), *p, *r;
       if (f->k == TY_CON && f->name == s_arrow) {
         p = f->args[0];
         r = f->args[1];
+        last = f;
       } else {
         p = newvar();
         r = newvar();
-        unify(f, tarrow(p, r), e->line, e->col);
+        last = tarrow(p, r);
+        unify(f, last, e->line, e->col);
       }
       env = env_push(env, e->lam->params[i], p);
       e->lam->ptypes[i] = p;
       t = r;
     }
+    Type *saved = cur_eff;
+    if (effects) cur_eff = last && last->eff ? last->eff : newvar();
     check(e->lam->body, env, t);
+    cur_eff = saved;
     return;
   }
   case E_LET:
@@ -1329,6 +1444,22 @@ static void check(Expr *e, Env *env, Type *expected) {
 
 static Type *infer0(Expr *e, Env *env);
 
+/* The number of arguments that runs the body of fn, if fn is known; 0
+   otherwise. A local is unknown: its binding may not be a lambda. */
+static int known_arity(Expr *fn, Env *env) {
+  if (fn->k == E_LAM) return fn->lam->n;
+  if (fn->k != E_VAR) return 0;
+  for (Env *x = env; x; x = x->next)
+    if (x->name == fn->name) return 0;
+  int g = map_get(&gmap, fn->name);
+  if (g < 0) return 0;
+  if (globals.a[g].prim >= 0) return fk_prims[globals.a[g].prim].arity;
+  if (globals.a[g].mcls >= 0) return classes.a[globals.a[g].mcls].arity[globals.a[g].midx]; /* not the selector's */
+  Bind *b = globals.a[g].bind;
+  Expr *x = b ? b->orig ? b->orig : b->e : NULL; /* before elaboration added dictionary parameters */
+  return x && x->k == E_LAM ? x->lam->n : 0;
+}
+
 /* Every expression records its type, for the typed backend. */
 static Type *infer(Expr *e, Env *env) {
   Type *t = infer0(e, env);
@@ -1355,16 +1486,25 @@ static Type *infer0(Expr *e, Env *env) {
   case E_STR: return tcon0(s_string);
   case E_APP: {
     Type *tf = infer(e->fn, env);
+    int known = effects >= 2 ? known_arity(e->fn, env) : 0;
     for (int i = 0; i < e->n; i++) {
       Type *ta = infer(e->args[i], env);
-      Type *f = repr(tf);
+      Type *f = repr(tf), *arrow;
       if (f->k == TY_CON && f->name == s_arrow) {
         unify(f->args[0], ta, e->args[i]->line, e->args[i]->col);
         tf = f->args[1];
+        arrow = f;
       } else {
         Type *r = newvar();
-        unify(f, tarrow(ta, r), e->args[i]->line, e->args[i]->col);
+        arrow = tarrow(ta, r);
+        unify(f, arrow, e->args[i]->line, e->args[i]->col);
         tf = r;
+      }
+      if (effects && (!known || i >= known - 1)) {
+        uline = e->line;
+        ucol = e->col;
+        if (arrow == f || effects < 3) call_effect(arrow->eff);
+        else VPUSH(deferred, ((Deferred){arrow->eff, cur_eff, e->line, e->col, cur_bind})); /* mode 3 */
       }
     }
     return tf;
@@ -1374,8 +1514,14 @@ static Type *infer0(Expr *e, Env *env) {
     Type **ps = xmalloc((size_t)L->n * sizeof *ps + 1);
     for (int i = 0; i < L->n; i++) env = env_push(env, L->params[i], ps[i] = newvar());
     L->ptypes = ps;
+    Type *saved = cur_eff, *body = effects ? newvar() : NULL;
+    if (effects) cur_eff = body;
     Type *t = infer(L->body, env);
-    for (int i = L->n; i-- > 0;) t = tarrow(ps[i], t);
+    cur_eff = saved;
+    for (int i = L->n; i-- > 0;) {
+      t = tarrow(ps[i], t);
+      if (effects && i == L->n - 1) t->eff = body; /* the arrow that runs the body */
+    }
     return t;
   }
   case E_LET:
@@ -1416,6 +1562,7 @@ static void infer_group(Group *g, Env **env, bool top) {
   Env *none = NULL;
   if (!env) env = &none;
   level++;
+  int ndeferred = deferred.n; /* this group's calls of functions not yet known */
   Type **mono = xmalloc((size_t)g->n * sizeof *mono);
   Type **sch = xmalloc((size_t)g->n * sizeof *sch);
   for (int i = 0; i < g->n; i++) {
@@ -1426,8 +1573,15 @@ static void infer_group(Group *g, Env **env, bool top) {
     if (top) globals.a[b->gidx].type = mono[i];
     else *env = env_push(*env, b->name, mono[i]);
   }
+  Type **evals = xcalloc((size_t)g->n + 1, sizeof *evals); /* each binding's evaluation effect */
+  const char *saved_bind = cur_bind;
+  Type *outer = cur_eff;
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
+    if (effects) {
+      cur_bind = top || !saved_bind ? b->name : saved_bind;
+      cur_eff = evals[i] = newvar();
+    }
     if (sch[i]) {
       Subst s = {0};
       Type *rigid = inst_rec(sch[i], &s, true);
@@ -1441,6 +1595,27 @@ static void infer_group(Group *g, Env **env, bool top) {
   lower_known();
   default_receivers(g, mono, sch);
   resolve_fields(false);
+  if (effects >= 3) settle_deferred(ndeferred); /* before generalization: a merged effect must be in the scheme */
+  if (effects) {
+    for (int i = 0; i < g->n; i++) {
+      Bind *b = g->b[i];
+      bool value = b->e->k != E_LAM, acts = repr(evals[i]) == eff_eff;
+      uline = b->line;
+      ucol = b->col;
+      cur_bind = top || !saved_bind ? b->name : saved_bind;
+      if (top && value && acts && strcmp(b->name, "main") != 0)
+        eff_error("a top-level value acts when evaluated; make it a function, or run it from `main`", NULL);
+      if (!top && value && acts)
+        fprintf(stderr, "effects: %s:%d:%d: in `%s`: note: lazy binding `%s` acts; E evaluates it where it is bound\n",
+                cur_file, b->line, b->col, cur_bind, b->name);
+      if (!top && outer) { /* a local binding runs within the enclosing code */
+        cur_eff = outer;
+        call_effect(evals[i]);
+      }
+    }
+    cur_bind = saved_bind;
+    cur_eff = outer;
+  }
   level--;
   /* Local bindings without a signature never generalize constrained
      variables: they take them from their uses, so specializing the
@@ -1709,7 +1884,9 @@ static Type *subst_var(Type *t, Type *from, Type *to) {
   if (t->k == TY_VAR || !t->n) return t;
   Type **args = xmalloc((size_t)t->n * sizeof *args);
   for (int i = 0; i < t->n; i++) args[i] = subst_var(t->args[i], from, to);
-  return tcon(t->name, t->n, args);
+  Type *r = tcon(t->name, t->n, args);
+  r->eff = t->eff;
+  return r;
 }
 
 static Expr *ex_lam(int n, const char **params, Expr *body) {
@@ -1790,7 +1967,9 @@ static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
       TVars tv = {0};
       VPUSH(tv.names, cd->var);
       VPUSH(tv.types, c.var);
+      te_eff = effects ? gvar(0) : NULL; /* as a signature: polymorphic at uses, rigid when an instance is checked */
       c.mtypes[i] = te_type(cd->sigs[i]->t, &tv, cd->sigs[i]);
+      te_eff = NULL;
       c.arity[i] = arrows(c.mtypes[i]);
       if (!mentions(c.mtypes[i], c.var))
         cerror(cd->sigs[i]->line, cd->sigs[i]->col, "the type of method `%s` must mention `%s`", c.meths[i], cd->var);
@@ -2025,11 +2204,16 @@ static void add_tydef(const char *name, int arity, int ncons) {
 }
 
 static void add_con(const char *name, Type *scheme, int arity, const char *ty) {
+  con_effects(scheme);
   VPUSH(condefs, ((ConDef){name, arity, scheme, map_get(&tmap, ty), NULL}));
   map_put(&cmap, name, condefs.n - 1);
 }
 
 void compiler_init(void) {
+  const char *fe = getenv("FK_EFFECTS");
+  effects = fe ? atoi(fe) : 0;
+  eff_pure = tcon0(intern("Pure"));
+  eff_eff = tcon0(intern("Eff"));
   s_int = intern("Int");
   s_float = intern("Float");
   s_char = intern("Char");
@@ -2069,6 +2253,12 @@ void compiler_init(void) {
   }
   for (int i = 0; i < fk_nprims; i++) {
     Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1};
+    const char *pn = g.name;
+    if (effects && (!strcmp(pn, "putStr") || !strcmp(pn, "putStrLn") || !strcmp(pn, "getLine") || !strncmp(pn, "primPrint", 9))) {
+      Type *t = g.type;
+      while (repr(repr(t)->args[1])->k == TY_CON && repr(repr(t)->args[1])->name == s_arrow) t = repr(t)->args[1];
+      repr(t)->eff = eff_eff; /* the arrow that acts */
+    }
     VPUSH(globals, g);
     map_put(&gmap, g.name, globals.n - 1);
   }
@@ -2130,6 +2320,8 @@ bool compile_chunk(Module *m, Chunk *out) {
   Group *gs = scc(m->binds, m->nb, &ng);
   for (int i = 0; i < ng; i++) infer_group(&gs[i], NULL, true);
   default_classes();
+  if (effects && strcmp(cur_file, "<prelude>") != 0)
+    for (int i = 0; i < m->nb; i++) fprintf(stderr, "effects: %s :: %s\n", m->binds[i]->name, type_str(m->binds[i]->type));
   /* Evaluate `main` last, unless another binding uses it. */
   for (int i = 0; i < ng; i++) {
     if (gs[i].n != 1 || strcmp(gs[i].b[0]->name, "main") != 0) continue;

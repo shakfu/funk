@@ -56,4 +56,5 @@ dkms.conf
 
 # funk build outputs
 /build/
+/build-*/
 /funk

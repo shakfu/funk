@@ -380,8 +380,11 @@ static TypeExpr *parse_btype(P *p) {
 static TypeExpr *parse_type(P *p) {
   Token *t = cur(p);
   TypeExpr *a = parse_btype(p);
-  if (!accept(p, T_ARROW)) return a;
+  bool eff = cur(p)->k == T_VARSYM && strcmp(cur(p)->s, "~>") == 0; /* an effectful arrow (typed-effects.md, E) */
+  if (eff) next(p);
+  else if (!accept(p, T_ARROW)) return a;
   TypeExpr *f = mkte(TE_FUN, t);
+  if (eff) f->name = intern("~>");
   f->n = 2;
   f->args = xmalloc(2 * sizeof *f->args);
   f->args[0] = a;

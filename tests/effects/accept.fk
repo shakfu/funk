@@ -1,0 +1,29 @@
+-- Every binding below must be accepted by E (typed-effects.md), and the program must run.
+greeter = putStrLn . ("hi " ++)                     -- composition builds a closure
+handlers :: [Int ~> ()]
+handlers = [print, putStrLn . show]                 -- functions in a list, not called
+compose = print . (+ 1)
+f x = x + 1
+  where g y = print (y :: Int)                      -- an effectful local function, unused
+mk n = \x -> print (x + n)
+pr = mk 1                                           -- a function returned, not called
+logTwo :: Int -> Int ~> ()
+logTwo a b = print (a + b)
+l1 = logTwo 1                                       -- partial application of an effectful function
+twice g x = g (g x)
+pureUse = twice (+ 1) 5                             -- a higher-order function used purely
+data Shape = Circle Float | Sq Float deriving Show
+area :: Shape -> Float
+area (Circle r) = 3.0 * r * r
+area (Sq s) = s * s
+total :: [Shape] -> Float
+total ss = sum (map area ss)                        -- pure function through map
+counter :: Int ~> ()
+counter n = if n == 0 then () else case print n of _ -> counter (n - 1)
+main = do
+  greeter "x"
+  mapM_ print (map (* 2) [1, 2])
+  pr 3
+  l1 4
+  counter 2
+  print (total [Circle 1.0, Sq 2.0], pureUse)

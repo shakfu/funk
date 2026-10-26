@@ -271,6 +271,7 @@ struct Type {
   const char *name;
   int n;
   Type **args;
+  struct Type *eff; /* an arrow's effect under FK_EFFECTS: Pure, Eff or a variable (typed-effects.md, E) */
 };
 enum { TY_VAR, TY_CON };
 
