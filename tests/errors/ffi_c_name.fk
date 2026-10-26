@@ -1,0 +1,3 @@
+-- expect: `size (x)` is not a C function name
+foreign import ccall "stddef.h size (x)" f :: CInt -> CInt
+main = print 1

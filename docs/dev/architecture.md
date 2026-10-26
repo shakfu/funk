@@ -178,7 +178,11 @@ Non-moving conservative mark-sweep:
 
 - Every word of a live object is scanned, so the collector needs no per-kind layout.
 
-- Collection runs when allocation since the last GC exceeds max(128 MiB, 2x live bytes). Each collection scans the whole stack, which deep recursion makes large, so fewer collections are faster, at about twice the peak memory of max(32 MiB, live). Sweep rebuilds the free lists. Allocation pops a free list inline; collection and new chunks are out of line.
+- Collection runs when allocation since the last GC exceeds max(128 MiB, 2x live bytes). Each collection scans the whole stack, which deep recursion makes large, so fewer collections are faster, at about twice the peak memory of max(32 MiB, live). Allocation pops a free list inline; collection and new chunks are out of line.
+
+- A collection only marks; sweeping is lazy ([realtime.md](realtime.md)). Each size class keeps a list of unswept chunks in address order, and allocation that finds its free list empty sweeps the next one. A chunk whose objects were all marked only has its marks cleared. A chunk still unswept when the next collection starts has its marks cleared instead of being swept, so that collection frees what died since. Large objects are swept during the collection.
+
+- `FUNK_GCSTATS=1` prints each collection's pause, split into roots, mark and finish, and at exit a summary with the lazy sweep's total and longest step.
 
 `fk_run` starts the program on a thread with a 4 GiB `MAP_NORESERVE` stack. That fixes the stack bounds for scanning. A 16 MiB inaccessible region lies below the stack. The interpreter and the runtime check the stack (`FK_STACK_CHECK`) and report overflow as an error the REPL recovers from. Generated code has no check: overflowing it faults on the guard region, and a handler on an alternate signal stack reports the overflow and exits.
 

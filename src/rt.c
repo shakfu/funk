@@ -21,6 +21,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <time.h>
 #include <unistd.h>
 
 /* ---------------------------------------------------------------- errors */
@@ -58,7 +59,14 @@ static void *rt_realloc(void *p, size_t n) {
 #define CHUNK_SIZE ((size_t)1 << 20)
 #define MAX_SMALL 32
 
-typedef struct { size_t words, nobj; char *objs; uint8_t *marks; uint64_t recip; } Chunk;
+typedef struct {
+  size_t words, nobj;
+  char *objs;
+  uint8_t *marks;
+  uint64_t recip;
+  size_t next_unswept; /* the next unswept chunk of this size class, plus one; 0 ends the list */
+  size_t nmarked;      /* objects marked this collection */
+} Chunk;
 typedef struct { V *p; size_t words; uint8_t mark; } Large;
 typedef struct { V **base; size_t *count; } Root;
 
@@ -80,6 +88,28 @@ static size_t nroots;
 static size_t alloc_since_gc, gc_threshold = GC_MIN;
 static V **mstack;
 static size_t msp, mcap;
+static size_t live_bytes; /* marked this collection */
+
+/* Lazy sweeping (realtime.md, R1): a collection only marks. Each size
+   class keeps a list of unswept chunks, in address order, and allocation
+   sweeps the next one when its free list is empty. */
+static size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
+
+/* FUNK_GCSTATS=1: each collection's times, and a summary at exit (R0). */
+static bool gcstats;
+static size_t gc_count, lazy_chunks;
+static double pause_total, pause_max, lazy_total, lazy_max;
+
+static double now_ms(void) {
+  struct timespec t;
+  clock_gettime(CLOCK_MONOTONIC, &t);
+  return (double)t.tv_sec * 1e3 + (double)t.tv_nsec / 1e6;
+}
+
+static void gc_summary(void) {
+  fprintf(stderr, "gc: %zu collections, pause max %.2f ms, mean %.2f ms, total %.2f ms; lazy sweep %zu chunks, max %.3f ms, total %.2f ms\n",
+          gc_count, pause_max, gc_count ? pause_total / (double)gc_count : 0.0, pause_total, lazy_chunks, lazy_max, lazy_total);
+}
 
 void fk_add_roots(V **base, size_t *count) {
   roots = rt_realloc(roots, (nroots + 1) * sizeof *roots);
@@ -156,8 +186,10 @@ static void mark_word(uintptr_t w) {
   V *o = find_obj(w, &m, &words);
   if (!o || *m) return;
   *m = 1;
+  live_bytes += words * sizeof(V);
+  if (w >= heap_lo && w < heap_hi) ((Chunk *)(w & ~(uintptr_t)(CHUNK_SIZE - 1)))->nmarked++;
   int k = ((FkHdr *)o)->kind;
-  if (k == K_FLOAT || k == K_STR || k == K_INT64) return; /* a number or bytes: no pointers */
+  if (k == K_FLOAT || k == K_STR || k == K_INT64 || k == K_PTR) return; /* a number, bytes or a C address */
   if (msp + 2 > mcap) {
     mcap = mcap ? 2 * mcap : 4096;
     mstack = rt_realloc(mstack, mcap * sizeof *mstack);
@@ -183,30 +215,72 @@ static __attribute__((noinline)) void scan_stack(void) {
   scan_range(sp, (V *)fk_stack_base);
 }
 
+static Chunk *chunk_at(size_t i) { return (Chunk *)(heap_base + i * CHUNK_SIZE); }
+
+/* Frees a chunk's unmarked objects onto its free list, lowest address
+   first, and clears its marks. */
+static void sweep_chunk(Chunk *c) {
+  size_t bytes = c->words * sizeof(V);
+  bool full = c->nmarked == c->nobj; /* nothing to free: only the marks to clear */
+  c->nmarked = 0;
+  if (full) {
+    memset(c->marks, 0, c->nobj);
+    return;
+  }
+  for (size_t i = c->nobj; i-- > 0;) {
+    V *o = (V *)(c->objs + i * bytes);
+    if (((FkHdr *)o)->kind != K_FREE) {
+      if (c->marks[i]) { c->marks[i] = 0; continue; }
+      o[0] = 0; /* K_FREE; constructors overwrite every payload word */
+    }
+    push_free(c->words, o);
+  }
+}
+
+/* Sweeps unswept chunks of a size class until its free list has an object. */
+static void sweep_lazily(size_t words) {
+  double t0 = gcstats ? now_ms() : 0;
+  while (!freelist[words] && unswept[words]) {
+    Chunk *c = chunk_at(unswept[words] - 1);
+    unswept[words] = c->next_unswept;
+    sweep_chunk(c);
+    lazy_chunks++;
+  }
+  if (gcstats) {
+    double t = now_ms() - t0;
+    lazy_total += t;
+    if (t > lazy_max) lazy_max = t;
+  }
+}
+
+/* A chunk still unswept when a collection starts keeps last cycle's marks;
+   clearing them lets this cycle's sweep free what died since. */
+static void clear_unswept_marks(void) {
+  for (size_t w = 0; w <= MAX_SMALL; w++)
+    for (size_t i = unswept[w]; i; i = chunk_at(i - 1)->next_unswept) {
+      memset(chunk_at(i - 1)->marks, 0, chunk_at(i - 1)->nobj);
+      chunk_at(i - 1)->nmarked = 0;
+    }
+}
+
+/* After marking: every chunk becomes unswept, and dead large objects are
+   freed now, since they are few. */
 static void sweep(void) {
-  size_t live = 0;
   memset(freelist, 0, sizeof freelist);
   memset(bump, 0, sizeof bump);
   memset(bump_end, 0, sizeof bump_end);
-  for (size_t ci = 0; ci < nchunks; ci++) {
-    Chunk *c = (Chunk *)(heap_base + ci * CHUNK_SIZE);
-    size_t bytes = c->words * sizeof(V);
-    for (size_t i = c->nobj; i-- > 0;) {
-      V *o = (V *)(c->objs + i * bytes);
-      if (((FkHdr *)o)->kind != K_FREE) {
-        if (c->marks[i]) { c->marks[i] = 0; live += bytes; continue; }
-        o[0] = 0; /* K_FREE; constructors overwrite every payload word */
-      }
-      push_free(c->words, o);
-    }
+  memset(unswept, 0, sizeof unswept);
+  for (size_t ci = nchunks; ci-- > 0;) { /* pushed in reverse: each list is in address order */
+    Chunk *c = chunk_at(ci);
+    c->next_unswept = unswept[c->words];
+    unswept[c->words] = ci + 1;
   }
-  size_t j = 0;
+  size_t live = live_bytes, j = 0; /* counted while marking, large objects too */
   large_lo = UINTPTR_MAX;
   large_hi = 0;
   for (size_t i = 0; i < nlarge; i++) {
     if (!larges[i].mark) { free(larges[i].p); continue; }
     larges[i].mark = 0;
-    live += larges[i].words * sizeof(V);
     larges[j++] = larges[i];
     if ((uintptr_t)larges[i].p < large_lo) large_lo = (uintptr_t)larges[i].p;
     uintptr_t end = (uintptr_t)(larges[i].p + larges[i].words);
@@ -220,11 +294,24 @@ static void fk_gc(void) {
   jmp_buf regs;
   setjmp(regs); /* spill callee-saved registers into this frame */
   __asm__ volatile("" : : "r"(&regs) : "memory");
+  double t0 = gcstats ? now_ms() : 0;
+  clear_unswept_marks();
+  live_bytes = 0;
   scan_stack();
   for (size_t i = 0; i < nroots; i++) scan_range(*roots[i].base, *roots[i].base + *roots[i].count);
+  double t1 = gcstats ? now_ms() : 0;
   drain();
+  double t2 = gcstats ? now_ms() : 0;
   sweep();
   alloc_since_gc = 0;
+  if (gcstats) {
+    double t3 = now_ms(), pause = t3 - t0;
+    gc_count++;
+    pause_total += pause;
+    if (pause > pause_max) pause_max = pause;
+    fprintf(stderr, "gc %zu: pause %.2f ms (roots %.2f, mark %.2f, finish %.2f), live %.1f MiB, heap %zu MiB\n", gc_count, pause, t1 - t0, t2 - t1,
+            t3 - t2, (double)live_bytes / (1 << 20), nchunks * (CHUNK_SIZE >> 20));
+  }
 }
 
 static V alloc_large(size_t words) {
@@ -248,6 +335,7 @@ static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uin
   if (words > MAX_SMALL) {
     o = (V *)alloc_large(words);
   } else {
+    if (!freelist[words] && unswept[words]) sweep_lazily(words);
     if ((o = freelist[words])) {
       freelist[words] = (V *)o[1];
       o[1] = 0;
@@ -352,6 +440,12 @@ V fk_mkcon(uint32_t id, int n, V *fields) {
 V fk_int64_box(int64_t i) {
   V o = alloc(2, K_INT64, 0, 0);
   ((FkInt64 *)o)->i = i;
+  return o;
+}
+
+V fk_ptr(const void *p) {
+  V o = alloc(2, K_PTR, 0, 0);
+  FK_PTRV(o) = (void *)p;
   return o;
 }
 
@@ -553,6 +647,11 @@ static void show(Buf *b, V v, int prec) {
     buf_putc(b, '"');
     for (size_t i = 0; i < FK_STRLEN(v); i++) show_char_esc(b, (unsigned char)FK_STRBYTES(v)[i], '"');
     buf_putc(b, '"');
+    return;
+  }
+  if (h->kind == K_PTR) { /* as Haskell shows a Ptr */
+    snprintf(tmp, sizeof tmp, "0x%016llx", (unsigned long long)(uintptr_t)FK_PTRV(v));
+    buf_puts(b, tmp);
     return;
   }
   if (h->kind != K_CON) { buf_puts(b, "<function>"); return; }
@@ -797,6 +896,13 @@ V fk_p_tocint(V self, V *a) { return FK_MKINT((int32_t)(uint32_t)FK_INT(a[0])); 
 V fk_p_tocuint(V self, V *a) { return FK_MKINT((uint32_t)FK_INT(a[0])); }
 V fk_p_toclong(V self, V *a) { return FK_MKINT((long)FK_INT(a[0])); }
 V fk_p_toculong(V self, V *a) { return FK_MKINT((int64_t)(unsigned long)FK_INT(a[0])); }
+V fk_p_toccchar(V self, V *a) { return FK_MKINT((char)FK_INT(a[0])); }
+V fk_p_tocbool(V self, V *a) { return FK_MKINT(FK_INT(a[0]) != 0); }
+V fk_p_newcstring(V self, V *a) { /* freed with free */
+  char *p = malloc(FK_STRLEN(a[0]) + 1);
+  if (!p) fk_error("newCString: out of memory");
+  return fk_ptr(memcpy(p, FK_STRBYTES(a[0]), FK_STRLEN(a[0]) + 1));
+}
 V fk_p_tocsize(V self, V *a) { return FK_MKINT((int64_t)(size_t)FK_INT(a[0])); }
 V fk_p_tocfloat(V self, V *a) { return fk_float((float)FK_FLOATV(a[0])); }
 V fk_p_ltu(V self, V *a) { return FK_BOOL((uint64_t)FK_INT(a[0]) < (uint64_t)FK_INT(a[1])); }
@@ -813,6 +919,180 @@ V fk_p_showcf(V self, V *a) {
   V r = fk_str(b.s, b.n);
   free(b.s);
   return r;
+}
+
+/* Ptr and C memory (ffi.md, phase 2). funk strings are NUL-terminated and
+   never moved, so C reads one in place, during the call. */
+const char *fk_cstr(V s) {
+  const char *b = FK_STRBYTES(s);
+  if (strlen(b) != FK_STRLEN(s)) fk_error("a String passed to C contains a NUL byte, which C would read as its end");
+  return b;
+}
+
+V fk_cstr_result(const void *p, const char *fn) {
+  if (!p) fk_error("`%s` returned NULL for a String; declare its result `Ptr CChar`, test it against nullPtr, and read it with peekCString", fn);
+  return fk_str(p, strlen(p));
+}
+
+V fk_p_nullptr(V self, V *a) { return fk_ptr(NULL); }
+V fk_p_eqptr(V self, V *a) { return FK_BOOL(FK_PTRV(a[0]) == FK_PTRV(a[1])); }
+V fk_p_castptr(V self, V *a) { return a[0]; }
+V fk_p_plusptr(V self, V *a) { return fk_ptr((char *)FK_PTRV(a[0]) + FK_INT(a[1])); }
+V fk_p_ptrint(V self, V *a) { return FK_MKINT((int64_t)(uintptr_t)FK_PTRV(a[0])); }
+
+V fk_p_mallocbytes(V self, V *a) {
+  int64_t n = FK_INT(a[0]);
+  void *p = n < 0 ? NULL : malloc(n ? (size_t)n : 1);
+  if (!p) fk_error("mallocBytes %lld: out of memory", (long long)n);
+  return fk_ptr(p);
+}
+V fk_p_free(V self, V *a) { free(FK_PTRV(a[0])); return fk_unit; }
+
+/* peek and poke: the width in bytes, negative for an unsigned integer. */
+V fk_p_peeki(V self, V *a) {
+  void *p = FK_PTRV(a[1]);
+  switch (FK_INT(a[0])) {
+  case 1: return FK_MKINT(*(int8_t *)p);
+  case -1: return FK_MKINT(*(uint8_t *)p);
+  case 2: return FK_MKINT(*(int16_t *)p);
+  case -2: return FK_MKINT(*(uint16_t *)p);
+  case 4: return FK_MKINT(*(int32_t *)p);
+  case -4: return FK_MKINT(*(uint32_t *)p);
+  default: return FK_MKINT(*(int64_t *)p);
+  }
+}
+V fk_p_pokei(V self, V *a) {
+  void *p = FK_PTRV(a[1]);
+  int64_t x = FK_INT(a[2]);
+  switch (FK_INT(a[0])) {
+  case 1: case -1: *(uint8_t *)p = (uint8_t)x; break;
+  case 2: case -2: *(uint16_t *)p = (uint16_t)x; break;
+  case 4: case -4: *(uint32_t *)p = (uint32_t)x; break;
+  default: *(int64_t *)p = x;
+  }
+  return fk_unit;
+}
+V fk_p_peekf(V self, V *a) {
+  void *p = FK_PTRV(a[1]);
+  return fk_float(FK_INT(a[0]) == 4 ? *(float *)p : *(double *)p);
+}
+V fk_p_pokef(V self, V *a) {
+  void *p = FK_PTRV(a[1]);
+  if (FK_INT(a[0]) == 4) *(float *)p = (float)FK_FLOATV(a[2]);
+  else *(double *)p = FK_FLOATV(a[2]);
+  return fk_unit;
+}
+V fk_p_peekp(V self, V *a) { return fk_ptr(*(void **)FK_PTRV(a[0])); }
+V fk_p_pokep(V self, V *a) { *(void **)FK_PTRV(a[0]) = FK_PTRV(a[1]); return fk_unit; }
+V fk_p_peekcstring(V self, V *a) { return fk_cstr_result(FK_PTRV(a[0]), "peekCString"); }
+
+/* Callbacks (ffi.md, phase 3). A StablePtr is an index, plus one, into a
+   root table, so a value C holds stays alive and does not move. */
+static V *stables;
+static bool *stable_live;
+static size_t nstables, capstables, free_stable; /* a freed index plus one; a freed slot holds the next */
+
+V fk_p_newstable(V self, V *a) {
+  size_t i;
+  if (free_stable) {
+    i = free_stable - 1;
+    free_stable = (size_t)FK_INT(stables[i]);
+  } else {
+    if (nstables == capstables) {
+      capstables = capstables ? 2 * capstables : 64;
+      stables = rt_realloc(stables, capstables * sizeof *stables);
+      stable_live = rt_realloc(stable_live, capstables * sizeof *stable_live);
+      if (nstables == 0) fk_add_roots(&stables, &nstables);
+    }
+    i = nstables++;
+  }
+  stables[i] = a[0];
+  stable_live[i] = true;
+  return fk_ptr((void *)(uintptr_t)(i + 1));
+}
+
+static size_t stable_index(void *p) {
+  size_t i = (size_t)(uintptr_t)p;
+  if (i == 0 || i > nstables || !stable_live[i - 1]) fk_error("%p is not a live StablePtr; was it freed?", p);
+  return i - 1;
+}
+
+V fk_stable_deref(void *p) { return stables[stable_index(p)]; }
+V fk_p_derefstable(V self, V *a) { return fk_stable_deref(FK_PTRV(a[0])); }
+V fk_p_freestable(V self, V *a) {
+  size_t i = stable_index(FK_PTRV(a[0]));
+  stables[i] = FK_MKINT((int64_t)free_stable);
+  stable_live[i] = false;
+  free_stable = i + 1;
+  return fk_unit;
+}
+
+static pthread_t funk_thread; /* set by task_main */
+
+bool fk_on_funk_thread(void) { return pthread_equal(pthread_self(), funk_thread); }
+
+_Noreturn void fk_callback_thread(const char *name) {
+  fprintf(stderr, "funk: callback `%s` was called on a thread other than funk's; declare it \"queue\" instead of \"callback\"\n", name);
+  abort();
+}
+
+/* A runtime error in a direct callback stops at its trampoline, which
+   returns to C; the foreign call that led to it raises it again. */
+int fk_cb_failed;
+_Noreturn void fk_cb_rethrow(void) {
+  fk_cb_failed = 0;
+  if (fk_error_jmp) longjmp(*fk_error_jmp, 1);
+  exit(1);
+}
+
+/* Queued callbacks: a trampoline on any thread copies its arguments into
+   an event, and waitEvent runs the event's closure on funk's thread. */
+static pthread_mutex_t ev_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t ev_cond = PTHREAD_COND_INITIALIZER;
+static FkEvent *ev_head, *ev_tail;
+
+void fk_event_push(FkEvent *e) {
+  e->next = NULL;
+  pthread_mutex_lock(&ev_lock);
+  if (ev_tail) ev_tail->next = e;
+  else ev_head = e;
+  ev_tail = e;
+  pthread_cond_signal(&ev_cond);
+  pthread_mutex_unlock(&ev_lock);
+}
+
+static FkEvent *event_pop(bool wait) {
+  pthread_mutex_lock(&ev_lock);
+  while (wait && !ev_head) pthread_cond_wait(&ev_cond, &ev_lock);
+  FkEvent *e = ev_head;
+  if (e && !(ev_head = e->next)) ev_tail = NULL;
+  pthread_mutex_unlock(&ev_lock);
+  return e;
+}
+
+V fk_p_waitevent(V self, V *a) {
+  FkEvent *e = event_pop(true);
+  e->run(e);
+  return fk_unit;
+}
+
+V fk_p_pollevent(V self, V *a) {
+  FkEvent *e = event_pop(false);
+  if (e) e->run(e);
+  return FK_BOOL(e != NULL);
+}
+
+_Noreturn void fk_callback_oom(const char *name) {
+  fprintf(stderr, "funk: out of memory in callback `%s`\n", name);
+  abort();
+}
+
+char *fk_memdup(const void *p, size_t n) {
+  char *d = malloc(n + 1);
+  if (!d) fk_callback_oom("a queued callback");
+  if (n) memcpy(d, p, n);
+  d[n] = 0;
+  return d;
 }
 
 /* show for a String, and for a [Char], which shows as one: quoted, escaped. */
@@ -1010,6 +1290,8 @@ V fk_prim_value(int i) {
 void fk_init(void) {
   static const char *tuples[] = {"(,)", "(,,)", "(,,,)", "(,,,,)", "(,,,,,)", "(,,,,,,)"};
   if (fk_ncons) return;
+  const char *s = getenv("FUNK_GCSTATS");
+  if ((gcstats = s && *s && strcmp(s, "0") != 0)) atexit(gc_summary);
   fk_register_con("False", 0);
   fk_register_con("True", 0);
   fk_register_con("()", 0);
@@ -1041,6 +1323,7 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
 
 static void *task_main(void *p) {
   Task *t = p;
+  funk_thread = pthread_self();
   stack_t ss = {.ss_sp = malloc(1 << 16), .ss_size = 1 << 16};
   struct sigaction sa = {0};
   sa.sa_sigaction = on_fault;

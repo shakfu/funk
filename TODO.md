@@ -22,7 +22,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Medium
 
-- [ ] **Foreign function interface**, phases 2 and 3: sqlite3 (`String`, `Ptr`, opaque types, out-parameters), then libremidi (callbacks). Phase 1, scalars and libm, is done. Design and open questions: [docs/dev/ffi.md](docs/dev/ffi.md).
+- [ ] **Real time**: collector pauses of about 10 ms per million live cells, plus the stack, against deadlines of 1-17 ms. Pause statistics (R0) and lazy sweeping (R1) are done; next in [docs/dev/realtime.md](docs/dev/realtime.md): incremental marking (R2), a lock-free event ring (R3), and allocation-free exports for audio threads (R4).
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 

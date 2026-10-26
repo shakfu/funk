@@ -1,0 +1,49 @@
+-- Callbacks (ffi.md, phase 3), with tests/ffi/fkt.h. tests/run.sh passes
+-- -I, -L and -lfkt.
+foreign import ccall "fkt.h fkt_each" each :: CInt -> Ptr () -> FunPtr (Ptr () -> CInt ->> ()) ->> ()
+foreign import ccall "fkt.h fkt_fold" fold :: CInt -> Ptr () -> FunPtr (Ptr () -> CInt -> CInt ->> CInt) ->> CInt
+foreign import ccall "callback" eachCb :: FunPtr (Ptr () -> CInt ->> ())
+foreign import ccall "callback" foldCb :: FunPtr (Ptr () -> CInt -> CInt ->> CInt)
+
+-- a struct, through sizeof and offsetof
+foreign import ccall "fkt.h sizeof(fkt_config)" configSize :: CSize
+foreign import ccall "fkt.h offsetof(fkt_config, version)" offVersion :: CSize
+foreign import ccall "fkt.h offsetof(fkt_config, on_message.context)" offContext :: CSize
+foreign import ccall "fkt.h offsetof(fkt_config, on_message.callback)" offCallback :: CSize
+foreign import ccall "fkt.h offsetof(fkt_config, count)" offCount :: CSize
+foreign import ccall "fkt.h FKT_V1" v1 :: CInt
+foreign import ccall "fkt.h fkt_start" start :: Ptr () ->> CInt
+foreign import ccall "fkt.h fkt_join" join :: () ->> ()
+foreign import ccall "queue" messageCb :: FunPtr (Ptr () -> CLLong -> CStringLen -> ())
+
+-- run f with a StablePtr to x, as a context for C
+withStable :: a -> (Ptr () ->> b) ->> b
+withStable x f = do
+  sp <- newStablePtr x
+  r <- f (castStablePtrToPtr sp)
+  freeStablePtr sp
+  r
+
+off :: CSize -> Int
+off = fromIntegral
+
+onMessage :: CLLong -> String ->> ()
+onMessage ts bytes = print (ts, map ord (unpack bytes))
+
+main = do
+  withStable (\i -> print (i * i)) (\ctx -> each 3 ctx eachCb)
+  print (withStable (\acc x -> acc + x * 10) (\ctx -> fold 4 ctx foldCb))
+  sp <- newStablePtr onMessage
+  rc <- allocaBytes (off configSize) (\cfg -> do
+    pokeByteOff cfg (off offVersion) v1
+    pokeByteOff cfg (off offContext) (castStablePtrToPtr sp)
+    pokeByteOff cfg (off offCallback) messageCb
+    pokeByteOff cfg (off offCount) (3 :: CInt)
+    start cfg)
+  print rc
+  waitEvent ()
+  waitEvent ()
+  waitEvent ()
+  join ()
+  print (pollEvent ())
+  freeStablePtr sp

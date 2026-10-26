@@ -948,6 +948,7 @@ static DataDecl *parse_data(P *p) {
   while (is(p, T_VARID)) VPUSH(ps, next(p)->s);
   d->np = ps.n;
   d->params = ps.a;
+  if (!is(p, T_EQ)) return d; /* opaque: no values, for `Ptr Db` in foreign imports */
   expect(p, T_EQ, NULL);
   VEC(ConDecl) cs = {0};
   do {
@@ -1130,15 +1131,16 @@ char *builtin_instances_src(void) {
      arithmetic wraps to width. CULong and CSize compare and show unsigned. */
   for (int i = 0; i < ffi_ntypes; i++) {
     const char *t = ffi_types[i].name;
-    if (t[0] != 'C' || !strcmp(t, "Char")) continue;
+    if (t[0] != 'C' || !strcmp(t, "Char") || !strchr("if", ffi_types[i].kind)) continue;
     if (ffi_types[i].kind == 'f') {
       sb_printf(&b, "instance Eq %s where\n  x == y = fromCFloat x == fromCFloat y\n  x /= y = fromCFloat x /= fromCFloat y\n"
                     "instance Ord %s where\n  compare x y = compare (fromCFloat x) (fromCFloat y)\n"
                     "instance Show %s where\n  showPrec d x = if d > 6 && fromCFloat x < 0.0 then \"(\" ++ primShowCFloat x ++ \")\" else primShowCFloat x\n"
                     "instance Num %s where\n  x + y = toCFloat (fromCFloat x + fromCFloat y)\n  x - y = toCFloat (fromCFloat x - fromCFloat y)\n"
                     "  x * y = toCFloat (fromCFloat x * fromCFloat y)\n  negate x = toCFloat (negate (fromCFloat x))\n"
-                    "  abs x = toCFloat (abs (fromCFloat x))\n  fromInt n = toCFloat (toFloat n)\n",
-                t, t, t, t);
+                    "  abs x = toCFloat (abs (fromCFloat x))\n  fromInt n = toCFloat (toFloat n)\n"
+                    "instance Storable %s where\n  peek p = toCFloat (primPeekFloat 4 p)\n  poke p x = primPokeFloat 4 p (fromCFloat x)\n",
+                t, t, t, t, t);
       continue;
     }
     bool word = !strcmp(t, "CULong") || !strcmp(t, "CSize"), sign = t[1] != 'U' && !word;
@@ -1158,6 +1160,8 @@ char *builtin_instances_src(void) {
     if (sign) sb_printf(&b, "  abs x = primTo%s (abs (primFrom%s x))\n", t, t);
     else sb_puts(&b, "  abs x = x\n");
     sb_printf(&b, "  fromInt = primTo%s\ninstance Integral %s where\n  toInt = primFrom%s\n", t, t, t);
+    sb_printf(&b, "instance Storable %s where\n  peek p = primTo%s (primPeekInt (%d) p)\n  poke p x = primPokeInt (%d) p (primFrom%s x)\n", t, t,
+              ffi_types[i].width, ffi_types[i].width, t);
   }
   return b.s;
 }
@@ -1262,11 +1266,15 @@ static void parse_foreign(P *p, Decl *d) {
   f->line = t->line;
   f->col = t->col;
   char *s = xsprintf("%.*s", ent->len, ent->s), *sp = strchr(s, ' ');
-  if (!sp || !sp[1] || strchr(sp + 1, ' '))
-    cerror(ent->line, ent->col, "a foreign import names a header and a C function: \"math.h sin\"");
-  *sp = 0;
-  f->header = intern(s);
-  f->cname = intern(sp + 1);
+  if (!strcmp(s, "callback") || !strcmp(s, "queue")) { /* a trampoline: phase 3 of ffi.md */
+    f->cb = s[0];
+  } else {
+    if (!sp || !sp[1])
+      cerror(ent->line, ent->col, "a foreign import names a header and a C function or value: \"math.h sin\"");
+    *sp = 0;
+    f->header = intern(s);
+    f->cname = intern(sp + 1); /* a value may be any C expression: "stddef.h sizeof(T)" */
+  }
   f->name = expect(p, T_VARID, "the funk name of the import")->s;
   expect(p, T_DCOLON, NULL);
   f->sig = parse_sig(p);

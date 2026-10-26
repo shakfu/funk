@@ -1,0 +1,55 @@
+-- sqlite3 through foreign imports (ffi.md, phase 2): an in-memory database,
+-- created, filled and queried, and the error paths. tests/run.sh runs it
+-- when sqlite3.h is installed.
+foreign library "sqlite3"
+
+data Db
+data Stmt
+
+foreign import ccall "sqlite3.h sqlite3_open" c_open :: String -> Ptr (Ptr Db) ->> CInt
+foreign import ccall "sqlite3.h sqlite3_close" c_close :: Ptr Db ->> CInt
+foreign import ccall "sqlite3.h sqlite3_errmsg" c_errmsg :: Ptr Db ->> String
+foreign import ccall "sqlite3.h sqlite3_prepare_v2" c_prepare :: Ptr Db -> String -> CInt -> Ptr (Ptr Stmt) -> Ptr (Ptr CChar) ->> CInt
+foreign import ccall "sqlite3.h sqlite3_step" c_step :: Ptr Stmt ->> CInt
+foreign import ccall "sqlite3.h sqlite3_finalize" c_finalize :: Ptr Stmt ->> CInt
+foreign import ccall "sqlite3.h sqlite3_column_int64" c_columnInt :: Ptr Stmt -> CInt ->> CLLong
+foreign import ccall "sqlite3.h sqlite3_column_text" c_columnText :: Ptr Stmt -> CInt ->> String
+foreign import ccall "sqlite3.h SQLITE_ROW" sqliteRow :: CInt
+foreign import ccall "sqlite3.h SQLITE_DONE" sqliteDone :: CInt
+
+open :: String ->> Ptr Db
+open name = alloca (\out -> do
+  rc <- c_open name out
+  if rc /= 0 then error "sqlite3_open failed" else peek out)
+
+-- The rows of a statement; each row is read by `row`.
+query :: Ptr Db -> String -> (Ptr Stmt ->> a) ->> Either String [a]
+query db sql row = alloca (\out -> do
+  rc <- c_prepare db sql (-1) out nullPtr
+  if rc /= 0 then Left (c_errmsg db) else do
+    st <- peek out
+    rows <- collect st row
+    c_finalize st
+    Right rows)
+
+collect :: Ptr Stmt -> (Ptr Stmt ->> a) ->> [a]
+collect st row = do
+  rc <- c_step st
+  if rc == sqliteRow then do
+    r <- row st
+    r : collect st row
+  else []
+
+exec :: Ptr Db -> String ->> ()
+exec db sql = case query db sql (\_ -> ()) of
+  Left e -> error e
+  Right _ -> ()
+
+main = do
+  db <- open ":memory:"
+  exec db "create table t (id integer, name text)"
+  mapM_ (\(i, n) -> exec db ("insert into t values (" ++ show i ++ ", '" ++ n ++ "')")) [(1, "ada"), (2, "bob"), (3000000000, "cyd")]
+  print (query db "select id, name from t order by id" (\st -> (c_columnInt st 0, c_columnText st 1)))
+  print (query db "select count(*) from t" (\st -> c_columnInt st 0))
+  print (query db "selec nonsense" (\st -> c_columnInt st 0))
+  print (c_close db, sqliteDone)

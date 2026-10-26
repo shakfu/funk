@@ -9,7 +9,11 @@
 #                          after "-- expect: " on line 1
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
 #   tests/ffi/link.fk      foreign imports from a library found with -I, -L and -l
+#   tests/ffi/callback.fk  callbacks into funk from that library; cberror.fk and
+#                          cbthread.fk must fail with their "-- expect: " text
+#   tests/ffi/sqlite.fk    sqlite3, in both backends; skipped without sqlite3.h
 #   the command line       exit status 0 on success, 1 on a failing program, 2 on a usage error
+#   FUNK_GCSTATS=1         gc.fk reports each collection and a summary
 cd "$(dirname "$0")/.." || exit 1
 FUNK=${FUNK:-./funk}
 tmp=$(mktemp -d) || exit 1
@@ -69,8 +73,30 @@ if cc -fPIC -c tests/ffi/fkt.c -o "$tmp/fkt.o" && ar rcs "$tmp/libfkt.a" "$tmp/f
   # shellcheck disable=SC2086
   if "$FUNK" build tests/ffi/link.fk -o "$tmp/link" $link >"$tmp/cc" 2>&1 && "$tmp/link" >"$tmp/link.out" 2>&1 &&
     diff tests/ffi/link.expected "$tmp/link.out" >"$tmp/diff" 2>&1; then ok; else bad "link (compiled)" "$tmp/diff"; fi
+  # shellcheck disable=SC2086
+  "$FUNK" run tests/ffi/callback.fk $link >"$tmp/callback.out" 2>&1
+  if diff tests/ffi/callback.expected "$tmp/callback.out" >"$tmp/diff" 2>&1; then ok; else bad "callback (interpreter)" "$tmp/diff"; fi
+  # shellcheck disable=SC2086
+  if "$FUNK" build tests/ffi/callback.fk -o "$tmp/callback" $link >"$tmp/cc" 2>&1 && "$tmp/callback" >"$tmp/callback.out" 2>&1 &&
+    diff tests/ffi/callback.expected "$tmp/callback.out" >"$tmp/diff" 2>&1; then ok; else bad "callback (compiled)" "$tmp/diff"; fi
+  for n in cberror cbthread; do
+    want=$(head -n 1 tests/ffi/$n.fk | sed 's/^-- expect: //')
+    # shellcheck disable=SC2086 # the subshell reports cbthread's abort to /dev/null
+    if ("$FUNK" run tests/ffi/$n.fk $link >"$tmp/out" 2>&1; exit $?) 2>/dev/null; then bad "$n (expected failure, got success)" "$tmp/out"
+    elif grep -qF -- "$want" "$tmp/out"; then ok
+    else echo "    want: $want" >>"$tmp/out"; bad "$n" "$tmp/out"; fi
+  done
 else
   bad "link (test library)"
+fi
+
+if printf '#include <sqlite3.h>\n' | ${CC:-cc} -E -x c - >/dev/null 2>&1; then
+  "$FUNK" tests/ffi/sqlite.fk >"$tmp/sqlite.out" 2>&1
+  if diff tests/ffi/sqlite.expected "$tmp/sqlite.out" >"$tmp/diff" 2>&1; then ok; else bad "sqlite (interpreter)" "$tmp/diff"; fi
+  if "$FUNK" build tests/ffi/sqlite.fk -o "$tmp/sqlite" >"$tmp/cc" 2>&1 && "$tmp/sqlite" >"$tmp/sqlite.out" 2>&1 &&
+    diff tests/ffi/sqlite.expected "$tmp/sqlite.out" >"$tmp/diff" 2>&1; then ok; else bad "sqlite (compiled)" "$tmp/diff"; fi
+else
+  echo "skip sqlite: no sqlite3.h"
 fi
 
 for f in tests/repl/*.in; do
@@ -78,6 +104,11 @@ for f in tests/repl/*.in; do
   "$FUNK" <"$f" >"$tmp/$n.repl" 2>&1
   if diff "tests/repl/$n.expected" "$tmp/$n.repl" >"$tmp/diff" 2>&1; then ok; else bad "$n (repl)" "$tmp/diff"; fi
 done
+
+FUNK_GCSTATS=1 "$tmp/gc.exe" >/dev/null 2>"$tmp/gcstats"
+if grep -q '^gc 1: pause .* ms (roots .*, mark .*, finish .*), live .* MiB, heap .* MiB$' "$tmp/gcstats" &&
+  grep -q '^gc: [0-9]* collections, pause max .* ms, mean .* ms, total .* ms; lazy sweep [0-9]* chunks' "$tmp/gcstats"; then ok
+else bad "FUNK_GCSTATS" "$tmp/gcstats"; fi
 
 # cli STATUS [OUTPUT] -- ARGS: funk ARGS exits with STATUS, and prints OUTPUT first if given.
 cli() {

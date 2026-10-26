@@ -1,0 +1,3 @@
+-- expect: a "callback" import has a type FunPtr (Ptr () -> ... -> r)
+foreign import ccall "callback" cb :: Ptr () -> CInt ->> ()
+main = print 1

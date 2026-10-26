@@ -295,6 +295,58 @@ toLower c = if isUpper c then chr (ord c + 32) else c
 
 -- words, unwords, lines and unlines are primitives on String (prims.def).
 
+-- C memory, for foreign imports (docs/dev/ffi.md). The C types' instances
+-- are generated with the tuple instances.
+
+class Storable a where
+  peek :: Ptr a ->> a
+  poke :: Ptr a -> a ->> ()
+
+instance Storable Int where
+  peek p = primPeekInt 8 p
+  poke p x = primPokeInt 8 p x
+instance Storable Float where
+  peek p = primPeekFloat 8 p
+  poke p x = primPokeFloat 8 p x
+instance Storable (Ptr a) where
+  peek p = primPeekPtr p
+  poke p q = primPokePtr p q
+instance Storable (FunPtr a) where
+  peek p = castPtrToFunPtr (primPeekPtr (castPtr p))
+  poke p f = primPokePtr (castPtr p) (castFunPtrToPtr f)
+
+-- a field of a C struct, at an offset from a foreign import such as
+-- "stddef.h offsetof(struct s, f)"
+peekByteOff :: Storable a => Ptr b -> Int ->> a
+peekByteOff p off = peek (plusPtr p off)
+pokeByteOff :: Storable a => Ptr b -> Int -> a ->> ()
+pokeByteOff p off x = poke (plusPtr p off) x
+
+instance Eq (Ptr a) where
+  p == q = primEqPtr p q
+  p /= q = not (primEqPtr p q)
+instance Ord (Ptr a) where
+  compare p q = let a = primPtrToInt p
+                    b = primPtrToInt q
+                in if primLtWord a b then LT else if a == b then EQ else GT
+instance Show (Ptr a) where
+  showPrec _ p = primShowPtr p
+
+nullPtr :: Ptr a
+nullPtr = primNullPtr ()
+
+-- f gets n bytes, freed after it returns
+allocaBytes :: Int -> (Ptr a ->> b) ->> b
+allocaBytes n f = do
+  p <- mallocBytes n
+  r <- f p
+  free p
+  r
+
+-- 16 bytes hold any Storable value
+alloca :: (Ptr a ->> b) ->> b
+alloca f = allocaBytes 16 f
+
 -- effects run left to right; `>>` sequences them
 
 mapM_ f xs = foldl (\_ x -> f x) () xs

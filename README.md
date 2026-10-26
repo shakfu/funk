@@ -124,7 +124,19 @@ foreign import ccall "stdlib.h srand" srand :: CUInt ->> ()
 foreign import ccall "math.h M_PI" piC :: Float   -- a C value, read once at startup
 ```
 
-The declared type must be the C prototype's, or the program does not compile. `Int` is `int64_t`, `Float` is `double`, `Char` is `char` and `Bool` is `bool`. `CInt`, `CUInt`, `CLong`, `CULong`, `CLLong`, `CSize` and `CFloat` are C's `int`, `unsigned`, `long`, `unsigned long`, `long long`, `size_t` and `float`. Their arithmetic wraps to the C width, and `fromIntegral` converts between integer types (`toCFloat` and `fromCFloat` for `CFloat`). A result may be `()`, and `()` alone as the argument calls a C function without parameters. A C function-like macro is called but not checked.
+The declared types must match the C declaration: a conversion that could change a value, or drop a `const`, is a compile error, while widening is allowed. `Int` is `int64_t`, `Float` is `double`, `Char` is `char` and `Bool` is `bool`. `CInt`, `CUInt`, `CLong`, `CULong`, `CLLong`, `CSize` and `CFloat` are C's `int`, `unsigned`, `long`, `unsigned long`, `long long`, `size_t` and `float`. Their arithmetic wraps to the C width, and `fromIntegral` converts between integer types (`toCFloat` and `fromCFloat` for `CFloat`). A result may be `()`, and `()` alone as the argument calls a C function without parameters.
+
+`String` passes as `const char *`; a NUL inside it, or a NULL result, is a run-time error. `Ptr a` is a C pointer, and `data Db` without constructors declares a type for `Ptr Db`. `alloca`, `peek` and `poke` (class `Storable`), `mallocBytes`, `free`, `nullPtr`, `castPtr`, `plusPtr` and `peekCString` work as in Haskell; [tests/ffi/sqlite.fk](tests/ffi/sqlite.fk) uses sqlite3 through them.
+
+C calls funk back through a function pointer whose context argument is a `StablePtr` to a funk closure. A value import may be any C expression, so `sizeof` and `offsetof` give struct layouts for `pokeByteOff`:
+
+```haskell
+foreign import ccall "callback" onPort :: FunPtr (Ptr () -> Ptr Port ->> ())  -- runs at once, on funk's thread
+foreign import ccall "queue" onMidi :: FunPtr (Ptr () -> CLLong -> CStringLen -> ())  -- any thread; waitEvent runs it
+foreign import ccall "fkt.h offsetof(fkt_config, count)" offCount :: CSize
+```
+
+[examples/ffi/libremidi.fk](examples/ffi/libremidi.fk) sends and receives MIDI through libremidi this way.
 
 Compiled code calls the C function directly. The interpreter compiles the same glue with `$CC` once and caches it in `$XDG_CACHE_HOME/funk/ffi` (default `~/.cache/funk/ffi`). `funk run`, `repl` and `build` take `-I`, `-L` and `-l` for headers and libraries outside the default paths. See [docs/dev/ffi.md](docs/dev/ffi.md).
 
@@ -237,6 +249,8 @@ The prelude defines:
 - `Int` is 64 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
 
 - The interpreter is about 6x slower than compiled code on allocation-heavy loops.
+
+- A collection pauses the program while it marks live data: about 10 ms per million live cells, plus 16 us per 1,000 stack frames. Sweeping is spread over allocation. `FUNK_GCSTATS=1` prints each pause. Bounded pauses are planned ([docs/dev/realtime.md](docs/dev/realtime.md)).
 
 ## Documentation
 

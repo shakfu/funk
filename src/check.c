@@ -58,6 +58,7 @@ const char *prim_cname(int i) { return prim_info[i].cname; }
 
 int global_lookup(const char *name) { return map_get(&gmap, name); }
 
+
 void global_alias(const char *name, int gidx) { map_put(&gmap, name, gidx); }
 
 /* ----------------------------------------------------------------- types */
@@ -84,6 +85,11 @@ Type *tcon_new(const char *name, int n, Type **args) { return tcon(name, n, args
    function whose type is not yet known is settled at the end of its
    binding group. */
 static Type *eff_pure, *eff_eff, *cur_eff, *te_eff;
+bool type_acts(Type *t) {
+  for (t = repr(t); t->k == TY_CON && t->name == s_arrow; t = repr(t->args[1]))
+    if (t->eff && repr(t->eff) == eff_eff) return true;
+  return false;
+}
 static const char *cur_bind;
 static int nprelude; /* globals defined by the prelude and the primitives: their names are reserved */
 static int nprelude_types = NBUILTIN_TYPES, nprelude_cons = FK_NBUILTIN_CONS; /* likewise, types and constructors */
@@ -2288,7 +2294,10 @@ void compiler_init(void) {
   add_tydef(intern("Num"), 1, 0); /* reserved */
   add_tydef(s_string, 0, 0);       /* packed; index < NBUILTIN_TYPES marks builtins */
   for (int i = 0; i < FK_MAXTUPLE - 1; i++) add_tydef(intern(tuples[i]), i + 2, 1);
-  for (int i = 0; i < ffi_ntypes; i++) /* CInt and the other C types, for foreign imports (ffi.md) */
+  add_tydef(intern("Ptr"), 1, 0); /* a C address, for foreign imports (ffi.md) */
+  add_tydef(intern("FunPtr"), 1, 0);
+  add_tydef(intern("StablePtr"), 1, 0);
+  for (int i = 0; i < ffi_ntypes; i++) /* CInt and the other C types */
     if (map_get(&tmap, intern(ffi_types[i].name)) < 0) add_tydef(intern(ffi_types[i].name), 0, 0);
 
   fk_init();
@@ -2322,6 +2331,35 @@ void compiler_init(void) {
   map_put(&gmap, intern("$error"), global_lookup(intern("error")));
 }
 
+static bool is_c_name(const char *s) {
+  if (!isalpha((unsigned char)*s) && *s != '_') return false;
+  for (; *s; s++)
+    if (!isalnum((unsigned char)*s) && *s != '_') return false;
+  return true;
+}
+
+/* "callback" and "queue" imports: FunPtr (Ptr c -> a1 -> ... -> r), where
+   Ptr c is the context C passes back, a StablePtr to the funk closure. */
+static void check_callback(ForeignDecl *f, Type *t) {
+  const char *what = f->cb == 'c' ? "callback" : "queue";
+  t = repr(t);
+  if (t->k != TY_CON || strcmp(t->name, "FunPtr") || repr(repr(t->args[0]))->name != s_arrow)
+    cerror(f->line, f->col, "a \"%s\" import has a type FunPtr (Ptr () -> ... -> r), the C function C will call", what);
+  Type *a = repr(t->args[0]);
+  if (ffi_kind(a->args[0]) != 'p')
+    cerror(f->line, f->col, "foreign import `%s`: the first argument of a callback is its context, a `Ptr ()`, which C passes back", f->name);
+  for (a = repr(a->args[1]); a->k == TY_CON && a->name == s_arrow; a = repr(a->args[1])) {
+    int k = ffi_kind(a->args[0]);
+    if (!k || k == 'v')
+      cerror(f->line, f->col, "foreign import `%s`: a callback argument of type `%s` cannot come from C", f->name, type_str(a->args[0]));
+  }
+  int k = ffi_kind(a);
+  if (f->cb == 'q' && k != 'v')
+    cerror(f->line, f->col, "foreign import `%s`: a queued callback returns `()`, since C does not wait for it", f->name);
+  if (!k || k == 's' || k == 'L')
+    cerror(f->line, f->col, "foreign import `%s`: a callback cannot return `%s` to C", f->name, type_str(a));
+}
+
 /* Foreign imports become globals with their declared types (ffi.md). `->`
    is the importer's promise of purity, as a primitive's is. */
 static void register_foreigns(Module *m) {
@@ -2337,9 +2375,20 @@ static void register_foreigns(Module *m) {
     Type *t = sig_scheme(f->sig);
     f->pure = true;
     f->arity = 0;
+    if (f->cb) {
+      check_callback(f, t);
+      f->gidx = globals.n;
+      add_global(f->name, t, NULL);
+      globals.a[f->gidx].ffi = f;
+      continue;
+    }
+    if (f->arity == 0 && repr(t)->name == s_arrow && !is_c_name(f->cname))
+      cerror(f->line, f->col, "foreign import `%s`: `%s` is not a C function name", f->name, f->cname);
     for (Type *a = repr(t); a->k == TY_CON && a->name == s_arrow; a = repr(a->args[1])) {
+      if (ffi_kind(a->args[0]) == 'L')
+        cerror(f->line, f->col, "foreign import `%s`: CStringLen is a pair of C parameters in a callback's type only; pass a String", f->name);
       if (!ffi_param_type(a->args[0]))
-        cerror(f->line, f->col, "foreign import `%s`: an argument of type `%s` cannot be passed to C; use Int, Float, Char, Bool or a C type such as CInt",
+        cerror(f->line, f->col, "foreign import `%s`: an argument of type `%s` cannot be passed to C; use Int, Float, Char, Bool, String, Ptr or a C type such as CInt",
                f->name, type_str(a->args[0]));
       if (repr(a->args[0])->name == s_unit && (f->arity || repr(repr(a->args[1]))->name == s_arrow))
         cerror(f->line, f->col, "foreign import `%s`: `()` can only be the one argument, of a C function without parameters", f->name);
@@ -2349,8 +2398,8 @@ static void register_foreigns(Module *m) {
     Type *r = repr(t);
     for (int k = 0; k < f->arity; k++) r = repr(r->args[1]);
     if (!f->arity && r->name == s_unit) cerror(f->line, f->col, "foreign import `%s`: a C value cannot have type `()`", f->name);
-    if (!ffi_param_type(r))
-      cerror(f->line, f->col, "foreign import `%s`: a result of type `%s` cannot come from C; use Int, Float, Char, Bool, (), or a C type such as CInt",
+    if (!ffi_param_type(r) || ffi_kind(r) == 'L')
+      cerror(f->line, f->col, "foreign import `%s`: a result of type `%s` cannot come from C; use Int, Float, Char, Bool, (), String, Ptr or a C type such as CInt",
              f->name, type_str(r));
     f->gidx = globals.n;
     add_global(f->name, t, NULL);

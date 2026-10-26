@@ -1,0 +1,3 @@
+-- expect: a String passed to C contains a NUL byte
+foreign import ccall "string.h strlen" c_strlen :: String -> CSize
+main = print (c_strlen (pack [chr 97, chr 0, chr 98]))

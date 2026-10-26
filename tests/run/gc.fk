@@ -1,0 +1,10 @@
+-- Several collections while a list stays live (realtime.md, R1): the list
+-- must come through lazy sweeping intact, in both backends.
+churn :: Int -> Int -> Int
+churn k acc = if k == 0 then acc else churn (k - 1) (acc + length (reverse (enumFromTo 1 1000)))
+
+main = do
+  let big = map (\x -> x * 3) (enumFromTo 1 200000)
+  print (length big)
+  print (churn 6000 0)
+  print (sum big, last big)

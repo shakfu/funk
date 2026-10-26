@@ -253,6 +253,7 @@ typedef struct {
   Sig *sig;
   int line, col;
   int gidx, arity;
+  char cb;     /* "callback" 'c', "queue" 'q': the import is a trampoline */
   bool pure;   /* written with `->` only */
   FkCode code; /* interpreter: the loaded glue's entry */
 } ForeignDecl;
@@ -353,6 +354,7 @@ int global_lookup(const char *name);
 void global_alias(const char *name, int gidx);
 Type *repr(Type *t);
 const char *type_str(Type *t);
+bool type_acts(Type *t); /* an arrow of t is `->>` */
 int preds_of(Type *scheme, Pred **out);
 InstDef *find_inst(int cls, const char *tycon);
 Type *tcon_new(const char *name, int n, Type **args);
@@ -390,7 +392,7 @@ extern const char fk_rth_src[]; /* rt.h, for the interpreter's foreign glue */
 char *ffi_glue(ForeignDecl **fs, int n, bool exported); /* the C wrappers fk_ffi_GIDX */
 const char *ffi_param_type(Type *t);                    /* NULL if t cannot be passed to C */
 int ffi_kind(Type *t);                                  /* 'i' held as Int, 'f' as Float, 'c', 'b', 'v' (); 0 */
-typedef struct { const char *name, *ctype; char kind; } FfiType;
+typedef struct { const char *name, *ctype; char kind; int width; } FfiType; /* width: bytes, negative if unsigned */
 extern const FfiType ffi_types[];
 extern const int ffi_ntypes;
 void ffi_load(ForeignDecl **fs, int n);                 /* interpreter: compile, cache, load; sets each code */

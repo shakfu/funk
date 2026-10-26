@@ -1,0 +1,3 @@
+-- expect: foreign import `q`: a queued callback returns `()`, since C does not wait for it
+foreign import ccall "queue" q :: FunPtr (Ptr () -> CInt ->> CInt)
+main = print 1

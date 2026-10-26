@@ -232,6 +232,8 @@ static const Scalar scalars[] = {
     {"toclong", "(int64_t)(long)%s", 1, R_I, R_I},
     {"toculong", "(int64_t)(unsigned long)%s", 1, R_I, R_I},
     {"tocsize", "(int64_t)(size_t)%s", 1, R_I, R_I},
+    {"toccchar", "(int64_t)(char)%s", 1, R_I, R_I},
+    {"tocbool", "(int64_t)(%s != 0)", 1, R_I, R_I},
     {"tocfloat", "(double)(float)%s", 1, R_F, R_F},
     {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B},
 };
@@ -261,7 +263,18 @@ static TV cg_call(CG *c, Expr *e) {
     return tv(n == 1 ? xsprintf(sc->fmt, a0) : xsprintf(sc->fmt, a0, a1), sc->res);
   }
   ForeignDecl *ffi = g >= 0 ? globals.a[g].ffi : NULL;
-  if (ffi && n == ffi->arity) { /* the C function itself; its prototype converts the scalars */
+  bool scalar = ffi != NULL;
+  if (ffi) {
+    Type *t = repr(globals.a[g].type);
+    for (int i = 0; i < ffi->arity; i++, t = repr(t->args[1])) scalar &= ffi_kind(t->args[0]) != 's' && ffi_kind(t->args[0]) != 'p';
+    scalar &= ffi_kind(t) != 's' && ffi_kind(t) != 'p';
+  }
+  if (ffi && n == ffi->arity && !scalar) { /* String and Ptr convert in the wrapper */
+    const char **a = xmalloc((size_t)n * sizeof *a);
+    for (int i = 0; i < n; i++) a[i] = as_v(cg_expr(c, e->args[i]));
+    return tv(xsprintf("fk_ffi_%d(0, %s)", g, arg_array(a, n)), R_V);
+  }
+  if (ffi && n == ffi->arity) { /* the C function itself; the wrapper has checked the types */
     SB call = {0};
     sb_printf(&call, "%s(", ffi->cname);
     Type *t = repr(globals.a[g].type);
@@ -271,10 +284,12 @@ static TV cg_call(CG *c, Expr *e) {
     }
     sb_puts(&call, ")");
     Rep r = rep_of(t); /* a scalar: the result is never applied further */
-    return r == R_V ? tv(xsprintf("((void)%s, fk_unit)", call.s), R_V)
-           : r == R_B ? tv(xsprintf("(%s != 0)", call.s), R_B)
-           : r == R_C ? tv(xsprintf("(int32_t)(unsigned char)%s", call.s), R_C)
-                      : tv(xsprintf("(%s)%s", ctype[r], call.s), r);
+    TV res = hold(c, r == R_V   ? tv(xsprintf("((void)%s, fk_unit)", call.s), R_V)
+                     : r == R_B ? tv(xsprintf("(%s != 0)", call.s), R_B)
+                     : r == R_C ? tv(xsprintf("(int32_t)(unsigned char)%s", call.s), R_C)
+                                : tv(xsprintf("(%s)%s", ctype[r], call.s), r));
+    sb_puts(c->out, "  fk_cb_check();\n"); /* a direct callback that failed during the call */
+    return res;
   }
   bool direct = f->k == E_CON || prim >= 0 || (f->k == E_VAR && f->known);
   const char *fv = direct ? NULL : as_v(cg_expr(c, f));

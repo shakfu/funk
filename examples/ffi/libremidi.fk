@@ -1,0 +1,152 @@
+-- MIDI through libremidi's C API (docs/dev/ffi.md, phase 3), with no device:
+-- open a virtual output, find it among the inputs, listen to it with a
+-- queued callback, and send it three messages. Build libremidi 5 as a shared
+-- library, then, with LIBREMIDI its source directory:
+--
+--   DYLD_LIBRARY_PATH=$LIBREMIDI/build funk run examples/ffi/libremidi.fk \
+--     -I $LIBREMIDI/include -L $LIBREMIDI/build
+--
+-- (LD_LIBRARY_PATH on Linux). It prints the three messages it receives.
+foreign library "libremidi" -- liblibremidi.dylib
+
+data Observer
+data InPort
+data In
+data Out
+
+-- the configuration structs: sizes, field offsets and enum values
+foreign import ccall "libremidi/libremidi-c.h sizeof(libremidi_midi_configuration)" midiConfSize :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_midi_configuration, version)" offVersion :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_midi_configuration, in_port)" offInPort :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_midi_configuration, on_midi1_message.context)" offContext :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_midi_configuration, on_midi1_message.callback)" offCallback :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_midi_configuration, port_name)" offPortName :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_midi_configuration, virtual_port)" offVirtual :: CSize
+foreign import ccall "libremidi/libremidi-c.h sizeof(libremidi_api_configuration)" apiConfSize :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_api_configuration, configuration_type)" offConfType :: CSize
+foreign import ccall "libremidi/libremidi-c.h sizeof(libremidi_observer_configuration)" obsConfSize :: CSize
+foreign import ccall "libremidi/libremidi-c.h offsetof(libremidi_observer_configuration, track_virtual)" offTrackVirtual :: CSize
+foreign import ccall "libremidi/libremidi-c.h MIDI1" midi1 :: CInt
+foreign import ccall "libremidi/libremidi-c.h Observer" observerKind :: CInt
+foreign import ccall "libremidi/libremidi-c.h Input" inputKind :: CInt
+foreign import ccall "libremidi/libremidi-c.h Output" outputKind :: CInt
+
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_configuration_init" midiConfInit :: Ptr () ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_api_configuration_init" apiConfInit :: Ptr () ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_observer_configuration_init" obsConfInit :: Ptr () ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_observer_new" observerNew :: Ptr () -> Ptr () -> Ptr (Ptr Observer) ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_observer_enumerate_input_ports" enumerateInputs :: Ptr Observer -> Ptr () -> FunPtr (Ptr () -> Ptr InPort ->> ()) ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_observer_free" observerFree :: Ptr Observer ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_in_port_name" inPortName :: Ptr InPort -> Ptr (Ptr CChar) -> Ptr CSize ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_in_port_clone" inPortClone :: Ptr InPort -> Ptr (Ptr InPort) ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_in_port_free" inPortFree :: Ptr InPort ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_in_new" inNew :: Ptr () -> Ptr () -> Ptr (Ptr In) ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_in_free" inFree :: Ptr In ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_out_new" outNew :: Ptr () -> Ptr () -> Ptr (Ptr Out) ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_out_send_message" outSend :: Ptr Out -> Ptr CChar -> CSize ->> CInt
+foreign import ccall "libremidi/libremidi-c.h libremidi_midi_out_free" outFree :: Ptr Out ->> CInt
+foreign import ccall "unistd.h usleep" usleep :: CUInt ->> CInt
+
+-- port listing calls back during the call; messages arrive on CoreMIDI's thread
+foreign import ccall "callback" portFound :: FunPtr (Ptr () -> Ptr InPort ->> ())
+foreign import ccall "queue" midiMessage :: FunPtr (Ptr () -> CLLong -> CStringLen -> ())
+
+portName :: String
+portName = "funk-loopback"
+
+off :: CSize -> Int
+off = fromIntegral
+
+check :: String -> CInt -> ()
+check what rc = if rc /= 0 then error (what ++ " failed: " ++ show rc) else ()
+
+-- a struct of size bytes, set up by init, for the length of f
+withStruct :: CSize -> (Ptr () ->> CInt) -> (Ptr () ->> a) ->> a
+withStruct size init f = allocaBytes (off size) (\p -> do
+  check "init" (init p)
+  f p)
+
+withApi :: CInt -> (Ptr () ->> a) ->> a
+withApi kind f = withStruct apiConfSize apiConfInit (\api -> do
+  pokeByteOff api (off offConfType) kind
+  f api)
+
+-- a handle from a function that writes it to an out-parameter
+new :: String -> (Ptr (Ptr a) ->> CInt) ->> Ptr a
+new what f = alloca (\cell -> do
+  check what (f cell)
+  peek cell)
+
+withStable :: a -> (Ptr () ->> b) ->> b
+withStable x f = do
+  sp <- newStablePtr x
+  r <- f (castStablePtrToPtr sp)
+  freeStablePtr sp
+  r
+
+openOutput :: String ->> Ptr Out
+openOutput name = withStruct midiConfSize midiConfInit (\conf -> do
+  cname <- newCString name
+  pokeByteOff conf (off offVersion) midi1
+  pokeByteOff conf (off offPortName) cname
+  pokeByteOff conf (off offVirtual) (1 :: CBool)
+  out <- withApi outputKind (\api -> new "libremidi_midi_out_new" (outNew conf api))
+  free cname
+  out)
+
+inPortNameOf :: Ptr InPort ->> String
+inPortNameOf port = alloca (\pname -> alloca (\plen -> do
+  check "libremidi_midi_in_port_name" (inPortName port pname plen)
+  s <- peek pname
+  peekCString s))
+
+-- the input port called name, cloned while the observer lists it
+findInput :: String ->> Ptr InPort
+findInput name = withStruct obsConfSize obsConfInit (\oc -> do
+  pokeByteOff oc (off offTrackVirtual) (1 :: CBool)
+  obs <- withApi observerKind (\api -> new "libremidi_midi_observer_new" (observerNew oc api))
+  found <- alloca (\cell -> do
+    poke cell nullPtr
+    let onPort port = if inPortNameOf port == name then check "clone" (inPortClone port cell) else ()
+    withStable onPort (\ctx -> check "enumerate" (enumerateInputs obs ctx portFound))
+    peek cell)
+  observerFree obs
+  if found == nullPtr then error ("no input port named " ++ name) else found)
+
+openInput :: Ptr InPort -> Ptr () ->> Ptr In
+openInput port ctx = withStruct midiConfSize midiConfInit (\conf -> do
+  pokeByteOff conf (off offVersion) midi1
+  pokeByteOff conf (off offInPort) port
+  pokeByteOff conf (off offContext) ctx
+  pokeByteOff conf (off offCallback) midiMessage
+  withApi inputKind (\api -> new "libremidi_midi_in_new" (inNew conf api)))
+
+send :: Ptr Out -> [Int] ->> ()
+send out bytes = allocaBytes (length bytes) (\buf -> do
+  mapM_ (\(i, b) -> pokeByteOff buf i (fromIntegral b :: CChar)) (zip [0 .. length bytes - 1] bytes)
+  check "libremidi_midi_out_send_message" (outSend out buf (fromIntegral (length bytes))))
+
+onMessage :: CLLong -> String ->> ()
+onMessage _ bytes = putStrLn ("received " ++ show (map ord (unpack bytes)))
+
+-- run queued messages until n have arrived, or about a second has passed
+receive :: Int -> Int ->> ()
+receive n tries
+  | n == 0 || tries == 0 = ()
+  | pollEvent () = receive (n - 1) tries
+  | otherwise = do
+      usleep 10000
+      receive n (tries - 1)
+
+main = do
+  out <- openOutput portName
+  port <- findInput portName
+  sp <- newStablePtr onMessage
+  inp <- openInput port (castStablePtrToPtr sp)
+  usleep 100000
+  mapM_ (send out) [[144, 60, 100], [144, 64, 100], [128, 60, 0]]
+  receive 3 100
+  inFree inp
+  outFree out
+  inPortFree port
+  freeStablePtr sp

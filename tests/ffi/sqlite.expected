@@ -1,0 +1,4 @@
+Right [(1,"ada"),(2,"bob"),(3000000000,"cyd")]
+Right [3]
+Left "near \"selec\": syntax error"
+(0,101)

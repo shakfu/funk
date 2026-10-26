@@ -1,0 +1,13 @@
+-- expect: runtime error: boom in a callback
+-- A runtime error in a callback stops at its trampoline; fkt_each returns,
+-- and the error is raised again after it. The later calls do not run funk.
+foreign import ccall "fkt.h fkt_each" each :: CInt -> Ptr () -> FunPtr (Ptr () -> CInt ->> ()) ->> ()
+foreign import ccall "callback" eachCb :: FunPtr (Ptr () -> CInt ->> ())
+
+step :: CInt ->> ()
+step i = if i == 1 then error "boom in a callback" else print i
+
+main = do
+  sp <- newStablePtr step
+  each 3 (castStablePtrToPtr sp) eachCb
+  putStrLn "not reached"

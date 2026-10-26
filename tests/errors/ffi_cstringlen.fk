@@ -1,0 +1,3 @@
+-- expect: CStringLen is a pair of C parameters in a callback's type only
+foreign import ccall "string.h strlen" f :: CStringLen -> CSize
+main = print 1

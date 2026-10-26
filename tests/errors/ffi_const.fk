@@ -1,0 +1,3 @@
+-- expect: c_strcpy :: String -> String ->> String, from string.h
+foreign import ccall "string.h strcpy" c_strcpy :: String -> String ->> String
+main = putStrLn (c_strcpy "abc" "x")

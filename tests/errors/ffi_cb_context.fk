@@ -1,0 +1,3 @@
+-- expect: foreign import `cb`: the first argument of a callback is its context, a `Ptr ()`
+foreign import ccall "callback" cb :: FunPtr (CInt -> CInt ->> ())
+main = print 1

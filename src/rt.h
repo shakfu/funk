@@ -18,16 +18,18 @@ typedef uintptr_t V;
 typedef V (*FkCode)(V self, V *args);
 
 typedef struct { uint8_t kind, pad; uint16_t n; uint32_t aux; } FkHdr;
-enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP, K_THUNK, K_STR, K_INT64 };
+enum { K_FREE, K_FLOAT, K_CON, K_CLOSURE, K_PAP, K_THUNK, K_STR, K_INT64, K_PTR };
 /* K_CON:     n = field count, aux = constructor id, fields follow
    K_FLOAT:   double follows
    K_CLOSURE: n = free count, aux = arity; then code, info, free vars
    K_PAP:     aux = held arg count; then closure, args
    K_THUNK:   closure layout, arity 0; once forced, code = 0 and info = value
    K_STR:     aux = byte length; the bytes follow, NUL-terminated
-   K_INT64:   an Int outside the 63 bits a tagged word holds follows */
+   K_INT64:   an Int outside the 63 bits a tagged word holds follows
+   K_PTR:     a C address follows (Ptr a); not scanned */
 typedef struct { FkHdr h; double d; } FkFloat;
 typedef struct { FkHdr h; int64_t i; } FkInt64;
+typedef struct { FkHdr h; void *p; } FkPtr;
 
 /* Int is 64 bits in both backends. A value that fits in 63 bits is a
    tagged word; others are boxed, so the common case does not allocate. */
@@ -57,6 +59,22 @@ static inline double fk_rawf(V v) { double d; memcpy(&d, &v, sizeof d); return d
 #define FK_ARITY(c)    (FK_HDR(c)->aux)
 #define FK_STRLEN(s)   ((size_t)FK_HDR(s)->aux)
 #define FK_STRBYTES(s) ((char *)&FK_W(s)[1])
+#define FK_PTRV(v)     (((FkPtr *)(v))->p)
+V fk_ptr(const void *p);
+const char *fk_cstr(V s);                     /* a String's bytes for C; an error if a NUL is inside */
+V fk_cstr_result(const void *p, const char *fn); /* a C string copied into a String; an error if NULL */
+
+/* Callbacks (ffi.md, phase 3) */
+V fk_stable_deref(void *p);
+bool fk_on_funk_thread(void);
+_Noreturn void fk_callback_thread(const char *name);
+extern int fk_cb_failed; /* a direct callback failed; its message is printed */
+_Noreturn void fk_cb_rethrow(void);
+static inline void fk_cb_check(void) { if (fk_cb_failed) fk_cb_rethrow(); }
+typedef struct FkEvent { struct FkEvent *next; void (*run)(struct FkEvent *); void *ctx; } FkEvent;
+void fk_event_push(FkEvent *e); /* any thread */
+char *fk_memdup(const void *p, size_t n); /* malloc'd, NUL-terminated; aborts if out of memory */
+_Noreturn void fk_callback_oom(const char *name);
 
 /* Builtin constructor ids, registered by fk_init in this order. */
 enum { FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL, FK_C_CONS, FK_C_TUP2 };

@@ -1,6 +1,6 @@
 # Foreign function interface: design note
 
-Status: phase 1 (scalars, libm) implemented; see "Implementation (phase 1)". Phases 2 and 3 are proposals. Decided so far:
+Status: phases 1 (scalars, libm), 2 (strings, pointers, sqlite3) and 3 (callbacks, structs, libremidi) implemented; see the three "Implementation" sections. The collector's pauses, which real-time MIDI output needs shortened, are open ("Pauses"). Decided so far:
 
 - Target libraries, in order: libm, sqlite3, libremidi.
 - The interpreter may require a C compiler.
@@ -52,14 +52,15 @@ foreign import ccall "sqlite3.h sqlite3_open" sqliteOpen :: String -> Ptr (Ptr D
 | `Char` | `char` | as is | as is |
 | `Bool` | `bool`, or `int` as 0/1 | as is | non-zero is `True` |
 | `()` | `void` | | `()` |
-| `String` | `const char *` | the bytes in place: funk strings are NUL-terminated and never moved | copied into a new `String`; funk does not free the C string |
-| `Ptr a` | `void *`, `T *` | the address | boxed in a new `K_PTR` object |
+| `String` | `const char *` | the bytes in place: funk strings are NUL-terminated and never moved; a NUL inside is an error | copied into a new `String`; funk does not free the C string; NULL is an error |
+| `Ptr a` | any object pointer | the address | boxed in a new `K_PTR` object |
 
-- **Narrow types are explicit.** Converting `Int` to `int` without a check would truncate silently. The prototype check makes them required: an `Int` cannot be declared where C has an `int`.
-- **`String` arguments are valid during the call only.** The collector does not scan C memory. A library that keeps the pointer must be given a copy (`newCString`, freed with `free`).
-- **A `String` with a NUL byte inside** passes the bytes before it. That matches what C sees.
+- **Narrow types are explicit.** Converting `Int` to `int` without a check would truncate silently. The type check makes them required: an `Int` cannot be declared where C has an `int`.
+- **`String` arguments are valid during the call only.** The collector does not scan C memory. A library that keeps the pointer needs its own copy; funk has no `newCString` yet.
+- **A `String` with a NUL byte inside** is a run-time error. C would read the bytes before it, so a query or a file name would be cut short without notice.
+- **A NULL `String` result** is a run-time error, which names the C function. A result that may be NULL is declared `Ptr CChar`, compared with `nullPtr`, and read with `peekCString`.
 - **`Ptr a` needs a box,** because an odd address, such as a `char *`, has the `Int` tag bit set. `K_PTR` is not scanned, like `K_INT64`. Pointer equality and `nullPtr` are primitives.
-- **Out-parameters,** such as `sqlite3_open`'s `sqlite3 **`, use a small prelude module: `malloc :: Int ->> Ptr a`, `free`, `peekPtr`, `pokePtr`, `peekInt` and `pokeInt`, plus `withPtr`, which allocates a cell, runs an action and frees it. That is Haskell's `alloca` and `peek` in miniature.
+- **Out-parameters,** such as `sqlite3_open`'s `sqlite3 **`, use Haskell's names: `alloca`, the class `Storable` with `peek` and `poke`, `mallocBytes`, `free`, `castPtr` and `plusPtr`.
 - **Not in the first version:** structs by value, arrays, unions, variadic functions (`printf`).
 
 ## Effects
@@ -87,14 +88,16 @@ The first run of a program pays for the compile, probably 100-300 ms (an estimat
 
 ## Callbacks: libremidi
 
-libremidi reports incoming MIDI messages through callbacks. From memory, and not checked against its headers: its C API (`libremidi-c.h`) takes a function pointer and a context pointer, and calls back on the backend's thread, CoreMIDI's on macOS. Two things follow.
+libremidi reports incoming MIDI messages through callbacks, and calls back on the backend's thread, CoreMIDI's on macOS. This section was first written from memory; "Implementation (phase 3)" records what its C API (`libremidi-c.h`, v5.4.3) turned out to need. Two things follow.
 
-- **A C function pointer per funk closure.** The glue emits one trampoline per callback type. The context pointer names a funk closure held in a root table, so the collector keeps it alive while C holds it. That is Haskell's `StablePtr`.
-- **No funk code on a foreign thread.** The allocator and the collector are single-threaded. The trampoline therefore copies the message into a C queue and returns, without entering funk. funk reads the queue: a `waitEvent :: () ->> Event` that blocks, and a `pollEvent` that does not.
+- **A C function pointer per callback type.** The glue emits one trampoline per callback type. The context pointer names a funk closure held in a root table, so the collector keeps it alive while C holds it. That is Haskell's `StablePtr`.
+- **No funk code on a foreign thread.** The allocator and the collector are single-threaded. The trampoline therefore copies the message into a C queue and returns, without entering funk. funk runs the queue: `waitEvent ()` blocks for the next event and runs its closure, and `pollEvent ()` does not block.
 
-A callback on the funk thread, such as `qsort`'s comparator, could call funk directly. But a funk runtime error there would `longjmp` across C frames, which is undefined behaviour for code like `qsort`. The first version therefore supports queued callbacks only. Direct callbacks would need errors stopped at the trampoline, which ends the program.
+A callback on the funk thread, such as a port listing, can call funk directly. A funk runtime error there must not `longjmp` across C frames, which is undefined behaviour; the trampoline stops it, and the error is raised again when the foreign call returns.
 
 ### Pauses
+
+Superseded by [realtime.md](realtime.md), which measures pauses and proposes a design for all real-time uses. The text below is the first statement of the problem.
 
 Real-time MIDI cares more about pauses than throughput. The collector stops the program for a whole mark and sweep: 6-15 ms at the benchmark sizes ([memory.md](memory.md#after-workers-and-fusion-2026-10-25)), against MIDI timing of about 1 ms. Queued input does not lose messages, because the trampoline never waits on the collector. Output sent from funk is delayed by any pause. libremidi therefore also needs one of the following, a separate design:
 
@@ -121,7 +124,7 @@ Estimates, not measurements. Windows `.dll` loading waits for a Windows port of 
 Done 2026-10-26, as designed above, with these differences and details:
 
 - **C types.** `CInt`, `CUInt`, `CLong`, `CULong`, `CLLong`, `CSize` and `CFloat` are built-in types, held as `Int` or `Float` words, so the typed backend unboxes them. Their `Num` instances wrap each result to the C width, as C and Haskell do; they are generated beside the tuple instances. `CULong` and `CSize` compare and show unsigned. Conversions go through `fromIntegral`, via a new class `Integral` with one method, `toInt`; Haskell's `Integral` has `toInteger` and the division methods instead. `CFloat` converts with `toCFloat` and `fromCFloat`, since funk has no `Fractional` class or `realToFrac`; a `CFloat` literal is written `toCFloat 1.5`. Values pass in range, so narrowing at the call never truncates. This replaces the run-time range check of "Types": arithmetic wraps, and only `fromIntegral` can produce an out-of-range input, which it wraps too.
-- **The prototype check.** The glue asserts, for each import, `__builtin_types_compatible_p(__typeof__(cname), <declared C type>)`. A declaration that differs from the header in a width, a sign, the arity or the result is a compile error from the C compiler, with clang naming both types: "requirement '__builtin_types_compatible_p(int (int), long long (long long))': foreign import c_abs :: Int -> Int needs function `abs` to have the C type int64_t (int64_t)". On Linux `int64_t` is `long`, so a C `long long` needs `CLLong` there and on macOS alike. A function-like macro has no type; the check is skipped (`#ifndef cname`), and C converts the arguments. glibc's `isdigit` is such a macro, macOS's an inline function. The builtin needs gcc or clang.
+- **The type check** was first exact: `__builtin_types_compatible_p(__typeof__(cname), <declared C type>)`. Phase 2 replaced it, because a whole-function comparison cannot pass a `Ptr Db` where C has `sqlite3 *`; see "Implementation (phase 2)".
 - **`()` as an argument** is allowed only as the sole one: `rand :: () ->> CInt` calls `rand()`.
 - **C values.** An import of a non-function type reads a C expression once, at startup: `"math.h M_PI" piC :: Float`, checked like a function. Haskell imports addresses with `&` instead; that waits for `Ptr`. A variable such as `errno` is read once too, so this is for constants.
 - **Effects.** `->` marks a pure import, as a primitive's type does, and fusion treats its calls as free of effects, though not of failure. `->>` imports count as acting.
@@ -137,17 +140,55 @@ Tests:
 - `tests/ffi/link.fk`: a test library in `tests/ffi/`, built by `tests/run.sh` and found with `-I`, `-L` and `-l`, in both backends.
 - Eight error tests (`tests/errors/ffi_*.fk`): an unsupported type, `()` among other arguments, a `()` value, the entity string, the calling convention, a prelude name, a `->>` import called under `->`, and a type that differs from the prototype.
 
+## Implementation (phase 2)
+
+Done 2026-10-26. sqlite3's `open`, `prepare_v2`, `step`, `column_int64`, `column_text`, `errmsg`, `finalize` and `close` work in both backends (`tests/ffi/sqlite.fk`).
+
+- **The type check is by conversion.** Each wrapper passes its arguments as locals of their declared C types and stores the result in one, so every conversion happens implicitly at the call. Pragmas make the conversions that can change a value errors, in the glue only: `-Wconversion`, `-Wsign-conversion`, `-Wint-conversion`, `-Wincompatible-pointer-types`, and discarded `const` (clang's `-Wincompatible-pointer-types-discards-qualifiers`, gcc's `-Wdiscarded-qualifiers`). Measured with clang 21:
+  - rejected: `Int` to `abs`'s `int`, `CUInt` to an `int`, `Float` to `sinf`'s `float`, a pointer result declared `Int`, and a `String` passed to `strcpy`'s `char *`, which C would write into;
+  - accepted: `ilogb`'s `int` result as `Int`, a `Ptr` where C has any object pointer, and `sqlite3_column_text`'s `const unsigned char *` as a `String`.
+
+  Compared with the exact check, this allows widenings, which cannot change a value, and pointers, whose target type C cannot report per parameter; it also checks function-like macros, since they are called with typed arguments. Haskell's `Ptr a` is unchecked against C too. The error is the compiler's, on the wrapper line, which carries a comment naming the import: `/* c_abs :: Int -> Int, from stdlib.h */`. Compiled code calls a scalar import directly, with explicit casts, after the wrapper has passed the check.
+- **Opaque types:** `data Db` with no `=` declares a type with no values, for `Ptr Db`.
+- **`String`:** in, the bytes in place, with a check for a NUL inside; out, copied, with NULL an error. Imports with `String` or `Ptr` are called through their wrapper in compiled code too; the conversion costs more than the call.
+- **Memory:** `Storable` has `peek :: Ptr a ->> a` and `poke :: Ptr a -> a ->> ()`, with instances for `Int`, `Float`, `Ptr a` and the C types, whose widths come from `sizeof` when funk is built. `alloca` gives its function 16 bytes, enough for any `Storable` value, and frees them after it returns; it does not need `sizeOf`, which funk could not call without a value of the type. A run-time error inside `alloca` leaks the 16 bytes. `mallocBytes`, `free`, `castPtr`, `plusPtr`, `nullPtr` and `peekCString` are primitives, and `CChar` is a C type like `CInt`. `Ptr a` has `Eq`, `Ord` (unsigned) and `Show` (`0x0000000000000000`, as Haskell shows it).
+- **Effects of primitives** come from their types: a primitive whose type has `->>` (`peek`, `free`) is impure to fusion. Fusion's list of effectful primitive names is gone.
+
+Tests: `tests/ffi/sqlite.fk` in both backends, skipped without `sqlite3.h`: create, insert (with a 64-bit id), select, a count, and a bad SQL string, reported through `sqlite3_errmsg`. Three error tests: a NUL inside a `String`, a NULL `String` result (`getenv`), and a `String` passed where C writes (`strcpy`).
+
+## Implementation (phase 3)
+
+Done 2026-10-26. `libremidi-c.h` (v5.4.3) differed from the design above in four ways, each handled below:
+
+1. Callbacks are fields of configuration structs, some inside anonymous unions: `libremidi_midi_configuration.on_midi1_message` is `{void *context; void (*callback)(void *ctx, int64_t ts, const unsigned char *bytes, size_t len)}`.
+2. Port listing is a callback during the call (`libremidi_midi_observer_enumerate_input_ports`), with a port valid only inside it; funk must run there, to clone the port.
+3. Every callback takes a context pointer first.
+4. libremidi is not packaged by Homebrew; it is built from source (CMake, C++20).
+
+The parts:
+
+- **Structs, as hsc2hs does them.** A value import's C name may be any C expression, so `"libremidi/libremidi-c.h offsetof(libremidi_midi_configuration, on_midi1_message.callback)" offCallback :: CSize` reads an offset, through anonymous unions too, and `sizeof(...)` a size. `peekByteOff` and `pokeByteOff` (Haskell's) read and write a field; `allocaBytes` holds the struct. Field types are the importer's to get right; nothing checks them against the struct.
+- **Trampolines.** `foreign import ccall "callback" cb :: FunPtr (Ptr () -> Ptr Port ->> ())` gives the address of a C function generated for that type. Its first parameter is the context: a `StablePtr` to the funk closure, made with `newStablePtr` and passed with `castStablePtrToPtr`. The closure takes the other arguments, or `()` if there are none. One trampoline serves every closure of a type, since the closure travels in the context; a C API without a context pointer, such as `qsort`, cannot call funk. Haskell's `"wrapper"` makes a function pointer per closure instead, which needs code generated at run time.
+- **Direct callbacks** (`"callback"`) run the closure at once. They must be called on funk's thread; another thread ends the program with a message that says to use `"queue"`. A runtime error in the closure is caught by the trampoline, which returns 0 to C and ignores later calls; the foreign call that led to it raises the error again on return. No `longjmp` crosses C frames. Every foreign call checks for such an error, at the cost of one load.
+- **Queued callbacks** (`"queue"`) may be called on any thread. The trampoline copies its arguments into a `malloc`ed event and appends it to the runtime's queue, under a mutex; `waitEvent ()` runs the next event's closure on funk's thread, blocking until there is one, and `pollEvent ()` does so if there is one, returning whether it did. A queued callback returns `()`, since C does not wait for it.
+- **`CStringLen`** stands for two C parameters, a `const char *` and a `size_t`, in a callback's type, and arrives in funk as a `String`. A queued trampoline copies the bytes; a `String` argument (`const char *`) is copied up to its NUL.
+- **`StablePtr`:** an index into a root table, so the closure stays alive and in place while C holds it; `freeStablePtr` releases it, and using a freed one is a runtime error. `FunPtr` and `StablePtr` pass to C as pointers, as in Haskell. Also added: `newCString`, and `CBool`, which converts as C does (non-zero is 1), not with wrapping as Haskell's `CBool`, since a C `bool` holding 2 is undefined behaviour.
+- **Type safety** stops at the context pointer, as in Haskell: `castPtrToStablePtr` trusts that the closure has the trampoline's type, and C function pointer types are not compared, so a trampoline whose `Ptr` arguments differ from the C pointer types is called through a different, ABI-identical type.
+- **Real time.** A queued trampoline calls `malloc` and takes a mutex on CoreMIDI's thread. Neither is bounded in time; a lock-free ring of fixed-size events would be. The collector's pauses remain the larger problem ("Pauses").
+
+Tests: `tests/ffi/callback.fk`, in both backends, with the test library: two direct callbacks, one returning a value to C; a struct like libremidi's, set through `offsetof` with a callback in an anonymous union; three messages from the library's own thread, through `waitEvent`; `pollEvent` on an empty queue. `tests/ffi/cberror.fk`: an error in a callback, raised after the call, with the later calls skipped. `tests/ffi/cbthread.fk`: a direct callback on another thread. Five error tests for the checker's rules. `examples/ffi/libremidi.fk` opens a virtual CoreMIDI output, finds it with the observer, listens to it with a queued callback and receives the three messages it sends, against libremidi 5.4.3 built from source. The interpreter ran it once and the compiled program five times, receiving all three messages each time. It is not in `make test`, which cannot build libremidi.
+
 ## Tests
 
 - **Phase 1:** `sin`, `pow` and `floor` through imports, in both backends, against today's primitives. Done; see above.
-- **Phase 2:** an in-memory sqlite3 database (`:memory:`), with create, insert and select. Error paths: a bad SQL string, and a `String` with a NUL byte. Skipped when sqlite3 is not installed.
-- **Phase 3:** a test library in the repo calls a registered callback from a thread it starts. This exercises the queue without a MIDI device. libremidi itself is tested by an example, not by `make test`.
+- **Phase 2:** an in-memory sqlite3 database (`:memory:`), with create, insert and select. Error paths: a bad SQL string, and a `String` with a NUL byte. Skipped when sqlite3 is not installed. Done; see above.
+- **Phase 3:** a test library in the repo calls a registered callback from a thread it starts. This exercises the queue without a MIDI device. libremidi itself is tested by an example, not by `make test`. Done; see above.
 
 ## Questions
 
 1. ~~**Effects first?**~~ Decided: option E; effectful imports use `->>`.
 2. ~~**Cache location.**~~ `$XDG_CACHE_HOME/funk/ffi`, with `~/.cache/funk/ffi` as the fallback. A cache next to the source would leave files in source trees, and the REPL has no source file.
 3. ~~**Narrow types.**~~ Real funk types with `Num` instances, as Haskell has, over names valid only in foreign signatures; see "Implementation (phase 1)".
-4. **`Ptr` arithmetic and peeks at other types** (`peekFloat`, `plusPtr`): add them when a binding needs them, or provide Haskell's `Storable` set from the start?
+4. ~~**`Ptr` arithmetic and peeks.**~~ Haskell's `Storable` with `peek` and `poke`, `plusPtr` and `castPtr`, from the start; `sizeOf` and `alignment` wait for a binding that needs them.
 
-Facts about libremidi's API are from memory and were not checked in this session.
+Facts about libremidi's API in "Callbacks: libremidi" were first from memory; "Implementation (phase 3)" checks them against v5.4.3.
