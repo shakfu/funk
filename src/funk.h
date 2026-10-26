@@ -377,6 +377,7 @@ void lift_locals(Bind **bs, int n);   /* lifted functions go to `specialized` */
 void reuse_cells(Bind **bs, int n, Bind **cs, int nc); /* copies go to `specialized` */
 int fuse_lists(Bind **all, int n); /* moves the changed bindings to the front; returns their count */
 bool case_covers(Expr *e, bool otherwise_true); /* exhaustive, guards included; before resolve */
+bool prim_call_total(Expr *e); /* an application of a primitive that cannot fail: div by a non-zero literal, not chr */
 extern VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 
 /* --------------------------------------------------------------- backends */

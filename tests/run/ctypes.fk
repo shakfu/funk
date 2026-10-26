@@ -6,3 +6,8 @@ main = do
   print (toCFloat 0.1, fromCFloat (toCFloat 0.1), toCFloat 0.1 * 3, negate (toCFloat 2.5))
   print (map (\x -> x * x) [1, 2, 3 :: CLong], sum [1, 2, 3 :: CUInt], abs (-4 :: CInt))
   print (show (Just (-3 :: CInt)), toInt (7 :: CSize) + 1, fromIntegral (65 :: CInt) == (65 :: Int))
+  -- atomic peek and poke round-trip each width
+  print (alloca (\p -> do { atomicPoke p (-5 :: CInt); atomicPeek p }), alloca (\p -> do { atomicPoke p (4000000000 :: CUInt); atomicPeek p }))
+  print (alloca (\p -> do { atomicPoke p (toCFloat 0.1); atomicPeek p }), alloca (\p -> do { atomicPoke p (-4611686018427387905 :: Int); atomicPeek p }))
+  print (alloca (\p -> do { atomicPoke p 2.5e300; atomicPeek p }), alloca (\p -> do { atomicPoke p (100 :: CChar); atomicPeek p }))
+  print (truncateSat 2.9, truncateSat (-2.9), truncateSat 1.0e30, truncateSat (-1.0e30), truncateSat (0.0 / 0.0))

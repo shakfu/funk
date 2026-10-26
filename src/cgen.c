@@ -238,7 +238,7 @@ static const Scalar scalars[] = {
     {"castptr", "%s", 1, R_P, R_P, NULL},
     {"eqptr", "(%s == %s)", 2, R_P, R_B, NULL},
     {"ptrint", "((int64_t)(uintptr_t)%s)", 1, R_P, R_I, NULL},
-    {"plusptr", "((void *)((char *)%s + %s))", 2, -1, R_P, "pi"},
+    {"plusptr", "((void *)((uintptr_t)%s + (uintptr_t)%s))", 2, -1, R_P, "pi"},
     {"nullptr", "((void)%s, (void *)0)", 1, R_V, R_P, NULL},
     {"peeki", "fk_s_peeki(%s, %s)", 2, -1, R_I, "ip"},
     {"peekf", "fk_s_peekf(%s, %s)", 2, -1, R_F, "ip"},
@@ -246,6 +246,21 @@ static const Scalar scalars[] = {
     {"pokei", "fk_s_pokei(%s, %s, %s)", 3, -1, R_V, "ipi"},
     {"pokef", "fk_s_pokef(%s, %s, %s)", 3, -1, R_V, "ipf"},
     {"pokep", "(*(void **)%s = %s, fk_unit)", 2, R_P, R_V, NULL},
+    {"alen", "fk_s_alen(%s)", 1, R_P, R_I, NULL},
+    {"asize", "fk_s_asize(%s)", 1, R_P, R_I, NULL},
+    {"aptr", "fk_s_aptr(%s)", 1, R_P, R_P, NULL},
+    {"wrap", "fk_s_wrap(%s, %s)", 2, R_I, R_I, NULL},
+    {"truncsat", "fk_s_truncsat(%s)", 1, R_F, R_I, NULL},
+    {"rcount", "fk_s_rcount(%s)", 1, R_P, R_I, NULL},
+    {"rspace", "fk_s_rspace(%s)", 1, R_P, R_I, NULL},
+    {"rback", "fk_s_rback(%s)", 1, R_P, R_P, NULL},
+    {"rcommit", "fk_s_rcommit(%s)", 1, R_P, R_V, NULL},
+    {"rfront", "fk_s_rfront(%s)", 1, R_P, R_P, NULL},
+    {"rdrop", "fk_s_rdrop(%s)", 1, R_P, R_V, NULL},
+    {"apeeki", "fk_s_apeeki(%s, %s)", 2, -1, R_I, "ip"},
+    {"apeekf", "fk_s_apeekf(%s, %s)", 2, -1, R_F, "ip"},
+    {"apokei", "fk_s_apokei(%s, %s, %s)", 3, -1, R_V, "ipi"},
+    {"apokef", "fk_s_apokef(%s, %s, %s)", 3, -1, R_V, "ipf"},
     {"tocfloat", "(double)(float)%s", 1, R_F, R_F, NULL},
     {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B, NULL},
 };
@@ -349,7 +364,8 @@ static TV cg_call(CG *c, Expr *e) {
 /* ------------------------------------------- allocation-free (R4) */
 
 /* Exported functions run on foreign threads, so their compiled code must
-   not allocate (realtime.md, R4). The check walks the typed body after
+   not allocate, and must not fail, since a runtime error there ends the
+   program (realtime.md, R4). The check walks the typed body after
    elaboration, and every function it calls. It accepts what compiles to
    C scalars and addresses: literals, variables of scalar types, unboxed
    primitives, C imports, calls to checked functions at full arity, if,
@@ -358,12 +374,24 @@ static signed char *af_state; /* by lambda id: 0 unknown, 1 checking or allocati
 static const char **af_why;
 static int af_cap;
 
+/* A type whose constructors all take no arguments, such as Ordering: its
+   values are static objects. */
+static bool enum_type(Type *t) {
+  bool any = false;
+  for (int c = 0; c < condefs.n; c++) {
+    if (strcmp(tydefs.a[condefs.a[c].tydef].name, t->name) != 0) continue;
+    if (condefs.a[c].arity) return false;
+    any = true;
+  }
+  return any;
+}
+
 static bool af_type(Type *t) { /* held without a heap object */
   Rep r = rep_of(t);
   if (r == R_I || r == R_C || r == R_B) return true; /* a boxed Int beyond 63 bits only appears in V */
   if (r == R_F || r == R_P) return true;
   t = t ? repr(t) : NULL;
-  return t && t->k == TY_CON && !t->n && !strcmp(t->name, "()");
+  return t && t->k == TY_CON && !t->n && enum_type(t); /* (), Ordering */
 }
 
 static const char *af_lambda(Lambda *L);
@@ -385,8 +413,7 @@ static const char *af_group(Group *g, Lambda *L) {
 }
 
 static bool af_pat(Pat *p) {
-  return p->k == P_VAR || p->k == P_WILD || p->k == P_INT || p->k == P_CHAR ||
-         (p->k == P_CON && !p->n && (p->con == FK_C_TRUE || p->con == FK_C_FALSE || p->con == FK_C_UNIT));
+  return p->k == P_VAR || p->k == P_WILD || p->k == P_INT || p->k == P_CHAR || (p->k == P_CON && !p->n);
 }
 
 static const char *af_expr(Expr *e, Lambda *L) {
@@ -396,7 +423,7 @@ static const char *af_expr(Expr *e, Lambda *L) {
   case E_STR: return af_at("a String", e, L);
   case E_LAM: return af_at("a closure", e, L);
   case E_CON:
-    if (e->idx == FK_C_TRUE || e->idx == FK_C_FALSE || e->idx == FK_C_UNIT) return NULL;
+    if (!fk_cons[e->idx].arity) return NULL; /* a static object */
     return af_at(xsprintf("the constructor `%s`", e->name), e, L);
   case E_VAR:
     if (e->lazy) return af_at(xsprintf("`%s` is lazy", e->name), e, L);
@@ -410,6 +437,7 @@ static const char *af_expr(Expr *e, Lambda *L) {
     if ((w = af_group(&e->g, L))) return w;
     return af_expr(e->body, L);
   case E_CASE:
+    if (!case_covers(e, true)) return af_at("a case that does not cover every value", e, L);
     for (int i = 0; i < e->ns; i++)
       if ((w = af_expr(e->scruts[i], L))) return w;
     for (int a = 0; a < e->na; a++) {
@@ -430,6 +458,7 @@ static const char *af_expr(Expr *e, Lambda *L) {
     if (f->k != E_VAR || f->vk != VK_GLOBAL) return af_at("a call of an unknown function", e, L);
     Global *g = &globals.a[f->idx];
     if (g->prim >= 0) {
+      if (!prim_call_total(e)) return af_at(xsprintf("`%s` may fail; divide only by a non-zero literal", g->name), e, L);
       if (e->n == fk_prims[g->prim].arity && scalar_prim(prim_cname(g->prim))) return NULL;
       if (!strcmp(prim_cname(g->prim), "then") && e->n == 2) { /* its arguments are boxed: () and Bool box without allocating */
         for (int i = 0; i < 2; i++)

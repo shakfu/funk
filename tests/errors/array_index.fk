@@ -1,0 +1,4 @@
+-- expect: readArray: index 3 of an array of 3
+main = do
+  a <- newArray 3 (0 :: Int)
+  print (readArray a 3)

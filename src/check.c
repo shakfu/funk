@@ -2297,6 +2297,8 @@ void compiler_init(void) {
   add_tydef(intern("Ptr"), 1, 0); /* a C address, for foreign imports (ffi.md) */
   add_tydef(intern("FunPtr"), 1, 0);
   add_tydef(intern("StablePtr"), 1, 0);
+  add_tydef(intern("Array"), 1, 0); /* C memory: realtime.md */
+  add_tydef(intern("Ring"), 1, 0);
   for (int i = 0; i < ffi_ntypes; i++) /* CInt and the other C types */
     if (map_get(&tmap, intern(ffi_types[i].name)) < 0) add_tydef(intern(ffi_types[i].name), 0, 0);
 
@@ -2442,7 +2444,7 @@ static void check_export_code(Module *m) {
     if (!f->exported) continue;
     const char *why = cgen_alloc_free(globals.a[f->gidx].lam);
     if (why)
-      cerror(f->line, f->col, "foreign export `%s` may allocate, which code called from a foreign thread must not: %s", f->name, why);
+      cerror(f->line, f->col, "foreign export `%s` may allocate or fail, which code called from a foreign thread must not: %s", f->name, why);
     VPUSH(ffi_exports, f);
   }
 }

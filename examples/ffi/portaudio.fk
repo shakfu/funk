@@ -1,0 +1,143 @@
+-- A wavetable synth through PortAudio (docs/dev/realtime.md, R4). The
+-- audio callback is a foreign export: compiled code that cannot allocate
+-- or fail, run on PortAudio's thread. It plays a sine from an Array,
+-- takes frequency changes from a Ring that funk's thread fills, and reads
+-- the gain with atomicPeek; funk's thread collects garbage meanwhile. The
+-- callback times itself and counts underflows. It reads the gain from
+-- standard input; 0 is silent:
+--
+--   funk build examples/ffi/portaudio.fk -o synth -I /opt/homebrew/include -L /opt/homebrew/lib
+--   echo 0.1 | ./synth
+foreign library "portaudio"
+
+data Stream
+
+foreign export ccall "fk_synth" synth :: Ptr () -> Ptr CFloat -> CULong -> Ptr () -> CULong -> Ptr () ->> CInt
+foreign import ccall "portaudio.h &fk_synth" synthPtr :: FunPtr (Ptr () -> Ptr CFloat -> CULong -> Ptr () -> CULong -> Ptr () ->> CInt)
+
+foreign import ccall "portaudio.h Pa_Initialize" paInitialize :: () ->> CInt
+foreign import ccall "portaudio.h Pa_Terminate" paTerminate :: () ->> CInt
+foreign import ccall "portaudio.h Pa_OpenDefaultStream" paOpenDefaultStream ::
+  Ptr (Ptr Stream) -> CInt -> CInt -> CULong -> Float -> CULong -> FunPtr (Ptr () -> Ptr CFloat -> CULong -> Ptr () -> CULong -> Ptr () ->> CInt) -> Ptr () ->> CInt
+foreign import ccall "portaudio.h Pa_StartStream" paStartStream :: Ptr Stream ->> CInt
+foreign import ccall "portaudio.h Pa_StopStream" paStopStream :: Ptr Stream ->> CInt
+foreign import ccall "portaudio.h Pa_CloseStream" paCloseStream :: Ptr Stream ->> CInt
+foreign import ccall "portaudio.h Pa_GetErrorText" paErrorText :: CInt ->> String
+foreign import ccall "portaudio.h Pa_Sleep" paSleep :: CLong ->> ()
+foreign import ccall "portaudio.h paFloat32" paFloat32 :: CULong
+
+foreign import ccall "time.h clock_gettime" clockGettime :: CUInt -> Ptr () ->> CInt
+foreign import ccall "time.h CLOCK_MONOTONIC" monotonic :: CUInt
+foreign import ccall "time.h offsetof(struct timespec, tv_sec)" offSec :: CSize
+foreign import ccall "time.h offsetof(struct timespec, tv_nsec)" offNsec :: CSize
+
+sampleRate :: Float
+sampleRate = 48000.0
+
+frames :: CULong
+frames = 64
+
+-- The state, 128 bytes of C memory at the callback's context pointer:
+--   0 frequency (CFloat): the callback's, from the ring at 48
+--   4 gain (CFloat): written by funk's thread, atomically
+--   8 phase, in table entries (Float): the callback's own
+--   16 callbacks, 24 underflows, 32 longest, 40 total time in ns (CLLong):
+--      written by the callback, read by funk's thread
+--   48 frequency changes (Ring Float), 56 the sine table (Array CFloat)
+--   64, 96: struct timespec, before and after
+tableSize :: Int
+tableSize = 1024
+
+wrap :: Float -> Float
+wrap p = if p >= toFloat tableSize then wrap (p - toFloat tableSize) else p
+
+-- samples i to n of the buffer, from the table; the phase after them
+render :: Ptr CFloat -> Array CFloat -> Int -> Int -> Float -> Float -> CFloat ->> Float
+render out table i n phase step gain =
+  if i == n then phase
+  else do
+    pokeByteOff out (i * 4) (gain * readArrayWrap table (truncateSat phase))
+    render out table (i + 1) n (wrap (phase + step)) step gain
+
+-- frequency changes from funk's thread, the last one wins
+takeChanges :: Ptr () -> Ring Float ->> ()
+takeChanges st r =
+  if ringCount r == 0 then ()
+  else do
+    pokeByteOff st 0 (toCFloat (ringFront r))
+    ringDrop r
+    takeChanges st r
+
+nanos :: Ptr () -> Int ->> Int
+nanos st at = do
+  s <- (peekByteOff st (at + fromIntegral offSec) :: CLong)
+  ns <- (peekByteOff st (at + fromIntegral offNsec) :: CLong)
+  fromIntegral s * 1000000000 + fromIntegral ns
+
+count :: Ptr () -> Int -> Int ->> ()
+count st at k = do
+  n <- (atomicPeek (plusPtr st at) :: CLLong)
+  atomicPoke (plusPtr st at) (n + fromIntegral k)
+
+synth :: Ptr () -> Ptr CFloat -> CULong -> Ptr () -> CULong -> Ptr () ->> CInt
+synth input out n timeInfo flags st = do
+  clockGettime monotonic (plusPtr st 64)
+  takeChanges st (peekByteOff st 48 :: Ring Float)
+  freq <- (peekByteOff st 0 :: CFloat)
+  gain <- (atomicPeek (plusPtr st 4) :: CFloat)
+  phase <- (peekByteOff st 8 :: Float)
+  table <- (peekByteOff st 56 :: Array CFloat)
+  end <- render out table 0 (fromIntegral n) phase (toFloat tableSize * fromCFloat freq / sampleRate) gain
+  pokeByteOff st 8 end
+  count st 24 (mod (div (fromIntegral flags) 4) 2) -- paOutputUnderflow, bit 2
+  clockGettime monotonic (plusPtr st 96)
+  took <- nanos st 96 - nanos st 64
+  longest <- (atomicPeek (plusPtr st 32) :: CLLong)
+  if fromIntegral took > longest then atomicPoke (plusPtr st 32) (fromIntegral took :: CLLong) else ()
+  count st 40 took
+  count st 16 1
+  0
+
+check :: String -> CInt ->> ()
+check what rc = if rc /= 0 then error (what ++ ": " ++ paErrorText rc) else ()
+
+churn :: Int -> Int -> Int
+churn k acc = if k == 0 then acc else churn (k - 1) (acc + length (reverse (enumFromTo 1 1000)))
+
+-- play each frequency for 250 ms, allocating meanwhile
+play :: Ring Float -> [Float] ->> ()
+play changes fs = mapM_ (\f -> do
+  ringPush changes f
+  churn 3000 0
+  paSleep 250) fs
+
+stat :: Ptr () -> Int ->> Int
+stat st at = fromIntegral (atomicPeek (plusPtr st at) :: CLLong)
+
+main = do
+  gain <- readFloat (getLine ())
+  st <- mallocBytes 128
+  mapM_ (\at -> pokeByteOff st at (0 :: CLLong)) [8, 16, 24, 32, 40]
+  atomicPoke (plusPtr st 4) (toCFloat gain)
+  pokeByteOff st 0 (toCFloat 440.0)
+  changes <- newRing 16 0.0
+  table <- newArray tableSize (toCFloat 0.0)
+  mapM_ (\i -> writeArray table i (toCFloat (sin (6.283185307179586 * toFloat i / toFloat tableSize)))) (enumFromTo 0 (tableSize - 1))
+  pokeByteOff st 48 changes
+  pokeByteOff st 56 table
+  check "Pa_Initialize" (paInitialize ())
+  stream <- alloca (\cell -> do
+    check "Pa_OpenDefaultStream" (paOpenDefaultStream cell 0 1 paFloat32 sampleRate frames synthPtr st)
+    peek cell)
+  check "Pa_StartStream" (paStartStream stream)
+  play changes [440.0, 550.0, 660.0, 880.0]
+  check "Pa_StopStream" (paStopStream stream)
+  check "Pa_CloseStream" (paCloseStream stream)
+  check "Pa_Terminate" (paTerminate ())
+  let calls = stat st 16
+  putStrLn ("callbacks " ++ show calls ++ ", underflows " ++ show (stat st 24))
+  putStrLn ("callback time: longest " ++ show (div (stat st 32) 1000) ++ " us, mean " ++ show (div (div (stat st 40) (max calls 1)) 1000)
+            ++ " us, of a " ++ show (div (fromIntegral frames * 1000000) 48000) ++ " us buffer")
+  freeRing changes
+  freeArray table
+  free st

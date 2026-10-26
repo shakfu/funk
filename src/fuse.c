@@ -55,10 +55,17 @@ static bool divides(const char *n) {
 }
 
 static bool partial_prim(const char *n) {
-  static const char *const p[] = {"error", "chr", "floor", "ceiling", "round", "truncate", "readInt", "readFloat", "getLine"};
+  static const char *const p[] = {"error", "chr", "floor", "ceiling", "round", "truncate", "readInt", "readFloat", "getLine",
+                                  "primNewArray", "primNewRing", "mallocBytes", "newCString"};
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
     if (!strcmp(n, p[i])) return true;
   return divides(n);
+}
+
+bool prim_call_total(Expr *e) {
+  const char *n = globals.a[e->fn->idx].name;
+  if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
+  return !partial_prim(n);
 }
 
 /* May the global g, used as a function value, be called? tot: without

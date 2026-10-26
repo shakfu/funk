@@ -137,6 +137,99 @@ static inline V fk_s_pokef(int64_t w, void *p, double x) {
   else *(double *)p = x;
   return fk_unit;
 }
+/* Array a and Ring a (realtime.md): C memory, a header and then the
+   elements, never moved or collected; freed with freeArray and freeRing.
+   A Ring has one producer and one consumer: head and tail count pushes
+   and pops, and each side writes only its own, with release order. */
+typedef struct { int64_t length, size; } FkArray;
+typedef struct { _Atomic int64_t head, tail; int64_t cap, size; } FkRing; /* cap: a power of two */
+static inline int64_t fk_s_alen(void *a) { return ((FkArray *)a)->length; }
+static inline int64_t fk_s_asize(void *a) { return ((FkArray *)a)->size; }
+static inline void *fk_s_aptr(void *a) { return (char *)a + sizeof(FkArray); }
+static inline int64_t fk_s_truncsat(double d) { /* toward zero, saturating at Int's range; NaN is 0 */
+  if (!(d == d)) return 0;
+  if (d >= 0x1p63) return INT64_MAX;
+  if (d < -0x1p63) return INT64_MIN;
+  return (int64_t)d;
+}
+static inline int64_t fk_s_wrap(int64_t i, int64_t n) { /* i modulo n, from 0; 0 if n is not positive */
+  if (n <= 0) return 0;
+  int64_t r = i % n;
+  return r < 0 ? r + n : r;
+}
+static inline int64_t fk_s_rcount(void *r) {
+  FkRing *g = r;
+  return atomic_load_explicit(&g->head, memory_order_acquire) - atomic_load_explicit(&g->tail, memory_order_acquire);
+}
+static inline int64_t fk_s_rspace(void *r) { return ((FkRing *)r)->cap - fk_s_rcount(r); }
+static inline void *fk_s_rslot(FkRing *g, int64_t n) { return (char *)(g + 1) + (n & (g->cap - 1)) * g->size; }
+static inline void *fk_s_rback(void *r) {
+  FkRing *g = r;
+  return fk_s_rslot(g, atomic_load_explicit(&g->head, memory_order_relaxed));
+}
+static inline V fk_s_rcommit(void *r) { /* the producer: the back slot is written */
+  FkRing *g = r;
+  if (fk_s_rspace(r) > 0) atomic_store_explicit(&g->head, atomic_load_explicit(&g->head, memory_order_relaxed) + 1, memory_order_release);
+  return fk_unit;
+}
+static inline void *fk_s_rfront(void *r) {
+  FkRing *g = r;
+  return fk_s_rslot(g, atomic_load_explicit(&g->tail, memory_order_relaxed));
+}
+static inline V fk_s_rdrop(void *r) { /* the consumer: the front slot is read */
+  FkRing *g = r;
+  if (fk_s_rcount(r) > 0) atomic_store_explicit(&g->tail, atomic_load_explicit(&g->tail, memory_order_relaxed) + 1, memory_order_release);
+  return fk_unit;
+}
+
+/* Atomic peek and poke: an acquire load and a release store, so a value
+   written by one thread is read whole by another, with what was written
+   before it. */
+static inline int64_t fk_s_apeeki(int64_t w, void *p) {
+  switch (w) {
+  case 1: return __atomic_load_n((int8_t *)p, __ATOMIC_ACQUIRE);
+  case -1: return __atomic_load_n((uint8_t *)p, __ATOMIC_ACQUIRE);
+  case 2: return __atomic_load_n((int16_t *)p, __ATOMIC_ACQUIRE);
+  case -2: return __atomic_load_n((uint16_t *)p, __ATOMIC_ACQUIRE);
+  case 4: return __atomic_load_n((int32_t *)p, __ATOMIC_ACQUIRE);
+  case -4: return __atomic_load_n((uint32_t *)p, __ATOMIC_ACQUIRE);
+  default: return __atomic_load_n((int64_t *)p, __ATOMIC_ACQUIRE);
+  }
+}
+static inline V fk_s_apokei(int64_t w, void *p, int64_t x) {
+  switch (w) {
+  case 1: case -1: __atomic_store_n((uint8_t *)p, (uint8_t)x, __ATOMIC_RELEASE); break;
+  case 2: case -2: __atomic_store_n((uint16_t *)p, (uint16_t)x, __ATOMIC_RELEASE); break;
+  case 4: case -4: __atomic_store_n((uint32_t *)p, (uint32_t)x, __ATOMIC_RELEASE); break;
+  default: __atomic_store_n((int64_t *)p, x, __ATOMIC_RELEASE);
+  }
+  return fk_unit;
+}
+static inline double fk_s_apeekf(int64_t w, void *p) {
+  if (w == 4) {
+    uint32_t b = __atomic_load_n((uint32_t *)p, __ATOMIC_ACQUIRE);
+    float f;
+    memcpy(&f, &b, sizeof f);
+    return f;
+  }
+  uint64_t b = __atomic_load_n((uint64_t *)p, __ATOMIC_ACQUIRE);
+  double d;
+  memcpy(&d, &b, sizeof d);
+  return d;
+}
+static inline V fk_s_apokef(int64_t w, void *p, double x) {
+  if (w == 4) {
+    float f = (float)x;
+    uint32_t b;
+    memcpy(&b, &f, sizeof b);
+    __atomic_store_n((uint32_t *)p, b, __ATOMIC_RELEASE);
+  } else {
+    uint64_t b;
+    memcpy(&b, &x, sizeof b);
+    __atomic_store_n((uint64_t *)p, b, __ATOMIC_RELEASE);
+  }
+  return fk_unit;
+}
 #define FK_ISTRUE(v) ((v) == fk_true)
 
 void fk_init(void);

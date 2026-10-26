@@ -1,0 +1,64 @@
+-- A ring from funk's thread to a foreign export and one back, and a
+-- wavetable Array (docs/dev/realtime.md), with tests/ffi/fkt.h's audio host.
+-- funk pushes 50 gains before the host starts; the export takes one per
+-- block, plays the wavetable through readArrayWrap, and every 100 blocks
+-- pushes the block's number back. funk's thread collects meanwhile.
+foreign export ccall "fk_voice" voice :: Ptr () -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "fkt.h &fk_voice" voicePtr :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ())
+foreign import ccall "fkt.h fkt_audio_start" audioStart :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CInt -> CInt ->> CInt
+foreign import ccall "fkt.h fkt_audio_join" audioJoin :: () ->> Float
+
+-- The context, 48 bytes of C memory: 0 the gains (Ring CFloat), 8 the
+-- block numbers (Ring CInt), 16 the wavetable (Array CFloat), 24 the gain
+-- (CFloat), 32 the block count and 40 the wavetable position (Int).
+blockSamples :: Ptr CFloat -> Array CFloat -> Int -> Int -> Int -> CFloat ->> Int
+blockSamples out table pos i n gain =
+  if i == n then pos
+  else do
+    pokeByteOff out (i * 4) (gain * readArrayWrap table pos)
+    blockSamples out table (pos + 1) (i + 1) n gain
+
+voice :: Ptr () -> Ptr CFloat -> CInt ->> ()
+voice st out n = do
+  gains <- (peekByteOff st 0 :: Ring CFloat)
+  blocks <- (peekByteOff st 8 :: Ring CInt)
+  table <- (peekByteOff st 16 :: Array CFloat)
+  if ringCount gains > 0 then do
+    pokeByteOff st 24 (ringFront gains)
+    ringDrop gains
+  else ()
+  gain <- (peekByteOff st 24 :: CFloat)
+  pos <- (peekByteOff st 40 :: Int)
+  pokeByteOff st 40 (blockSamples out table pos 0 (fromIntegral n) gain)
+  k <- (peekByteOff st 32 :: Int)
+  pokeByteOff st 32 (k + 1)
+  if mod k 100 == 0 then ringPush blocks (fromIntegral k) else False
+  ()
+
+churn :: Int -> Int -> Int
+churn k acc = if k == 0 then acc else churn (k - 1) (acc + length (reverse (enumFromTo 1 1000)))
+
+drain :: Ring CInt -> [CInt] ->> [CInt]
+drain r acc = if ringCount r == 0 then reverse acc else do
+  x <- ringFront r
+  ringDrop r
+  drain r (x : acc)
+
+main = do
+  gains <- newRing 64 (toCFloat 0.0)
+  blocks <- newRing 64 (0 :: CInt)
+  table <- newArray 100 (toCFloat 0.0)
+  mapM_ (\i -> writeArray table i (toCFloat (toFloat i * 0.01))) (enumFromTo 0 99)
+  print (length (filter (\g -> ringPush gains (toCFloat g)) (map (\k -> toFloat k * 0.5) (enumFromTo 1 50))))
+  st <- mallocBytes 48
+  pokeByteOff st 0 gains
+  pokeByteOff st 8 blocks
+  pokeByteOff st 16 table
+  pokeByteOff st 24 (toCFloat 0.0)
+  pokeByteOff st 32 (0 :: Int)
+  pokeByteOff st 40 (0 :: Int)
+  print (audioStart voicePtr st 64 2000)
+  print (churn 3000 0)
+  print (audioJoin ())
+  print (drain blocks [])
+  print (ringCount gains)

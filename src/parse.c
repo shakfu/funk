@@ -1139,8 +1139,9 @@ char *builtin_instances_src(void) {
                     "instance Num %s where\n  x + y = toCFloat (fromCFloat x + fromCFloat y)\n  x - y = toCFloat (fromCFloat x - fromCFloat y)\n"
                     "  x * y = toCFloat (fromCFloat x * fromCFloat y)\n  negate x = toCFloat (negate (fromCFloat x))\n"
                     "  abs x = toCFloat (abs (fromCFloat x))\n  fromInt n = toCFloat (toFloat n)\n"
-                    "instance Storable %s where\n  peek p = toCFloat (primPeekFloat 4 p)\n  poke p x = primPokeFloat 4 p (fromCFloat x)\n",
-                t, t, t, t, t);
+                    "instance Storable %s where\n  sizeOf _ = 4\n  peek p = toCFloat (primPeekFloat 4 p)\n  poke p x = primPokeFloat 4 p (fromCFloat x)\n"
+                    "instance Atomic %s where\n  atomicPeek p = toCFloat (primAtomicPeekFloat 4 p)\n  atomicPoke p x = primAtomicPokeFloat 4 p (fromCFloat x)\n",
+                t, t, t, t, t, t);
       continue;
     }
     bool word = !strcmp(t, "CULong") || !strcmp(t, "CSize"), sign = t[1] != 'U' && !word;
@@ -1160,8 +1161,10 @@ char *builtin_instances_src(void) {
     if (sign) sb_printf(&b, "  abs x = primTo%s (abs (primFrom%s x))\n", t, t);
     else sb_puts(&b, "  abs x = x\n");
     sb_printf(&b, "  fromInt n = primTo%s n\ninstance Integral %s where\n  toInt n = primFrom%s n\n", t, t, t);
-    sb_printf(&b, "instance Storable %s where\n  peek p = primTo%s (primPeekInt (%d) p)\n  poke p x = primPokeInt (%d) p (primFrom%s x)\n", t, t,
-              ffi_types[i].width, ffi_types[i].width, t);
+    sb_printf(&b, "instance Storable %s where\n  sizeOf _ = %d\n  peek p = primTo%s (primPeekInt (%d) p)\n  poke p x = primPokeInt (%d) p (primFrom%s x)\n", t,
+              abs(ffi_types[i].width), t, ffi_types[i].width, ffi_types[i].width, t);
+    sb_printf(&b, "instance Atomic %s where\n  atomicPeek p = primTo%s (primAtomicPeekInt (%d) p)\n  atomicPoke p x = primAtomicPokeInt (%d) p (primFrom%s x)\n",
+              t, t, ffi_types[i].width, ffi_types[i].width, t);
   }
   return b.s;
 }

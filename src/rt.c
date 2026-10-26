@@ -1027,6 +1027,7 @@ static V to_int(double d) {
   return FK_MKINT((intptr_t)d);
 }
 V fk_p_floor(V self, V *a) { return to_int(floor(num_d(a[0]))); }
+V fk_p_truncsat(V self, V *a) { return FK_MKINT(fk_s_truncsat(FK_FLOATV(a[0]))); }
 V fk_p_ceiling(V self, V *a) { return to_int(ceil(num_d(a[0]))); }
 V fk_p_round(V self, V *a) { return to_int(nearbyint(num_d(a[0]))); } /* ties to even */
 V fk_p_truncate(V self, V *a) { return to_int(trunc(num_d(a[0]))); }
@@ -1103,7 +1104,7 @@ V fk_cstr_result(const void *p, const char *fn) {
 V fk_p_nullptr(V self, V *a) { return fk_ptr(NULL); }
 V fk_p_eqptr(V self, V *a) { return FK_BOOL(FK_PTRV(a[0]) == FK_PTRV(a[1])); }
 V fk_p_castptr(V self, V *a) { return a[0]; }
-V fk_p_plusptr(V self, V *a) { return fk_ptr((char *)FK_PTRV(a[0]) + FK_INT(a[1])); }
+V fk_p_plusptr(V self, V *a) { return fk_ptr((void *)((uintptr_t)FK_PTRV(a[0]) + (uintptr_t)FK_INT(a[1]))); } /* as integers: plusPtr nullPtr n is defined */
 V fk_p_ptrint(V self, V *a) { return FK_MKINT((int64_t)(uintptr_t)FK_PTRV(a[0])); }
 
 V fk_p_mallocbytes(V self, V *a) {
@@ -1119,6 +1120,48 @@ V fk_p_peeki(V self, V *a) { return FK_MKINT(fk_s_peeki(FK_INT(a[0]), FK_PTRV(a[
 V fk_p_pokei(V self, V *a) { return fk_s_pokei(FK_INT(a[0]), FK_PTRV(a[1]), FK_INT(a[2])); }
 V fk_p_peekf(V self, V *a) { return fk_float(fk_s_peekf(FK_INT(a[0]), FK_PTRV(a[1]))); }
 V fk_p_pokef(V self, V *a) { return fk_s_pokef(FK_INT(a[0]), FK_PTRV(a[1]), FK_FLOATV(a[2])); }
+/* Array a and Ring a; the scalar forms are in rt.h, for typed code. */
+V fk_p_newarray(V self, V *a) {
+  int64_t n = FK_INT(a[0]), size = FK_INT(a[1]);
+  if (n < 1) fk_error("newArray: a length of %lld; an array has at least one element", (long long)n);
+  if (size < 1 || n > (INT64_MAX - (int64_t)sizeof(FkArray)) / size) fk_error("newArray: %lld elements of %lld bytes is too large", (long long)n, (long long)size);
+  FkArray *h = calloc(1, sizeof(FkArray) + (size_t)(n * size));
+  if (!h) fk_error("newArray: out of memory");
+  h->length = n;
+  h->size = size;
+  return fk_ptr(h);
+}
+V fk_p_freearray(V self, V *a) { free(FK_PTRV(a[0])); return fk_unit; }
+V fk_p_alen(V self, V *a) { return FK_MKINT(fk_s_alen(FK_PTRV(a[0]))); }
+V fk_p_asize(V self, V *a) { return FK_MKINT(fk_s_asize(FK_PTRV(a[0]))); }
+V fk_p_aptr(V self, V *a) { return fk_ptr(fk_s_aptr(FK_PTRV(a[0]))); }
+V fk_p_wrap(V self, V *a) { return FK_MKINT(fk_s_wrap(FK_INT(a[0]), FK_INT(a[1]))); }
+
+V fk_p_newring(V self, V *a) {
+  int64_t n = FK_INT(a[0]), size = FK_INT(a[1]), cap = 1;
+  if (n < 1 || n > ((int64_t)1 << 40)) fk_error("newRing: a capacity of %lld", (long long)n);
+  while (cap < n) cap *= 2;
+  if (size < 1 || cap > (INT64_MAX - (int64_t)sizeof(FkRing)) / size) fk_error("newRing: %lld slots of %lld bytes is too large", (long long)cap, (long long)size);
+  FkRing *g = calloc(1, sizeof(FkRing) + (size_t)(cap * size));
+  if (!g) fk_error("newRing: out of memory");
+  atomic_init(&g->head, 0);
+  atomic_init(&g->tail, 0);
+  g->cap = cap;
+  g->size = size;
+  return fk_ptr(g);
+}
+V fk_p_freering(V self, V *a) { free(FK_PTRV(a[0])); return fk_unit; }
+V fk_p_rcount(V self, V *a) { return FK_MKINT(fk_s_rcount(FK_PTRV(a[0]))); }
+V fk_p_rspace(V self, V *a) { return FK_MKINT(fk_s_rspace(FK_PTRV(a[0]))); }
+V fk_p_rback(V self, V *a) { return fk_ptr(fk_s_rback(FK_PTRV(a[0]))); }
+V fk_p_rcommit(V self, V *a) { return fk_s_rcommit(FK_PTRV(a[0])); }
+V fk_p_rfront(V self, V *a) { return fk_ptr(fk_s_rfront(FK_PTRV(a[0]))); }
+V fk_p_rdrop(V self, V *a) { return fk_s_rdrop(FK_PTRV(a[0])); }
+
+V fk_p_apeeki(V self, V *a) { return FK_MKINT(fk_s_apeeki(FK_INT(a[0]), FK_PTRV(a[1]))); }
+V fk_p_apokei(V self, V *a) { return fk_s_apokei(FK_INT(a[0]), FK_PTRV(a[1]), FK_INT(a[2])); }
+V fk_p_apeekf(V self, V *a) { return fk_float(fk_s_apeekf(FK_INT(a[0]), FK_PTRV(a[1]))); }
+V fk_p_apokef(V self, V *a) { return fk_s_apokef(FK_INT(a[0]), FK_PTRV(a[1]), FK_FLOATV(a[2])); }
 V fk_p_peekp(V self, V *a) { return fk_ptr(*(void **)FK_PTRV(a[0])); }
 V fk_p_pokep(V self, V *a) { *(void **)FK_PTRV(a[0]) = FK_PTRV(a[1]); return fk_unit; }
 V fk_p_peekcstring(V self, V *a) { return fk_cstr_result(FK_PTRV(a[0]), "peekCString"); }

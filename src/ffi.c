@@ -45,7 +45,9 @@ static const FfiType *ffi_type(Type *t) {
   static const FfiType ptr = {"Ptr", "void *", 'p', (int)sizeof(void *)};
   t = repr(t);
   if (t->k != TY_CON) return NULL;
-  if (t->n == 1 && (!strcmp(t->name, "Ptr") || !strcmp(t->name, "FunPtr") || !strcmp(t->name, "StablePtr"))) return &ptr;
+  if (t->n == 1 && (!strcmp(t->name, "Ptr") || !strcmp(t->name, "FunPtr") || !strcmp(t->name, "StablePtr") || !strcmp(t->name, "Array") ||
+                    !strcmp(t->name, "Ring")))
+    return &ptr; /* an Array or Ring passes as its header's address */
   for (int i = 0; i < ffi_ntypes && !t->n; i++)
     if (!strcmp(t->name, ffi_types[i].name)) return &ffi_types[i];
   return NULL;

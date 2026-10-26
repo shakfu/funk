@@ -1,0 +1,4 @@
+-- expect: newArray: a length of 0; an array has at least one element
+main = do
+  a <- newArray 0 (0 :: Int)
+  print (arrayLength a)

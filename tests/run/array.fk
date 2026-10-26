@@ -1,0 +1,22 @@
+-- Array and Ring (docs/dev/realtime.md): C memory, checked and wrapping
+-- indices, and a ring that rounds its capacity up to a power of two.
+main = do
+  a <- newArray 5 (0 :: CInt)
+  mapM_ (\i -> writeArray a i (fromIntegral (i * i))) (enumFromTo 0 4)
+  print (map (\i -> readArray a i) (enumFromTo 0 4), arrayLength a)
+  print (readArrayWrap a 7, readArrayWrap a (-1))
+  r <- newRing 3 (0.0 :: Float)
+  print (map (\x -> ringPush r x) [1.5, 2.5, 3.5, 4.5, 5.5], ringCount r)
+  print (ringFront r)
+  ringDrop r
+  print (ringFront r, ringCount r)
+  freeRing r
+  freeArray a
+  -- other element types: pointers and Float
+  ps <- newArray 2 (nullPtr :: Ptr Int)
+  writeArray ps 1 (plusPtr nullPtr 16)
+  print (readArray ps 0 == nullPtr, primPtrToInt (readArray ps 1))
+  fs <- newArray 3 (toCFloat 0.25)
+  print (map (\i -> fromCFloat (readArray fs i)) (enumFromTo 0 2))
+  freeArray ps
+  freeArray fs

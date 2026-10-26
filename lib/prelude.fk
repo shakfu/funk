@@ -299,19 +299,24 @@ toLower c = if isUpper c then chr (ord c + 32) else c
 -- are generated with the tuple instances.
 
 class Storable a where
+  sizeOf :: a -> Int
   peek :: Ptr a ->> a
   poke :: Ptr a -> a ->> ()
 
 instance Storable Int where
+  sizeOf _ = 8
   peek p = primPeekInt 8 p
   poke p x = primPokeInt 8 p x
 instance Storable Float where
+  sizeOf _ = 8
   peek p = primPeekFloat 8 p
   poke p x = primPokeFloat 8 p x
 instance Storable (Ptr a) where
+  sizeOf _ = 8
   peek p = primPeekPtr p
   poke p q = primPokePtr p q
 instance Storable (FunPtr a) where
+  sizeOf _ = 8
   peek p = castPtrToFunPtr (primPeekPtr (castPtr p))
   poke p f = primPokePtr (castPtr p) (castFunPtrToPtr f)
 
@@ -321,6 +326,79 @@ peekByteOff :: Storable a => Ptr b -> Int ->> a
 peekByteOff p off = peek (plusPtr p off)
 pokeByteOff :: Storable a => Ptr b -> Int -> a ->> ()
 pokeByteOff p off x = poke (plusPtr p off) x
+
+-- Array a: a fixed number of Storable values in C memory, freed with
+-- freeArray; never moved or collected, so another thread may use one. In
+-- typed code it is a C address. readArray and writeArray check the index;
+-- the Wrap versions take it modulo the length and cannot fail, for a
+-- foreign export (docs/dev/realtime.md).
+newArray :: Storable a => Int -> a ->> Array a
+newArray n x = do
+  arr <- primNewArray n (sizeOf x)
+  fillArray arr x
+  arr
+
+fillArray :: Storable a => Array a -> a ->> ()
+fillArray arr x = mapM_ (\i -> writeArray arr i x) (enumFromTo 0 (arrayLength arr - 1))
+
+readArray :: Storable a => Array a -> Int ->> a
+readArray arr i =
+  if i < 0 || i >= arrayLength arr then error ("readArray: index " ++ show i ++ " of an array of " ++ show (arrayLength arr))
+  else peekByteOff (arrayPtr arr) (i * primArraySize arr)
+
+writeArray :: Storable a => Array a -> Int -> a ->> ()
+writeArray arr i x =
+  if i < 0 || i >= arrayLength arr then error ("writeArray: index " ++ show i ++ " of an array of " ++ show (arrayLength arr))
+  else pokeByteOff (arrayPtr arr) (i * primArraySize arr) x
+
+readArrayWrap :: Storable a => Array a -> Int ->> a
+readArrayWrap arr i = peekByteOff (arrayPtr arr) (primWrapIndex i (arrayLength arr) * primArraySize arr)
+
+writeArrayWrap :: Storable a => Array a -> Int -> a ->> ()
+writeArrayWrap arr i x = pokeByteOff (arrayPtr arr) (primWrapIndex i (arrayLength arr) * primArraySize arr) x
+
+-- Ring a: a queue of Storable values in C memory, with one producer and
+-- one consumer, which may be different threads: funk's thread and a
+-- foreign export, either way round. The capacity is rounded up to a power
+-- of two. ringPush returns False if the ring is full. The consumer reads
+-- ringFront when ringCount is positive, then ringDrop; on an empty ring
+-- ringFront returns an old slot.
+newRing :: Storable a => Int -> a ->> Ring a
+newRing n x = primNewRing n (sizeOf x)
+
+ringPush :: Storable a => Ring a -> a ->> Bool
+ringPush r x =
+  if ringSpace r == 0 then False
+  else do
+    poke (primRingBack r) x
+    primRingCommit r
+    True
+
+ringFront :: Storable a => Ring a ->> a
+ringFront r = peek (primRingFront r)
+
+-- an Array or a Ring stored in C memory, such as a callback's context, is its address
+instance Storable (Array a) where
+  sizeOf _ = 8
+  peek p = primPtrToArray (primPeekPtr (castPtr p))
+  poke p a = primPokePtr (castPtr p) (primArrayToPtr a)
+instance Storable (Ring a) where
+  sizeOf _ = 8
+  peek p = primPtrToRing (primPeekPtr (castPtr p))
+  poke p r = primPokePtr (castPtr p) (primRingToPtr r)
+
+-- memory another thread reads or writes: an acquire load and a release
+-- store, so a value is read whole, after what was written before it
+class Atomic a where
+  atomicPeek :: Ptr a ->> a
+  atomicPoke :: Ptr a -> a ->> ()
+
+instance Atomic Int where
+  atomicPeek p = primAtomicPeekInt 8 p
+  atomicPoke p x = primAtomicPokeInt 8 p x
+instance Atomic Float where
+  atomicPeek p = primAtomicPeekFloat 8 p
+  atomicPoke p x = primAtomicPokeFloat 8 p x
 
 instance Eq (Ptr a) where
   p == q = primEqPtr p q

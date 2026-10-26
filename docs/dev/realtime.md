@@ -175,10 +175,38 @@ foreign import ccall "fkt.h &fk_process" processPtr :: FunPtr (Ptr () -> Ptr CFl
 - **The allocation check** runs after elaboration, on the export's function and every function it calls (`cgen_alloc_free`). It accepts literals; variables of scalar, pointer and `()` types; primitives that compile to C operators; C imports without `String`; full-arity calls to functions whose parameters and result are such types; `if`; `case` on scalars and `Bool`; and strict local values. It rejects constructors, closures, strings, lazy and recursive local bindings, unknown and partial calls, and other primitives, naming the expression and its line. Fusion and lambda lifting run first, so `sum (enumFromTo 1 n)`, a fused loop, and a lifted local function are accepted.
 - **Pointers are C addresses in typed code.** `Ptr`, `FunPtr` and `StablePtr` have a representation of their own, `void *`, boxed only where they meet untyped code, like `Int`. `castPtr`, `plusPtr`, pointer equality and `peek` and `poke` at scalar types compile to C: `peek` on a `Ptr CFloat` was a call that boxed a `Float`. C imports with pointer arguments are now called directly.
 - **Literals at a known `Num` instance** call the instance's `fromInt` directly: `0 :: CInt` passed the `Num CInt` dictionary before, a heap value, which the check rejected.
-- **Errors.** A runtime error on a foreign thread aborts the program: funk's error handlers are on its own stack. Division by zero and pattern-match failure can therefore end the program from an export; the check does not exclude them.
+- **Errors.** A runtime error on a foreign thread aborts the program: funk's error handlers are on its own stack. The check therefore also rejects code that can fail: primitives that can (`div`, `mod`, `quot` and `rem` unless the divisor is a non-zero literal, `chr`, `floor`, `round`, `error`), and a `case` that does not cover every value (`case_covers`, as fusion uses it).
+- **Enumerations.** A type whose constructors take no arguments, such as `Ordering`, is allocation-free: its values are static objects. Comparison through `compare` at `CLLong` returns one.
 - **Not checked:** stack depth. An export runs on the caller's stack, which may be small, and generated code has no stack check.
 
-The test, `tests/ffi/export.fk`, exports `process`, which fills a host's buffer from a counter kept in C memory. The test library calls it from its own thread, 2000 blocks of 64 samples, while funk's thread allocates and collects; the samples' sum, 3,168,000, and the counter, 128,000, are checked, also under `FUNK_GCSTRESS`. In the generated C, the 13 workers reachable from `fk_process` call none of the allocating functions (`fk_alloc`, `fk_mkcon`, `fk_float`, `fk_ptr`, `FK_MKINT`, `fk_closure`, `fk_thunk`, `fk_apply`, `fk_str`, primitive wrappers). Five error tests cover a list, `show`, a `String` argument, a C name and the interpreter.
+The test, `tests/ffi/export.fk`, exports `process`, which fills a host's buffer from a counter kept in C memory. The test library calls it from its own thread, 2000 blocks of 64 samples, while funk's thread allocates and collects; the samples' sum, 3,168,000, and the counter, 128,000, are checked, also under `FUNK_GCSTRESS`. In the generated C, the 13 workers reachable from `fk_process` call none of the allocating functions (`fk_alloc`, `fk_mkcon`, `fk_float`, `fk_ptr`, `FK_MKINT`, `fk_closure`, `fk_thunk`, `fk_apply`, `fk_str`, primitive wrappers). Seven error tests cover a list, `show`, a `String` argument, a C name, the interpreter, a division by a variable and a `case` that does not cover every value.
+
+### PortAudio
+
+`examples/ffi/portaudio.fk` plays a sine through PortAudio 19.7.0 on the default output device: 48 kHz, one channel, 64-frame buffers, so a callback has 1.33 ms. The callback is a foreign export. funk's thread changes the frequency four times, and allocates meanwhile, enough for four collection cycles. The callback times itself with `clock_gettime` and counts underflows from PortAudio's status flags. Three runs of the first version, which computed `sin` per sample and took the frequency through `atomicPeek`, at gain 0 so as to make no sound (M1, 2026-10-26):
+
+| Run | Callbacks | Underflows | Longest callback | Mean | Collection cycles during playback |
+|-|-|-|-|-|-|
+| 1 | 902 | 0 | 10 us | 1 us | 4 |
+| 2 | 882 | 0 | 6 us | 1 us | 4 |
+| 3 | 833 | 0 | 6 us | 1 us | 4 |
+
+The second version takes frequency changes from a `Ring Float` and reads a 1024-entry sine table (`Array CFloat`) with `readArrayWrap`: in three runs, 892 to 902 callbacks, no underflow, the longest callback 4 to 5 us, the mean under 1 us. A first attempt turned the phase into an index by counting up to it, since `truncate` can fail: the mean was 28 us. `truncateSat`, a total conversion that saturates at `Int`'s range and maps NaN to 0, replaced it.
+
+The longest callback took under 1% of its budget. The underflow count was 0, so the counting path ran but never counted; no run was overloaded to test it. Of the 31 workers reachable from `fk_synth`, none calls an allocating function; five contain a call to `fk_match_fail` or a zero check in `fk_s_div`, which the check proves unreachable. The example is not in `make test`, which does not open audio devices.
+
+`Atomic` (`atomicPeek`, `atomicPoke`) has instances for `Int`, `Float` and the C types, and compiles to `__atomic_load_n` and `__atomic_store_n` with acquire and release order. funk has no atomic read-modify-write: the callback's counters work because one thread writes each.
+
+## Arrays and rings
+
+Both live in C memory, allocated by funk's thread and freed explicitly, so a foreign thread may use them: a collected array could be freed while the audio thread still reads it, since the collector does not see C's references. In typed code each is the address of its header, like a `Ptr`, so an export uses them without allocating.
+
+- **`Array a`**, of `Storable` values: a header holds the length and the element size, from `sizeOf` (now in `Storable`, as in Haskell), and the elements follow. `newArray n x` allocates and fills; `readArray` and `writeArray` check the index and fail outside it; `readArrayWrap` and `writeArrayWrap` take it modulo the length, so they cannot fail and exports can use them, for wavetables and delay lines. `arrayLength`, `arrayPtr` (the elements, for C) and `freeArray`. An array has at least one element, so the modulus is never 0.
+- **`Ring a`**, of `Storable` values, with one producer and one consumer, which may be any two threads. `head` and `tail` count pushes and pops; each side writes only its own, with release order, and reads the other's with acquire order. The capacity is rounded up to a power of two. The producer calls `ringPush`, which returns `False` when the ring is full; the consumer calls `ringCount`, then `ringFront` and `ringDrop`. Three calls, where Haskell would return a `Maybe`, because a `Just` is a heap object. `ringFront` on an empty ring returns an old slot rather than failing.
+- **`Storable`** instances for `Array a` and `Ring a` store their address, so a callback's context can hold them.
+- **`plusPtr`** now adds as integers: on a null pointer, C's pointer arithmetic is undefined, which UBSan reported for `plusPtr nullPtr 16`.
+
+Tests: `tests/run/array.fk`, in both backends: indices checked and wrapped, a ring of capacity 3 taking four values, and arrays of pointers and `CFloat`. Two error tests: an index out of range, and a length of 0. `tests/ffi/control.fk`: funk pushes 50 gains into a ring before the test host starts; the export takes one per block of 2000, plays a 100-entry wavetable through `readArrayWrap`, and pushes every 100th block's number back through a second ring, while funk's thread collects. Its sample sum, 1564804.0014787447, matches a Python recomputation with the same float rounding; also under `FUNK_GCSTRESS`.
 
 ## Questions
 

@@ -11,7 +11,8 @@
 #   tests/ffi/link.fk      foreign imports from a library found with -I, -L and -l
 #   tests/ffi/ring.fk      the queued-callback ring: overflow, and messages too large for a slot
 #   tests/ffi/export.fk    a foreign export called from the library's thread while funk
-#                          collects, compiled, and under FUNK_GCSTRESS
+#                          collects, compiled, and under FUNK_GCSTRESS; control.fk the
+#                          same with rings both ways and a wavetable Array
 #   tests/ffi/callback.fk  callbacks into funk from that library; cberror.fk and
 #                          cbthread.fk must fail with their "-- expect: " text
 #   tests/ffi/sqlite.fk    sqlite3, in both backends; skipped without sqlite3.h
@@ -86,15 +87,17 @@ if cc -fPIC -c tests/ffi/fkt.c -o "$tmp/fkt.o" && ar rcs "$tmp/libfkt.a" "$tmp/f
     if "$FUNK" build tests/ffi/$n.fk -o "$tmp/$n" $link >"$tmp/cc" 2>&1 && "$tmp/$n" >"$tmp/$n.out" 2>&1 &&
       diff tests/ffi/$n.expected "$tmp/$n.out" >"$tmp/diff" 2>&1; then ok; else bad "$n (compiled)" "$tmp/diff"; fi
   done
-  # shellcheck disable=SC2086
-  if "$FUNK" build tests/ffi/export.fk -o "$tmp/export" $link >"$tmp/cc" 2>&1; then
-    "$tmp/export" >"$tmp/export.out" 2>&1
-    if diff tests/ffi/export.expected "$tmp/export.out" >"$tmp/diff" 2>&1; then ok; else bad "export" "$tmp/diff"; fi
-    FUNK_GCSTRESS=1 "$tmp/export" >"$tmp/export.out" 2>&1
-    if diff tests/ffi/export.expected "$tmp/export.out" >"$tmp/diff" 2>&1; then ok; else bad "export (FUNK_GCSTRESS)" "$tmp/diff"; fi
-  else
-    bad "export (build)" "$tmp/cc"
-  fi
+  for n in export control; do
+    # shellcheck disable=SC2086
+    if "$FUNK" build tests/ffi/$n.fk -o "$tmp/$n" $link >"$tmp/cc" 2>&1; then
+      "$tmp/$n" >"$tmp/$n.out" 2>&1
+      if diff tests/ffi/$n.expected "$tmp/$n.out" >"$tmp/diff" 2>&1; then ok; else bad "$n" "$tmp/diff"; fi
+      FUNK_GCSTRESS=1 "$tmp/$n" >"$tmp/$n.out" 2>&1
+      if diff tests/ffi/$n.expected "$tmp/$n.out" >"$tmp/diff" 2>&1; then ok; else bad "$n (FUNK_GCSTRESS)" "$tmp/diff"; fi
+    else
+      bad "$n (build)" "$tmp/cc"
+    fi
+  done
   for n in cberror cbthread; do
     want=$(head -n 1 tests/ffi/$n.fk | sed 's/^-- expect: //')
     # shellcheck disable=SC2086 # the subshell reports cbthread's abort to /dev/null
