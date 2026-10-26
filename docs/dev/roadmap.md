@@ -56,6 +56,7 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 
 - Decide on typed effects ([typed-effects.md](typed-effects.md)). Several items depend on it.
 - A foreign function interface ([ffi.md](ffi.md)): libm, then sqlite3, then libremidi.
+- Haskell compatibility: what stops Haskell source from running, and what would close it ([haskell-compat.md](haskell-compat.md)).
 
 - Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.
 

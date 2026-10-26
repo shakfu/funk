@@ -58,3 +58,6 @@ dkms.conf
 /build/
 /build-*/
 /funk
+
+# macOS Finder metadata
+.DS_Store

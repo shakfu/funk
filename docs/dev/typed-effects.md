@@ -14,6 +14,26 @@ Effects are untyped. `print` has type `Show a => a -> ()` and prints when the ca
 
 None of these is a bug in the implementation. They come from Haskell syntax over OCaml semantics, with Haskell's lazy `let` added.
 
+## Why `let` is lazy
+
+funk is strict except for non-recursive `let` and `where` value bindings. The rationale in [design.md](design.md) argues for `where` only: a `where` binding is written after the guards it scopes over, and a strict one would run before them, so `f x | x == 0 = 0 | otherwise = y where y = div 1 x` would fail on `f 0`. `let` was made lazy with it, in 0.2, and its case is weaker.
+
+For a lazy `let`:
+
+- **Haskell compatibility.** `f x = let y = div 1 x in if x == 0 then 0 else y` is valid Haskell, and fails on `f 0` with a strict `let`. It is rarer than the `where` form, and occurs in `do` blocks too. The difference would show at run time, not as a compile error.
+- **Uniformity.** Haskell defines `where` as a `let` scoped over the guards. One rule for both is simpler, and funk implements both with the same thunks.
+
+For a strict `let`:
+
+- **Source order.** A `let` precedes its use, so strict evaluation reads naturally, as in ML. The guard problem exists only because `where` follows the code it scopes over.
+- **Effects.** A lazy `let` moves effects: `let a = getLine ()` reads at the first use of `a`. That is the first problem above, and why A' makes `let` statements in `do` strict.
+
+Speed does not decide it. Eager `let` already evaluates a binding where it is bound when its right side cannot fail, loop or act, so both rules generate the same code for most bindings ([performance-first.md](performance-first.md)). The choice is about meaning only, and it depends on the options below:
+
+- **Under E,** an effectful binding is evaluated where it is bound, which removes the harm. What laziness keeps is that an unused binding cannot fail or loop, and there lazy is the Haskell-compatible choice. `let` stays lazy.
+- **Under A or A',** the question stands. Strict `let` statements in `do`, as A' proposes, with expression `let` left lazy for compatibility, give `let` two rules, which is A''s price.
+- **Under B1,** binding an action does not run it, so a lazy `let` is harmless for effects, as for E.
+
 ## Options
 
 | | Option | Effects in types | Checker | Breaks 0.2 code |
@@ -224,7 +244,7 @@ Against B1's changes:
 | New prelude names | `return`, `>>=`, `mapM_`, `when` and others, over `IO` | none: `mapM_` stays a fold |
 | Printing from pure code | `trace` | `trace` |
 
-Pure Haskell code parses and checks unchanged, because its `->` signatures are honest. Haskell code typed with `IO` does not work: funk has no `IO` type. B1 would make that code port.
+Pure Haskell code parses and checks unchanged, because its `->` signatures are honest. Haskell code typed with `IO` does not work: funk has no `IO` type. B1 would make that code port, though `IO` is one of about fifteen gaps between Haskell and funk source ([haskell-compat.md](haskell-compat.md)).
 
 Two things E's syntax, as designed, cannot say:
 
