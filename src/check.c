@@ -197,7 +197,7 @@ static void pr(SB *b, Type *t, int prec, Names *nm) {
   if (t->name == s_arrow) {
     if (prec > 0) sb_puts(b, "(");
     pr(b, t->args[0], 1, nm);
-    sb_puts(b, t->eff && repr(t->eff) == eff_eff ? " ~> " : " -> ");
+    sb_puts(b, t->eff && repr(t->eff) == eff_eff ? " ->> " : " -> ");
     pr(b, t->args[1], 0, nm);
     if (prec > 0) sb_puts(b, ")");
   } else if (t->name == s_list) {
@@ -419,7 +419,7 @@ static void call_effect(Type *e) {
   if (e == eff_pure) return; /* a pure call constrains nothing */
   Type *c = repr(cur_eff);
   if (e == eff_eff && c->skolem) {
-    eff_error("declared with `->` but calls an effectful function; its signature needs `~>`", NULL);
+    eff_error("declared with `->` but calls an effectful function; its signature needs `->>`", NULL);
     return;
   }
   if (e == eff_eff && c == eff_pure) {
@@ -566,7 +566,7 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
     }
   case TE_FUN: {
     Type *t = tarrow(te_type(te->args[0], tv, sig), te_type(te->args[1], tv, sig));
-    if (effects) t->eff = te->name && !strcmp(te->name, "~>") ? eff_eff : te_eff ? te_eff : eff_pure;
+    if (effects) t->eff = te->name && !strcmp(te->name, "->>") ? eff_eff : te_eff ? te_eff : eff_pure;
     return t;
   }
   case TE_LIST: return tlist(te_type(te->args[0], tv, sig));

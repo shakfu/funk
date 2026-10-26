@@ -1,13 +1,13 @@
 -- Every binding below must be accepted by E (typed-effects.md), and the program must run.
 greeter = putStrLn . ("hi " ++)                     -- composition builds a closure
-handlers :: [Int ~> ()]
+handlers :: [Int ->> ()]
 handlers = [print, putStrLn . show]                 -- functions in a list, not called
 compose = print . (+ 1)
 f x = x + 1
   where g y = print (y :: Int)                      -- an effectful local function, unused
 mk n = \x -> print (x + n)
 pr = mk 1                                           -- a function returned, not called
-logTwo :: Int -> Int ~> ()
+logTwo :: Int -> Int ->> ()
 logTwo a b = print (a + b)
 l1 = logTwo 1                                       -- partial application of an effectful function
 twice g x = g (g x)
@@ -18,7 +18,7 @@ area (Circle r) = 3.0 * r * r
 area (Sq s) = s * s
 total :: [Shape] -> Float
 total ss = sum (map area ss)                        -- pure function through map
-counter :: Int ~> ()
+counter :: Int ->> ()
 counter n = if n == 0 then () else case print n of _ -> counter (n - 1)
 main = do
   greeter "x"

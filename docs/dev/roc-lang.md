@@ -36,7 +36,7 @@ Roc makes types tell the truth about effects without a monad. This is a fifth op
 - **Migration.** Haskell's `IO` code would not port. funk's current programs would, with little change: effectful functions get `=>`.
 - **A rule Roc does not need.** Lazy `let` and `where` bindings must not hold effectful expressions, or must be evaluated where they are bound when they do. Roc has no laziness.
 
-For funk's strict semantics, this may fit better than A'' or B1. It is option E in [typed-effects.md](typed-effects.md#e-in-detail), designed for funk there: spelled `~>`, with effect polymorphism, and compared with the other options.
+For funk's strict semantics, this may fit better than A'' or B1. It is option E in [typed-effects.md](typed-effects.md#e-in-detail), designed for funk there: spelled `->>`, with effect polymorphism, and compared with the other options.
 
 ### 2. Reference counting, for pauses rather than throughput
 

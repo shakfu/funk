@@ -66,7 +66,7 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 
 ## Open questions
 
-- Should effects become typed? `IO` alone (B1) needs no type-class work; a `Monad` class over it (B2) needs kinds and type classes phase 2. Effect arrows (E), `a ~> b` as in Roc, put effects in types without `IO` and keep calls direct. The options, including staying impure with inferred purity (A''), are compared in [typed-effects.md](typed-effects.md#the-options-compared).
+- Should effects become typed? `IO` alone (B1) needs no type-class work; a `Monad` class over it (B2) needs kinds and type classes phase 2. Effect arrows (E), `a ->> b` as in Roc, put effects in types without `IO` and keep calls direct. The options, including staying impure with inferred purity (A''), are compared in [typed-effects.md](typed-effects.md#the-options-compared).
 
 - Should `Int` become a full 64 bits? Under the performance goal, yes: the typed backend gives unboxed `int64_t`.
 

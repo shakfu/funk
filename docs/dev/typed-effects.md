@@ -45,7 +45,7 @@ Speed does not decide it. Eager `let` already evaluates a binding where it is bo
 | B2 | `IO a` with a `Monad` class | yes | type classes phase 2 | yes, as B1 |
 | C | Effect rows (Koka) | yes, per effect | large: row types | yes |
 | D | Uniqueness types (Clean) | yes | large | yes |
-| E | Effect arrows (Roc): `a -> b` pure, `a ~> b` effectful; calls stay direct | yes, one bit per arrow | medium: an effect on every arrow | rarely: effectful signatures change |
+| E | Effect arrows (Roc): `a -> b` pure, `a ->> b` effectful; calls stay direct | yes, one bit per arrow | medium: an effect on every arrow | rarely: effectful signatures change |
 
 - **A** is what strict ML-family languages do, and it works there because their `let` is strict. Effect order is then the order of the source.
 
@@ -60,7 +60,7 @@ Speed does not decide it. Eager `let` already evaluates a binding where it is bo
 
 - **D** threads a unique `World` value: `getLine :: World -> (String, World)`. Code becomes verbose without new syntax. Rejected.
 
-- **E** puts one bit in every function arrow: pure or effectful. There is no `IO` type and no runner; an effectful call is a direct call, as today. Roc does this with `->` and `=>` ([roc-lang.md](roc-lang.md#1-effects-in-the-arrow)). funk spells the effectful arrow `~>`, because `=>` already marks class contexts. A higher-order function is polymorphic in its argument's effect, so one `map` serves both (see "E in detail").
+- **E** puts one bit in every function arrow: pure or effectful. There is no `IO` type and no runner; an effectful call is a direct call, as today. Roc does this with `->` and `=>` ([roc-lang.md](roc-lang.md#1-effects-in-the-arrow)). funk spells the effectful arrow `->>`, because `=>` already marks class contexts. A higher-order function is polymorphic in its argument's effect, so one `map` serves both (see "E in detail").
 
 Recommendation: E, whose inference has been prototyped; see "Prototype" and "The options compared". Otherwise B1, with B2 decided later, on its own. B1 is source-compatible with B2, because a `do` over `IO` written for B1 means the same under `Monad IO`. If funk stays impure, choose A'': it includes A' and fixes the `do` surprise.
 
@@ -195,9 +195,9 @@ E types effects in the function arrow, as Roc does, with effect polymorphism add
 ### Syntax
 
 ```haskell
-print :: Show a => a ~> ()
-getLine :: () ~> String
-greet :: String ~> ()
+print :: Show a => a ->> ()
+getLine :: () ->> String
+greet :: String ->> ()
 greet name = putStrLn ("hello " ++ name)
 
 map :: (a -> b) -> [a] -> [b]     -- pure if f is; acts if f does
@@ -205,30 +205,35 @@ area :: Shape -> Float             -- rejected if area can act
 ```
 
 - **`a -> b` in a signature** means the function has no effects of its own. All the `->` arrows of one signature share an effect variable, so a higher-order function acts exactly when its function arguments do. That is A'''s "pure modulo arguments" ([A'' in detail](#a-in-detail)), stated in the type.
-- **`a ~> b`** means the function may act.
-- **`~>` over `=>`,** Roc's spelling, because `=>` separates a class context in funk and Haskell. `~>` is not a Haskell type operator in the standard. Other spellings would do as well; see question 6.
+- **`a ->> b`** means the function may act.
+- **`->>`, decided over three alternatives** (2026-10-26):
+  - `=>`, Roc's spelling, already separates a class context in funk and Haskell. One signature could hold both meanings, as in `print :: Show a => a => ()`.
+  - `~>`, the first proposal, differs from `->` by one stroke, which is easy to miss in many fonts.
+  - `-!>` stands out as much, but breaks the arrow.
+
+  `->>` stays an arrow, is longer than `->` in aligned signatures, and borrows `>>`, which Haskell readers know as effect sequencing. No funk source contains `->>`, and the lexer already reads it as one token.
 
 ### What changes in programs
 
-E is mostly a checker change. Its only new syntax is `~>` in types; expressions do not change.
+E is mostly a checker change. Its only new syntax is `->>` in types; expressions do not change.
 
 ```haskell
 -- 0.2                                   -- E
-greet :: String -> ()                    greet :: String ~> ()
+greet :: String -> ()                    greet :: String ->> ()
 greet n = putStrLn ("hi " ++ n)          greet n = putStrLn ("hi " ++ n)
 
-data Handler = Handler (Int -> ())       data Handler = Handler (Int ~> ())  -- holds an effectful function
-class Logger a where log :: a -> ()      class Logger a where log :: a ~> ()  -- instances may act
+data Handler = Handler (Int -> ())       data Handler = Handler (Int ->> ())  -- holds an effectful function
+class Logger a where log :: a -> ()      class Logger a where log :: a ->> ()  -- instances may act
 ```
 
-- **`~>` appears** wherever a type is written: signatures, data fields, class methods. Unannotated code needs nothing, since effects are inferred.
+- **`->>` appears** wherever a type is written: signatures, data fields, class methods. Unannotated code needs nothing, since effects are inferred.
 - **Unchanged:** calls (`print x`, `getLine ()`), `do`, `<-`, `let` statements and `>>`. There is no `!` suffix on effectful names: Roc's is a naming convention, and `!` cannot be part of a funk identifier. There is no `IO` type, no `return`, no `>>=`, and no new keyword.
 
 What changes is which programs are accepted:
 
 | Rule | Effect on programs |
 |-|-|
-| A signature with `->` is checked | `loud :: Int -> ()` that prints is an error; write `~>` |
+| A signature with `->` is checked | `loud :: Int -> ()` that prints is an error; write `->>` |
 | Top-level values are pure, except `main` | `early = print 1` is an error; make it a function, `early () = ...`, or run it from `main` |
 | An effectful `let` or `where` binding is evaluated where it is bound | same syntax; the effect happens at its line, not at its first use |
 | Pure fields and methods stay pure | `Handler print` is an error if the field is `Int -> ()` |
@@ -237,7 +242,7 @@ Against B1's changes:
 
 | | B1 | E |
 |-|-|-|
-| Effectful signatures | `String -> IO ()` | `String ~> ()` |
+| Effectful signatures | `String -> IO ()` | `String ->> ()` |
 | Reading input | `line <- getLine`, without `()` | `getLine ()`, unchanged |
 | `main` | `main :: IO ()`, built from actions | unchanged |
 | `>>` | a special form, lazy in its second operand | unchanged |
@@ -260,8 +265,8 @@ Both would need an explicit effect variable in the syntax, as Koka writes it. Ne
 - Evaluation is strict and left to right, as today, so effects happen in source order. There is no runner, and `>>` stays an ordinary primitive.
 - **Lazy bindings.** A `let` or `where` binding whose evaluation can act is evaluated where it is bound, not at first use. Lazy bindings were the first problem in this note; this rule removes it. Pure bindings stay lazy, so `y = div 1 x` under a guard still does not fail.
 - **Top-level values** must be pure: a top-level value with an effect is an error, except `main`, whose evaluation is the program. `act () = do ...`, a function, may act. Pure top-level values could then be evaluated at compile time, as in Roc.
-- **Data fields** of function type are pure if written with `->`, effectful if written with `~>`. A field written `Int -> ()` cannot hold `print`.
-- **Class methods** follow their signature. `show :: a -> String` is pure in every instance, so an instance cannot print, except through `trace`. A class that needs effects says so: `log :: a ~> ()`.
+- **Data fields** of function type are pure if written with `->`, effectful if written with `->>`. A field written `Int -> ()` cannot hold `print`.
+- **Class methods** follow their signature. `show :: a -> String` is pure in every instance, so an instance cannot print, except through `trace`. A class that needs effects says so: `log :: a ->> ()`.
 - **`trace` and `error`** are pure, as in Haskell.
 
 ### Inference
@@ -275,19 +280,19 @@ Unifying all of a body's calls into one variable over-approximates: a function c
 Roc's functions take several arguments at once; funk's are curried. If every arrow of a signature shares the effect, applying an effectful function to fewer arguments than it takes also counts as acting, although it only builds a closure. `greeter = putStrLn . ("hi " ++)` would be rejected as a top-level value with an effect. Two refinements, to choose between with a prototype:
 
 - **By arity.** A call is effectful only when it saturates a known function of known arity. The checker knows the arity of every global and every local lambda. Unknown function values keep the over-approximation.
-- **Effect on the last arrow only.** `a -> b ~> c` would act only when given both arguments. That is more precise, but signatures have to say where the effect sits.
+- **Effect on the last arrow only.** `a -> b ->> c` would act only when given both arguments. That is more precise, but signatures have to say where the effect sits.
 
-The prototype chose by arity; see "Prototype". A lambda's inferred type already puts the effect on the arrow that runs its body (`mk :: a -> a ~> ()`), and a signature may write `~>` on its last arrow only.
+The prototype chose by arity; see "Prototype". A lambda's inferred type already puts the effect on the arrow that runs its body (`mk :: a -> a ->> ()`), and a signature may write `->>` on its last arrow only.
 
 ### Migration
 
 | 0.2 code | E |
 |-|-|
 | `main = print x` | unchanged |
-| `line = getLine ()` in `do` | unchanged; `getLine :: () ~> String` |
-| `f :: Int -> ()` that prints | `f :: Int ~> ()` |
+| `line = getLine ()` in `do` | unchanged; `getLine :: () ->> String` |
+| `f :: Int -> ()` that prints | `f :: Int ->> ()` |
 | `early = print "x"`, run at startup | an error; make it a function, or call it from `main` |
-| `print x` inside a pure function | an error; use `trace`, or change the signature to `~>` |
+| `print x` inside a pure function | an error; use `trace`, or change the signature to `->>` |
 
 Unannotated code needs no change, since effects are inferred. Of this repo's files, those that rely on top-level effects (`syntax.fk`) or on effects in lazy bindings (`lazy.fk`) change; the 15 benchmarks do not.
 
@@ -295,12 +300,12 @@ Unannotated code needs no change, since effects are inferred. Of this repo's fil
 
 | Part | Change | Estimate |
 |-|-|-|
-| `check.c` | an effect argument on `->`; effect variables per lambda; unification of call effects; the top-level, data-field and class-method rules; type printing that shows `~>` and hides free effect variables | 250 lines |
-| `parse.c` | `~>` in types | 10 lines |
+| `check.c` | an effect argument on `->`; effect variables per lambda; unification of call effects; the top-level, data-field and class-method rules; type printing that shows `->>` and hides free effect variables | 250 lines |
+| `parse.c` | `->>` in types | 10 lines |
 | `elab.c`, `resolve.c` | effectful bindings evaluated eagerly, through the existing eager `let` | 20 lines |
 | `fuse.c` | purity from types, replacing the effect half of its analysis; totality stays | -100 lines, +30 |
 | `prims.def`, prelude | effectful types for the I/O primitives | 20 lines |
-| errors | "`f` is declared `Int -> ()` but calls `putStrLn` (line 4); write `Int ~> ()`" | 50 lines |
+| errors | "`f` is declared `Int -> ()` but calls `putStrLn` (line 4); write `Int ->> ()`" | 50 lines |
 
 About 400 lines, minus the effect half of `fuse.c`'s analysis. These are estimates. The runtime does not change.
 
@@ -544,12 +549,12 @@ parse line = case words line of
 average :: [Student] -> Int
 average ss = div (sum (map (\s -> s.score) ss)) (length ss)
 
-readStudents :: Int ~> [Student]
+readStudents :: Int ->> [Student]
 readStudents k =
   if k == 0 then []
   else let s = parse (getLine ()) in s : readStudents (k - 1)
 
-report :: Student ~> ()
+report :: Student ->> ()
 report s = putStrLn (s.name ++ ": " ++ grade s.score)
 
 main = do
@@ -562,8 +567,8 @@ main = do
 Two lines differ from A:
 
 ```text
-readStudents :: Int ~> [Student]
-report :: Student ~> ()
+readStudents :: Int ->> [Student]
+report :: Student ->> ()
 ```
 
 The prototype infers the rest, and rejects A's text for exactly those two signatures. `let s = parse (getLine ())` is an effectful binding, so E evaluates it at its line; its timing no longer depends on when the cons cell forces it.
@@ -587,7 +592,7 @@ The prototype infers the rest, and rejects A's text for exactly those two signat
 |-|-|-|-|-|-|
 | Effects visible | no: `f :: Int -> Int` may print | inferred, reported or checked against a `pure` annotation; unknown calls count as acting | in types | in types | in types, through closures, parameters and dictionaries |
 | Higher-order functions with effects | any: `map print xs` works, ordered by strict evaluation | as A' | split: `map` and `mapM_`, `foldl` and `foldM` | split as B1, but `mapM` works for every monad | one function for both: `map print xs` works, and its type says it acts |
-| Actions as values | by convention: `\() -> print x` | as A' | yes: stored, retried, combined | yes | as functions of `()`: `\() -> print x :: () ~> ()` |
+| Actions as values | by convention: `\() -> print x` | as A' | yes: stored, retried, combined | yes | as functions of `()`: `\() -> print x :: () ->> ()` |
 | `do` for `Maybe`, `State`, parsers, lists | no | no | no | yes | no; independent of E, a `Monad` class could still come later |
 | Printing from anywhere, for debugging | yes | yes | `trace` | `trace` | `trace` |
 | Remaining surprises | lazy `let` and `where` outside `do` still move effects; a top-level `act = ...` runs at startup; `x <- 1 + 2` is accepted | as A'; a `pure` annotation can catch some | none of these | none of these | `x <- 1 + 2` is accepted, harmlessly; partial application can over-approximate effects |
@@ -632,6 +637,6 @@ Recommendation: E. The prototype of its inference, with two refinements, rejects
 4. **Keep `trace`?** Without it, printing from pure code is impossible, which is the point of B1 but hurts debugging.
 
 5. **Accept the break?** funk is pre-1.0, and 0.2 already breaks `deriving` and `f.g`. Releasing 0.2 first and then B1 or E as 0.3 gives users one version with `do` over untyped effects.
-6. **Under E, the spelling of the effectful arrow:** `~>`, or another token such as `-!>`? Partial application is settled by arity, as the prototype showed.
+6. ~~**Under E, the spelling of the effectful arrow.**~~ Decided: `->>` ("Syntax" in "E in detail"). Partial application is settled by arity, as the prototype showed.
 
 The citations are from memory and were not checked in this session.
