@@ -180,9 +180,11 @@ Non-moving conservative mark-sweep:
 
 - Collection runs when allocation since the last GC exceeds max(128 MiB, 2x live bytes). Each collection scans the whole stack, which deep recursion makes large, so fewer collections are faster, at about twice the peak memory of max(32 MiB, live). Allocation pops a free list inline; collection and new chunks are out of line.
 
-- A collection only marks; sweeping is lazy ([realtime.md](realtime.md)). Each size class keeps a list of unswept chunks in address order, and allocation that finds its free list empty sweeps the next one. A chunk whose objects were all marked only has its marks cleared. A chunk still unswept when the next collection starts has its marks cleared instead of being swept, so that collection frees what died since. Large objects are swept during the collection.
+- Marking is incremental, snapshot at the beginning ([realtime.md](realtime.md)). A cycle starts with a pause that scans the stack and the roots, then marks in steps of at most 0.4 ms, one per MiB allocated. Objects allocated during a cycle are marked; three writes that overwrite a heap pointer shade the old value first (`FK_SHADE`): a thunk's update, and a reused cell's head and tail.
 
-- `FUNK_GCSTATS=1` prints each collection's pause, split into roots, mark and finish, and at exit a summary with the lazy sweep's total and longest step.
+- Sweeping is lazy. Each size class keeps a list of unswept chunks in address order, and allocation that finds its free list empty sweeps the next one, except while marking. A chunk whose objects were all marked only has its marks cleared. Sweeping finishes, in steps, before the next cycle marks. Large objects are swept when a cycle ends.
+
+- `FUNK_GCSTATS=1` prints each cycle's pauses and a summary at exit. `FUNK_GCSTRESS=1` runs short cycles constantly and checks at each cycle's end that every reachable object is marked, for testing.
 
 `fk_run` starts the program on a thread with a 4 GiB `MAP_NORESERVE` stack. That fixes the stack bounds for scanning. A 16 MiB inaccessible region lies below the stack. The interpreter and the runtime check the stack (`FK_STACK_CHECK`) and report overflow as an error the REPL recovers from. Generated code has no check: overflowing it faults on the guard region, and a handler on an alternate signal stack reports the overflow and exits.
 
@@ -196,7 +198,7 @@ The collector skips tagged words before looking up an object, does not scan `Flo
 
 Output: the embedded runtime source, a global array `G`, one `static V fn_N(V self, V *a)` per lambda, and `program()`, which registers constructors and initializes globals in dependency order.
 
-- Frame slots become locals `lN`; free variables are `FK_FREE(self, i)`. A slot or expression whose type is `Int`, `Float`, `Char` or `Bool` is a C `int64_t`, `double`, `int32_t` or `bool`; conversions to and from `V` are inserted where representations meet: parameters, results, data fields, closures and unknown calls. Primitives on scalars are C operators.
+- Frame slots become locals `lN`; free variables are `FK_FREE(self, i)`. A slot or expression whose type is `Int`, `Float`, `Char`, `Bool` or a pointer (`Ptr`, `FunPtr`, `StablePtr`) is a C `int64_t`, `double`, `int32_t`, `bool` or `void *`, and the C types of foreign imports take the representation of `Int` or `Float`; conversions to and from `V` are inserted where representations meet: parameters, results, data fields, closures and unknown calls. Primitives on scalars are C operators.
 
 - Arguments go into temporaries in order before each call, since C leaves argument evaluation order unspecified.
 

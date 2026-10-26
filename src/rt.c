@@ -21,14 +21,22 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/mman.h>
+#include <sched.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <dispatch/dispatch.h>
+#else
+#include <semaphore.h>
+#endif
 
 /* ---------------------------------------------------------------- errors */
 
 jmp_buf *fk_error_jmp;
 char *fk_stack_limit;
 static char *fk_stack_base;
+
+bool fk_on_funk_thread(void);
 
 _Noreturn void fk_error(const char *fmt, ...) {
   va_list ap;
@@ -38,6 +46,7 @@ _Noreturn void fk_error(const char *fmt, ...) {
   vfprintf(stderr, fmt, ap);
   va_end(ap);
   fputc('\n', stderr);
+  if (!fk_on_funk_thread()) abort(); /* a foreign export on another thread: funk's handlers are not on this stack */
   if (fk_error_jmp) longjmp(*fk_error_jmp, 1);
   exit(1);
 }
@@ -84,21 +93,41 @@ static size_t nroots;
    the whole stack, which deep recursion makes large, so fewer collections
    pay off: 26-35% on sort and strings against 32 MiB and 1x, at about 2x
    the peak memory. */
-#define GC_MIN ((size_t)128 << 20)
-static size_t alloc_since_gc, gc_threshold = GC_MIN;
+static size_t alloc_since_gc, gc_threshold = (size_t)128 << 20; /* gc_min below */
 static V **mstack;
 static size_t msp, mcap;
-static size_t live_bytes; /* marked this collection */
+static size_t live_bytes;  /* marked this collection */
+static size_t black_bytes; /* of which allocated during the cycle: mostly garbage by its end */
 
 /* Lazy sweeping (realtime.md, R1): a collection only marks. Each size
    class keeps a list of unswept chunks, in address order, and allocation
    sweeps the next one when its free list is empty. */
 static size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
 
-/* FUNK_GCSTATS=1: each collection's times, and a summary at exit (R0). */
+/* Incremental marking (realtime.md, R2), snapshot at the beginning: a
+   cycle starts with a pause that scans the stack and the roots, then marks
+   in steps of at most STEP_MS, one per STEP_BYTES of allocation. Objects
+   allocated meanwhile are marked at once. A write that overwrites a heap
+   pointer shades the old value first (FK_SHADE), so everything reachable
+   when the cycle started is marked. */
+#define STEP_BYTES ((size_t)1 << 20)
+#define STEP_MS 0.4
+int fk_marking;
+/* FUNK_GCSTRESS=1, for testing: a cycle 64 KiB after the last one ends,
+   steps of 4096 objects every 16 KiB, never finished early, and a check at
+   each cycle's end that every object reachable then is marked. Many short
+   cycles start often, inside the windows where a missing barrier loses an
+   object; tests/run/gcbarrier.fk hits them. */
+static bool gcstress;
+static size_t step_bytes = STEP_BYTES, gc_min = (size_t)128 << 20;
+static size_t cycle_start_threshold; /* gc_threshold when the cycle started */
+static size_t next_step; /* while marking, gc_threshold is 0, so every allocation takes alloc_slow, which marks it */
+
+/* FUNK_GCSTATS=1: each cycle's pauses, and a summary at exit (R0). */
 static bool gcstats;
-static size_t gc_count, lazy_chunks;
-static double pause_total, pause_max, lazy_total, lazy_max;
+static size_t gc_count, lazy_chunks, forced, cycle_steps;
+static double pause_total, pause_max, lazy_total, lazy_max, start_max, step_max, finish_max, sweep_step_max;
+static double cycle_start, cycle_step_max, cycle_mark;
 
 static double now_ms(void) {
   struct timespec t;
@@ -107,8 +136,15 @@ static double now_ms(void) {
 }
 
 static void gc_summary(void) {
-  fprintf(stderr, "gc: %zu collections, pause max %.2f ms, mean %.2f ms, total %.2f ms; lazy sweep %zu chunks, max %.3f ms, total %.2f ms\n",
-          gc_count, pause_max, gc_count ? pause_total / (double)gc_count : 0.0, pause_total, lazy_chunks, lazy_max, lazy_total);
+  fprintf(stderr, "gc: %zu cycles, pause max %.2f ms (start %.2f, mark step %.2f, finish %.2f, sweep step %.2f), total %.2f ms, %zu forced; "
+          "lazy sweep %zu chunks, max %.3f ms, total %.2f ms\n",
+          gc_count, pause_max, start_max, step_max, finish_max, sweep_step_max, pause_total, forced, lazy_chunks, lazy_max, lazy_total);
+}
+
+static void pause_done(double t, double *kind_max) {
+  pause_total += t;
+  if (t > pause_max) pause_max = t;
+  if (t > *kind_max) *kind_max = t;
 }
 
 void fk_add_roots(V **base, size_t *count) {
@@ -202,12 +238,36 @@ static void scan_range(V *lo, V *hi) {
   for (V *p = lo; p < hi; p++) mark_word(*p);
 }
 
-static void drain(void) {
-  while (msp) {
+/* Marks for up to budget_ms, checking the clock every 256 objects; true
+   when the mark stack is empty. */
+static bool drain(double budget_ms) {
+  double end = now_ms() + budget_ms;
+  for (int n = 0; msp;) {
     size_t words = (size_t)(uintptr_t)mstack[--msp];
     V *o = mstack[--msp];
     scan_range(o + 1, o + words); /* every payload word, conservatively */
+    if (++n == (gcstress ? 4096 : 256)) {
+      if (gcstress && budget_ms < INFINITY) return false; /* steps of a fixed size, for reproducible tests */
+      n = 0;
+      if (now_ms() > end) return false;
+    }
   }
+  return true;
+}
+
+void fk_shade(V old) { mark_word(old); }
+
+/* An object allocated while marking is marked: it is live at the cycle's
+   end, and its fields point to objects that are new or reachable when the
+   cycle started. */
+static __attribute__((noinline)) void alloc_black(V *o) {
+  uint8_t *m;
+  size_t words;
+  if (!find_obj((uintptr_t)o, &m, &words) || *m) return;
+  *m = 1;
+  live_bytes += words * sizeof(V);
+  black_bytes += words * sizeof(V);
+  if ((uintptr_t)o >= heap_lo && (uintptr_t)o < heap_hi) ((Chunk *)((uintptr_t)o & ~(uintptr_t)(CHUNK_SIZE - 1)))->nmarked++;
 }
 
 static __attribute__((noinline)) void scan_stack(void) {
@@ -270,12 +330,13 @@ static void sweep(void) {
   memset(bump, 0, sizeof bump);
   memset(bump_end, 0, sizeof bump_end);
   memset(unswept, 0, sizeof unswept);
+  fk_marking = 0;
   for (size_t ci = nchunks; ci-- > 0;) { /* pushed in reverse: each list is in address order */
     Chunk *c = chunk_at(ci);
     c->next_unswept = unswept[c->words];
     unswept[c->words] = ci + 1;
   }
-  size_t live = live_bytes, j = 0; /* counted while marking, large objects too */
+  size_t live = live_bytes - black_bytes, j = 0; /* reachable when the cycle started, large objects too */
   large_lo = UINTPTR_MAX;
   large_hi = 0;
   for (size_t i = 0; i < nlarge; i++) {
@@ -287,30 +348,129 @@ static void sweep(void) {
     if (end > large_hi) large_hi = end;
   }
   nlarge = j;
-  gc_threshold = 2 * live > GC_MIN ? 2 * live : GC_MIN;
+  gc_threshold = 2 * live > gc_min && !gcstress ? 2 * live : gc_min;
 }
 
-static void fk_gc(void) {
+/* The cycle's first pause: the snapshot of the stack and the roots. */
+static void gc_start(void) {
   jmp_buf regs;
   setjmp(regs); /* spill callee-saved registers into this frame */
   __asm__ volatile("" : : "r"(&regs) : "memory");
   double t0 = gcstats ? now_ms() : 0;
   clear_unswept_marks();
-  live_bytes = 0;
+  live_bytes = black_bytes = 0;
+  fk_marking = 1;
+  cycle_start_threshold = gc_threshold;
   scan_stack();
   for (size_t i = 0; i < nroots; i++) scan_range(*roots[i].base, *roots[i].base + *roots[i].count);
-  double t1 = gcstats ? now_ms() : 0;
-  drain();
-  double t2 = gcstats ? now_ms() : 0;
+  if (gcstats) {
+    cycle_start = now_ms() - t0;
+    cycle_steps = 0;
+    cycle_step_max = cycle_mark = 0;
+    pause_done(cycle_start, &start_max);
+  }
+}
+
+/* FUNK_GCSTRESS: every object reachable now must be marked. The check
+   marks what it visits 2, which the sweep reads as marked. */
+static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
+  uint8_t *m;
+  size_t words;
+  V *o = FK_ISPTR(w) ? find_obj(w, &m, &words) : NULL;
+  if (!o || *m == 2) return;
+  if (!*m) {
+    fprintf(stderr, "funk: gc check: reachable object %p (kind %d) is unmarked at the end of a cycle\n", (void *)o, ((FkHdr *)o)->kind);
+    abort();
+  }
+  *m = 2;
+  int k = ((FkHdr *)o)->kind;
+  if (k == K_FLOAT || k == K_STR || k == K_INT64 || k == K_PTR) return;
+  if (*n + 2 > *cap) *stack = rt_realloc(*stack, (*cap = *cap ? 2 * *cap : 4096) * sizeof **stack);
+  (*stack)[(*n)++] = o;
+  (*stack)[(*n)++] = (V *)(uintptr_t)words;
+}
+
+static __attribute__((noinline)) void verify_marks(void) {
+  jmp_buf regs;
+  setjmp(regs);
+  __asm__ volatile("" : : "r"(&regs) : "memory");
+  static V **st;
+  static size_t cap;
+  size_t n = 0;
+  for (V *p = (V *)__builtin_frame_address(0); p < (V *)fk_stack_base; p++) verify_word(*p, &st, &n, &cap);
+  for (size_t i = 0; i < nroots; i++)
+    for (V *p = *roots[i].base; p < *roots[i].base + *roots[i].count; p++) verify_word(*p, &st, &n, &cap);
+  while (n) {
+    size_t words = (size_t)(uintptr_t)st[--n];
+    V *o = st[--n];
+    for (V *p = o + 1; p < o + words; p++) verify_word(*p, &st, &n, &cap);
+  }
+}
+
+/* The last pause: unswept lists for every chunk, and large objects swept. */
+static void gc_finish(bool was_forced) {
+  double t0 = gcstats ? now_ms() : 0;
+  if (gcstress) verify_marks();
   sweep();
   alloc_since_gc = 0;
+  forced += was_forced;
   if (gcstats) {
-    double t3 = now_ms(), pause = t3 - t0;
+    double t = now_ms() - t0;
+    pause_done(t, &finish_max);
     gc_count++;
-    pause_total += pause;
-    if (pause > pause_max) pause_max = pause;
-    fprintf(stderr, "gc %zu: pause %.2f ms (roots %.2f, mark %.2f, finish %.2f), live %.1f MiB, heap %zu MiB\n", gc_count, pause, t1 - t0, t2 - t1,
-            t3 - t2, (double)live_bytes / (1 << 20), nchunks * (CHUNK_SIZE >> 20));
+    fprintf(stderr, "gc %zu: start %.2f ms, %zu steps (max %.2f ms), finish %.2f ms, mark %.2f ms in all%s, live %.1f MiB, heap %zu MiB\n", gc_count,
+            cycle_start, cycle_steps, cycle_step_max, t, cycle_mark, was_forced ? ", forced" : "", (double)(live_bytes - black_bytes) / (1 << 20),
+            nchunks * (CHUNK_SIZE >> 20));
+  }
+}
+
+/* A step of marking, or the cycle's end when marking is done. If the cycle
+   has allocated a whole threshold more, marking cannot keep up: it
+   finishes in one pause. */
+static void gc_step(void) {
+  bool force = !gcstress && alloc_since_gc > 2 * cycle_start_threshold;
+  double t0 = gcstats ? now_ms() : 0;
+  bool done = drain(force ? INFINITY : STEP_MS);
+  if (gcstats) {
+    double t = now_ms() - t0;
+    cycle_steps++;
+    cycle_mark += t;
+    if (t > cycle_step_max) cycle_step_max = t;
+    pause_done(t, &step_max);
+  }
+  if (done) gc_finish(force);
+}
+
+/* Before a cycle marks, sweeping finishes, in steps like marking's: a
+   chunk unswept while marking could not be swept until the next cycle, so
+   allocation would take fresh chunks and the heap would grow each cycle. */
+static bool sweep_step(void) {
+  double t0 = now_ms(), end = t0 + STEP_MS - 0.15; /* a chunk takes up to about 0.15 ms */
+  bool done = true;
+  for (size_t w = 0; w <= MAX_SMALL && done; w++)
+    while (unswept[w]) {
+      Chunk *c = chunk_at(unswept[w] - 1);
+      unswept[w] = c->next_unswept;
+      sweep_chunk(c);
+      lazy_chunks++;
+      if (now_ms() > end) {
+        done = false;
+        break;
+      }
+    }
+  for (size_t w = 0; w <= MAX_SMALL; w++) done &= !unswept[w];
+  if (gcstats) pause_done(now_ms() - t0, &sweep_step_max);
+  return done;
+}
+
+static void gc_due(void) {
+  if (fk_marking) gc_step();
+  else if (sweep_step()) gc_start();
+  if (fk_marking) {
+    gc_threshold = 0;
+    next_step = alloc_since_gc + step_bytes;
+  } else if (alloc_since_gc >= gc_threshold) {
+    gc_threshold = alloc_since_gc + step_bytes; /* the next sweep step */
   }
 }
 
@@ -331,11 +491,11 @@ static V alloc_large(size_t words) {
 
 static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uint32_t aux) {
   V *o;
-  if (alloc_since_gc > gc_threshold) fk_gc();
+  if (fk_marking ? alloc_since_gc > next_step : alloc_since_gc > gc_threshold) gc_due();
   if (words > MAX_SMALL) {
     o = (V *)alloc_large(words);
   } else {
-    if (!freelist[words] && unswept[words]) sweep_lazily(words);
+    if (!freelist[words] && unswept[words] && !fk_marking) sweep_lazily(words); /* marks are partial while marking */
     if ((o = freelist[words])) {
       freelist[words] = (V *)o[1];
       o[1] = 0;
@@ -349,6 +509,7 @@ static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uin
   h->kind = (uint8_t)kind;
   h->n = (uint16_t)n;
   h->aux = aux;
+  if (fk_marking) alloc_black(o);
   return (V)o;
 }
 
@@ -470,11 +631,16 @@ V fk_thunk(FkCode code, int nfree, void *info) {
 }
 
 /* Captures are cleared after forcing so the GC can reclaim them. */
+static __attribute__((noinline)) void shade_free(V t) {
+  for (int i = 0; i < FK_HDR(t)->n; i++) fk_shade(FK_FREE(t, i));
+}
+
 V fk_force(V t) {
   if (FK_W(t)[1]) {
     V v = FK_CODE(t)(t, NULL);
     FK_W(t)[1] = 0;
     FK_W(t)[2] = v;
+    if (fk_marking) shade_free(t); /* v may hold them */
     memset(&FK_FREE(t, 0), 0, FK_HDR(t)->n * sizeof(V));
   }
   return FK_W(t)[2];
@@ -949,39 +1115,10 @@ V fk_p_mallocbytes(V self, V *a) {
 V fk_p_free(V self, V *a) { free(FK_PTRV(a[0])); return fk_unit; }
 
 /* peek and poke: the width in bytes, negative for an unsigned integer. */
-V fk_p_peeki(V self, V *a) {
-  void *p = FK_PTRV(a[1]);
-  switch (FK_INT(a[0])) {
-  case 1: return FK_MKINT(*(int8_t *)p);
-  case -1: return FK_MKINT(*(uint8_t *)p);
-  case 2: return FK_MKINT(*(int16_t *)p);
-  case -2: return FK_MKINT(*(uint16_t *)p);
-  case 4: return FK_MKINT(*(int32_t *)p);
-  case -4: return FK_MKINT(*(uint32_t *)p);
-  default: return FK_MKINT(*(int64_t *)p);
-  }
-}
-V fk_p_pokei(V self, V *a) {
-  void *p = FK_PTRV(a[1]);
-  int64_t x = FK_INT(a[2]);
-  switch (FK_INT(a[0])) {
-  case 1: case -1: *(uint8_t *)p = (uint8_t)x; break;
-  case 2: case -2: *(uint16_t *)p = (uint16_t)x; break;
-  case 4: case -4: *(uint32_t *)p = (uint32_t)x; break;
-  default: *(int64_t *)p = x;
-  }
-  return fk_unit;
-}
-V fk_p_peekf(V self, V *a) {
-  void *p = FK_PTRV(a[1]);
-  return fk_float(FK_INT(a[0]) == 4 ? *(float *)p : *(double *)p);
-}
-V fk_p_pokef(V self, V *a) {
-  void *p = FK_PTRV(a[1]);
-  if (FK_INT(a[0]) == 4) *(float *)p = (float)FK_FLOATV(a[2]);
-  else *(double *)p = FK_FLOATV(a[2]);
-  return fk_unit;
-}
+V fk_p_peeki(V self, V *a) { return FK_MKINT(fk_s_peeki(FK_INT(a[0]), FK_PTRV(a[1]))); }
+V fk_p_pokei(V self, V *a) { return fk_s_pokei(FK_INT(a[0]), FK_PTRV(a[1]), FK_INT(a[2])); }
+V fk_p_peekf(V self, V *a) { return fk_float(fk_s_peekf(FK_INT(a[0]), FK_PTRV(a[1]))); }
+V fk_p_pokef(V self, V *a) { return fk_s_pokef(FK_INT(a[0]), FK_PTRV(a[1]), FK_FLOATV(a[2])); }
 V fk_p_peekp(V self, V *a) { return fk_ptr(*(void **)FK_PTRV(a[0])); }
 V fk_p_pokep(V self, V *a) { *(void **)FK_PTRV(a[0]) = FK_PTRV(a[1]); return fk_unit; }
 V fk_p_peekcstring(V self, V *a) { return fk_cstr_result(FK_PTRV(a[0]), "peekCString"); }
@@ -1045,55 +1182,99 @@ _Noreturn void fk_cb_rethrow(void) {
   exit(1);
 }
 
-/* Queued callbacks: a trampoline on any thread copies its arguments into
-   an event, and waitEvent runs the event's closure on funk's thread. */
-static pthread_mutex_t ev_lock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t ev_cond = PTHREAD_COND_INITIALIZER;
-static FkEvent *ev_head, *ev_tail;
+/* Queued callbacks (realtime.md, R3): a trampoline on any thread claims a
+   slot in a fixed ring, writes its arguments into it and publishes it; no
+   malloc, no lock. The ring is Vyukov's bounded queue: a slot's sequence
+   number says whose turn it is. A full ring drops the event and counts it.
+   waitEvent runs the next event's closure on funk's thread. */
+#define RING_SLOTS 4096
+static FkEvent ring[RING_SLOTS];
+static _Atomic size_t ring_head; /* the next slot to claim */
+static size_t ring_tail;         /* the next slot to run: funk's thread only */
+static _Atomic size_t ring_dropped;
+#ifdef __APPLE__
+static dispatch_semaphore_t ring_sem; /* one count per published event */
+#define SEM_POST() dispatch_semaphore_signal(ring_sem)
+#define SEM_WAIT() dispatch_semaphore_wait(ring_sem, DISPATCH_TIME_FOREVER)
+#define SEM_TRY() (dispatch_semaphore_wait(ring_sem, DISPATCH_TIME_NOW) == 0)
+#else
+static sem_t ring_sem;
+#define SEM_POST() sem_post(&ring_sem)
+#define SEM_WAIT() while (sem_wait(&ring_sem) != 0)
+#define SEM_TRY() (sem_trywait(&ring_sem) == 0)
+#endif
 
-void fk_event_push(FkEvent *e) {
-  e->next = NULL;
-  pthread_mutex_lock(&ev_lock);
-  if (ev_tail) ev_tail->next = e;
-  else ev_head = e;
-  ev_tail = e;
-  pthread_cond_signal(&ev_cond);
-  pthread_mutex_unlock(&ev_lock);
+static void ring_init(void) {
+  for (size_t i = 0; i < RING_SLOTS; i++) atomic_init(&ring[i].seq, i);
+#ifdef __APPLE__
+  ring_sem = dispatch_semaphore_create(0);
+#else
+  sem_init(&ring_sem, 0, 0);
+#endif
 }
 
-static FkEvent *event_pop(bool wait) {
-  pthread_mutex_lock(&ev_lock);
-  while (wait && !ev_head) pthread_cond_wait(&ev_cond, &ev_lock);
-  FkEvent *e = ev_head;
-  if (e && !(ev_head = e->next)) ev_tail = NULL;
-  pthread_mutex_unlock(&ev_lock);
-  return e;
+FkEvent *fk_event_claim(void) {
+  size_t pos = atomic_load_explicit(&ring_head, memory_order_relaxed);
+  for (;;) {
+    FkEvent *e = &ring[pos % RING_SLOTS];
+    size_t seq = atomic_load_explicit(&e->seq, memory_order_acquire);
+    intptr_t dif = (intptr_t)seq - (intptr_t)pos;
+    if (dif == 0) {
+      if (atomic_compare_exchange_weak_explicit(&ring_head, &pos, pos + 1, memory_order_relaxed, memory_order_relaxed)) return e;
+    } else if (dif < 0) { /* the slot is a lap behind: the ring is full */
+      atomic_fetch_add_explicit(&ring_dropped, 1, memory_order_relaxed);
+      return NULL;
+    } else {
+      pos = atomic_load_explicit(&ring_head, memory_order_relaxed);
+    }
+  }
+}
+
+void fk_event_publish(FkEvent *e) {
+  atomic_store_explicit(&e->seq, atomic_load_explicit(&e->seq, memory_order_relaxed) + 1, memory_order_release);
+  SEM_POST();
+}
+
+void fk_event_release(FkEvent *e) { /* the slot is free once its arguments are read */
+  atomic_store_explicit(&e->seq, ring_tail + RING_SLOTS, memory_order_release);
+  ring_tail++;
+}
+
+void *fk_event_copy(FkEvent *e, size_t *used, const void *p, size_t n) {
+  if (!p) return NULL;
+  void *d = *used + n <= FK_EVENT_DATA ? e->data + *used : malloc(n ? n : 1); /* malloc only if the bytes do not fit */
+  if (!d) return NULL;
+  if (d == e->data + *used) *used += n;
+  if (n) memcpy(d, p, n);
+  return d;
+}
+
+void fk_event_uncopy(FkEvent *e, void *p) {
+  if (p && ((unsigned char *)p < e->data || (unsigned char *)p >= e->data + FK_EVENT_DATA)) free(p);
+}
+
+/* The next event, once its producer has published it: a producer that
+   claimed an earlier slot may still be writing, for a few instructions. */
+static void run_next(void) {
+  FkEvent *e = &ring[ring_tail % RING_SLOTS];
+  while (atomic_load_explicit(&e->seq, memory_order_acquire) != ring_tail + 1) sched_yield();
+  if (e->run) e->run(e); /* run releases the slot before calling funk */
+  else fk_event_release(e); /* its bytes could not be copied: dropped */
 }
 
 V fk_p_waitevent(V self, V *a) {
-  FkEvent *e = event_pop(true);
-  e->run(e);
+  SEM_WAIT();
+  run_next();
   return fk_unit;
 }
 
 V fk_p_pollevent(V self, V *a) {
-  FkEvent *e = event_pop(false);
-  if (e) e->run(e);
-  return FK_BOOL(e != NULL);
+  if (!SEM_TRY()) return fk_false;
+  run_next();
+  return fk_true;
 }
 
-_Noreturn void fk_callback_oom(const char *name) {
-  fprintf(stderr, "funk: out of memory in callback `%s`\n", name);
-  abort();
-}
-
-char *fk_memdup(const void *p, size_t n) {
-  char *d = malloc(n + 1);
-  if (!d) fk_callback_oom("a queued callback");
-  if (n) memcpy(d, p, n);
-  d[n] = 0;
-  return d;
-}
+V fk_p_droppedevents(V self, V *a) { return FK_MKINT((int64_t)atomic_load(&ring_dropped)); }
 
 /* show for a String, and for a [Char], which shows as one: quoted, escaped. */
 V fk_p_showstr(V self, V *a) { return fk_p_show(self, a); }
@@ -1290,8 +1471,14 @@ V fk_prim_value(int i) {
 void fk_init(void) {
   static const char *tuples[] = {"(,)", "(,,)", "(,,,)", "(,,,,)", "(,,,,,)", "(,,,,,,)"};
   if (fk_ncons) return;
+  ring_init();
   const char *s = getenv("FUNK_GCSTATS");
   if ((gcstats = s && *s && strcmp(s, "0") != 0)) atexit(gc_summary);
+  s = getenv("FUNK_GCSTRESS");
+  if ((gcstress = s && *s && strcmp(s, "0") != 0)) {
+    gc_min = gc_threshold = (size_t)64 << 10;
+    step_bytes = (size_t)16 << 10;
+  }
   fk_register_con("False", 0);
   fk_register_con("True", 0);
   fk_register_con("()", 0);

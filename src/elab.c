@@ -453,6 +453,17 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
     Expr *lit = mk(E_INT, e->line, e->col);
     lit->ival = e->ival;
     lit->ty = tcon_new(intern("Int"), 0, NULL);
+    InstDef *in = t->k == TY_CON ? find_inst(num_class, t->name) : NULL;
+    int m = in && !in->arity ? global_lookup(intern(xsprintf("$m.Num.%s.fromInt", t->name))) : -1;
+    if (m >= 0) { /* a known instance: its fromInt directly, without a dictionary */
+      Expr **a = xmalloc(sizeof *a);
+      a[0] = lit;
+      *e = *app(var(globals.a[m].name, e->line, e->col), 1, a);
+      e->ty = t;
+      e->fn->idx = m;
+      e->fn->known = globals.a[m].lam;
+      return;
+    }
     Expr **a = xmalloc(2 * sizeof *a);
     a[0] = dict_for(num_class, t, env, e->line, e->col);
     a[1] = lit;

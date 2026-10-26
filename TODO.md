@@ -22,7 +22,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Medium
 
-- [ ] **Real time**: collector pauses of about 10 ms per million live cells, plus the stack, against deadlines of 1-17 ms. Pause statistics (R0) and lazy sweeping (R1) are done; next in [docs/dev/realtime.md](docs/dev/realtime.md): incremental marking (R2), a lock-free event ring (R3), and allocation-free exports for audio threads (R4).
+- [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): R0-R4 are done. A cycle's start pause still scans the whole stack, 29 us per 1,000 frames. Exports may still end the program on division by zero or a match failure, and run on the caller's stack without a check.
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 

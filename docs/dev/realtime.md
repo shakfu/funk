@@ -1,6 +1,6 @@
 # Real time: design note
 
-Status: R0 and R1 implemented, 2026-10-26 (see "Implementation"); R2-R4 are proposals. It bounds the collector's pauses for any real-time use: audio, MIDI, games and control loops, not MIDI only. It replaces "Pauses" in [ffi.md](ffi.md#pauses).
+Status: R0-R4 implemented, 2026-10-26; see the "Implementation" sections. Open: the stack term of R2's start pause, and generational collection (E) for throughput. It bounds the collector's pauses for any real-time use: audio, MIDI, games and control loops, not MIDI only. It replaces "Pauses" in [ffi.md](ffi.md#pauses).
 
 ## Requirements
 
@@ -92,7 +92,7 @@ R1 and R2 change only the runtime and four code-generation sites. R4 adds a chec
   gc: 2 collections, pause max 8.68 ms, mean 7.46 ms, total 14.93 ms; lazy sweep 248 chunks, max 0.087 ms, total 8.69 ms
   ```
 
-  Times come from `clock_gettime` around each phase, read only when the variable is set. "Finish" is the large-object sweep and the rebuilding of the unswept lists.
+  Times come from `clock_gettime` around each phase, read only when the variable is set. "Finish" is the large-object sweep and the rebuilding of the unswept lists. R2 changed the format; see "Implementation: R2".
 - **R1.** As proposed in A, with three details:
   - A chunk left unswept when the next collection starts would keep its old marks, which read as already marked and would hide live objects. Its mark bytes are cleared instead, one `memset` of a byte per object; the new collection then frees what died since. Sweeping it would put its cost back in the pause.
   - The live size, which sets the next threshold, is counted while marking.
@@ -114,9 +114,75 @@ Throughput: the same emitted C, with lazy sweeping and with every chunk swept ea
 
 Tests: `tests/run/gc.fk` collects several times while a 200,000-cell list stays live, in both backends, and `tests/run.sh` checks the format of `FUNK_GCSTATS`'s output.
 
+## Implementation: R2
+
+As proposed in B, with these details:
+
+- **A cycle.** The start pause clears the marks of chunks still unswept and scans the stack and the roots, pushing what they reach. Steps then mark for at most 0.4 ms each, one per MiB of allocation; a step that empties the mark stack ends the cycle with the large-object sweep. While a cycle marks, every allocation takes the out-of-line path, which counts toward the next step and marks the new object; the inline path keeps no extra test.
+- **Sweeping finishes before marking starts,** in steps of the same budget. A chunk unswept while marking cannot be swept until the cycle ends, since its marks are partial, so allocation took fresh chunks instead, and the heap grew by about 22 MiB a cycle without bound (`churn` at 1,000,000 cells: 160, 207, 231, 253, 276, 298 MiB). With sweeping finished first, every free object is on a free list when marking starts; the heap settles (217 MiB, 17 cycles).
+- **The threshold** for the next cycle counts what marking found reachable, not the objects allocated during the cycle, which are mostly garbage by its end.
+- **Barriers, three sites.** Snapshot at the beginning needs a write to shade the value it overwrites when that value could be the only path to an object a new, already marked object holds:
+  - forcing a thunk clears its free variables, which its value may hold (`fk_force`);
+  - a reused cell's head is overwritten (cgen);
+  - `*dst` in a reuse copy may overwrite a reused cell's old tail (cgen). Other functions write `*dst` only over the placeholder, and cgen leaves the barrier out of them.
+
+  `split`'s tails and closure filling write into new objects only, and the globals and the `StablePtr` table are roots scanned at the start.
+- **Forced finish.** If a cycle has allocated twice its starting threshold, marking cannot keep up, and the step marks to the end in one pause. `FUNK_GCSTATS` counts these; none happened in the measurements below.
+- **`FUNK_GCSTATS` output:**
+
+  ```text
+  gc 2: start 0.00 ms, 40 steps (max 0.42 ms), finish 0.02 ms, mark 16.21 ms in all, live 12.4 MiB, heap 200 MiB
+  gc: 2 cycles, pause max 0.42 ms (start 0.02, mark step 0.42, finish 0.02, sweep step 0.25), total 23.15 ms, 0 forced; lazy sweep 204 chunks, ...
+  ```
+
+Pauses, the longest of each run:
+
+| Program | n | R1 | R2 | Heap, R1 / R2 |
+|-|-|-|-|-|
+| `churn` | 100,000 cells | 0.98 ms | 0.40 ms | 138 / 147 MiB |
+| `churn` | 1,000,000 cells | 9.8 ms | 0.40 ms | 160 / 214 MiB |
+| `churn` | 4,000,000 cells | 37.5 ms | 0.40 ms | 289 / 491 MiB |
+| `deep` | 1,000 frames | 0.09 ms | 0.06 ms | |
+| `deep` | 100,000 frames | | 2.9 ms | |
+| `deep` | 1,000,000 frames | 23.0 ms | 28.9 ms | |
+
+The pause no longer depends on the heap; the stack remains, at about 29 us per 1,000 frames, now that the start pause also pushes what it finds. The heap is up to 70% larger: objects allocated during a cycle live until the next one, and the cycle's allocation comes on top of the threshold.
+
+Throughput, compiled, 21 interleaved runs, minimum: against the same emitted C with barriers, the allocation test and the thunk loop removed and each cycle marked in one pause (close to R1), R2 measured -0.2% (`bst`) to +7.9% (`lists`): `trees` +1.8%, `sort` +3.7%, `wordfreq` +1.9%, `records` +3.0%. The largest figures are not the collector's work. Removing the thunk barrier's line alone took `lists` from 58.6 to 54.8 ms, but `lists` forces 80 thunks in all, so that line costs a few nanoseconds; the difference is code placement. The benchmark suite's run of 15:03 was taken under a load average of 4-5 (`usernoted` at 80% CPU); `bst` read 0.620 s there, and 0.303 s on a rerun, against 0.285 s before R1.
+
+Tests:
+- **`FUNK_GCSTRESS=1`** starts a cycle 64 KiB after the last one ends, marks 4,096 objects a step, never finishes a cycle early, and at each cycle's end re-traces everything reachable and stops the program if any of it is unmarked. Short, frequent cycles start inside the windows where a missing barrier loses an object; long, constant marking did not, since nearly every object was then allocated already marked.
+- **`tests/run/gcbarrier.fk`** exercises the three sites. With the thunk barrier removed, the check stopped it in 3 runs of 3 and its output was wrong; likewise with the head barrier removed. With the `*dst` barrier removed it still passed: today's reuse copies overwrite only tails whose contents are garbage (`filter`'s dropped cells, `take`'s rest), so the barrier guards a shape no current function produces. It costs one test per cell in reuse copies only.
+- **The check itself** was tested by marking one constructor in seven without tracing it: it stopped the program at the first cycle's end.
+- `tests/run.sh` runs `gc.fk` and `gcbarrier.fk` under `FUNK_GCSTRESS=1` in both backends. Every run test and example also passed under it, by hand.
+
+## Implementation: R3
+
+The queued-callback queue is a ring of 4096 slots of 128 bytes, a bounded queue in Vyukov's scheme: each slot's sequence number says whether it is free, being written or ready. A trampoline claims a slot with one compare-and-swap on the head, writes its arguments into the slot, and publishes it with a release store; no `malloc`, no lock. The 104 bytes after the slot header hold the arguments as a struct and then the bytes of `CStringLen` and `String` arguments; bytes that do not fit fall back to `malloc`, and if that fails the event is dropped. A full ring drops the event and counts it; `droppedEvents ()` returns the count.
+
+`waitEvent` blocks on a semaphore that each publish signals: `dispatch_semaphore` on macOS, POSIX `sem_t` on Linux. Signalling without a waiter is an atomic increment on both, as far as their documentation states; with a waiter it is a system call. funk's thread frees a slot before it calls the closure, so a closure may itself call `waitEvent`. A producer that claimed an earlier slot may still be writing when a later one is published; the consumer yields until the earlier slot is ready.
+
+Not measured: the time a trampoline takes. Tests: `tests/ffi/ring.fk` sends 5000 messages before funk reads any, and receives 4096, with 904 counted as dropped; and two 300-byte messages, which take the `malloc` path, with their contents checked. `callback.fk` and the libremidi example run unchanged.
+
+## Implementation: R4
+
+```haskell
+foreign export ccall "fk_process" process :: Ptr () -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "fkt.h &fk_process" processPtr :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ())
+```
+
+- **Exports.** `foreign export ccall "cname" name :: type`, Haskell's syntax, makes `cname` a C function that calls `name`'s typed worker. The type must be `name`'s, and made of C scalars, pointers and `()`. A value import of `&cname`, a C expression, gives its address as a `FunPtr`; the export's prototype precedes the glue. Exports need compiled code: the interpreter boxes every value, so `funk run` reports an export as an error.
+- **The allocation check** runs after elaboration, on the export's function and every function it calls (`cgen_alloc_free`). It accepts literals; variables of scalar, pointer and `()` types; primitives that compile to C operators; C imports without `String`; full-arity calls to functions whose parameters and result are such types; `if`; `case` on scalars and `Bool`; and strict local values. It rejects constructors, closures, strings, lazy and recursive local bindings, unknown and partial calls, and other primitives, naming the expression and its line. Fusion and lambda lifting run first, so `sum (enumFromTo 1 n)`, a fused loop, and a lifted local function are accepted.
+- **Pointers are C addresses in typed code.** `Ptr`, `FunPtr` and `StablePtr` have a representation of their own, `void *`, boxed only where they meet untyped code, like `Int`. `castPtr`, `plusPtr`, pointer equality and `peek` and `poke` at scalar types compile to C: `peek` on a `Ptr CFloat` was a call that boxed a `Float`. C imports with pointer arguments are now called directly.
+- **Literals at a known `Num` instance** call the instance's `fromInt` directly: `0 :: CInt` passed the `Num CInt` dictionary before, a heap value, which the check rejected.
+- **Errors.** A runtime error on a foreign thread aborts the program: funk's error handlers are on its own stack. Division by zero and pattern-match failure can therefore end the program from an export; the check does not exclude them.
+- **Not checked:** stack depth. An export runs on the caller's stack, which may be small, and generated code has no stack check.
+
+The test, `tests/ffi/export.fk`, exports `process`, which fills a host's buffer from a counter kept in C memory. The test library calls it from its own thread, 2000 blocks of 64 samples, while funk's thread allocates and collects; the samples' sum, 3,168,000, and the counter, 128,000, are checked, also under `FUNK_GCSTRESS`. In the generated C, the 13 workers reachable from `fk_process` call none of the allocating functions (`fk_alloc`, `fk_mkcon`, `fk_float`, `fk_ptr`, `FK_MKINT`, `fk_closure`, `fk_thunk`, `fk_apply`, `fk_str`, primitive wrappers). Five error tests cover a list, `show`, a `String` argument, a C name and the interpreter.
+
 ## Questions
 
-1. **Is R4's restriction acceptable?** Real-time audio code in funk would be a first-order, allocation-free subset: loops over `Ptr CFloat` buffers, with state in C memory. Real-time audio code in C avoids allocation, locks and I/O in the callback for the same reason ([Bencina, "Real-time audio programming 101"](http://www.rossbencina.com/code/real-time-audio-programming-101-time-waits-for-nothing)), but it is not idiomatic funk. The alternative, a region per callback, freed when the callback returns, would allow allocation inside a callback, but needs a check that nothing allocated there escapes.
+1. **Is R4's restriction acceptable?** *(Built as proposed.)* Real-time audio code in funk would be a first-order, allocation-free subset: loops over `Ptr CFloat` buffers, with state in C memory. Real-time audio code in C avoids allocation, locks and I/O in the callback for the same reason ([Bencina, "Real-time audio programming 101"](http://www.rossbencina.com/code/real-time-audio-programming-101-time-waits-for-nothing)), but it is not idiomatic funk. The alternative, a region per callback, freed when the callback returns, would allow allocation inside a callback, but needs a check that nothing allocated there escapes.
 2. **What pause target?** 0.5 ms plus the stack term covers MIDI, games and 1 kHz control loops. Audio relies on R4 either way.
 3. **Order:** R0 and R1 are independent and small; R2 builds on R1. R3 and R4 are independent of the collector. Proposed: R0, R1, R2, then R3 and R4.
 

@@ -2365,6 +2365,7 @@ static void check_callback(ForeignDecl *f, Type *t) {
 static void register_foreigns(Module *m) {
   for (int i = 0; i < m->nforeign; i++) {
     ForeignDecl *f = m->foreigns[i];
+    if (f->exported) continue; /* check_exports, once the function's type is known */
     int prev = map_get(&gmap, f->name);
     if (prev >= 0 && prev < nprelude)
       cerror(f->line, f->col, "`%s` is defined in the prelude and cannot be redefined; choose another name", f->name);
@@ -2404,6 +2405,45 @@ static void register_foreigns(Module *m) {
     f->gidx = globals.n;
     add_global(f->name, t, NULL);
     globals.a[f->gidx].ffi = f;
+  }
+}
+
+/* foreign export ccall "cname" name :: type (realtime.md, R4): name is a
+   function of this chunk with that type, whose arguments and result are C
+   types. Its compiled code is checked allocation-free after resolve. */
+static void check_export_types(Module *m, int ng0) {
+  for (int i = 0; i < m->nforeign; i++) {
+    ForeignDecl *f = m->foreigns[i];
+    if (!f->exported) continue;
+    if (!is_c_name(f->cname)) cerror(f->line, f->col, "foreign export `%s`: `%s` is not a C function name", f->name, f->cname);
+    int g = map_get(&gmap, f->name);
+    if (g < ng0 || !globals.a[g].bind || globals.a[g].bind->e->k != E_LAM)
+      cerror(f->line, f->col, "foreign export `%s`: export a function defined in this program", f->name);
+    Type *t = sig_scheme(f->sig), *a = repr(t);
+    int n = 0;
+    for (; a->k == TY_CON && a->name == s_arrow; a = repr(a->args[1]), n++) {
+      int k = ffi_kind(a->args[0]);
+      if (!k || k == 's' || k == 'L' || (k == 'v' && (n || repr(repr(a->args[1]))->name == s_arrow)))
+        cerror(f->line, f->col, "foreign export `%s`: an argument of type `%s` is not a C scalar or pointer", f->name, type_str(a->args[0]));
+    }
+    int k = ffi_kind(a);
+    if (!n) cerror(f->line, f->col, "foreign export `%s` must be a function", f->name);
+    if (!k || k == 's' || k == 'L') cerror(f->line, f->col, "foreign export `%s`: a result of type `%s` is not a C scalar or pointer", f->name, type_str(a));
+    unify(t, inst(globals.a[g].type, false), f->line, f->col);
+    f->xtype = t;
+    f->gidx = g;
+    f->arity = n;
+  }
+}
+
+static void check_export_code(Module *m) {
+  for (int i = 0; i < m->nforeign; i++) {
+    ForeignDecl *f = m->foreigns[i];
+    if (!f->exported) continue;
+    const char *why = cgen_alloc_free(globals.a[f->gidx].lam);
+    if (why)
+      cerror(f->line, f->col, "foreign export `%s` may allocate, which code called from a foreign thread must not: %s", f->name, why);
+    VPUSH(ffi_exports, f);
   }
 }
 
@@ -2466,6 +2506,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   Group *gs = scc(m->binds, m->nb, &ng);
   for (int i = 0; i < ng; i++) infer_group(&gs[i], NULL, true);
   default_classes();
+  check_export_types(m, ng0);
   /* Evaluate `main` last, unless another binding uses it. */
   for (int i = 0; i < ng; i++) {
     if (gs[i].n != 1 || strcmp(gs[i].b[0]->name, "main") != 0) continue;
@@ -2508,6 +2549,7 @@ bool compile_chunk(Module *m, Chunk *out) {
     if (b->e->k == E_LAM) globals.a[b->gidx].lam = b->e->lam;
     resolve_top(b);
   }
+  check_export_code(m);
   warn_line = warn_col = 0;
   for (int i = 0; i < m->nb; i++) cover_expr(m->binds[i]->e, m->binds[i]->name);
   if (!strcmp(cur_file, "<prelude>")) {

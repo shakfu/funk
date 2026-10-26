@@ -61,7 +61,7 @@ Released 2026-10-26; see [CHANGELOG.md](../../CHANGELOG.md).
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
-- A foreign function interface ([ffi.md](ffi.md)): libm (phase 1), sqlite3 (phase 2) and libremidi (phase 3), done; real-time collector pauses remain ([realtime.md](realtime.md)).
+- A foreign function interface ([ffi.md](ffi.md)): libm (phase 1), sqlite3 (phase 2) and libremidi (phase 3), done; real time: bounded pauses, a lock-free event ring and allocation-free exports ([realtime.md](realtime.md)).
 - Haskell compatibility: what stops Haskell source from running, and what would close it ([haskell-compat.md](haskell-compat.md)).
 
 - Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.

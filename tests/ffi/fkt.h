@@ -24,10 +24,16 @@ typedef struct fkt_config {
     } on_message;
   };
   int count;
+  int length; /* bytes per message: byte j is (i + j) % 256; 0 means a 3-byte note-on */
 } fkt_config;
 #define FKT_V1 2
 int fkt_start(const fkt_config *cfg); /* 0 on success */
 void fkt_join(void);
+
+/* An audio host: a thread that calls cb(ctx, buf, frames) blocks times
+   with a buffer of frames floats, and sums every sample written. */
+int fkt_audio_start(void (*cb)(void *ctx, float *buf, int frames), void *ctx, int frames, int blocks);
+double fkt_audio_join(void);
 
 /* Calls cb from another thread: wrong for a direct callback. */
 void fkt_other_thread(void *ctx, void (*cb)(void *ctx, int i));

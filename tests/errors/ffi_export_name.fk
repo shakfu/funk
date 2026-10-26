@@ -1,0 +1,5 @@
+-- expect: foreign export `f`: `not a name` is not a C function name
+foreign export ccall "not a name" f :: CInt -> CInt
+f :: CInt -> CInt
+f n = n
+main = print (f 1)

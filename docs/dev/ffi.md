@@ -97,7 +97,7 @@ A callback on the funk thread, such as a port listing, can call funk directly. A
 
 ### Pauses
 
-Superseded by [realtime.md](realtime.md), which measures pauses and proposes a design for all real-time uses. The text below is the first statement of the problem.
+Superseded by [realtime.md](realtime.md), which bounds pauses, replaces the queue's `malloc` and mutex with a lock-free ring, and adds allocation-free exports for audio threads. The text below is the first statement of the problem.
 
 Real-time MIDI cares more about pauses than throughput. The collector stops the program for a whole mark and sweep: 6-15 ms at the benchmark sizes ([memory.md](memory.md#after-workers-and-fusion-2026-10-25)), against MIDI timing of about 1 ms. Queued input does not lose messages, because the trampoline never waits on the collector. Output sent from funk is delayed by any pause. libremidi therefore also needs one of the following, a separate design:
 

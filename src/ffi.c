@@ -15,6 +15,7 @@
 #include "funk.h"
 
 Strs ffi_libs, ffi_cc_args;
+Foreigns ffi_exports;
 
 /* The funk types that pass to C, and how each is held: 'i' as an Int,
    'f' as a Float, 'c' Char, 'b' Bool, 'v' (), 's' String, 'p' Ptr, FunPtr
@@ -102,36 +103,37 @@ static void trampoline(SB *b, ForeignDecl *f, bool exported) {
   for (r = repr(t->args[1]); r->k == TY_CON && !strcmp(r->name, "->"); r = repr(r->args[1]), n++) {
     Type *a = r->args[0];
     int k = ffi_kind(a);
-    const char *x = xsprintf("x%d", n), *v = q ? xsprintf("e->x%d", n) : x;
+    const char *x = xsprintf("x%d", n), *v = q ? xsprintf("d->x%d", n) : x;
     if (k == 'L') sb_printf(&params, ", const char *%s, size_t %sn", x, x);
     else sb_printf(&params, ", %s %s", ffi_param_type(a), x);
     if (k == 'L') sb_printf(&args, "%sfk_str(%s ? %s : \"\", %sn)", n ? ", " : "", v, v, v);
     else if (k == 's') sb_printf(&args, "%sfk_cstr_result(%s, \"%s\")", n ? ", " : "", v, f->name);
     else sb_printf(&args, "%s%s", n ? ", " : "", box(a, v));
     if (!q) continue;
-    if (k == 'L') {
-      sb_printf(&fields, " char *%s; size_t %sn;", x, x);
-      sb_printf(&fill, "  e->%s = fk_memdup(%s, %sn);\n  e->%sn = %sn;\n", x, x, x, x, x);
-    } else if (k == 's') {
-      sb_printf(&fields, " char *%s;", x);
-      sb_printf(&fill, "  e->%s = %s ? fk_memdup(%s, strlen(%s)) : NULL;\n", x, x, x, x);
+    if (k == 'L' || k == 's') { /* bytes go into the slot, or are malloc'd if they do not fit */
+      const char *len = k == 'L' ? xsprintf("%sn", x) : xsprintf("%s ? strlen(%s) + 1 : 0", x, x);
+      sb_printf(&fields, k == 'L' ? " char *%s; size_t %sn;" : " char *%s;", x, x);
+      sb_printf(&fill, "  d->%s = fk_event_copy(e, &used, %s, %s);\n  if (%s && !d->%s) e->run = NULL;\n", x, x, len, x, x);
+      if (k == 'L') sb_printf(&fill, "  d->%sn = %sn;\n", x, x);
+      sb_printf(&frees, "  fk_event_uncopy(e, d->%s);\n", x);
     } else {
       sb_printf(&fields, " %s %s;", ffi_param_type(a), x);
-      sb_printf(&fill, "  e->%s = %s;\n", x, x);
+      sb_printf(&fill, "  d->%s = %s;\n", x, x);
     }
-    if (k == 'L' || k == 's') sb_printf(&frees, "  free(e->%s);\n", x);
   }
   if (!n) sb_puts(&args, "fk_unit");
   int na = n ? n : 1;
   const char *rt = ffi_param_type(r);
-  if (q) {
-    sb_printf(b, "struct fk_ev_%d { FkEvent h;%s };\n", id, fields.s);
-    sb_printf(b, "static void fk_evrun_%d(FkEvent *h) {\n  struct fk_ev_%d *e = (struct fk_ev_%d *)h;\n  V a[%d] = {%s};\n%s"
-                 "  V f = fk_stable_deref(h->ctx);\n  free(e);\n  fk_apply(f, %d, a);\n}\n",
+  if (q) { /* the arguments are a struct at the start of the slot's data */
+    sb_printf(b, "struct fk_ev_%d {%s };\n_Static_assert(sizeof(struct fk_ev_%d) <= FK_EVENT_DATA, \"%s: too many arguments for an event\");\n", id,
+              n ? fields.s : " char unused;", id, f->name);
+    sb_printf(b, "static void fk_evrun_%d(FkEvent *e) {\n  struct fk_ev_%d *d = (struct fk_ev_%d *)e->data;\n  V a[%d] = {%s};\n%s"
+                 "  void *ctx = e->ctx;\n  fk_event_release(e);\n  fk_apply(fk_stable_deref(ctx), %d, a);\n}\n",
               id, id, id, na, args.s, frees.s, na);
-    sb_printf(b, "static void fk_cb_%d(%s) { /* %s */\n  struct fk_ev_%d *e = calloc(1, sizeof *e);\n"
-                 "  if (!e) fk_callback_oom(\"%s\");\n  e->h.run = fk_evrun_%d;\n  e->h.ctx = ctx;\n%s  fk_event_push(&e->h);\n}\n",
-              id, params.s, f->name, id, f->name, id, fill.s);
+    sb_printf(b, "static void fk_cb_%d(%s) { /* %s */\n  FkEvent *e = fk_event_claim();\n  if (!e) return; /* the ring is full: dropped, and counted */\n"
+                 "  struct fk_ev_%d *d = (struct fk_ev_%d *)e->data;\n  size_t used = sizeof *d;\n  (void)used;\n  e->run = fk_evrun_%d;\n  e->ctx = ctx;\n%s"
+                 "  fk_event_publish(e);\n}\n",
+              id, params.s, f->name, id, id, id, fill.s);
   } else {
     int rk = ffi_kind(r);
     const char *ret = rk == 'v' ? "return;" : "return 0;"; /* C gets 0 while a failure is pending */

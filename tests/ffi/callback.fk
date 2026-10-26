@@ -11,6 +11,7 @@ foreign import ccall "fkt.h offsetof(fkt_config, version)" offVersion :: CSize
 foreign import ccall "fkt.h offsetof(fkt_config, on_message.context)" offContext :: CSize
 foreign import ccall "fkt.h offsetof(fkt_config, on_message.callback)" offCallback :: CSize
 foreign import ccall "fkt.h offsetof(fkt_config, count)" offCount :: CSize
+foreign import ccall "fkt.h offsetof(fkt_config, length)" offLength :: CSize
 foreign import ccall "fkt.h FKT_V1" v1 :: CInt
 foreign import ccall "fkt.h fkt_start" start :: Ptr () ->> CInt
 foreign import ccall "fkt.h fkt_join" join :: () ->> ()
@@ -39,6 +40,7 @@ main = do
     pokeByteOff cfg (off offContext) (castStablePtrToPtr sp)
     pokeByteOff cfg (off offCallback) messageCb
     pokeByteOff cfg (off offCount) (3 :: CInt)
+    pokeByteOff cfg (off offLength) (0 :: CInt)
     start cfg)
   print rc
   waitEvent ()

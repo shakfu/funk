@@ -150,6 +150,11 @@ static V run(Lambda *L, V self, V *args) {
 }
 
 void interp_install(Chunk *c) {
+  static int nexports; /* a foreign export is a C function: compiled code only */
+  if (ffi_exports.n > nexports) {
+    nexports = ffi_exports.n;
+    fk_error("foreign export `%s` needs compiled code: use funk build", ffi_exports.a[ffi_exports.n - 1]->name);
+  }
   if ((size_t)globals.n > capgvals) {
     size_t ncap = capgvals ? capgvals : 256;
     while (ncap < (size_t)globals.n) ncap *= 2;

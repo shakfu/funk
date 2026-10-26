@@ -254,6 +254,8 @@ typedef struct {
   int line, col;
   int gidx, arity;
   char cb;     /* "callback" 'c', "queue" 'q': the import is a trampoline */
+  bool exported; /* foreign export: the C function cname runs the funk function name */
+  Type *xtype;   /* an export's declared type */
   bool pure;   /* written with `->` only */
   FkCode code; /* interpreter: the loaded glue's entry */
 } ForeignDecl;
@@ -339,6 +341,8 @@ typedef struct {
 typedef struct { Group *groups; int ng; Bind **raw; int nraw; } Chunk;
 extern Strs ffi_libs;    /* libraries named by `foreign library`, in all chunks so far */
 extern Strs ffi_cc_args; /* -I, -l and -L given to funk run or repl */
+typedef VEC(ForeignDecl *) Foreigns;
+extern Foreigns ffi_exports; /* foreign exports of all chunks so far */
 
 extern VEC(Global) globals;
 extern VEC(ConDef) condefs;
@@ -392,6 +396,7 @@ extern const char fk_rth_src[]; /* rt.h, for the interpreter's foreign glue */
 char *ffi_glue(ForeignDecl **fs, int n, bool exported); /* the C wrappers fk_ffi_GIDX */
 const char *ffi_param_type(Type *t);                    /* NULL if t cannot be passed to C */
 int ffi_kind(Type *t);                                  /* 'i' held as Int, 'f' as Float, 'c', 'b', 'v' (); 0 */
+const char *cgen_alloc_free(Lambda *L);                 /* NULL, or why compiled L may allocate, with where */
 typedef struct { const char *name, *ctype; char kind; int width; } FfiType; /* width: bytes, negative if unsigned */
 extern const FfiType ffi_types[];
 extern const int ffi_ntypes;

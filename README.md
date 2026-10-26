@@ -136,7 +136,9 @@ foreign import ccall "queue" onMidi :: FunPtr (Ptr () -> CLLong -> CStringLen ->
 foreign import ccall "fkt.h offsetof(fkt_config, count)" offCount :: CSize
 ```
 
-[examples/ffi/libremidi.fk](examples/ffi/libremidi.fk) sends and receives MIDI through libremidi this way.
+[examples/ffi/libremidi.fk](examples/ffi/libremidi.fk) sends and receives MIDI through libremidi this way. Queued calls go through a fixed ring of 4096 events, without `malloc` or locks; a full ring drops events, and `droppedEvents ()` counts them.
+
+For a C caller with a deadline, such as an audio callback, `foreign export ccall "fk_process" process :: Ptr () -> Ptr CFloat -> CInt ->> ()` makes `fk_process` a C function that any thread may call. The compiler rejects an export whose compiled code could allocate: it may use C scalars and pointers, `peek` and `poke`, loops and calls to such functions, but no lists, strings or closures. `foreign import ccall "fkt.h &fk_process"` gives its address. Exports need `funk build`; see [tests/ffi/export.fk](tests/ffi/export.fk).
 
 Compiled code calls the C function directly. The interpreter compiles the same glue with `$CC` once and caches it in `$XDG_CACHE_HOME/funk/ffi` (default `~/.cache/funk/ffi`). `funk run`, `repl` and `build` take `-I`, `-L` and `-l` for headers and libraries outside the default paths. See [docs/dev/ffi.md](docs/dev/ffi.md).
 
@@ -250,7 +252,7 @@ The prelude defines:
 
 - The interpreter is about 6x slower than compiled code on allocation-heavy loops.
 
-- A collection pauses the program while it marks live data: about 10 ms per million live cells, plus 16 us per 1,000 stack frames. Sweeping is spread over allocation. `FUNK_GCSTATS=1` prints each pause. Bounded pauses are planned ([docs/dev/realtime.md](docs/dev/realtime.md)).
+- The collector pauses the program for at most about 0.4 ms at a time, at any heap size, plus 29 us per 1,000 stack frames when a cycle starts; deep recursion therefore still pauses. The heap is up to 70% larger than with marking in one pause, since objects allocated during a cycle live until the next. `FUNK_GCSTATS=1` prints each pause ([docs/dev/realtime.md](docs/dev/realtime.md)).
 
 ## Documentation
 

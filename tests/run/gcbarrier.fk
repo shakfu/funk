@@ -1,0 +1,35 @@
+-- The writes that overwrite a heap pointer, many times over, for
+-- FUNK_GCSTRESS (realtime.md, R2). Each loses an object unless it shades
+-- the old value first:
+--   reuse: the second `map` writes a new pair over an old one, in place,
+--   and the new pair holds the old one's list;
+--   TRMC: `filter`, reusing cells, links a kept cell past dropped ones;
+--   thunks: `t`, kept inside a closure, is forced into a new pair that holds
+--   the inner list, and its free variable `ys`, the inner list's only other
+--   reference, is cleared.
+pairs :: Int -> [(Int, [Int])]
+pairs i = map (\k -> (k, enumFromTo k (k + 3))) (enumFromTo i (i + 40))
+
+churn :: Int -> Int -> Int
+churn k acc = if k == 0 then acc else churn (k - 1) (acc + length (reverse (enumFromTo 1 1000)))
+
+later :: [[Int]] -> () -> (Int, [Int])
+later ys = \u -> t
+  where t = (1, head ys)
+
+lists :: Int -> [[Int]]
+lists i = filter (\xs -> mod (head xs) 3 /= 0) (map (\k -> enumFromTo k (k + 2)) (enumFromTo i (i + 40)))
+
+main = do
+  let kept = map (\i -> map snd (pairs i)) (enumFromTo 1 2000)
+  let moved = map (\i -> map (\p -> (snd p, fst p)) (pairs i)) (enumFromTo 1 2000)
+  let filtered = map lists (enumFromTo 1 2000)
+  let thunks = map (\i -> later [enumFromTo i (i + 5)]) (enumFromTo 1 20000)
+  print (sum (map length kept))
+  print (sum (map (\f -> sum (snd (f ()))) thunks))
+  print (sum (map (\xs -> sum (map sum xs)) kept))
+  print (sum (map (\ps -> sum (map (\p -> sum (fst p)) ps)) moved))
+  print (sum (map (\ls -> sum (map sum ls)) filtered))
+  print (churn 2000 0) -- allocation, so the cycles in progress end, and are checked
+  print (sum (map (\ps -> sum (map (\p -> sum (fst p)) ps)) moved), sum (map (\ls -> sum (map sum ls)) filtered))
+  print (sum (map (\f -> sum (snd (f ()))) thunks)) -- the forced values, still live

@@ -1,0 +1,35 @@
+-- A foreign export (realtime.md, R4), called from the test library's own
+-- thread, an audio host, while funk's thread collects garbage. `process`
+-- must compile to code that does not allocate; its state is a counter in C
+-- memory, at the context pointer.
+foreign export ccall "fk_process" process :: Ptr () -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "fkt.h &fk_process" processPtr :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ())
+foreign import ccall "fkt.h fkt_audio_start" audioStart :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CInt -> CInt ->> CInt
+foreign import ccall "fkt.h fkt_audio_join" audioJoin :: () ->> Float
+
+sample :: CInt -> CFloat
+sample k = toCFloat (toFloat (mod (fromIntegral k) 100) * 0.5)
+
+fill :: Ptr CFloat -> CInt -> CInt -> CInt ->> ()
+fill buf start i n =
+  if i == n then ()
+  else do
+    pokeByteOff buf (fromIntegral i * 4) (sample (start + i))
+    fill buf start (i + 1) n
+
+process :: Ptr () -> Ptr CFloat -> CInt ->> ()
+process ctx buf frames = do
+  start <- (peek (castPtr ctx) :: CInt)
+  fill buf start 0 frames
+  poke (castPtr ctx) (start + frames)
+
+churn :: Int -> Int -> Int
+churn k acc = if k == 0 then acc else churn (k - 1) (acc + length (reverse (enumFromTo 1 1000)))
+
+main = do
+  counter <- mallocBytes 4
+  poke (castPtr counter) (0 :: CInt)
+  print (audioStart processPtr counter 64 2000)
+  print (churn 3000 0)
+  print (audioJoin ())
+  print (peek (castPtr counter) :: CInt)

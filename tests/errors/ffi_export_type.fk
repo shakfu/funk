@@ -1,0 +1,5 @@
+-- expect: foreign export `greet`: an argument of type `String` is not a C scalar or pointer
+foreign export ccall "fk_greet" greet :: String -> CInt
+greet :: String -> CInt
+greet s = 0
+main = print (greet "x")

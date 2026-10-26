@@ -9,11 +9,16 @@
 #                          after "-- expect: " on line 1
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
 #   tests/ffi/link.fk      foreign imports from a library found with -I, -L and -l
+#   tests/ffi/ring.fk      the queued-callback ring: overflow, and messages too large for a slot
+#   tests/ffi/export.fk    a foreign export called from the library's thread while funk
+#                          collects, compiled, and under FUNK_GCSTRESS
 #   tests/ffi/callback.fk  callbacks into funk from that library; cberror.fk and
 #                          cbthread.fk must fail with their "-- expect: " text
 #   tests/ffi/sqlite.fk    sqlite3, in both backends; skipped without sqlite3.h
 #   the command line       exit status 0 on success, 1 on a failing program, 2 on a usage error
 #   FUNK_GCSTATS=1         gc.fk reports each collection and a summary
+#   FUNK_GCSTRESS=1        gc.fk and gcbarrier.fk, in both backends, under constant
+#                          incremental collection, which checks every cycle's marks
 cd "$(dirname "$0")/.." || exit 1
 FUNK=${FUNK:-./funk}
 tmp=$(mktemp -d) || exit 1
@@ -73,12 +78,23 @@ if cc -fPIC -c tests/ffi/fkt.c -o "$tmp/fkt.o" && ar rcs "$tmp/libfkt.a" "$tmp/f
   # shellcheck disable=SC2086
   if "$FUNK" build tests/ffi/link.fk -o "$tmp/link" $link >"$tmp/cc" 2>&1 && "$tmp/link" >"$tmp/link.out" 2>&1 &&
     diff tests/ffi/link.expected "$tmp/link.out" >"$tmp/diff" 2>&1; then ok; else bad "link (compiled)" "$tmp/diff"; fi
+  for n in callback ring; do
+    # shellcheck disable=SC2086
+    "$FUNK" run tests/ffi/$n.fk $link >"$tmp/$n.out" 2>&1
+    if diff tests/ffi/$n.expected "$tmp/$n.out" >"$tmp/diff" 2>&1; then ok; else bad "$n (interpreter)" "$tmp/diff"; fi
+    # shellcheck disable=SC2086
+    if "$FUNK" build tests/ffi/$n.fk -o "$tmp/$n" $link >"$tmp/cc" 2>&1 && "$tmp/$n" >"$tmp/$n.out" 2>&1 &&
+      diff tests/ffi/$n.expected "$tmp/$n.out" >"$tmp/diff" 2>&1; then ok; else bad "$n (compiled)" "$tmp/diff"; fi
+  done
   # shellcheck disable=SC2086
-  "$FUNK" run tests/ffi/callback.fk $link >"$tmp/callback.out" 2>&1
-  if diff tests/ffi/callback.expected "$tmp/callback.out" >"$tmp/diff" 2>&1; then ok; else bad "callback (interpreter)" "$tmp/diff"; fi
-  # shellcheck disable=SC2086
-  if "$FUNK" build tests/ffi/callback.fk -o "$tmp/callback" $link >"$tmp/cc" 2>&1 && "$tmp/callback" >"$tmp/callback.out" 2>&1 &&
-    diff tests/ffi/callback.expected "$tmp/callback.out" >"$tmp/diff" 2>&1; then ok; else bad "callback (compiled)" "$tmp/diff"; fi
+  if "$FUNK" build tests/ffi/export.fk -o "$tmp/export" $link >"$tmp/cc" 2>&1; then
+    "$tmp/export" >"$tmp/export.out" 2>&1
+    if diff tests/ffi/export.expected "$tmp/export.out" >"$tmp/diff" 2>&1; then ok; else bad "export" "$tmp/diff"; fi
+    FUNK_GCSTRESS=1 "$tmp/export" >"$tmp/export.out" 2>&1
+    if diff tests/ffi/export.expected "$tmp/export.out" >"$tmp/diff" 2>&1; then ok; else bad "export (FUNK_GCSTRESS)" "$tmp/diff"; fi
+  else
+    bad "export (build)" "$tmp/cc"
+  fi
   for n in cberror cbthread; do
     want=$(head -n 1 tests/ffi/$n.fk | sed 's/^-- expect: //')
     # shellcheck disable=SC2086 # the subshell reports cbthread's abort to /dev/null
@@ -105,9 +121,16 @@ for f in tests/repl/*.in; do
   if diff "tests/repl/$n.expected" "$tmp/$n.repl" >"$tmp/diff" 2>&1; then ok; else bad "$n (repl)" "$tmp/diff"; fi
 done
 
+for n in gc gcbarrier; do
+  FUNK_GCSTRESS=1 "$FUNK" tests/run/$n.fk >"$tmp/$n.stress" 2>&1
+  if diff tests/run/$n.expected "$tmp/$n.stress" >"$tmp/diff" 2>&1; then ok; else bad "$n (interpreter, FUNK_GCSTRESS)" "$tmp/diff"; fi
+  FUNK_GCSTRESS=1 "$tmp/$n.exe" >"$tmp/$n.stress" 2>&1
+  if diff tests/run/$n.expected "$tmp/$n.stress" >"$tmp/diff" 2>&1; then ok; else bad "$n (compiled, FUNK_GCSTRESS)" "$tmp/diff"; fi
+done
+
 FUNK_GCSTATS=1 "$tmp/gc.exe" >/dev/null 2>"$tmp/gcstats"
-if grep -q '^gc 1: pause .* ms (roots .*, mark .*, finish .*), live .* MiB, heap .* MiB$' "$tmp/gcstats" &&
-  grep -q '^gc: [0-9]* collections, pause max .* ms, mean .* ms, total .* ms; lazy sweep [0-9]* chunks' "$tmp/gcstats"; then ok
+if grep -q '^gc 1: start .* ms, [0-9]* steps (max .* ms), finish .* ms, mark .* ms in all, live .* MiB, heap .* MiB$' "$tmp/gcstats" &&
+  grep -q '^gc: [0-9]* cycles, pause max .* ms (start .*, mark step .*, finish .*, sweep step .*), total .* ms, [0-9]* forced; lazy sweep [0-9]* chunks' "$tmp/gcstats"; then ok
 else bad "FUNK_GCSTATS" "$tmp/gcstats"; fi
 
 # cli STATUS [OUTPUT] -- ARGS: funk ARGS exits with STATUS, and prints OUTPUT first if given.

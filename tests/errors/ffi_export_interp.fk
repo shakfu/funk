@@ -1,0 +1,5 @@
+-- expect: foreign export `f` needs compiled code: use funk build
+foreign export ccall "fk_f" f :: CInt -> CInt
+f :: CInt -> CInt
+f n = n + 1
+main = print (f 1)

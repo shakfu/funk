@@ -1159,7 +1159,7 @@ char *builtin_instances_src(void) {
     sb_printf(&b, "  negate x = primTo%s (negate (primFrom%s x))\n", t, t);
     if (sign) sb_printf(&b, "  abs x = primTo%s (abs (primFrom%s x))\n", t, t);
     else sb_puts(&b, "  abs x = x\n");
-    sb_printf(&b, "  fromInt = primTo%s\ninstance Integral %s where\n  toInt = primFrom%s\n", t, t, t);
+    sb_printf(&b, "  fromInt n = primTo%s n\ninstance Integral %s where\n  toInt n = primFrom%s n\n", t, t, t);
     sb_printf(&b, "instance Storable %s where\n  peek p = primTo%s (primPeekInt (%d) p)\n  poke p x = primPokeInt (%d) p (primFrom%s x)\n", t, t,
               ffi_types[i].width, ffi_types[i].width, t);
   }
@@ -1249,12 +1249,13 @@ static bool sig_start(P *p) {
 /* `foreign import` or `foreign library`; `foreign` is a keyword only here. */
 static bool foreign_start(Token *t) {
   return t[0].k == T_VARID && !strcmp(t[0].s, "foreign") && t[1].k == T_VARID &&
-         (!strcmp(t[1].s, "import") || !strcmp(t[1].s, "library"));
+         (!strcmp(t[1].s, "import") || !strcmp(t[1].s, "export") || !strcmp(t[1].s, "library"));
 }
 
 static void parse_foreign(P *p, Decl *d) {
   Token *t = next(p); /* foreign */
-  if (!strcmp(next(p)->s, "library")) {
+  const char *what = next(p)->s;
+  if (!strcmp(what, "library")) {
     d->k = D_LIBRARY;
     d->lib = expect(p, T_STRING, "a library name, such as \"sqlite3\"")->s;
     return;
@@ -1265,6 +1266,16 @@ static void parse_foreign(P *p, Decl *d) {
   ForeignDecl *f = NEW(ForeignDecl);
   f->line = t->line;
   f->col = t->col;
+  if (!strcmp(what, "export")) { /* foreign export ccall "cname" name :: type (realtime.md, R4) */
+    f->exported = true;
+    f->cname = intern(xsprintf("%.*s", ent->len, ent->s));
+    f->name = expect(p, T_VARID, "the funk function to export")->s;
+    expect(p, T_DCOLON, NULL);
+    f->sig = parse_sig(p);
+    d->k = D_FOREIGN;
+    d->ffi = f;
+    return;
+  }
   char *s = xsprintf("%.*s", ent->len, ent->s), *sp = strchr(s, ' ');
   if (!strcmp(s, "callback") || !strcmp(s, "queue")) { /* a trampoline: phase 3 of ffi.md */
     f->cb = s[0];

@@ -5,6 +5,7 @@
 #define FK_RT_H
 
 #include <setjmp.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -61,6 +62,12 @@ static inline double fk_rawf(V v) { double d; memcpy(&d, &v, sizeof d); return d
 #define FK_STRBYTES(s) ((char *)&FK_W(s)[1])
 #define FK_PTRV(v)     (((FkPtr *)(v))->p)
 V fk_ptr(const void *p);
+
+/* Incremental marking (realtime.md, R2): a write that overwrites a heap
+   pointer shades the old value while a cycle is marking. */
+extern int fk_marking;
+void fk_shade(V old);
+#define FK_SHADE(old) do { if (fk_marking) fk_shade(old); } while (0)
 const char *fk_cstr(V s);                     /* a String's bytes for C; an error if a NUL is inside */
 V fk_cstr_result(const void *p, const char *fn); /* a C string copied into a String; an error if NULL */
 
@@ -71,10 +78,20 @@ _Noreturn void fk_callback_thread(const char *name);
 extern int fk_cb_failed; /* a direct callback failed; its message is printed */
 _Noreturn void fk_cb_rethrow(void);
 static inline void fk_cb_check(void) { if (fk_cb_failed) fk_cb_rethrow(); }
-typedef struct FkEvent { struct FkEvent *next; void (*run)(struct FkEvent *); void *ctx; } FkEvent;
-void fk_event_push(FkEvent *e); /* any thread */
-char *fk_memdup(const void *p, size_t n); /* malloc'd, NUL-terminated; aborts if out of memory */
-_Noreturn void fk_callback_oom(const char *name);
+/* A slot of the queued-callback ring (realtime.md, R3). The trampoline
+   writes its arguments into data; bytes that do not fit are malloc'd. */
+#define FK_EVENT_DATA 104
+typedef struct FkEvent {
+  _Atomic size_t seq;
+  void (*run)(struct FkEvent *); /* NULL: dropped, its bytes could not be copied */
+  void *ctx;
+  _Alignas(16) unsigned char data[FK_EVENT_DATA];
+} FkEvent;
+FkEvent *fk_event_claim(void);     /* any thread: a slot, or NULL if the ring is full (counted) */
+void fk_event_publish(FkEvent *e); /* any thread */
+void fk_event_release(FkEvent *e); /* funk's thread, once the arguments are read */
+void *fk_event_copy(FkEvent *e, size_t *used, const void *p, size_t n); /* into data if it fits; NULL if p is or malloc fails */
+void fk_event_uncopy(FkEvent *e, void *p);
 
 /* Builtin constructor ids, registered by fk_init in this order. */
 enum { FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL, FK_C_CONS, FK_C_TUP2 };
@@ -92,6 +109,34 @@ extern FkCon *fk_cons;
 extern uint32_t fk_ncons;
 extern V fk_true, fk_false, fk_unit, fk_nil;
 #define FK_BOOL(b) ((b) ? fk_true : fk_false)
+/* peek and poke on C addresses, for typed code: the width in bytes,
+   negative for an unsigned integer */
+static inline int64_t fk_s_peeki(int64_t w, void *p) {
+  switch (w) {
+  case 1: return *(int8_t *)p;
+  case -1: return *(uint8_t *)p;
+  case 2: return *(int16_t *)p;
+  case -2: return *(uint16_t *)p;
+  case 4: return *(int32_t *)p;
+  case -4: return *(uint32_t *)p;
+  default: return *(int64_t *)p;
+  }
+}
+static inline double fk_s_peekf(int64_t w, void *p) { return w == 4 ? (double)*(float *)p : *(double *)p; }
+static inline V fk_s_pokei(int64_t w, void *p, int64_t x) {
+  switch (w) {
+  case 1: case -1: *(uint8_t *)p = (uint8_t)x; break;
+  case 2: case -2: *(uint16_t *)p = (uint16_t)x; break;
+  case 4: case -4: *(uint32_t *)p = (uint32_t)x; break;
+  default: *(int64_t *)p = x;
+  }
+  return fk_unit;
+}
+static inline V fk_s_pokef(int64_t w, void *p, double x) {
+  if (w == 4) *(float *)p = (float)x;
+  else *(double *)p = x;
+  return fk_unit;
+}
 #define FK_ISTRUE(v) ((v) == fk_true)
 
 void fk_init(void);

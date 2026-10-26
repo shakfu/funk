@@ -20,10 +20,10 @@ const char *prim_cname(int i);
 
 /* A C representation. Monomorphic values of scalar type live in C scalars
    (typed-backend.md); everything else is a tagged word V. */
-typedef enum { R_V, R_I, R_F, R_C, R_B } Rep;
+typedef enum { R_V, R_I, R_F, R_C, R_B, R_P } Rep; /* R_P: a Ptr, FunPtr or StablePtr as a C address */
 typedef struct { const char *s; Rep r; } TV; /* a C expression and its representation */
 
-static const char *const ctype[] = {"V", "int64_t", "double", "int32_t", "bool"};
+static const char *const ctype[] = {"V", "int64_t", "double", "int32_t", "bool", "void *"};
 
 typedef struct {
   SB *out;
@@ -34,6 +34,7 @@ typedef struct {
   bool trmc; /* results go through dst; see cg_tail */
   const char *reuse; /* a dead cons cell, matched from an `own` scrutinee */
   Rep rrep;          /* the worker's result */
+  bool reused;       /* the body reuses a cell somewhere */
 } CG;
 
 static TV cg_expr(CG *c, Expr *e);
@@ -41,13 +42,12 @@ static void cg_tail(CG *c, Expr *e);
 
 static Rep rep_of(Type *t) {
   if (!t) return R_V;
-  t = repr(t);
-  if (t->k != TY_CON || t->n) return R_V;
-  switch (ffi_kind(t)) { /* the C types of foreign imports are held as Int or Float */
+  switch (ffi_kind(t)) { /* the C types of foreign imports are held as Int or Float; Ptr a as an address */
   case 'i': return R_I;
   case 'f': return R_F;
   case 'c': return R_C;
   case 'b': return R_B;
+  case 'p': return R_P;
   default: return R_V;
   }
 }
@@ -57,10 +57,10 @@ static const char *conv(TV v, Rep to) {
   if (v.r == to) return v.s;
   if (v.r != R_V && to != R_V) return conv((TV){conv(v, R_V), R_V}, to);
   if (to == R_V) {
-    static const char *const box[] = {NULL, "FK_MKINT(%s)", "fk_float(%s)", "FK_MKCHAR(%s)", "FK_BOOL(%s)"};
+    static const char *const box[] = {NULL, "FK_MKINT(%s)", "fk_float(%s)", "FK_MKCHAR(%s)", "FK_BOOL(%s)", "fk_ptr(%s)"};
     return xsprintf(box[v.r], v.s);
   }
-  static const char *const unbox[] = {NULL, "FK_INT(%s)", "FK_FLOATV(%s)", "FK_CHAR(%s)", "FK_ISTRUE(%s)"};
+  static const char *const unbox[] = {NULL, "FK_INT(%s)", "FK_FLOATV(%s)", "FK_CHAR(%s)", "FK_ISTRUE(%s)", "FK_PTRV(%s)"};
   return xsprintf(unbox[to], v.s);
 }
 
@@ -89,14 +89,14 @@ static Rep **freps;
 static Rep frep(Lambda *L, int i) { return freps[L->id] ? freps[L->id][i] : R_V; }
 
 static TV raw_read(const char *w, Rep r) {
-  static const char *const fmt[] = {"%s", "((int64_t)%s)", "fk_rawf(%s)", "((int32_t)%s)", "((bool)%s)"};
+  static const char *const fmt[] = {"%s", "((int64_t)%s)", "fk_rawf(%s)", "((int32_t)%s)", "((bool)%s)", "((void *)%s)"};
   return tv(xsprintf(fmt[r], w), r);
 }
 
 static const char *raw_word(TV v, Rep r) {
   const char *s = conv(v, r);
   if (r == R_V) return s;
-  return r == R_F ? xsprintf("fk_fraw(%s)", s) : xsprintf("((V)(int64_t)%s)", s);
+  return r == R_F ? xsprintf("fk_fraw(%s)", s) : r == R_P ? xsprintf("((V)(uintptr_t)%s)", s) : xsprintf("((V)(int64_t)%s)", s);
 }
 
 /* Fields declared `Float` hold a raw double (typed-backend.md, step 5).
@@ -187,55 +187,67 @@ static void cg_group(CG *c, Group *g) {
 
 /* Primitives on C scalars. An argument representation of -1 takes the
    argument's own: == is one primitive for Int and Char. */
-typedef struct { const char *name, *fmt; int nargs; int arg; Rep res; } Scalar;
+typedef struct { const char *name, *fmt; int nargs; int arg; Rep res; const char *reps; } Scalar; /* reps: each argument's, when they differ: "ipf" */
 static const Scalar scalars[] = {
-    {"addi", "(int64_t)((uint64_t)%s + (uint64_t)%s)", 2, R_I, R_I},
-    {"subi", "(int64_t)((uint64_t)%s - (uint64_t)%s)", 2, R_I, R_I},
-    {"muli", "(int64_t)((uint64_t)%s * (uint64_t)%s)", 2, R_I, R_I},
-    {"negi", "(int64_t)(0 - (uint64_t)%s)", 1, R_I, R_I},
-    {"absi", "fk_s_absi(%s)", 1, R_I, R_I},
-    {"div", "fk_s_div(%s, %s)", 2, R_I, R_I},
-    {"mod", "fk_s_mod(%s, %s)", 2, R_I, R_I},
-    {"quot", "fk_s_quot(%s, %s)", 2, R_I, R_I},
-    {"rem", "fk_s_rem(%s, %s)", 2, R_I, R_I},
-    {"addf", "(%s + %s)", 2, R_F, R_F},
-    {"subf", "(%s - %s)", 2, R_F, R_F},
-    {"mulf", "(%s * %s)", 2, R_F, R_F},
-    {"fdiv", "(%s / %s)", 2, R_F, R_F},
-    {"negf", "(-%s)", 1, R_F, R_F},
-    {"absf", "fabs(%s)", 1, R_F, R_F},
-    {"sqrt", "sqrt(%s)", 1, R_F, R_F},
-    {"exp", "exp(%s)", 1, R_F, R_F},
-    {"log", "log(%s)", 1, R_F, R_F},
-    {"sin", "sin(%s)", 1, R_F, R_F},
-    {"cos", "cos(%s)", 1, R_F, R_F},
-    {"pow", "pow(%s, %s)", 2, R_F, R_F},
-    {"tofloat", "((double)%s)", 1, R_I, R_F},
-    {"ord", "((int64_t)%s)", 1, R_C, R_I},
-    {"chr", "fk_s_chr(%s)", 1, R_I, R_C},
-    {"eqw", "(%s == %s)", 2, -1, R_B},
-    {"new", "(%s != %s)", 2, -1, R_B},
-    {"ltw", "(%s < %s)", 2, -1, R_B},
-    {"lew", "(%s <= %s)", 2, -1, R_B},
-    {"gtw", "(%s > %s)", 2, -1, R_B},
-    {"gew", "(%s >= %s)", 2, -1, R_B},
-    {"eqf", "(%s == %s)", 2, R_F, R_B},
-    {"nef", "(%s != %s)", 2, R_F, R_B},
-    {"ltf", "(%s < %s)", 2, R_F, R_B},
-    {"lef", "(%s <= %s)", 2, R_F, R_B},
-    {"gtf", "(%s > %s)", 2, R_F, R_B},
-    {"gef", "(%s >= %s)", 2, R_F, R_B},
-    {"idi", "%s", 1, R_I, R_I},
-    {"idf", "%s", 1, R_F, R_F},
-    {"tocint", "(int64_t)(int32_t)(uint32_t)%s", 1, R_I, R_I},
-    {"tocuint", "(int64_t)(uint32_t)%s", 1, R_I, R_I},
-    {"toclong", "(int64_t)(long)%s", 1, R_I, R_I},
-    {"toculong", "(int64_t)(unsigned long)%s", 1, R_I, R_I},
-    {"tocsize", "(int64_t)(size_t)%s", 1, R_I, R_I},
-    {"toccchar", "(int64_t)(char)%s", 1, R_I, R_I},
-    {"tocbool", "(int64_t)(%s != 0)", 1, R_I, R_I},
-    {"tocfloat", "(double)(float)%s", 1, R_F, R_F},
-    {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B},
+    {"addi", "(int64_t)((uint64_t)%s + (uint64_t)%s)", 2, R_I, R_I, NULL},
+    {"subi", "(int64_t)((uint64_t)%s - (uint64_t)%s)", 2, R_I, R_I, NULL},
+    {"muli", "(int64_t)((uint64_t)%s * (uint64_t)%s)", 2, R_I, R_I, NULL},
+    {"negi", "(int64_t)(0 - (uint64_t)%s)", 1, R_I, R_I, NULL},
+    {"absi", "fk_s_absi(%s)", 1, R_I, R_I, NULL},
+    {"div", "fk_s_div(%s, %s)", 2, R_I, R_I, NULL},
+    {"mod", "fk_s_mod(%s, %s)", 2, R_I, R_I, NULL},
+    {"quot", "fk_s_quot(%s, %s)", 2, R_I, R_I, NULL},
+    {"rem", "fk_s_rem(%s, %s)", 2, R_I, R_I, NULL},
+    {"addf", "(%s + %s)", 2, R_F, R_F, NULL},
+    {"subf", "(%s - %s)", 2, R_F, R_F, NULL},
+    {"mulf", "(%s * %s)", 2, R_F, R_F, NULL},
+    {"fdiv", "(%s / %s)", 2, R_F, R_F, NULL},
+    {"negf", "(-%s)", 1, R_F, R_F, NULL},
+    {"absf", "fabs(%s)", 1, R_F, R_F, NULL},
+    {"sqrt", "sqrt(%s)", 1, R_F, R_F, NULL},
+    {"exp", "exp(%s)", 1, R_F, R_F, NULL},
+    {"log", "log(%s)", 1, R_F, R_F, NULL},
+    {"sin", "sin(%s)", 1, R_F, R_F, NULL},
+    {"cos", "cos(%s)", 1, R_F, R_F, NULL},
+    {"pow", "pow(%s, %s)", 2, R_F, R_F, NULL},
+    {"tofloat", "((double)%s)", 1, R_I, R_F, NULL},
+    {"ord", "((int64_t)%s)", 1, R_C, R_I, NULL},
+    {"chr", "fk_s_chr(%s)", 1, R_I, R_C, NULL},
+    {"eqw", "(%s == %s)", 2, -1, R_B, NULL},
+    {"new", "(%s != %s)", 2, -1, R_B, NULL},
+    {"ltw", "(%s < %s)", 2, -1, R_B, NULL},
+    {"lew", "(%s <= %s)", 2, -1, R_B, NULL},
+    {"gtw", "(%s > %s)", 2, -1, R_B, NULL},
+    {"gew", "(%s >= %s)", 2, -1, R_B, NULL},
+    {"eqf", "(%s == %s)", 2, R_F, R_B, NULL},
+    {"nef", "(%s != %s)", 2, R_F, R_B, NULL},
+    {"ltf", "(%s < %s)", 2, R_F, R_B, NULL},
+    {"lef", "(%s <= %s)", 2, R_F, R_B, NULL},
+    {"gtf", "(%s > %s)", 2, R_F, R_B, NULL},
+    {"gef", "(%s >= %s)", 2, R_F, R_B, NULL},
+    {"idi", "%s", 1, R_I, R_I, NULL},
+    {"idf", "%s", 1, R_F, R_F, NULL},
+    {"tocint", "(int64_t)(int32_t)(uint32_t)%s", 1, R_I, R_I, NULL},
+    {"tocuint", "(int64_t)(uint32_t)%s", 1, R_I, R_I, NULL},
+    {"toclong", "(int64_t)(long)%s", 1, R_I, R_I, NULL},
+    {"toculong", "(int64_t)(unsigned long)%s", 1, R_I, R_I, NULL},
+    {"tocsize", "(int64_t)(size_t)%s", 1, R_I, R_I, NULL},
+    {"toccchar", "(int64_t)(char)%s", 1, R_I, R_I, NULL},
+    {"tocbool", "(int64_t)(%s != 0)", 1, R_I, R_I, NULL},
+    /* Ptr operations and peek and poke, on C addresses (realtime.md, R4) */
+    {"castptr", "%s", 1, R_P, R_P, NULL},
+    {"eqptr", "(%s == %s)", 2, R_P, R_B, NULL},
+    {"ptrint", "((int64_t)(uintptr_t)%s)", 1, R_P, R_I, NULL},
+    {"plusptr", "((void *)((char *)%s + %s))", 2, -1, R_P, "pi"},
+    {"nullptr", "((void)%s, (void *)0)", 1, R_V, R_P, NULL},
+    {"peeki", "fk_s_peeki(%s, %s)", 2, -1, R_I, "ip"},
+    {"peekf", "fk_s_peekf(%s, %s)", 2, -1, R_F, "ip"},
+    {"peekp", "(*(void **)%s)", 1, R_P, R_P, NULL},
+    {"pokei", "fk_s_pokei(%s, %s, %s)", 3, -1, R_V, "ipi"},
+    {"pokef", "fk_s_pokef(%s, %s, %s)", 3, -1, R_V, "ipf"},
+    {"pokep", "(*(void **)%s = %s, fk_unit)", 2, R_P, R_V, NULL},
+    {"tocfloat", "(double)(float)%s", 1, R_F, R_F, NULL},
+    {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B, NULL},
 };
 
 static const Scalar *scalar_prim(const char *c) {
@@ -252,6 +264,12 @@ static TV cg_call(CG *c, Expr *e) {
   int g = f->k == E_VAR && f->vk == VK_GLOBAL ? f->idx : -1;
   int prim = g >= 0 ? globals.a[g].prim : -1;
   const Scalar *sc = prim >= 0 && n == fk_prims[prim].arity ? scalar_prim(prim_cname(prim)) : NULL;
+  if (sc && sc->reps) {
+    static const char codes[] = "vifcbp"; /* Rep order */
+    const char *a[3];
+    for (int i = 0; i < n; i++) a[i] = conv(cg_expr(c, e->args[i]), (Rep)(strchr(codes, sc->reps[i]) - codes));
+    return tv(n == 2 ? xsprintf(sc->fmt, a[0], a[1]) : xsprintf(sc->fmt, a[0], a[1], a[2]), sc->res);
+  }
   if (sc) {
     TV x[2];
     for (int i = 0; i < n; i++) x[i] = cg_expr(c, e->args[i]);
@@ -266,8 +284,8 @@ static TV cg_call(CG *c, Expr *e) {
   bool scalar = ffi != NULL;
   if (ffi) {
     Type *t = repr(globals.a[g].type);
-    for (int i = 0; i < ffi->arity; i++, t = repr(t->args[1])) scalar &= ffi_kind(t->args[0]) != 's' && ffi_kind(t->args[0]) != 'p';
-    scalar &= ffi_kind(t) != 's' && ffi_kind(t) != 'p';
+    for (int i = 0; i < ffi->arity; i++, t = repr(t->args[1])) scalar &= ffi_kind(t->args[0]) != 's';
+    scalar &= ffi_kind(t) != 's';
   }
   if (ffi && n == ffi->arity && !scalar) { /* String and Ptr convert in the wrapper */
     const char **a = xmalloc((size_t)n * sizeof *a);
@@ -327,6 +345,140 @@ static TV cg_call(CG *c, Expr *e) {
   if (n > arity) call = xsprintf("fk_apply(%s, %d, %s)", call, n - arity, arg_array(a + arity, n - arity));
   return tv(call, R_V);
 }
+
+/* ------------------------------------------- allocation-free (R4) */
+
+/* Exported functions run on foreign threads, so their compiled code must
+   not allocate (realtime.md, R4). The check walks the typed body after
+   elaboration, and every function it calls. It accepts what compiles to
+   C scalars and addresses: literals, variables of scalar types, unboxed
+   primitives, C imports, calls to checked functions at full arity, if,
+   case on scalars, and strict local values. */
+static signed char *af_state; /* by lambda id: 0 unknown, 1 checking or allocation-free, 2 allocates */
+static const char **af_why;
+static int af_cap;
+
+static bool af_type(Type *t) { /* held without a heap object */
+  Rep r = rep_of(t);
+  if (r == R_I || r == R_C || r == R_B) return true; /* a boxed Int beyond 63 bits only appears in V */
+  if (r == R_F || r == R_P) return true;
+  t = t ? repr(t) : NULL;
+  return t && t->k == TY_CON && !t->n && !strcmp(t->name, "()");
+}
+
+static const char *af_lambda(Lambda *L);
+static const char *af_expr(Expr *e, Lambda *L);
+
+static const char *af_at(const char *what, Expr *e, Lambda *L) {
+  return xsprintf("%s, at %d:%d in `%s`", what, e->line, e->col, L->name ? L->name : "a local function");
+}
+
+static const char *af_group(Group *g, Lambda *L) {
+  for (int i = 0; i < g->n; i++) {
+    Bind *b = g->b[i];
+    if (g->rec || b->thunk) return af_at(xsprintf("`%s` is a lazy or recursive local binding", b->name), b->e, L);
+    if (b->e->k == E_LAM) return af_at(xsprintf("`%s` is a local function, a closure", b->name), b->e, L);
+    const char *w = af_expr(b->e, L);
+    if (w) return w;
+  }
+  return NULL;
+}
+
+static bool af_pat(Pat *p) {
+  return p->k == P_VAR || p->k == P_WILD || p->k == P_INT || p->k == P_CHAR ||
+         (p->k == P_CON && !p->n && (p->con == FK_C_TRUE || p->con == FK_C_FALSE || p->con == FK_C_UNIT));
+}
+
+static const char *af_expr(Expr *e, Lambda *L) {
+  const char *w;
+  switch (e->k) {
+  case E_INT: case E_FLOAT: case E_CHAR: return NULL;
+  case E_STR: return af_at("a String", e, L);
+  case E_LAM: return af_at("a closure", e, L);
+  case E_CON:
+    if (e->idx == FK_C_TRUE || e->idx == FK_C_FALSE || e->idx == FK_C_UNIT) return NULL;
+    return af_at(xsprintf("the constructor `%s`", e->name), e, L);
+  case E_VAR:
+    if (e->lazy) return af_at(xsprintf("`%s` is lazy", e->name), e, L);
+    if (!af_type(e->ty)) return af_at(xsprintf("`%s` has type `%s`, a heap value", e->name, type_str(e->ty)), e, L);
+    return NULL;
+  case E_ANN: return af_expr(e->body, L);
+  case E_IF:
+    if ((w = af_expr(e->cond, L)) || (w = af_expr(e->then_, L))) return w;
+    return af_expr(e->else_, L);
+  case E_LET:
+    if ((w = af_group(&e->g, L))) return w;
+    return af_expr(e->body, L);
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++)
+      if ((w = af_expr(e->scruts[i], L))) return w;
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      for (int i = 0; i < alt->np; i++)
+        if (!af_pat(alt->pats[i])) return af_at("a pattern on a data type", e, L);
+      for (int i = 0; i < alt->rhs.nwg; i++)
+        if ((w = af_group(&alt->rhs.wg[i], L))) return w;
+      for (int i = 0; i < alt->rhs.ng; i++)
+        if ((alt->rhs.guards[i] && (w = af_expr(alt->rhs.guards[i], L))) || (w = af_expr(alt->rhs.bodies[i], L))) return w;
+    }
+    return NULL;
+  case E_APP: {
+    for (int i = 0; i < e->n; i++)
+      if ((w = af_expr(e->args[i], L))) return w;
+    Expr *f = e->fn;
+    if (f->k == E_CON) return af_at(xsprintf("the constructor `%s`", f->name), e, L);
+    if (f->k != E_VAR || f->vk != VK_GLOBAL) return af_at("a call of an unknown function", e, L);
+    Global *g = &globals.a[f->idx];
+    if (g->prim >= 0) {
+      if (e->n == fk_prims[g->prim].arity && scalar_prim(prim_cname(g->prim))) return NULL;
+      if (!strcmp(prim_cname(g->prim), "then") && e->n == 2) { /* its arguments are boxed: () and Bool box without allocating */
+        for (int i = 0; i < 2; i++)
+          if (rep_of(e->args[i]->ty) != R_V && rep_of(e->args[i]->ty) != R_B && rep_of(e->args[i]->ty) != R_C)
+            return af_at(xsprintf("`>>` of a `%s`, which it boxes", type_str(e->args[i]->ty)), e, L);
+        return NULL;
+      }
+      return af_at(xsprintf("the primitive `%s`", g->name), e, L);
+    }
+    if (g->ffi && !g->ffi->cb && e->n == g->ffi->arity) {
+      bool str = false; /* converted in the wrapper, which allocates */
+      Type *t = repr(g->type);
+      for (int i = 0; i < g->ffi->arity; i++, t = repr(t->args[1])) str |= ffi_kind(t->args[0]) == 's';
+      if (str || ffi_kind(t) == 's') return af_at(xsprintf("`%s` takes or returns a String", g->name), e, L);
+      return NULL;
+    }
+    Lambda *K = f->known;
+    if (!K || e->n != K->n) return af_at(xsprintf("`%s` is called with %d of %d arguments", g->name, e->n, K ? K->n : 0), e, L);
+    return af_lambda(K);
+  }
+  default: return af_at("an expression the check does not handle", e, L);
+  }
+}
+
+static const char *af_lambda(Lambda *L) {
+  if (L->id >= af_cap) {
+    int cap = L->id * 2 + 64;
+    af_state = xrealloc(af_state, (size_t)cap);
+    af_why = xrealloc(af_why, (size_t)cap * sizeof *af_why);
+    memset(af_state + af_cap, 0, (size_t)(cap - af_cap));
+    af_cap = cap;
+  }
+  if (af_state[L->id]) return af_state[L->id] == 2 ? af_why[L->id] : NULL;
+  af_state[L->id] = 1; /* a recursive call is checked by the walk in progress */
+  const char *w = NULL;
+  for (int i = 0; i < L->n && !w; i++)
+    if (!L->ptypes || !af_type(L->ptypes[i]))
+      w = xsprintf("`%s` takes `%s`, a heap value", L->name ? L->name : "a function", L->ptypes ? type_str(L->ptypes[i]) : "an untyped argument");
+  if (!w && !af_type(L->body->ty)) w = xsprintf("`%s` returns `%s`, a heap value", L->name ? L->name : "a function", type_str(L->body->ty));
+  if (!w && L->nfree) w = xsprintf("`%s` is a closure", L->name ? L->name : "a function");
+  if (!w) w = af_expr(L->body, L);
+  if (w) {
+    af_state[L->id] = 2;
+    af_why[L->id] = w;
+  }
+  return w;
+}
+
+const char *cgen_alloc_free(Lambda *L) { return af_lambda(L); }
 
 /* Tests of pattern p against path, whose representation is r; fields are V. */
 static void pat_cond(SB *cond, Pat *p, const char *path, Rep r) {
@@ -391,7 +543,7 @@ static TV cg_case(CG *c, Expr *e, bool tail) {
     c->reuse = reuse;
     for (int i = 0; i < alt->np; i++)
       if (e->scruts[i]->k == E_VAR && e->scruts[i]->own && alt->pats[i]->k == P_CON && alt->pats[i]->con == FK_C_CONS)
-        c->reuse = sv[i].s;
+        c->reuse = sv[i].s, c->reused = true;
     SB cond = {0};
     sb_puts(&cond, "");
     for (int i = 0; i < alt->np; i++) pat_cond(&cond, alt->pats[i], sv[i].s, sv[i].r);
@@ -506,9 +658,14 @@ static bool has_trmc(Lambda *L, Expr *e) {
   }
 }
 
+/* *dst may be a reused cell's old tail, a heap pointer the write deletes
+   (realtime.md, R2). In a body that reuses no cell it is the placeholder,
+   and cg_lambda removes the barrier. */
+#define SHADE_DST "  FK_SHADE(*dst);\n"
+
 /* Return v from a function body, through dst in a TRMC loop. */
 static void ret(CG *c, TV v) {
-  if (c->trmc) sb_printf(c->out, "  *dst = %s;\n  return head;\n", as_v(v));
+  if (c->trmc) sb_printf(c->out, SHADE_DST "  *dst = %s;\n  return head;\n", as_v(v));
   else sb_printf(c->out, "  return %s;\n", conv(v, c->rrep));
 }
 
@@ -538,10 +695,10 @@ static void cg_tail(CG *c, Expr *e) {
       a[n - 1] = "fk_unit"; /* the placeholder */
       const char *cell = newtmp(c);
       if (c->reuse && e->fn->idx == FK_C_CONS) /* the old tail stays until *dst overwrites it */
-        sb_printf(c->out, "  V %s = %s;\n  FK_FIELD(%s, 0) = %s;\n", cell, c->reuse, cell, a[0]);
+        sb_printf(c->out, "  V %s = %s;\n  FK_SHADE(FK_FIELD(%s, 0));\n  FK_FIELD(%s, 0) = %s;\n", cell, c->reuse, cell, cell, a[0]);
       else
         sb_printf(c->out, "  V %s = fk_mkcon(%d, %d, %s);\n", cell, e->fn->idx, n, arg_array(a, n));
-      sb_printf(c->out, "  *dst = %s;\n  dst = &FK_FIELD(%s, %d);\n", cell, cell, n - 1);
+      sb_printf(c->out, SHADE_DST "  *dst = %s;\n  dst = &FK_FIELD(%s, %d);\n", cell, cell, n - 1);
       self_jump(c, e->args[n - 1]);
       return;
     }
@@ -687,8 +844,9 @@ static void cg_lambda(SB *out, Lambda *L) {
   sb_puts(&body, "");
   bool trmc = has_trmc(L, L->body);
   Rep rr = trmc ? R_V : result_rep(L);
-  CG c = {&body, L, 0, 0, false, slot, trmc, NULL, rr};
+  CG c = {&body, L, 0, 0, false, slot, trmc, NULL, rr, false};
   cg_tail(&c, L->body);
+  for (char *s; !c.reused && (s = strstr(body.s, SHADE_DST));) memmove(s, s + strlen(SHADE_DST), strlen(s + strlen(SHADE_DST)) + 1);
   char *nm = xsprintf("%s", L->name ? L->name : "lambda");
   for (char *s = nm; (s = strstr(s, "*/"));) s[1] = '|'; /* keep the comment closed */
   sb_printf(out, "static %s w_%d(V self", ctype[rr], L->id);
@@ -790,13 +948,40 @@ static Reach reach_program(Chunk *chunks, int nchunks) {
   return r;
 }
 
+/* A foreign export's C declaration: its declared types, as C's. */
+static const char *export_head(ForeignDecl *f) {
+  SB b = {0};
+  Type *t = repr(f->xtype);
+  for (int i = 0; i < f->arity; i++, t = repr(t->args[1]))
+    if (ffi_kind(t->args[0]) != 'v') sb_printf(&b, "%s%s x%d", b.n ? ", " : "", ffi_param_type(t->args[0]), i);
+  return xsprintf("%s %s(%s)", ffi_param_type(t), f->cname, b.n ? b.s : "void");
+}
+
+/* It calls the function's typed worker; check_export_code has checked
+   that the worker takes and returns C scalars or addresses. */
+static void export_body(SB *out, ForeignDecl *f) {
+  Lambda *L = globals.a[f->gidx].lam;
+  SB call = {0};
+  sb_printf(&call, "w_%d(G[%d]", L->id, f->gidx);
+  Type *t = repr(f->xtype);
+  for (int i = 0; i < f->arity; i++, t = repr(t->args[1]))
+    sb_printf(&call, ", %s", ffi_kind(t->args[0]) == 'v' ? "fk_unit" : xsprintf("(%s)x%d", ctype[param_rep(L, i)], i));
+  sb_puts(&call, ")");
+  bool unit = ffi_kind(t) == 'v';
+  sb_printf(out, "%s { /* foreign export %s */\n  %s%s;\n}\n", export_head(f), f->name,
+            unit ? "(void)" : xsprintf("return (%s)", ffi_param_type(t)), call.s);
+}
+
 char *cgen_program(Chunk *chunks, int nchunks) {
   Reach r = reach_program(chunks, nchunks);
+  for (int i = 0; i < ffi_exports.n; i++) reach_global(&r, ffi_exports.a[i]->gidx);
   SB out = {0};
   sb_puts(&out, fk_rt_src);
   VEC(ForeignDecl *) fs = {0};
   for (int i = 0; i < globals.n; i++)
     if (globals.a[i].ffi && r.global[i]) VPUSH(fs, globals.a[i].ffi);
+  for (int i = 0; i < ffi_exports.n; i++) /* before the glue, which may take an export's address */
+    sb_printf(&out, "%s;\n", export_head(ffi_exports.a[i]));
   sb_puts(&out, ffi_glue(fs.a, fs.n, false));
   sb_printf(&out, "\n/* ---- generated program ---- */\n\nstatic V G[%d];\nstatic size_t G_n = %d;\n\n",
             globals.n ? globals.n : 1, globals.n);
@@ -816,6 +1001,7 @@ char *cgen_program(Chunk *chunks, int nchunks) {
     if (r.lam[all_lambdas.a[i]->id] && !all_lambdas.a[i]->nfree) freps_lambda(all_lambdas.a[i], NULL, NULL);
   for (int i = 0; i < all_lambdas.n; i++)
     if (r.lam[all_lambdas.a[i]->id]) cg_lambda(&out, all_lambdas.a[i]);
+  for (int i = 0; i < ffi_exports.n; i++) export_body(&out, ffi_exports.a[i]);
   sb_puts(&out, "static void program(void *arg) {\n  static V *roots = G;\n  fk_add_roots(&roots, &G_n);\n");
   for (uint32_t i = FK_NBUILTIN_CONS; i < fk_ncons; i++) {
     sb_printf(&out, "  fk_register_con(\"%s\", %d);\n", fk_cons[i].name, fk_cons[i].arity);
