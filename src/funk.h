@@ -257,6 +257,7 @@ typedef struct {
   bool exported; /* foreign export: the C function cname runs the funk function name */
   Type *xtype;   /* an export's declared type */
   const char *cdef; /* C emitted after the headers: a struct's definition and field checks */
+  Strs xheaders;    /* headers it needs besides header: a struct's nested structs' */
   bool pure;   /* written with `->` only */
   FkCode code; /* interpreter: the loaded glue's entry */
 } ForeignDecl;

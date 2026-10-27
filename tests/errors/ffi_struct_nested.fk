@@ -1,0 +1,4 @@
+-- expect: struct Itimerval: the C field it_interval is not struct timespec
+foreign struct "time.h struct timespec" Timespec { sec "tv_sec" :: CLong }
+foreign struct "sys/time.h struct itimerval" Itimerval { interval "it_interval" :: Timespec }
+main = print (primFieldOffset Itimerval.interval)

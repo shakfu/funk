@@ -72,6 +72,35 @@ double fkt_audio_join(void) {
   return audio.sum;
 }
 
+#include <fcntl.h>
+#include <unistd.h>
+
+long fkt_read_stack(long n) {
+  char buf[65536];
+  if (n > (long)sizeof buf) n = sizeof buf;
+  int fd = open("/dev/zero", O_RDONLY);
+  if (fd < 0) return -2;
+  long r = (long)read(fd, buf, (size_t)n);
+  close(fd);
+  return r < 0 ? -1 : r + buf[0];
+}
+
+typedef struct { void *ctx; void (*cb)(void *, const char *); } nulls;
+
+static void *send_nulls(void *arg) {
+  nulls *n = arg;
+  n->cb(n->ctx, NULL);
+  n->cb(n->ctx, "after");
+  return NULL;
+}
+
+void fkt_send_null(void *ctx, void (*cb)(void *ctx, const char *s)) {
+  pthread_t t;
+  nulls n = {ctx, cb};
+  pthread_create(&t, NULL, send_nulls, &n);
+  pthread_join(t, NULL);
+}
+
 typedef struct { void *ctx; void (*cb)(void *, int); } other;
 
 static void *call_other(void *arg) {

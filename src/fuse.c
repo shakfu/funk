@@ -56,7 +56,8 @@ static bool divides(const char *n) {
 
 static bool partial_prim(const char *n) {
   static const char *const p[] = {"error", "chr", "floor", "ceiling", "round", "truncate", "readInt", "readFloat", "getLine",
-                                  "primNewArray", "primNewRing", "mallocBytes", "newCString"};
+                                  "primNewArray", "primNewRing", "mallocBytes", "newCString", "peekCString", "deRefStablePtr",
+                                  "freeStablePtr", "waitEvent", "pollEvent"};
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
     if (!strcmp(n, p[i])) return true;
   return divides(n);

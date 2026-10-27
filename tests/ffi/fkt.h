@@ -1,6 +1,8 @@
 /* A library outside the default search paths, for tests/run.sh: funk run
    and funk build find it with -I, -L and -l. Its callbacks take a context
    first, as libremidi's do. */
+#ifndef FKT_H
+#define FKT_H
 #include <stddef.h>
 #include <stdint.h>
 
@@ -35,5 +37,14 @@ void fkt_join(void);
 int fkt_audio_start(void (*cb)(void *ctx, float *buf, int frames), void *ctx, int frames, int blocks);
 double fkt_audio_join(void);
 
+/* Reads n bytes of /dev/zero into a buffer on its own stack: the kernel
+   writes there, as read() and stat() do. The bytes read, or -1. */
+long fkt_read_stack(long n);
+
+/* Calls cb from another thread with NULL, then with "after", and waits. */
+void fkt_send_null(void *ctx, void (*cb)(void *ctx, const char *s));
+
 /* Calls cb from another thread: wrong for a direct callback. */
 void fkt_other_thread(void *ctx, void (*cb)(void *ctx, int i));
+
+#endif

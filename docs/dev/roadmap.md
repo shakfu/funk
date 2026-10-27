@@ -57,11 +57,17 @@ Released 2026-10-26; see [CHANGELOG.md](../../CHANGELOG.md).
 - Effect arrows, option E of [typed-effects.md](typed-effects.md): `a ->> b`, inferred and checked; effectful bindings are `do` statements; `trace`.
 - Prelude functions, methods, types and constructors are reserved.
 
-## 0.4 -- language growth
+## 0.4 -- done: foreign functions and real time
+
+Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
+
+- A foreign function interface ([ffi.md](ffi.md)): libm, sqlite3 and libremidi; C types, structs, pointers, callbacks.
+- Real time ([realtime.md](realtime.md)): incremental collection with pauses under 0.5 ms at any heap size and stack depth, a lock-free event ring, allocation-free exports for audio threads, `Array`, `Ring` and atomics; a PortAudio synth.
+
+## 0.5 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
-- A foreign function interface ([ffi.md](ffi.md)): libm (phase 1), sqlite3 (phase 2) and libremidi (phase 3), done; real time: bounded pauses, a lock-free event ring and allocation-free exports ([realtime.md](realtime.md)).
 - Haskell compatibility: what stops Haskell source from running, and what would close it ([haskell-compat.md](haskell-compat.md)).
 
 - Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.

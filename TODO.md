@@ -22,7 +22,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 ## Medium
 
-- [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): R0-R4, the stack snapshot, atomics, structs and the export recursion check are done. An export's stack bound is not computed, and `foreign struct` has no nested structs by value.
+- [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): no test proves the stack snapshot's page copy necessary since protection stops below the thread's first frame (`tests/run/gcdeep.fk` passes without it); the Linux limit is from glibc's layout, not run on Linux. An export's stack bound is not computed; for targets with small stacks, sum `-fstack-usage` frame sizes along the call graph. `foreign struct` has no C arrays inside structs (Core Audio's `AudioBufferList`).
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 

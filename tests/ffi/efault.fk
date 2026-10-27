@@ -1,0 +1,17 @@
+-- A C call whose stack buffer the kernel writes, made while a collection
+-- cycle's stack snapshot is read-only (docs/dev/realtime.md). A cycle
+-- starts deep in a recursion; the call comes right after it returns, while
+-- the cycle marks, so the C frames lie in snapshot pages, which the call
+-- makes writable first. Without that, read() fails with EFAULT.
+foreign import ccall "fkt.h fkt_read_stack" readStack :: CLong ->> CLong
+
+deep :: Int -> Int
+deep n = if n == 0 then 0 else let xs = [n, n + 1] in deep (n - 1) + length xs
+
+attempt :: Int ->> CLong
+attempt n = do
+  d <- deep n
+  r <- readStack 65536
+  if d == 2 * n then r else -3
+
+main = mapM_ (\n -> print (attempt n)) [200000, 150000, 200000]

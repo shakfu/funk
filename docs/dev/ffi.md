@@ -1,6 +1,6 @@
 # Foreign function interface: design note
 
-Status: phases 1 (scalars, libm), 2 (strings, pointers, sqlite3) and 3 (callbacks, structs, libremidi) implemented; see the three "Implementation" sections. The collector's pauses, which real-time MIDI output needs shortened, are open ("Pauses"). Decided so far:
+Status: phases 1 (scalars, libm), 2 (strings, pointers, sqlite3) and 3 (callbacks, structs, libremidi) implemented, released in 0.4.0; see the three "Implementation" sections. The collector's pauses, which real-time MIDI output needs shortened, are open ("Pauses"). Decided so far:
 
 - Target libraries, in order: libm, sqlite3, libremidi.
 - The interpreter may require a C compiler.

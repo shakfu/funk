@@ -321,6 +321,7 @@ static TV cg_call(CG *c, Expr *e) {
     }
     sb_puts(&call, ")");
     Rep r = rep_of(t); /* a scalar: the result is never applied further */
+    sb_puts(c->out, "  fk_ffi_enter();\n"); /* no read-only stack snapshot page below: realtime.md */
     TV res = hold(c, r == R_V   ? tv(xsprintf("((void)%s, fk_unit)", call.s), R_V)
                      : r == R_B ? tv(xsprintf("(%s != 0)", call.s), R_B)
                      : r == R_C ? tv(xsprintf("(int32_t)(unsigned char)%s", call.s), R_C)

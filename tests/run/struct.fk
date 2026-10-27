@@ -1,0 +1,26 @@
+-- foreign struct (docs/dev/realtime.md): a header's struct, one laid out as
+-- C would, and one that holds another by value.
+foreign struct "time.h struct timespec" Timespec { sec "tv_sec" :: CLong, nsec "tv_nsec" :: CLong }
+foreign struct Voice { freq :: CFloat, gain :: CFloat, phase :: Float, count :: CInt, table :: Array CFloat }
+foreign struct Timed { label :: CInt, start :: Timespec, stop :: Timespec, voice :: Voice }
+-- a header's struct that holds another of the header's: checked by type
+foreign struct "sys/time.h struct timeval" Timeval { sec "tv_sec" :: CLong }
+foreign struct "sys/time.h struct itimerval" Itimerval { interval "it_interval" :: Timeval, value "it_value" :: Timeval }
+
+main = do
+  print (Timespec.size, primFieldOffset Timespec.nsec)
+  print (Voice.size, primFieldOffset Voice.phase, primFieldOffset Voice.count, primFieldOffset Voice.table)
+  print (Timed.size, primFieldOffset Timed.start, primFieldOffset Timed.stop, primFieldOffset Timed.voice)
+  v <- (mallocBytes Voice.size :: Ptr Voice)
+  writeField v Voice.freq (toCFloat 440.0)
+  writeField v Voice.phase 0.25
+  writeField v Voice.count 7
+  atomicAdd (fieldPtr v Voice.count) 5
+  print (readField v Voice.freq, readField v Voice.phase, readField v Voice.count)
+  t <- (mallocBytes Timed.size :: Ptr Timed)
+  writeField (fieldPtr t Timed.stop) Timespec.nsec 99
+  writeField (fieldPtr t Timed.voice) Voice.count 3
+  print (readField (fieldPtr t Timed.stop) Timespec.nsec, readField (fieldPtr t Timed.voice) Voice.count)
+  print (Itimerval.size, primFieldOffset Itimerval.value)
+  free v
+  free t

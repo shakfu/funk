@@ -4,17 +4,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-27
+
 ### Added
 
 - `foreign export ccall "cname" name :: type` makes `cname` a C function that runs `name`, callable from any thread, for callers with deadlines such as audio callbacks. The compiler checks that the function's compiled code cannot allocate, and names what would: lists, strings, closures, lazy bindings, unknown calls. `Ptr`, `FunPtr` and `StablePtr` are now C addresses in typed code, and `castPtr`, `plusPtr`, `peek` and `poke` at scalar types compile to C, so pointer code no longer allocates. A literal at a known `Num` instance, such as `0 :: CInt`, calls its `fromInt` without a dictionary. A runtime error on a foreign thread aborts the program. See [docs/dev/realtime.md](docs/dev/realtime.md), R4.
 - `droppedEvents ()`: queued callbacks that found the event ring full.
 - The export check also rejects recursion other than a self call in tail position, a loop, so an export's stack use is bounded by its call graph.
 - The export check also rejects code that can fail, since a runtime error on a foreign thread ends the program: `div`, `mod`, `quot` and `rem` by anything but a non-zero literal, `chr`, `floor` and the other partial primitives, and a `case` that does not cover every value. It accepts enumerations such as `Ordering`, whose values are static.
-- `Array a`: a fixed-length array of `Storable` values in C memory, freed with `freeArray`. `readArray` and `writeArray` check the index; `readArrayWrap` and `writeArrayWrap` take it modulo the length and cannot fail, so a foreign export may use them. In typed code an array is a C address. C memory, over the funk heap, because a collected array could be freed while a foreign thread reads it.
+- `Array a`: a fixed-length array of `Storable` values in C memory, freed with `freeArray`. `arrayLength` acts (`->>`), since it reads memory `freeArray` frees. `readArray` and `writeArray` check the index; `readArrayWrap` and `writeArrayWrap` take it modulo the length and cannot fail, so a foreign export may use them. In typed code an array is a C address. C memory, over the funk heap, because a collected array could be freed while a foreign thread reads it.
 - `Ring a`: a single-producer, single-consumer ring of `Storable` values in C memory, between any two threads, such as funk's thread and an audio callback. `ringPush` returns `False` when full; the consumer uses `ringCount`, `ringFront` and `ringDrop`, three calls where a `Maybe` would allocate.
 - `sizeOf` in `Storable`, as in Haskell; `Storable` instances for `Array a` and `Ring a`.
 - `truncateSat :: Float -> Int`: truncation that saturates at `Int`'s range and maps NaN to 0, so it cannot fail.
-- `foreign struct ["header.h ctype"] T { field ["c.member"] :: type, ... }` declares a C struct: the header's, with its field types checked, or one laid out as C would. `T.field :: Field T a` is a field's offset, from `offsetof`, and `T.size` the size; `readField`, `writeField` and `fieldPtr` use them, also in exports. C computes the layout, over funk, so it matches the platform's alignment rules.
+- `foreign struct ["header.h ctype"] T { field ["c.member"] :: type, ... }` declares a C struct: the header's, with its field types checked, or one laid out as C would. A field may be another foreign struct, held by value and reached with `fieldPtr`. `T.field :: Field T a` is a field's offset, from `offsetof`, and `T.size` the size; `readField`, `writeField` and `fieldPtr` use them, also in exports. C computes the layout, over funk, so it matches the platform's alignment rules.
 - `atomicAdd` and `atomicCompareSwap` in `Atomic`, sequentially consistent; floats through a compare-and-swap loop.
 - `Atomic`, with `atomicPeek` and `atomicPoke`: an acquire load and a release store, for memory shared between funk's thread and a foreign export. Instances for `Int`, `Float` and the C types.
 - [examples/ffi/portaudio.fk](examples/ffi/portaudio.fk): a wavetable synth whose PortAudio callback is a foreign export, fed frequency changes through a `Ring`; 0 underflows in three runs, callbacks of at most 5 us against a 1.33 ms buffer, with four collection cycles during each run.
@@ -28,8 +30,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- A collection cycle's start pause no longer scans the stack: it makes the stack's older pages read-only, a write copies a page before it proceeds, and marking steps scan the pages. At a million frames the start pause fell from 28.9 ms to 0.2 to 0.27 ms and the longest pause is 0.47 ms. Protection over a `memcpy` of the stack, which a first version used: 0.2 ms against 9 to 12 ms for 96 MiB. While a direct callback runs, C frames below it may pass stack memory to the kernel, which a read-only page would fail with `EFAULT`; the stack is then copied.
-- `FUNK_GCSTRESS`'s check zeroes the dead stack below the stack pointer at each cycle's start: unset slots in new frames held words from dead frames, which it reported as unmarked objects.
+- The glue cache rebuilds when a header the glue read is newer (from the compiler's `-MD` list), or a library named with `-l` in an `-L` directory has changed.
+- A NULL `String` passed to a queued callback is an error raised after the event's slot is released, so the ring moves on.
+- `fk_cb_check` in code an export runs on another thread leaves funk's thread's pending callback failure alone.
+- A struct holding a header's struct by value includes that header; a failed REPL chunk's foreign structs are forgotten.
+- A collection cycle's start pause no longer scans the stack: it makes the stack's older pages read-only, a write copies a page before it proceeds, and marking steps scan the pages. At a million frames the start pause fell from 28.9 ms to 0.2 to 0.27 ms and the longest pause is 0.47 ms. Protection over a `memcpy` of the stack, which a first version used: 0.2 ms against 9 to 12 ms for 96 MiB. The kernel cannot write into a read-only page (`EFAULT`), so a foreign call first makes the pages below its frame writable, and while a direct callback runs the stack is copied instead. Protection stops below the funk thread's first frame, above which glibc keeps thread data the kernel writes.
+- `FUNK_GCSTRESS`'s check maps fresh pages over the dead stack at each cycle's start: unset slots in new frames held words of dead frames, which it reported as unmarked objects. `madvise(MADV_DONTNEED)` zeroes them on Linux but not on macOS. Its steps scan the stack's snapshot a chunk at a time, so a stressed run repeats.
 
 - `plusPtr` adds as integers: C's pointer arithmetic on a null pointer, as in `plusPtr nullPtr 16`, is undefined.
 

@@ -1,0 +1,8 @@
+-- expect: no instance `Storable Timespec`
+foreign struct "time.h struct timespec" Timespec { sec "tv_sec" :: CLong }
+foreign struct Pair { a :: Timespec }
+main = do
+  p <- (mallocBytes Pair.size :: Ptr Pair)
+  print (primFieldOffset Timespec.sec)
+  readField p Pair.a
+  ()

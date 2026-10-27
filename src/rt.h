@@ -77,8 +77,16 @@ bool fk_on_funk_thread(void);
 _Noreturn void fk_callback_thread(const char *name);
 extern int fk_cb_failed; /* a direct callback failed; its message is printed */
 extern int fk_callback_depth; /* direct callbacks running, for the collector's stack snapshot */
+extern char *fk_snap_lo;
+void fk_snapshot_release(char *sp);
+/* Before a foreign call: no read-only snapshot page below this frame (realtime.md). */
+static inline void fk_ffi_enter(void) {
+  if (fk_snap_lo && (char *)__builtin_frame_address(0) > fk_snap_lo) fk_snapshot_release((char *)__builtin_frame_address(0));
+}
 _Noreturn void fk_cb_rethrow(void);
-static inline void fk_cb_check(void) { if (fk_cb_failed) fk_cb_rethrow(); }
+bool fk_on_funk_thread(void);
+/* the failure is funk's thread's: an export on another thread leaves it */
+static inline void fk_cb_check(void) { if (fk_cb_failed && fk_on_funk_thread()) fk_cb_rethrow(); }
 /* A slot of the queued-callback ring (realtime.md, R3). The trampoline
    writes its arguments into data; bytes that do not fit are malloc'd. */
 #define FK_EVENT_DATA 104

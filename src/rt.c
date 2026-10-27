@@ -99,7 +99,8 @@ static size_t msp, mcap;
 static V *stack_copy; /* the stack when the cycle started: see snapshot_stack */
 static size_t stack_words, stack_cap, stack_scanned;
 static size_t page_size;
-static char *snap_lo, *snap_hi, *snap_next; /* read-only pages of the snapshot; the next to scan */
+char *fk_snap_lo; /* the lowest read-only page of a cycle's stack snapshot, or NULL */
+static char *snap_hi, *snap_next; /* above the read-only pages; the next to scan */
 static char *snap_area;                     /* reserved: copies of the pages written while read-only */
 static uint8_t *snap_copied;                /* by page */
 static size_t snap_pages;
@@ -256,7 +257,7 @@ static bool drain(double budget_ms) {
     size_t k = stack_words - stack_scanned < 8192 ? stack_words - stack_scanned : 8192;
     scan_range(stack_copy + stack_scanned, stack_copy + stack_scanned + k);
     stack_scanned += k;
-    if (budget_ms < INFINITY && now_ms() > end) return false;
+    if (budget_ms < INFINITY && (gcstress || now_ms() > end)) return false; /* stress: a chunk per step, reproducibly */
   }
   if (!scan_snapshot(end, budget_ms < INFINITY)) return false;
   for (int n = 0; msp;) {
@@ -310,17 +311,38 @@ static void copy_words(V *from, size_t n) {
 
 static char *guard_lo, *guard_hi; /* the stack's guard region, set by fk_run */
 
+static char *snapshot_sp; /* for the check's report */
+static char *stack_top; /* task_main's frame: above it, the thread's own data (glibc keeps its TCB and TLS there) */
+
+static void copy_more(V *from, size_t n) { /* appended to the copy */
+  size_t at = stack_words;
+  if (at + n > stack_cap) {
+    stack_cap = (at + n) + (at + n) / 4;
+    stack_copy = realloc(stack_copy, stack_cap * sizeof(V));
+    if (!stack_copy) { fputs("funk: out of memory\n", stderr); exit(1); }
+  }
+  memcpy(stack_copy + at, from, n * sizeof(V));
+  stack_words = at + n;
+}
+
 static __attribute__((noinline)) void snapshot_stack(void) {
   V *sp = (V *)__builtin_frame_address(0);
+  snapshot_sp = (char *)sp;
   if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
   if (gcstress) { /* the dead stack below holds old words, which new frames' unset slots would show the check */
     char *dead = (char *)(((uintptr_t)sp - 2 * page_size) & ~(uintptr_t)(page_size - 1));
-    if (dead > guard_hi) madvise(guard_hi, (size_t)(dead - guard_hi), MADV_DONTNEED);
+    /* fresh pages, which read as zero: macOS's MADV_DONTNEED keeps the old contents */
+    if (dead > guard_hi &&
+        mmap(guard_hi, (size_t)(dead - guard_hi), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0) == MAP_FAILED) {
+      fputs("funk: cannot clear the stack for FUNK_GCSTRESS\n", stderr);
+      exit(1);
+    }
     memset(dead, 0, (size_t)((char *)sp - 1024 - dead));
   }
-  char *lo = (char *)(((uintptr_t)sp + page_size - 1) & ~(uintptr_t)(page_size - 1)), *hi = fk_stack_base;
+  char *lo = (char *)(((uintptr_t)sp + page_size - 1) & ~(uintptr_t)(page_size - 1)),
+       *hi = (char *)((uintptr_t)stack_top & ~(uintptr_t)(page_size - 1)); /* below the thread's data, which the kernel writes */
   if (fk_callback_depth || lo >= hi) {
-    copy_words(sp, (size_t)((V *)hi - sp));
+    copy_words(sp, (size_t)((V *)fk_stack_base - sp));
     return;
   }
   size_t pages = (size_t)(hi - lo) / page_size;
@@ -334,12 +356,32 @@ static __attribute__((noinline)) void snapshot_stack(void) {
   }
   memset(snap_copied, 0, pages);
   copy_words(sp, (size_t)((V *)lo - sp));
+  copy_more((V *)hi, (size_t)((V *)fk_stack_base - (V *)hi)); /* the frames and data above the read-only pages */
   if (mprotect(lo, (size_t)(hi - lo), PROT_READ) != 0) { /* not expected; a copy is always correct */
-    copy_words(sp, (size_t)((V *)hi - sp));
+    copy_words(sp, (size_t)((V *)fk_stack_base - sp));
     return;
   }
-  snap_lo = snap_next = lo;
+  fk_snap_lo = snap_next = lo;
   snap_hi = hi;
+}
+
+/* Before a foreign call on funk's thread: the C code's frames go below the
+   current frame, into snapshot pages funk returned above. The kernel
+   cannot write into a read-only one, so the pages from the scan cursor to
+   here are kept and made writable now. */
+void fk_snapshot_release(char *sp) {
+  if (!fk_snap_lo || !fk_on_funk_thread()) return;
+  char *top = (char *)(((uintptr_t)sp & ~(uintptr_t)(page_size - 1)) + page_size);
+  if (top > snap_hi) top = snap_hi;
+  if (top <= snap_next) return;
+  for (char *pg = snap_next; pg < top; pg += page_size) {
+    size_t i = (size_t)(pg - fk_snap_lo) / page_size;
+    if (!snap_copied[i]) {
+      memcpy(snap_area + i * page_size, pg, page_size);
+      snap_copied[i] = 1;
+    }
+  }
+  mprotect(snap_next, (size_t)(top - snap_next), PROT_READ | PROT_WRITE);
 }
 
 /* Scans the snapshot's pages for up to the step's budget; true when done. */
@@ -347,15 +389,15 @@ static bool scan_snapshot(double end, bool timed) {
   while (snap_next < snap_hi) {
     char *from = snap_next;
     for (int k = 0; k < 1 && snap_next < snap_hi; k++, snap_next += page_size) { /* a page, then the clock */
-      size_t i = (size_t)(snap_next - snap_lo) / page_size;
+      size_t i = (size_t)(snap_next - fk_snap_lo) / page_size;
       V *p = (V *)(snap_copied[i] ? snap_area + i * page_size : snap_next);
       scan_range(p, p + page_size / sizeof(V));
     }
     mprotect(from, (size_t)(snap_next - from), PROT_READ | PROT_WRITE);
-    if (timed && now_ms() > end) break;
+    if (timed && (gcstress || now_ms() > end)) break;
   }
   if (snap_next < snap_hi) return false;
-  snap_lo = snap_hi = snap_next = NULL;
+  fk_snap_lo = snap_hi = snap_next = NULL;
   return true;
 }
 
@@ -457,6 +499,8 @@ static void gc_start(void) {
 
 /* FUNK_GCSTRESS: every object reachable now must be marked. The check
    marks what it visits 2, which the sweep reads as marked. */
+static V *verify_from, *verify_slot; /* the object, or the root, being scanned: for the report */
+
 static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   uint8_t *m;
   size_t words;
@@ -464,6 +508,18 @@ static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   if (!o || *m == 2) return;
   if (!*m) {
     fprintf(stderr, "funk: gc check: reachable object %p (kind %d) is unmarked at the end of a cycle\n", (void *)o, ((FkHdr *)o)->kind);
+    if (verify_from) {
+      uint8_t *pm;
+      size_t pw;
+      find_obj((uintptr_t)verify_from, &pm, &pw);
+      fprintf(stderr, "  in field %ld of %p (kind %d, mark %d)\n", (long)(verify_slot - verify_from - 1), (void *)verify_from,
+              ((FkHdr *)verify_from)->kind, *pm);
+    } else if ((char *)verify_slot >= (char *)fk_stack_base - (1LL << 32) && (char *)verify_slot < fk_stack_base) {
+      fprintf(stderr, "  in the stack at %p, %s the cycle's start at %p\n", (void *)verify_slot,
+              (char *)verify_slot < snapshot_sp ? "deeper than" : "in a frame from before", snapshot_sp);
+    } else {
+      fprintf(stderr, "  in a root table at %p\n", (void *)verify_slot);
+    }
     abort();
   }
   *m = 2;
@@ -481,13 +537,15 @@ static __attribute__((noinline)) void verify_marks(void) {
   static V **st;
   static size_t cap;
   size_t n = 0;
-  for (V *p = (V *)__builtin_frame_address(0); p < (V *)fk_stack_base; p++) verify_word(*p, &st, &n, &cap);
+  verify_from = NULL;
+  for (V *p = (V *)__builtin_frame_address(0); p < (V *)fk_stack_base; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
   for (size_t i = 0; i < nroots; i++)
-    for (V *p = *roots[i].base; p < *roots[i].base + *roots[i].count; p++) verify_word(*p, &st, &n, &cap);
+    for (V *p = *roots[i].base; p < *roots[i].base + *roots[i].count; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
   while (n) {
     size_t words = (size_t)(uintptr_t)st[--n];
     V *o = st[--n];
-    for (V *p = o + 1; p < o + words; p++) verify_word(*p, &st, &n, &cap);
+    verify_from = o;
+    for (V *p = o + 1; p < o + words; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
   }
 }
 
@@ -1630,9 +1688,9 @@ typedef struct { void (*fn)(void *); void *arg; } Task;
 
 static void on_fault(int sig, siginfo_t *si, void *ctx) {
   char *a = si->si_addr;
-  if (a >= snap_lo && a < snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
+  if (a >= fk_snap_lo && a < snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
     char *pg = (char *)((uintptr_t)a & ~(uintptr_t)(page_size - 1));
-    size_t i = (size_t)(pg - snap_lo) / page_size;
+    size_t i = (size_t)(pg - fk_snap_lo) / page_size;
     if (!snap_copied[i]) {
       memcpy(snap_area + i * page_size, pg, page_size);
       snap_copied[i] = 1;
@@ -1651,6 +1709,7 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
 
 static void *task_main(void *p) {
   Task *t = p;
+  stack_top = __builtin_frame_address(0);
   funk_thread = pthread_self();
   stack_t ss = {.ss_sp = malloc(1 << 16), .ss_size = 1 << 16};
   struct sigaction sa = {0};

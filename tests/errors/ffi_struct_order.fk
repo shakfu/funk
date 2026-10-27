@@ -1,0 +1,4 @@
+-- expect: a field is a C scalar, a pointer or a foreign struct declared before it
+foreign struct Outer { inner :: Inner }
+foreign struct Inner { x :: CInt }
+main = print Outer.size

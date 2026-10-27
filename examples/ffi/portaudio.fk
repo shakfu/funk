@@ -48,8 +48,8 @@ foreign struct Synth
   , underflows :: CLLong     --   read by funk's thread
   , longest :: CLLong        -- in ns
   , total :: CLLong
-  , before :: Ptr Timespec
-  , after :: Ptr Timespec
+  , before :: Timespec       -- by value
+  , after :: Timespec
   }
 
 tableSize :: Int
@@ -81,14 +81,14 @@ nanos t = fromIntegral (readField t Timespec.sec) * 1000000000 + fromIntegral (r
 synth :: Ptr () -> Ptr CFloat -> CULong -> Ptr () -> CULong -> Ptr () ->> CInt
 synth input out n timeInfo flags ctx = do
   st <- (castPtr ctx :: Ptr Synth)
-  clockGettime monotonic (readField st Synth.before)
+  clockGettime monotonic (fieldPtr st Synth.before)
   takeChanges st (readField st Synth.changes)
   gain <- atomicPeek (fieldPtr st Synth.gain)
   step <- toFloat tableSize * fromCFloat (readField st Synth.freq) / sampleRate
   writeField st Synth.phase (render out (readField st Synth.table) 0 (fromIntegral n) (readField st Synth.phase) step gain)
   atomicAdd (fieldPtr st Synth.underflows) (fromIntegral (mod (div (fromIntegral flags) 4) 2)) -- paOutputUnderflow, bit 2
-  clockGettime monotonic (readField st Synth.after)
-  took <- (fromIntegral (nanos (readField st Synth.after) - nanos (readField st Synth.before)) :: CLLong)
+  clockGettime monotonic (fieldPtr st Synth.after)
+  took <- (fromIntegral (nanos (fieldPtr st Synth.after) - nanos (fieldPtr st Synth.before)) :: CLLong)
   if took > atomicPeek (fieldPtr st Synth.longest) then atomicPoke (fieldPtr st Synth.longest) took else ()
   atomicAdd (fieldPtr st Synth.total) took
   atomicAdd (fieldPtr st Synth.calls) 1
@@ -122,8 +122,6 @@ main = do
   writeField st Synth.changes changes
   writeField st Synth.table table
   mapM_ (\f -> writeField st f 0) [Synth.calls, Synth.underflows, Synth.longest, Synth.total]
-  writeField st Synth.before (mallocBytes Timespec.size)
-  writeField st Synth.after (mallocBytes Timespec.size)
   check "Pa_Initialize" (paInitialize ())
   stream <- alloca (\cell -> do
     check "Pa_OpenDefaultStream" (paOpenDefaultStream cell 0 1 paFloat32 sampleRate frames synthPtr (castPtr st))
@@ -137,8 +135,6 @@ main = do
   putStrLn ("callbacks " ++ show calls ++ ", underflows " ++ show (stat st Synth.underflows))
   putStrLn ("callback time: longest " ++ show (div (stat st Synth.longest) 1000) ++ " us, mean " ++ show (div (div (stat st Synth.total) (max calls 1)) 1000)
             ++ " us, of a " ++ show (div (fromIntegral frames * 1000000) 48000) ++ " us buffer")
-  free (readField st Synth.before)
-  free (readField st Synth.after)
   freeRing changes
   freeArray table
   free st

@@ -2415,16 +2415,31 @@ static void register_foreigns(Module *m) {
    per field, its offset, and T.size :: Int. They are C values, computed by
    the glue with offsetof and sizeof, so C lays the struct out: the header's
    struct, whose field types the glue checks, or one the glue defines. */
+typedef struct { const char *name, *ctype, *cdef; Strs headers; } CStruct; /* headers: its own and its nested structs' */
+static VEC(CStruct) cstructs; /* foreign structs so far, for fields of their types */
+
+static CStruct *cstruct(Type *t) {
+  t = repr(t);
+  for (int i = 0; t->k == TY_CON && !t->n && i < cstructs.n; i++)
+    if (cstructs.a[i].name == t->name) return &cstructs.a[i];
+  return NULL;
+}
+
 static void register_structs(Module *m) {
-  for (int i = 0; i < m->nstructs; i++) {
+  for (int i = 0; i < m->nstructs; i++) { /* the types first, so a field of a later struct's type says so */
     StructDecl *s = m->structs[i];
-    int ti = map_get(&tmap, s->name);
-    if (ti >= 0) cerror(s->line, s->col, "type `%s` is already defined", s->name);
+    if (map_get(&tmap, s->name) >= 0) cerror(s->line, s->col, "type `%s` is already defined", s->name);
     VPUSH(tydefs, ((TyDef){s->name, 0, 0}));
     map_put(&tmap, s->name, tydefs.n - 1);
+  }
+  for (int i = 0; i < m->nstructs; i++) {
+    StructDecl *s = m->structs[i];
     const char *ct = s->ctype ? s->ctype : xsprintf("struct fk_struct_%s", s->name);
-    SB def = {0};
+    SB def = {0}, inner = {0}; /* inner: the definitions of structs this one holds, before it */
+    Strs headers = {0};
+    if (s->header) VPUSH(headers, s->header);
     VEC(ForeignDecl *) made = {0}; /* each carries the definition: the glue holds only what the program uses */
+    sb_printf(&def, "#ifndef FK_STRUCT_%s\n#define FK_STRUCT_%s\n", s->name, s->name); /* once, though several structs include it */
     if (!s->ctype) sb_printf(&def, "%s {", ct);
     Type *st = tcon0(s->name);
     for (int k = 0; k < s->nf; k++) {
@@ -2434,10 +2449,19 @@ static void register_structs(Module *m) {
       TVars tv = {0};
       Type *ft = te_type(f->type, &tv, NULL);
       int kind = ffi_kind(ft);
-      if (!kind || kind == 'v' || kind == 's' || kind == 'L')
-        cerror(s->line, s->col, "struct `%s`: field `%s` has type `%s`; a field is a C scalar or pointer", s->name, f->name, type_str(ft));
-      const char *path = f->cpath ? f->cpath : f->name, *c = ffi_param_type(ft);
+      CStruct *nested = cstruct(ft); /* a struct by value: reached with fieldPtr */
+      if (!nested && (!kind || kind == 'v' || kind == 's' || kind == 'L'))
+        cerror(s->line, s->col, "struct `%s`: field `%s` has type `%s`; a field is a C scalar, a pointer or a foreign struct declared before it",
+               s->name, f->name, type_str(ft));
+      const char *path = f->cpath ? f->cpath : f->name, *c = nested ? nested->ctype : ffi_param_type(ft);
+      if (nested) {
+        sb_puts(&inner, nested->cdef);
+        for (int h = 0; h < nested->headers.n; h++) VPUSH(headers, nested->headers.a[h]);
+      }
       if (!s->ctype) sb_printf(&def, " %s %s;", c, f->name);
+      else if (nested)
+        sb_printf(&def, "_Static_assert(__builtin_types_compatible_p(__typeof__(((%s *)0)->%s), %s), \"struct %s: the C field %s is not %s\");\n", ct, path, c,
+                  s->name, path, c);
       else if (kind == 'p') /* any C pointer: the field's own pointer type is the header's */
         sb_printf(&def, "_Static_assert(__builtin_classify_type(((%s *)0)->%s) == 5 && sizeof(((%s *)0)->%s) == sizeof(void *), "
                         "\"struct %s: the C field %s is not a pointer\");\n", ct, path, ct, path, s->name, path);
@@ -2455,6 +2479,9 @@ static void register_structs(Module *m) {
       VPUSH(made, d);
     }
     if (!s->ctype) sb_puts(&def, " };\n");
+    sb_puts(&def, "#endif\n");
+    const char *all = xsprintf("%s%s", inner.n ? inner.s : "", def.s);
+    VPUSH(cstructs, ((CStruct){s->name, ct, all, headers}));
     ForeignDecl *z = NEW(ForeignDecl);
     *z = (ForeignDecl){.name = intern(xsprintf("%s.size", s->name)), .header = s->header, .cname = intern(xsprintf("(int64_t)sizeof(%s)", ct)),
                        .line = s->line, .col = s->col, .pure = true};
@@ -2462,7 +2489,10 @@ static void register_structs(Module *m) {
     add_global(z->name, tcon0(s_int), NULL);
     globals.a[z->gidx].ffi = z;
     VPUSH(made, z);
-    for (int k = 0; k < made.n; k++) made.a[k]->cdef = def.s;
+    for (int k = 0; k < made.n; k++) {
+      made.a[k]->cdef = all;
+      made.a[k]->xheaders = headers;
+    }
   }
 }
 
@@ -2507,7 +2537,7 @@ static void check_export_code(Module *m) {
 
 bool compile_chunk(Module *m, Chunk *out) {
   jmp_buf jb, *saved = cerr_jmp;
-  int mark = undo_mark(), ng0 = globals.n, nc0 = condefs.n, nt0 = tydefs.n, ncl0 = classes.n, ni0 = insts.n;
+  int mark = undo_mark(), ng0 = globals.n, nc0 = condefs.n, nt0 = tydefs.n, ncl0 = classes.n, ni0 = insts.n, ns0 = cstructs.n;
   uint64_t nb0 = num_bit;
   int nk0 = num_class;
   cvars.n = 0;
@@ -2520,6 +2550,7 @@ bool compile_chunk(Module *m, Chunk *out) {
     tydefs.n = nt0;
     classes.n = ncl0;
     insts.n = ni0;
+    cstructs.n = ns0;
     num_bit = nb0;
     num_class = nk0;
     fk_truncate_cons((uint32_t)nc0);

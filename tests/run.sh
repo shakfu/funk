@@ -10,6 +10,8 @@
 #   tests/repl/NAME.in     REPL stdout+stderr must equal NAME.expected
 #   tests/ffi/link.fk      foreign imports from a library found with -I, -L and -l
 #   tests/ffi/ring.fk      the queued-callback ring: overflow, and messages too large for a slot
+#   tests/ffi/efault.fk    a C call that has the kernel write its stack, while a cycle's snapshot
+#                          is read-only: under FUNK_GCSTRESS, in both backends
 #   tests/ffi/export.fk    a foreign export called from the library's thread while funk
 #                          collects, compiled, and under FUNK_GCSTRESS; control.fk the
 #                          same with rings both ways and a wavetable Array
@@ -87,6 +89,12 @@ if cc -fPIC -c tests/ffi/fkt.c -o "$tmp/fkt.o" && ar rcs "$tmp/libfkt.a" "$tmp/f
     if "$FUNK" build tests/ffi/$n.fk -o "$tmp/$n" $link >"$tmp/cc" 2>&1 && "$tmp/$n" >"$tmp/$n.out" 2>&1 &&
       diff tests/ffi/$n.expected "$tmp/$n.out" >"$tmp/diff" 2>&1; then ok; else bad "$n (compiled)" "$tmp/diff"; fi
   done
+  # shellcheck disable=SC2086
+  FUNK_GCSTRESS=1 "$FUNK" run tests/ffi/efault.fk $link >"$tmp/efault.out" 2>&1
+  if diff tests/ffi/efault.expected "$tmp/efault.out" >"$tmp/diff" 2>&1; then ok; else bad "efault (interpreter)" "$tmp/diff"; fi
+  # shellcheck disable=SC2086
+  if "$FUNK" build tests/ffi/efault.fk -o "$tmp/efault" $link >"$tmp/cc" 2>&1 && FUNK_GCSTRESS=1 "$tmp/efault" >"$tmp/efault.out" 2>&1 &&
+    diff tests/ffi/efault.expected "$tmp/efault.out" >"$tmp/diff" 2>&1; then ok; else bad "efault (compiled)" "$tmp/diff"; fi
   for n in export control; do
     # shellcheck disable=SC2086
     if "$FUNK" build tests/ffi/$n.fk -o "$tmp/$n" $link >"$tmp/cc" 2>&1; then
