@@ -117,7 +117,7 @@ module stack (Stack, empty, push) where      -- Stack without (..): its construc
 import shapes.geometry (Shape(..), area, (<+>))
 ```
 
-A type's namespace functions (`Stack.size`) are exported with it. See [docs/dev/modules.md](docs/dev/modules.md).
+A type's namespace functions (`Stack.size`) are exported with it. `import` also works at the REPL prompt. Haskell's `module Main where` and imports of base modules (`import Data.List (sortBy)`, `import qualified Data.Char as C`) are accepted; the prelude stands in for those modules. See [docs/dev/modules.md](docs/dev/modules.md).
 
 Function operators:
 

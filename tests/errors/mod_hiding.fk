@@ -1,0 +1,3 @@
+-- expect: `hiding` is not supported; list the names to import instead
+import Data.List hiding (sortBy)
+main = ()

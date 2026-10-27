@@ -72,15 +72,20 @@ Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 - Reuse of cells by ownership: list elements, tuple components and any allocation of a matched cell's size ([element-reuse.md](element-reuse.md)); tuple results as C structs; n-body from 4.0x to 1.2x C.
 - Bitwise operations, `IntTable`, and bulk `String` and `Array` input and output.
 
-## 0.6 -- language growth
+## 0.6 -- done: modules
+
+Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
+
+- Modules ([modules.md](modules.md)): files found by path and `-M`, qualified imports, import and export lists, abstract types, `import` at the REPL prompt, and Haskell's base imports.
+- CI on Linux and macOS, plain and under UBSan.
+
+## 0.7 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
 - Haskell compatibility: what stops Haskell source from running, and what would close it ([haskell-compat.md](haskell-compat.md)).
 
 - Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.
-
-- Modules and `import`: proposed in [modules.md](modules.md), on the syntax [records.md](records.md#modules) reserves.
 
 - As-patterns, list comprehensions.
 

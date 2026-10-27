@@ -1,6 +1,6 @@
 # Modules and `import`: design note
 
-Status: phases 1 and 2 implemented (unreleased); see "Phase 1 result" and "Phase 2 result". It builds on the syntax [records.md](records.md#modules) reserves.
+Status: implemented, released in 0.6.0; see "Phase 1 result", "Phase 2 result" and "Phase 3 result". It builds on the syntax [records.md](records.md#modules) reserves.
 
 ## Problem
 
@@ -148,4 +148,13 @@ Rules settled while implementing:
 - **A name an import list brings in** clashes with the same name from another list, and with a definition in the importing file; both are errors at the second.
 
 A phase 1 bug surfaced here: the program's body was parsed before its imports were compiled, so an imported operator had the default fixity, `infixl 9`. Phase 1's test gave the same output at either fixity. The parser now stops after the header (`parse_begin`); the driver compiles the imports, then parses the rest (`parse_finish`). `modlists.fk` uses an `infixr 5` operator that `infixl 9` would reject.
+
+## Phase 3 result
+
+`import` at the REPL prompt, and Haskell's base imports, in `driver.c`, `parse.c` and `qualify.c`. Tests: `tests/run/hsimports.fk`, `tests/repl/imports.in`, and four error tests.
+
+- **The REPL.** `import a.b [as q] [(items)]` at the prompt compiles the module, relative to the current directory or under `-M`, and adds its qualifier and listed names to the REPL's scope. `:l` adds the loaded file's imports, as GHCi puts a loaded module's scope at the prompt. A qualifier bound again is rebound. Declarations, expressions and `:t` are qualified against that scope.
+- **Base imports.** A capitalized import names a Haskell base module: `Prelude`, `Data.List`, `Data.Char`, `Data.Maybe`, `Data.Either`, `Data.Bits`, `Data.Function`, `Data.Tuple`, `Data.Ord`, `Control.Monad` or `System.IO`. The prelude stands in for each. Every listed name must be in the prelude, and none is added, since the prelude's names are in scope already. `qualified` is accepted. Without `as`, the qualifier is the whole path (`Data.Char.ord`), as in Haskell; a qualified name maps to the prelude's (`C.ord` is `ord`). Another capitalized module, such as `Data.Map`, is an error that lists the eleven. `hiding` is an error.
+- **`module Main (main) where`** is accepted in the program, and its export list ignored.
+- **Constructor names at run time** are unqualified, as derived `Show` prints them: a value shown without a `Show` instance read `stack.MkStack {...}` in the REPL.
 

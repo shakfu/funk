@@ -1,0 +1,16 @@
+-- Haskell import compatibility (docs/dev/modules.md, phase 3): `module Main`,
+-- base imports, `qualified`, `as`, and a qualifier that is a whole path.
+module Main (main) where
+
+import Data.List (sortBy)
+import qualified Data.Char as C
+import Data.Maybe (fromMaybe)
+import Control.Monad
+import qualified Prelude as P
+import qualified Data.Char
+
+main :: ()
+main = do
+  print (map C.ord (unpack "ab"), C.isDigit '7', Data.Char.toUpper 'q')
+  print (fromMaybe 0 (Just 3), sortBy compare [3, 1, 2])
+  print (P.length [1, 2], P.Just 1)

@@ -21,6 +21,27 @@ static VEC(Mod) mods;
 static VEC(Chunk) mod_chunks;
 static int mods_installed; /* in the interpreter */
 static Strs mod_dirs;      /* -M DIR */
+static ImportInfo *last_imps; /* the program's imports, resolved by the last prepare */
+static int nlast_imps;
+static VEC(ImportInfo) repl_imps; /* in scope at the prompt: `import` inputs and :l files' imports */
+
+/* The REPL's imports as Import lines, for the parser's qualified tokens. */
+static Import *repl_lines(void) {
+  Import *ims = xmalloc((size_t)repl_imps.n * sizeof *ims + 1);
+  for (int i = 0; i < repl_imps.n; i++) ims[i] = *repl_imps.a[i].im;
+  return ims;
+}
+
+/* The last program's imports into the REPL's scope; a qualifier bound
+   before is rebound. */
+static void adopt_imports(void) {
+  for (int i = 0; i < nlast_imps; i++) {
+    int k = 0;
+    while (k < repl_imps.n && repl_imps.a[k].im->qual != last_imps[i].im->qual) k++;
+    if (k == repl_imps.n) VPUSH(repl_imps, last_imps[i]);
+    else repl_imps.a[k] = last_imps[i];
+  }
+}
 
 static void report(const char *fmt, const char *arg) {
   fflush(stdout);
@@ -71,7 +92,11 @@ static Expr *parse_expr_caught(const char *src, size_t len) {
   Expr *volatile e = NULL;
   if (!setjmp(jb)) {
     cerr_jmp = &jb;
-    e = parse_expr_text(src, len);
+    e = parse_expr_text(src, len, repl_lines(), repl_imps.n);
+    Bind *b = NEW(Bind); /* qualified through a module holding e */
+    *b = (Bind){.name = intern("$q"), .e = e};
+    if (repl_imps.n) qualify_module(&(Module){.binds = &b, .nb = 1}, NULL, repl_imps.a, repl_imps.n);
+    e = b->e;
   }
   cerr_jmp = saved;
   return e;
@@ -186,17 +211,35 @@ static Exports *prepare(Module *m, const char *file, const char *prefix) {
   static Exports none;
   if (!m->nimports && !prefix) {
     parse_finish(m);
+    nlast_imps = 0;
     return &none;
   }
   ImportInfo *imps = xmalloc((size_t)m->nimports * sizeof *imps + 1);
   for (int i = 0; i < m->nimports; i++) {
     cur_file = file;
-    int k = import_module(&m->imports[i], file);
+    Import *im = &m->imports[i];
+    if (im->base) { /* the prelude stands in for it: names checked, none added (modules.md) */
+      static const char *const base[] = {"Prelude", "Data.List", "Data.Char", "Data.Maybe", "Data.Either", "Data.Bits",
+                                         "Data.Function", "Data.Tuple", "Data.Ord", "Control.Monad", "System.IO", NULL};
+      int b = 0;
+      while (base[b] && strcmp(base[b], im->path)) b++;
+      if (!base[b])
+        cerror(im->line, im->col, "funk has no module `%s`; a capitalized import names a Haskell base module that the prelude stands in for: "
+               "Prelude, Data.List, Data.Char, Data.Maybe, Data.Either, Data.Bits, Data.Function, Data.Tuple, Data.Ord, Control.Monad, System.IO",
+               im->path);
+      imps[i] = (ImportInfo){im, NULL, NULL};
+      continue;
+    }
+    int k = import_module(im, file);
     if (k < 0) return NULL;
     imps[i] = (ImportInfo){&m->imports[i], mods.a[k].prefix, mods.a[k].ex};
   }
   cur_file = file;
   parse_finish(m);
+  if (!prefix) {
+    last_imps = imps;
+    nlast_imps = m->nimports;
+  }
   return qualify_module(m, prefix, imps, m->nimports);
 }
 
@@ -217,6 +260,20 @@ static bool prepare_caught(Module *m, const char *file) {
       if (mods.a[i].done) mods.a[k++] = mods.a[i];
     mods.n = k;
   }
+  return ok;
+}
+
+/* The rest of a REPL declaration, qualified with the REPL's imports. */
+static bool finish_caught(Module *m) {
+  jmp_buf jb, *saved = cerr_jmp;
+  volatile bool ok = false;
+  if (!setjmp(jb)) {
+    cerr_jmp = &jb;
+    parse_finish(m);
+    if (repl_imps.n) qualify_module(m, NULL, repl_imps.a, repl_imps.n);
+    ok = true;
+  }
+  cerr_jmp = saved;
   return ok;
 }
 
@@ -328,6 +385,7 @@ bool funk_load_file(const char *path) {
   if (compile_file(path, &c)) {
     install_modules();
     interp_install(&c);
+    adopt_imports();
     ok = true;
   } else {
     undo_to(mark);
@@ -375,9 +433,26 @@ bool funk_eval(const char *src, const char *name, char **shown) {
   bool ok = false;
   int decl = is_decl_caught(src, len);
   Chunk c;
-  if (decl > 0) {
+  const char *s = src + strspn(src, " \t");
+  if (!strncmp(s, "import", 6) && (s[6] == ' ' || s[6] == '\t')) { /* modules.md, phase 3 */
+    Module *m = begin_caught(src, len);
+    if (m && prepare_caught(m, name)) {
+      if (m->nb || m->nd || m->ncl || m->ni || m->nforeign) {
+        report("%s", "an `import` input holds only imports");
+      } else {
+        install_modules();
+        adopt_imports();
+        ok = true;
+      }
+    }
+  } else if (decl > 0) {
     int mark = undo_mark(); /* fixities installed by the parser */
-    Module *m = parse_caught(src, len);
+    Module *m = begin_caught(src, len);
+    if (m) { /* in the REPL's scope */
+      m->imports = repl_lines();
+      m->nimports = repl_imps.n;
+    }
+    if (m && !finish_caught(m)) m = NULL;
     if (m && compile_chunk(m, &c)) {
       interp_install(&c);
       ok = true;

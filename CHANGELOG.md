@@ -2,7 +2,7 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.6.0] - 2026-10-27
 
 ### Added
 
@@ -15,6 +15,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ```
 
 - Import and export lists, modules phase 2. `import m (f, T(..), C(..), (<+>))` also brings those names in unqualified. `module m (f, T, C(..)) where` exports only those. A type exported without `(..)` is abstract: its constructors and fields stay inside its module, and its namespace functions go with it. A type not exported keeps its fields and namespace functions inside even when its values leave the module.
+
+- Modules phase 3: `import` at the REPL prompt, and `:l` puts a file's imports in the REPL's scope. Haskell's `module Main (main) where` and base imports are accepted: `import Data.List (sortBy)` and `import qualified Data.Char as C` check their names against the prelude, which stands in for those modules; `C.ord` is `ord`.
 
 - `bench.py ab OLD [NEW]`: compares two compilers by running their binaries alternately, which cancels the drift of about 5% between sessions (`bench/README.md`).
 

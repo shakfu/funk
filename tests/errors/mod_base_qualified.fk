@@ -1,0 +1,3 @@
+-- expect: `nosuch` is not in funk's prelude, which stands in for `Data.Char`
+import qualified Data.Char as C
+main = print (C.nosuch 1)

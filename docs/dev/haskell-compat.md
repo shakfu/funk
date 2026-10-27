@@ -70,7 +70,7 @@ The items that do not touch laziness, roughly by value per unit of work. Sizes a
 | List comprehensions | desugared to `concatMap` and `filter`; fusion then removes the lists | 80 lines |
 | `deriving (Enum, Bounded)` | generated instances, as for `Eq`, `Ord` and `Show` | 100 lines |
 | `Integral`, `Fractional`, `fromIntegral`, `read` | numeric classes beside `Num`, and a `Read` class or a fixed `read` at known types | 300 lines, and a design note |
-| Modules and `import` | proposed in [modules.md](modules.md), with a compatibility layer for base imports | large |
+| Modules and `import` | done in 0.6.0 ([modules.md](modules.md)): `module Main where` and base imports such as `import Data.List (sortBy)` are accepted | large |
 
 Since this survey, foreign imports added `fromIntegral` and an `Integral` class whose one method is `toInt`, not Haskell's `toInteger` and division methods ([ffi.md](ffi.md#implementation-phase-1)). Haskell's `Integral` would extend that class.
 

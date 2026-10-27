@@ -1,0 +1,3 @@
+-- expect: `foldl'` is not in funk's prelude, which stands in for `Data.List`
+import Data.List (sortBy, foldl')
+main = ()

@@ -1,0 +1,3 @@
+-- expect: funk has no module `Data.Map`
+import qualified Data.Map as M
+main = ()

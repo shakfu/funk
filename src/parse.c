@@ -1544,12 +1544,27 @@ static P start(const char *src, size_t len) {
   return p;
 }
 
-/* A dotted module path: a varid and the field tokens after it, `a.b`. */
+/* A dotted module path: a varid and the field tokens after it, `a.b`;
+   or Haskell's, `Data.List`, conids joined by `.` with no spaces. */
 static const char *module_path(P *p, const char *what) {
+  if (is(p, T_CONID)) {
+    Token *t = next(p);
+    const char *s = t->s;
+    int end = t->col + (int)strlen(s);
+    while (is(p, T_VARSYM) && !strcmp(cur(p)->s, ".") && cur(p)->col == end && ahead(p, 1)->k == T_CONID && ahead(p, 1)->col == end + 1) {
+      next(p);
+      Token *c = next(p);
+      s = intern(xsprintf("%s.%s", s, c->s));
+      end = c->col + (int)strlen(c->s);
+    }
+    return s;
+  }
   const char *s = expect(p, T_VARID, what)->s;
   while (is(p, T_FIELD)) s = intern(xsprintf("%s.%s", s, next(p)->s));
   return s;
 }
+
+static bool path_start(P *p, int off) { return ahead(p, off)->k == T_VARID || ahead(p, off)->k == T_CONID; }
 
 static bool word(P *p, int off, const char *w) { return ahead(p, off)->k == T_VARID && !strcmp(ahead(p, off)->s, w); }
 
@@ -1594,7 +1609,7 @@ static ListItems parse_items(P *p) {
    (modules.md). The words are reserved only there. */
 static void parse_header(P *p, Module *m) {
   while (accept(p, T_SEMI)) {}
-  if (word(p, 0, "module") && ahead(p, 1)->k == T_VARID) {
+  if (word(p, 0, "module") && path_start(p, 1)) {
     Token *t = next(p);
     m->line = t->line;
     m->col = t->col;
@@ -1610,16 +1625,20 @@ static void parse_header(P *p, Module *m) {
   VEC(Import) ims = {0};
   for (;;) {
     while (accept(p, T_SEMI)) {}
-    if (!word(p, 0, "import") || ahead(p, 1)->k != T_VARID) break;
+    if (!word(p, 0, "import") || !path_start(p, 1)) break;
     Token *t = next(p);
     Import im = {.line = t->line, .col = t->col};
+    if (word(p, 0, "qualified") && path_start(p, 1)) next(p); /* Haskell's; funk's imports are qualified anyway */
+    im.base = is(p, T_CONID);
     im.path = module_path(p, "a module name");
     const char *dot = strrchr(im.path, '.');
-    im.qual = dot ? intern(dot + 1) : im.path;
+    im.qual = im.base ? im.path : dot ? intern(dot + 1) : im.path; /* Haskell qualifies by the whole path */
     if (word(p, 0, "as")) {
       next(p);
-      im.qual = expect(p, T_VARID, "a name after `as`")->s;
+      if (!is(p, T_VARID) && !is(p, T_CONID)) unexpected(p, "a name after `as`");
+      im.qual = next(p)->s;
     }
+    if (word(p, 0, "hiding")) cerror(cur(p)->line, cur(p)->col, "`hiding` is not supported; list the names to import instead");
     if (is(p, T_LPAREN)) {
       im.listed = true;
       im.items = parse_items(p);
@@ -1633,6 +1652,27 @@ static void parse_header(P *p, Module *m) {
   m->nimports = ims.n;
 }
 
+/* Tokens from i that spell qualifier q with no spaces (`geometry`,
+   `Data.Char`): their number, or 0; *end is the column after them. */
+static int qual_len(P *p, int i, const char *q, int *end) {
+  SB b = {0};
+  sb_puts(&b, "");
+  for (int j = i; j < p->n; j++) {
+    Token *t = &p->t[j];
+    if (j > i && (t->line != p->t[i].line || t->col != *end)) break;
+    if ((j - i) % 2 == 0 ? t->k != T_VARID && t->k != T_CONID : t->k != T_VARSYM || strcmp(t->s, ".")) break;
+    sb_puts(&b, t->s);
+    *end = t->col + (int)strlen(t->s);
+    if ((j - i) % 2 == 0 && !strcmp(b.s, q)) {
+      free(b.s);
+      return j - i + 1;
+    }
+    if (strncmp(q, b.s, b.n)) break;
+  }
+  free(b.s);
+  return 0;
+}
+
 /* q.x, q.X and q.op with no spaces, q an import's qualifier: one token
    named `q.x`, `q.X` or `q.op`. Elsewhere `f.X` stays composition. */
 static void join_qualified(P *p, Module *m) {
@@ -1640,22 +1680,27 @@ static void join_qualified(P *p, Module *m) {
   int o = p->pos;
   for (int i = p->pos; i < p->n; i++) {
     Token t = p->t[i];
-    bool q = false;
-    for (int k = 0; k < m->nimports && !q; k++) q = t.k == T_VARID && t.s == m->imports[k].qual;
-    Token *d = &p->t[i + 1 < p->n ? i + 1 : i];
-    int end = t.col + (int)strlen(q ? t.s : "");
-    if (q && d->k == T_FIELD && d->line == t.line && d->col == end) {
-      t.s = intern(xsprintf("%s.%s", t.s, d->s));
-      i++;
-    } else if (q && d->k == T_VARSYM && d->s[0] == '.' && d->s[1] && d->line == t.line && d->col == end) {
+    int n = 0, end = 0;
+    const char *q = NULL;
+    for (int k = 0; k < m->nimports; k++) { /* the longest: Data.Char over Data */
+      int e, l = qual_len(p, i, m->imports[k].qual, &e);
+      if (l > n) n = l, end = e, q = m->imports[k].qual;
+    }
+    Token *d = &p->t[i + n < p->n ? i + n : p->n - 1];
+    bool at = n && d->line == t.line && d->col == end;
+    if (at && d->k == T_FIELD) {
+      t.k = T_VARID;
+      t.s = intern(xsprintf("%s.%s", q, d->s));
+      i += n;
+    } else if (at && d->k == T_VARSYM && d->s[0] == '.' && d->s[1]) {
       t.k = d->s[1] == ':' ? T_CONSYM : T_VARSYM;
-      t.s = intern(xsprintf("%s%s", t.s, d->s));
-      i++;
-    } else if (q && d->k == T_VARSYM && !strcmp(d->s, ".") && d->line == t.line && d->col == end && i + 2 < p->n &&
-               p->t[i + 2].k == T_CONID && p->t[i + 2].line == t.line && p->t[i + 2].col == end + 1) {
-      t.s = intern(xsprintf("%s.%s", t.s, p->t[i + 2].s));
+      t.s = intern(xsprintf("%s%s", q, d->s));
+      i += n;
+    } else if (at && d->k == T_VARSYM && !strcmp(d->s, ".") && i + n + 1 < p->n && p->t[i + n + 1].k == T_CONID &&
+               p->t[i + n + 1].line == t.line && p->t[i + n + 1].col == end + 1) {
       t.k = T_CONID;
-      i += 2;
+      t.s = intern(xsprintf("%s.%s", q, p->t[i + n + 1].s));
+      i += n + 1;
     }
     p->t[o++] = t;
   }
@@ -1721,8 +1766,10 @@ void parse_finish(Module *m) {
   m->ni = is.n;
 }
 
-Expr *parse_expr_text(const char *src, size_t len) {
+Expr *parse_expr_text(const char *src, size_t len, Import *ims, int nims) {
   P p = start(src, len);
+  Module scope = {.imports = ims, .nimports = nims}; /* the REPL's imports */
+  join_qualified(&p, &scope);
   Expr *e = parse_expr(&p);
   while (accept(&p, T_SEMI)) {}
   expect(&p, T_EOF, "end of expression");

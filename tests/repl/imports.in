@@ -1,0 +1,14 @@
+import tests.run.modlists.shapes (Shape(..), area)
+area (Circle 1.0)
+shapes.area (Square 2.0)
+twice s = area s * 2.0
+twice (Square 1.0)
+:t shapes.area
+import tests.run.nosuch
+area (Square 3.0)
+import tests.run.modules.vec as v
+v.Vec 1.0 2.0
+import Data.Char (ord)
+ord (C.chr 65)
+import qualified Data.Char as C
+C.ord (C.chr 66)

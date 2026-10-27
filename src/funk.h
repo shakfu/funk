@@ -287,7 +287,12 @@ typedef struct {
 typedef VEC(ListItem) ListItems;
 
 /* import a.b [as q] [(items)] */
-typedef struct { const char *path, *qual; bool listed; ListItems items; int line, col; } Import;
+typedef struct {
+  const char *path, *qual;
+  bool listed, base; /* base: a Haskell base module, Data.List, for which the prelude stands in */
+  ListItems items;
+  int line, col;
+} Import;
 
 typedef struct {
   const char *name; /* module name [(items)] where: its header, or NULL */
@@ -333,7 +338,7 @@ extern const char *cur_module; /* the module being checked: its prefix, or NULL 
 bool in_prelude(int ns, const char *name);
 /* In `[module.]Type.member`, the '.' before member; NULL for other names. */
 const char *ns_dot(const char *name);
-Expr *parse_expr_text(const char *src, size_t len);
+Expr *parse_expr_text(const char *src, size_t len, Import *ims, int nims); /* ims: whose qualifiers are joined */
 Sig *parse_sig_text(const char *src);
 bool is_decl_text(const char *src, size_t len);
 char *builtin_instances_src(void);

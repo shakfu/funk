@@ -49,17 +49,27 @@ static ImportInfo *qualifier(Q *q, const char *x) {
 static const char *with_prefix(const char *prefix, const char *x) { return intern(xsprintf("%s.%s", prefix, x)); }
 
 static void need_export(ImportInfo *in, int ns, const char *x, int line, int col) {
+  if (!in->ex) { /* a Haskell base module: the prelude */
+    if (!in_prelude(ns, x)) cerror(line, col, "%s`%s` is not in funk's prelude, which stands in for `%s`", ns_word[ns], x, in->im->path);
+    return;
+  }
   if (!exported(in->ex, ns, x)) cerror(line, col, "module `%s` does not export %s`%s`", in->im->path, ns_word[ns], x);
 }
 
-/* q.rest for an import's qualifier q: its module's prefix.rest. */
+/* q.rest for an import's qualifier q: its module's prefix.rest, or
+   rest for a base module. q may hold dots (Data.Char), so the longest
+   qualifier that x starts with wins. */
 static const char *imported(Q *q, const char *x, int ns, int line, int col) {
-  const char *dot = strchr(x, '.');
-  if (!dot || dot == x) return NULL;
-  ImportInfo *in = qualifier(q, intern_n(x, (size_t)(dot - x)));
+  ImportInfo *in = NULL;
+  size_t n = 0;
+  for (int i = 0; i < q->nimps; i++) {
+    size_t l = strlen(q->imps[i].im->qual);
+    if (l > n && !strncmp(x, q->imps[i].im->qual, l) && x[l] == '.' && x[l + 1]) in = &q->imps[i], n = l;
+  }
   if (!in) return NULL;
-  need_export(in, ns, intern(dot + 1), line, col);
-  return with_prefix(in->prefix, dot + 1);
+  const char *rest = intern(x + n + 1);
+  need_export(in, ns, rest, line, col);
+  return in->prefix ? with_prefix(in->prefix, rest) : rest;
 }
 
 static Unq *unqualified(Q *q, int ns, const char *x) {
@@ -291,7 +301,7 @@ static Exports *list_exports(Q *q, Module *m, Exports *all) {
 /* An import list's names, unqualified in this file. */
 static void import_list(Q *q, ImportInfo *in) {
   Exports *ex = in->ex;
-  for (int i = 0; i < in->im->items.n; i++) {
+  for (int i = 0; ex && i < in->im->items.n; i++) {
     ListItem *it = &in->im->items.a[i];
     Unq us[64];
     int nu = 0;
@@ -324,8 +334,16 @@ static void import_list(Q *q, ImportInfo *in) {
 
 Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nimps) {
   Q q = {.prefix = prefix, .imps = imps, .nimps = nimps};
-  for (int i = 0; i < nimps; i++)
-    if (imps[i].im->listed) import_list(&q, &imps[i]);
+  for (int i = 0; i < nimps; i++) {
+    if (imps[i].im->listed && imps[i].ex) import_list(&q, &imps[i]);
+    for (int j = 0; imps[i].im->listed && !imps[i].ex && j < imps[i].im->items.n; j++) { /* a base module's: in the prelude already */
+      ListItem *it = &imps[i].im->items.a[j];
+      bool upper = isupper((unsigned char)it->name[0]);
+      int ns = !upper ? NS_VALUE : in_prelude(NS_TYPE, it->name) ? NS_TYPE : NS_CLASS;
+      need_export(&imps[i], ns, it->name, it->line, it->col);
+      for (int k = 0; k < it->nsubs; k++) need_export(&imps[i], ns == NS_TYPE ? NS_CON : NS_VALUE, it->subs[k], it->line, it->col);
+    }
+  }
   for (int i = 0; i < m->nb; i++) define(&q, &q.values, NS_VALUE, m->binds[i]->name, m->binds[i]->line, m->binds[i]->col);
   for (int i = 0; i < m->nforeign; i++)
     if (!m->foreigns[i]->exported) define(&q, &q.values, NS_VALUE, m->foreigns[i]->name, m->foreigns[i]->line, m->foreigns[i]->col);
@@ -340,7 +358,7 @@ Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nim
     for (int j = 0; j < d->nc; j++) define(&q, &q.cons, NS_CON, d->cons[j].name, d->cons[j].line, d->cons[j].col);
   }
   for (int i = 0; i < m->nstructs; i++) define(&q, &q.types, NS_TYPE, m->structs[i]->name, m->structs[i]->line, m->structs[i]->col);
-  Exports *all = all_exports(m), *ex = m->exports_listed ? list_exports(&q, m, all) : all;
+  Exports *all = all_exports(m), *ex = m->exports_listed && prefix ? list_exports(&q, m, all) : all; /* the program's `module Main (main)`: ignored */
 
   for (int i = 0; i < m->nb; i++) {
     Bind *b = m->binds[i];

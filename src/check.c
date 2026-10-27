@@ -683,7 +683,8 @@ static void register_datas(Module *m) {
         }
         VPUSH(seen, ((FieldSeen){cd->labels[f], cd->name, ft}));
       }
-      uint32_t id = fk_register_con(cd->name, cd->nfields);
+      const char *dot = islower((unsigned char)cd->name[0]) ? strchr(cd->name, '.') : NULL;
+      uint32_t id = fk_register_con(dot ? dot + 1 : cd->name, cd->nfields); /* shown as derived Show does: unqualified */
       if ((int)id != condefs.n) abort();
       con_effects(t);
       fk_con_labels(id, cd->labels);
