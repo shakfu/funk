@@ -90,7 +90,8 @@ static const Fixity fixities[] = {
     {"+", 6, 'l'},   {"-", 6, 'l'},    {":", 5, 'r'},    {"++", 5, 'r'},  {"==", 4, 'n'},
     {"/=", 4, 'n'},  {"<", 4, 'n'},    {"<=", 4, 'n'},   {">", 4, 'n'},   {">=", 4, 'n'},
     {"elem", 4, 'n'}, {"&&", 3, 'r'},  {"||", 2, 'r'},   {">>", 1, 'l'},  {"|>", 1, 'l'},
-    {">>>", 1, 'r'}, {"$", 0, 'r'}};
+    {">>>", 1, 'r'}, {"$", 0, 'r'},   {"shiftL", 8, 'l'}, {"shiftR", 8, 'l'}, {".&.", 7, 'l'},
+    {"xor", 6, 'l'}, {".|.", 5, 'l'}}; /* Data.Bits */
 
 /* Declared fixities, as prec * 3 + index in "lrn". Global so that later
    REPL inputs see them; main.c rolls them back with a failed input. */

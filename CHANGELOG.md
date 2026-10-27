@@ -6,6 +6,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Bitwise operations on `Int`, with `Data.Bits`' names and fixities: `.&.`, `.|.`, `xor`, `complement`, `shiftL`, `shiftR`. A shift by 64 or more gives 0 (or -1 for `shiftR` of a negative number), as GHC's; a negative shift is an error, so a shift by a variable is not treated as total.
+- mandelbrot in `bench/game/`, a binary PBM: 1.0x C; the suite's geometric mean is 1.62x C over 6 tasks.
+
 - A second benchmark suite, `bench/game/`: n-body, spectral-norm, fannkuch-redux, binary-trees and fasta from the Benchmarks Game, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. Geometric mean 1.75x C; binary-trees runs in 0.4x C's time, n-body takes 4.0x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
 
 ### Changed

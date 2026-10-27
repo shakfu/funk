@@ -50,7 +50,7 @@ static bool total_prim(const char *c) {
   static const char *const names[] = {"addi", "subi", "muli", "negi", "absi", "addf", "subf", "mulf", "fdiv", "negf",
                                       "absf", "sqrt", "exp",  "log",  "sin",  "cos",  "pow",  "tofloat", "ord",
                                       "eqw",  "new",  "ltw",  "lew",  "gtw",  "gew",  "eqf",  "nef",  "ltf",
-                                      "lef",  "gtf",  "gef"};
+                                      "lef",  "gtf",  "gef",  "band", "bor",  "bxor", "bnot"};
   for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
     if (strcmp(names[i], c) == 0) return true;
   return false;
@@ -108,6 +108,7 @@ static bool eager(Expr *e, Scope *sc) {
     if (e->n != fk_prims[p].arity) return false;
     const char *c = prim_cname(p);
     if (total_prim(c)) return true;
+    if (!strcmp(c, "shl") || !strcmp(c, "shr")) return e->args[1]->k == E_INT && e->args[1]->ival >= 0; /* a negative shift fails */
     return (!strcmp(c, "div") || !strcmp(c, "mod") || !strcmp(c, "quot") || !strcmp(c, "rem")) &&
            nonzero_literal(e->args[1]);
   }

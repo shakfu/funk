@@ -1,0 +1,13 @@
+-- Bitwise primitives on Int, as Haskell's Data.Bits: fixities .&. 7,
+-- xor 6, .|. 5, shiftL and shiftR 8; shifts of 64 or more; arithmetic
+-- shiftR; a negative shift is an error, so a binding of one stays lazy.
+shifted :: Bool -> Int -> Int
+shifted b n = let s = 1 `shiftL` n in if b then s else 0
+
+main = do
+  print (12 .&. 10, 12 .|. 10, xor 12 10, complement 12)
+  print (1 `shiftL` 3 .|. 1, 6 .&. 3 .|. 8, xor 1 2 .|. 4, 1 + 1 `shiftL` 2)
+  print (1 `shiftL` 63, 1 `shiftL` 64, 3 `shiftL` 100, (-1) `shiftL` 1)
+  print ((-8) `shiftR` 1, (-8) `shiftR` 64, 8 `shiftR` 64, 9223372036854775807 `shiftR` 62)
+  print (map (\i -> 255 `shiftR` i .&. 1) (enumFromTo 0 8))
+  print (shifted False (-1))

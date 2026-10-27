@@ -56,13 +56,14 @@ CORE_SIZES = {
     "printing": 1000000,
 }
 
-# C takes 0.4-2.6 s at each on an M1, below the Game's own sizes.
+# C takes 0.4-2.8 s at each on an M1, below the Game's own sizes.
 GAME_SIZES = {
     "nbody": 10000000,
     "spectralnorm": 3000,
     "fannkuchredux": 11,
     "binarytrees": 18,
     "fasta": 10000000,
+    "mandelbrot": 4000,
 }
 
 SUITES = {
@@ -119,7 +120,7 @@ def measure(cmd, stdin_text):
         if p.returncode != 0:
             raise RuntimeError(f"{' '.join(cmd)} exited {p.returncode}: {err.read().decode().strip()}")
         rss = ru.ru_maxrss // 1024 if platform.system() == "Darwin" else ru.ru_maxrss  # bytes vs KiB
-        return out.read().decode(), wall, ru.ru_utime + ru.ru_stime, rss
+        return out.read().decode("latin-1"), wall, ru.ru_utime + ru.ru_stime, rss  # bytes as is: mandelbrot writes a binary PBM
 
 
 def build(bench, backend):
@@ -159,7 +160,7 @@ def cmd_run(args):
                 if backend == "c":
                     cmd = cmd + [str(n)]  # the Game's C reads n from argv; the core suite's ignores it
                 out = measure(cmd, f"{n}\n")[0]  # warm-up, also the output check
-                outputs[backend] = hashlib.sha256(out.encode()).hexdigest()  # fasta prints 100 MB
+                outputs[backend] = hashlib.sha256(out.encode("latin-1")).hexdigest()  # fasta prints 100 MB
                 samples = [measure(cmd, f"{n}\n") for _ in range(args.repeat)]
             except RuntimeError as e:
                 print(f"{bench:13} {backend:9} FAILED: {e}", file=sys.stderr)

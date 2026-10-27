@@ -54,18 +54,21 @@ static bool divides(const char *n) {
   return !strcmp(n, "div") || !strcmp(n, "mod") || !strcmp(n, "quot") || !strcmp(n, "rem");
 }
 
+static bool shifts(const char *n) { return !strcmp(n, "shiftL") || !strcmp(n, "shiftR"); } /* fail on a negative count */
+
 static bool partial_prim(const char *n) {
   static const char *const p[] = {"error", "chr", "floor", "ceiling", "round", "truncate", "readInt", "readFloat", "getLine",
                                   "primNewArray", "primNewRing", "mallocBytes", "newCString", "peekCString", "deRefStablePtr",
                                   "freeStablePtr", "waitEvent", "pollEvent"};
   for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
     if (!strcmp(n, p[i])) return true;
-  return divides(n);
+  return divides(n) || shifts(n);
 }
 
 bool prim_call_total(Expr *e) {
   const char *n = globals.a[e->fn->idx].name;
   if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
+  if (shifts(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival >= 0;
   return !partial_prim(n);
 }
 
@@ -119,6 +122,7 @@ static bool ok_e(Expr *e, Nm *loc, Nm *call, bool tot) {
       if (e->n > fk_prims[globals.a[g].prim].arity) return false; /* applies an unknown result */
       if (!tot) return !impure_prim(g);
       if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
+      if (shifts(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival >= 0;
       return !partial_prim(n);
     }
     if (globals.a[g].ffi) return e->n <= globals.a[g].ffi->arity && gval_ok(g, tot);

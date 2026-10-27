@@ -109,6 +109,8 @@ Function operators:
 | `a >> b` | evaluate `a`, then `b` | infixl 1 |
 | `f $ x` | `f x` | infixr 0 |
 
+Bitwise operations on `Int` take `Data.Bits`' names and fixities: `.&.` (infixl 7), `xor` (6), `.|.` (5), `complement`, and `shiftL` and `shiftR` (8, usually written in backticks). A shift by 64 or more gives 0, or -1 for `shiftR` of a negative number; a negative shift is an error.
+
 Other built-in operators have Haskell's fixities. User-defined operators default to `infixl 9`. A top-level declaration sets the fixity of operators bound in the same module:
 
 ```haskell

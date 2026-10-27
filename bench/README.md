@@ -55,8 +55,8 @@ python3 bench/bench.py --suite game run     # c and compiled; results in game-re
 python3 bench/bench.py --suite game report
 ```
 
-- **Which C.** The plainest single-threaded C program of each task without the Game's asterisk: `gcc-1`, and for spectral-norm `gcc-8`, its only one. The fastest C entries use threads and SIMD, which funk has not.
-- **Sizes.** Below the Game's, so that C takes 0.4-2.6 s on an M1 (`GAME_SIZES` in `bench.py`). The C program reads n from `argv[1]`, funk from stdin.
+- **Which C.** The plainest single-threaded C program of each task without the Game's asterisk: `gcc-1`, and `gcc-8` for spectral-norm and mandelbrot, their only ones. The fastest C entries use threads and SIMD, which funk has not.
+- **Sizes.** Below the Game's, so that C takes 0.4-2.8 s on an M1 (`GAME_SIZES` in `bench.py`). The C program reads n from `argv[1]`, funk from stdin.
 - **Checks.** `NAME.expected` is the Game's output file for the small n in `NAME.stdin`; `make test` runs each program on it, interpreted and compiled (label `game`). `run` also compares the two backends' output at the full size.
 - **Flags.** `-O2` for both, as in the core suite; the Game builds C with `-O3 -march`.
 
@@ -67,6 +67,7 @@ python3 bench/bench.py --suite game report
 | `fannkuchredux` | 11 | `Array Int` permutations, C's generation order |
 | `binarytrees` | depth 18 | the collector against C's `malloc` and `free` per node |
 | `fasta` | 10,000,000 | the same generator and binary search; one `putStrLn` per 60-character line, as C's `puts` |
+| `mandelbrot` | 4,000 | the same iteration, in C's order of operations; a binary PBM, one `putStr` per row of bytes |
 
 ## Data
 

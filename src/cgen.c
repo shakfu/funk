@@ -268,6 +268,12 @@ static const Scalar scalars[] = {
     {"tocfloat", "(double)(float)%s", 1, R_F, R_F, NULL},
     {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B, NULL},
     {"showi", "fk_s_showint(%s)", 1, R_I, R_V, NULL}, /* primShowInt: allocates */
+    {"band", "(%s & %s)", 2, R_I, R_I, NULL},
+    {"bor", "(%s | %s)", 2, R_I, R_I, NULL},
+    {"bxor", "(%s ^ %s)", 2, R_I, R_I, NULL},
+    {"bnot", "(~%s)", 1, R_I, R_I, NULL},
+    {"shl", "fk_s_shl(%s, %s)", 2, R_I, R_I, NULL},
+    {"shr", "fk_s_shr(%s, %s)", 2, R_I, R_I, NULL},
 };
 
 static const Scalar *scalar_prim(const char *c) {

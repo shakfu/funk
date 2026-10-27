@@ -1,0 +1,25 @@
+-- mandelbrot (Benchmarks Game): mandelbrot.c's iteration, in the same
+-- order of operations, on an n-by-n bitmap of [-1.5-i, 0.5+i], written as
+-- a binary PBM: eight pixels a byte, a row's last byte padded with zeros.
+inSet :: Float -> Float -> Bool
+inSet cr ci = go 0 0.0 0.0 0.0 0.0
+  where
+    go i zr zi tr ti =
+      if i < 50 && tr + ti <= 4.0
+        then (case 2.0 * zr * zi + ci of
+                zi2 -> case tr - ti + cr of
+                  zr2 -> go (i + 1) zr2 zi2 (zr2 * zr2) (zi2 * zi2))
+        else tr + ti <= 4.0
+
+-- a row's bytes from column x on; acc holds nb pixels not yet written
+row :: Int -> Float -> Int -> Int -> Int -> [Char]
+row w ci x acc nb =
+  if x == w
+    then (if nb == 0 then [] else [chr (acc `shiftL` (8 - nb))])
+    else case acc `shiftL` 1 .|. (if inSet (2.0 * toFloat x / toFloat w - 1.5) ci then 1 else 0) of
+      acc2 -> if nb == 7 then chr acc2 : row w ci (x + 1) 0 0 else row w ci (x + 1) acc2 (nb + 1)
+
+main = do
+  let n = readInt (getLine ())
+  putStr ("P4\n" ++ show n ++ " " ++ show n ++ "\n")
+  mapM_ (\y -> putStr (pack (row n (2.0 * toFloat y / toFloat n - 1.0) 0 0 0))) (enumFromTo 0 (n - 1))

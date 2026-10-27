@@ -26,8 +26,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 - [ ] `closures` is 1.7x C. Calling an exact-arity closure inline instead of through `fk_apply`, and a partial application's call without its variable-length array, moved samples out of `fk_apply` but left the time unchanged (-0.6%, reverted). The loop is a chain of dependent `mod`s; on it, funk adds a box, an unbox and a store and reload through the `V *` argument array, which C passes in a register (inferred, not measured). A typed entry point in closures of common shapes (`Int -> Int`), called when the call site's types match, would take the value off memory.
 
-- [ ] **Benchmarks Game, phases 2-4** (`bench/game/`, [bench/README.md](bench/README.md#benchmarks-game-suite)). Phase 1 has 5 tasks, geometric mean 1.75x C (2026-10-27). Next:
-  - mandelbrot: needs bitwise primitives (`shiftL`, `.|.`) and binary output.
+- [ ] **Benchmarks Game, phases 2-4** (`bench/game/`, [bench/README.md](bench/README.md#benchmarks-game-suite)). Phases 1 and 2 have 6 tasks, geometric mean 1.62x C (2026-10-27); mandelbrot is 1.0x. Next:
   - reverse-complement and k-nucleotide: need reading stdin to its end, and a hash table.
   - regex-redux and pidigits: POSIX `regex.h` and GMP through the FFI.
 - [ ] Benchmarks Game, phase 1 gaps:

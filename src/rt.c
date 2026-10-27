@@ -1193,6 +1193,22 @@ static inline int32_t fk_s_chr(int64_t i) {
   if (i < 0 || i > 255) fk_error("chr: %lld out of range", (long long)i);
   return (int32_t)i;
 }
+/* Bits, as Haskell's Data.Bits at Int: a shift by 64 or more gives 0, or -1
+   for shiftR of a negative number; a negative shift is an error. */
+static inline int64_t fk_s_shl(int64_t x, int64_t n) {
+  if (n < 0) fk_error("shiftL: negative shift %lld", (long long)n);
+  return n >= 64 ? 0 : (int64_t)((uint64_t)x << n);
+}
+static inline int64_t fk_s_shr(int64_t x, int64_t n) {
+  if (n < 0) fk_error("shiftR: negative shift %lld", (long long)n);
+  return n >= 64 ? (x < 0 ? -1 : 0) : x >> n; /* arithmetic, in the C compilers funk supports */
+}
+I2(band, FK_MKINT(FK_INT(x) & FK_INT(y)))
+I2(bor, FK_MKINT(FK_INT(x) | FK_INT(y)))
+I2(bxor, FK_MKINT(FK_INT(x) ^ FK_INT(y)))
+I1(bnot, FK_MKINT(~FK_INT(x)))
+I2(shl, FK_MKINT(fk_s_shl(FK_INT(x), FK_INT(y))))
+I2(shr, FK_MKINT(fk_s_shr(FK_INT(x), FK_INT(y))))
 static inline V fk_i_div(V a, V b) { return FK_MKINT(fk_s_div(FK_INT(a), FK_INT(b))); }
 static inline V fk_i_mod(V a, V b) { return FK_MKINT(fk_s_mod(FK_INT(a), FK_INT(b))); }
 static inline V fk_i_quot(V a, V b) { return FK_MKINT(fk_s_quot(FK_INT(a), FK_INT(b))); }
