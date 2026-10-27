@@ -118,8 +118,10 @@ static size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
    in steps of at most STEP_MS, one per STEP_BYTES of allocation. Objects
    allocated meanwhile are marked at once. A write that overwrites a heap
    pointer shades the old value first (FK_SHADE), so everything reachable
-   when the cycle started is marked. */
-#define STEP_BYTES ((size_t)1 << 20)
+   when the cycle started is marked. Nothing is freed until a cycle ends,
+   so its allocation takes fresh chunks: 256 KiB, not 1 MiB, cut bst's
+   resident set from 207 to 160 MB and its time by 4%. */
+#define STEP_BYTES ((size_t)256 << 10)
 #define STEP_MS 0.4
 int fk_marking;
 /* FUNK_GCSTRESS=1, for testing: a cycle 64 KiB after the last one ends,

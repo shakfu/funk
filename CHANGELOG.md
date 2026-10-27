@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Incremental marking steps once per 256 KiB of allocation, not 1 MiB. Nothing is freed until a cycle ends, so a long marking window took fresh chunks: `bst` ran 6% slower than before 0.4.0's collector, with a 37% larger resident set. It is now 1.6% slower; the 0.4 ms pause bound is unchanged. Details in [docs/dev/realtime.md](docs/dev/realtime.md).
+
 - `:l` with an unreadable file in the REPL reports it and continues; it ended the REPL.
 
 ## [0.4.0] - 2026-10-27

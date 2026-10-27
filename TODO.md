@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.35x now; the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.32x now (2026-10-27); the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
@@ -23,6 +23,8 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 ## Medium
 
 - [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): no test proves the stack snapshot's page copy necessary since protection stops below the thread's first frame (`tests/run/gcdeep.fk` passes without it); the Linux limit is from glibc's layout, not run on Linux. An export's stack bound is not computed; for targets with small stacks, sum `-fstack-usage` frame sizes along the call graph. `foreign struct` has no C arrays inside structs (Core Audio's `AudioBufferList`).
+
+- [ ] **A pacer for incremental marking.** Steps come every 256 KiB of allocation, a constant; the heap overshoots by whatever the program allocates while a cycle marks, which grows with the live set (`churn` at 4,000,000 cells: 359 MB resident). Size each step's allocation from the live set at the cycle's start, so marking ends within a set fraction of the threshold, as Go's pacer does, and the program's share of time while marking follows from that fraction. See [docs/dev/realtime.md](docs/dev/realtime.md) ("Step size").
 
 - [ ] **Library api with prefixed symbols.** `libfunk.h` is internal and unstable, and internal names (`intern`, `lex`, `repr`, `globals`) can collide with a host's. Prefix them, or build a shared library with `-fvisibility=hidden` exporting `funk_*` and the `fk_*` symbols the interpreter's glue needs; install the header and a CMake package. A stable api follows the item below.
 

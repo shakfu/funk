@@ -118,7 +118,7 @@ Tests: `tests/run/gc.fk` collects several times while a 200,000-cell list stays 
 
 As proposed in B, with these details:
 
-- **A cycle.** The start pause clears the marks of chunks still unswept and scans the stack and the roots, pushing what they reach. Steps then mark for at most 0.4 ms each, one per MiB of allocation; a step that empties the mark stack ends the cycle with the large-object sweep. While a cycle marks, every allocation takes the out-of-line path, which counts toward the next step and marks the new object; the inline path keeps no extra test.
+- **A cycle.** The start pause clears the marks of chunks still unswept and scans the stack and the roots, pushing what they reach. Steps then mark for at most 0.4 ms each, one per 256 KiB of allocation (1 MiB until after 0.4.0; see "Step size" below); a step that empties the mark stack ends the cycle with the large-object sweep. While a cycle marks, every allocation takes the out-of-line path, which counts toward the next step and marks the new object; the inline path keeps no extra test.
 - **Sweeping finishes before marking starts,** in steps of the same budget. A chunk unswept while marking cannot be swept until the cycle ends, since its marks are partial, so allocation took fresh chunks instead, and the heap grew by about 22 MiB a cycle without bound (`churn` at 1,000,000 cells: 160, 207, 231, 253, 276, 298 MiB). With sweeping finished first, every free object is on a free list when marking starts; the heap settles (217 MiB, 17 cycles).
 - **The threshold** for the next cycle counts what marking found reachable, not the objects allocated during the cycle, which are mostly garbage by its end.
 - **Barriers, three sites.** Snapshot at the beginning needs a write to shade the value it overwrites when that value could be the only path to an object a new, already marked object holds:
@@ -149,6 +149,16 @@ Pauses, the longest of each run:
 The pause no longer depends on the heap; the stack remains, at about 29 us per 1,000 frames, now that the start pause also pushes what it finds. The heap is up to 70% larger: objects allocated during a cycle live until the next one, and the cycle's allocation comes on top of the threshold.
 
 Throughput, compiled, 21 interleaved runs, minimum: against the same emitted C with barriers, the allocation test and the thunk loop removed and each cycle marked in one pause (close to R1), R2 measured -0.2% (`bst`) to +7.9% (`lists`): `trees` +1.8%, `sort` +3.7%, `wordfreq` +1.9%, `records` +3.0%. The largest figures are not the collector's work. Removing the thunk barrier's line alone took `lists` from 58.6 to 54.8 ms, but `lists` forces 80 thunks in all, so that line costs a few nanoseconds; the difference is code placement. The benchmark suite's run of 15:03 was taken under a load average of 4-5 (`usernoted` at 80% CPU); `bst` read 0.620 s there, and 0.303 s on a rerun, against 0.285 s before R1.
+
+**Step size.** The `bst` figure above, 0.303 s against 0.285 s, was not load. Built at each commit since, `bst` slowed at the R2 commit and stayed 6-7% slower, in interleaved runs. Barriers and the out-of-line allocation path were not the cause: removing the barriers changed nothing, and marking new objects on the inline path recovered 1%. The cause is the heap's growth during a cycle. Nothing is freed until the cycle ends, so what the program allocates while marking comes from fresh chunks: with a step per MiB, `bst`'s second cycle took 36 steps, and its resident set grew from 151 to 207 MB, with 3,400 more page faults. A step per 256 KiB ends marking after a quarter of the allocation, with the same 0.4 ms bound:
+
+| Program | Time, 1 MiB / 256 KiB | Resident set, 1 MiB / 256 KiB |
+|-|-|-|
+| `bst` | +6.1% / +1.6% against R1 | 195 / 152 MB |
+| `churn`, 1,000,000 cells | | 229 / 185 MB |
+| `churn`, 4,000,000 cells | | 547 / 359 MB |
+
+The program's share of time while marking falls: `bst` allocates about 1 MiB per ms, so it runs about 0.25 ms per 0.4 ms step, against 1 ms before. 128 KiB recovered `bst` fully (+0.5%), at a share of about 25%. A pacer that sizes steps from the live set would bound the overshoot at any heap size; it is in TODO.
 
 Tests:
 - **`FUNK_GCSTRESS=1`** starts a cycle 64 KiB after the last one ends, marks 4,096 objects a step, never finishes a cycle early, and at each cycle's end re-traces everything reachable and stops the program if any of it is unmarked. Short, frequent cycles start inside the windows where a missing barrier loses an object; long, constant marking did not, since nearly every object was then allocated already marked.
