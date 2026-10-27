@@ -51,7 +51,10 @@ int main(void) {
   size_t total = 0;
   for (long i = 0; i < n; i++, s = rnd(s)) {
     char buf[32];
-    int len = snprintf(buf, sizeof buf, "%s%ld", vocab[s % 20], (s / 20) % 37);
+    size_t vl = strlen(vocab[s % 20]);
+    memcpy(buf, vocab[s % 20], vl);
+    int len = (int)(put_decimal(buf + vl, (s / 20) % 37) - buf);
+    buf[len] = 0;
     char *p = alloc((size_t)len + 1);
     memcpy(p, buf, (size_t)len + 1);
     ws[i] = (Str){(size_t)len, p};

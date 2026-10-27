@@ -8,6 +8,7 @@
 #                                   interp, compiled: the backend
 #                                   stress-interp, stress-compiled: the same under FUNK_GCSTRESS=1
 #                                   types: every expression has a type (FK_CHECK_TYPES)
+#                                   wall: the C compiles without warnings under -Wall -Wextra
 #                                   reuse, fuse: the reuse copies emitted without fusion, or the
 #                                     fused loops, equal FILE.reuse or FILE.fuse
 #                                   gcstats: FUNK_GCSTATS=1 reports each cycle and a summary
@@ -48,6 +49,12 @@ run)
   types)
     FK_CHECK_TYPES=1 "$FUNK" emit-c "$f" -o /dev/null 2>"$tmp/types" || fail "funk emit-c" "$tmp/types"
     if grep -q untyped "$tmp/types"; then fail "expressions without a type" "$tmp/types"; fi
+    exit 0 ;;
+  wall)
+    "$FUNK" emit-c "$f" -o "$tmp/w.c" || fail "funk emit-c"
+    # overflow.fk recurses forever on purpose
+    ${CC:-cc} -O2 -Wall -Wextra -Wno-unused-parameter -Wno-infinite-recursion -Werror -c -o /dev/null "$tmp/w.c" >"$tmp/cc" 2>&1 ||
+      fail "warnings in the generated C" "$tmp/cc"
     exit 0 ;;
   reuse)
     FK_NOFUSE=1 "$FUNK" emit-c "$f" -o "$tmp/c" || fail "funk emit-c"

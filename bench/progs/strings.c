@@ -10,7 +10,8 @@ typedef struct Words { Str w; struct Words *next; } Words;
 
 static Str show(long i) {
   char buf[32];
-  int len = snprintf(buf, sizeof buf, "%ld", i);
+  int len = (int)(put_decimal(buf, i) - buf);
+  buf[len] = 0;
   char *s = alloc((size_t)len + 1);
   memcpy(s, buf, (size_t)len + 1);
   return (Str){(size_t)len, s};

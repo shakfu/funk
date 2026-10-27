@@ -267,6 +267,7 @@ static const Scalar scalars[] = {
     {"acasf", "fk_s_acasf(%s, %s, %s, %s)", 4, -1, R_B, "ipff"},
     {"tocfloat", "(double)(float)%s", 1, R_F, R_F, NULL},
     {"ltu", "((uint64_t)%s < (uint64_t)%s)", 2, R_I, R_B, NULL},
+    {"showi", "fk_s_showint(%s)", 1, R_I, R_V, NULL}, /* primShowInt: allocates */
 };
 
 static const Scalar *scalar_prim(const char *c) {
@@ -274,6 +275,9 @@ static const Scalar *scalar_prim(const char *c) {
     if (strcmp(scalars[i].name, c) == 0) return &scalars[i];
   return NULL;
 }
+
+/* A scalar primitive that allocates its result: not for exports. */
+static bool scalar_allocs(const Scalar *s) { return !strcmp(s->name, "showi"); }
 
 /* The call for an application, as a C expression; args evaluated first,
    left to right. */
@@ -464,7 +468,8 @@ static const char *af_expr(Expr *e, Lambda *L, bool tail) { /* tail: a self call
     Global *g = &globals.a[f->idx];
     if (g->prim >= 0) {
       if (!prim_call_total(e)) return af_at(xsprintf("`%s` may fail; divide only by a non-zero literal", g->name), e, L);
-      if (e->n == fk_prims[g->prim].arity && scalar_prim(prim_cname(g->prim))) return NULL;
+      const Scalar *sc = scalar_prim(prim_cname(g->prim));
+      if (e->n == fk_prims[g->prim].arity && sc && !scalar_allocs(sc)) return NULL;
       if (!strcmp(prim_cname(g->prim), "then") && e->n == 2) { /* its arguments are boxed: () and Bool box without allocating */
         for (int i = 0; i < 2; i++)
           if (rep_of(e->args[i]->ty) != R_V && rep_of(e->args[i]->ty) != R_B && rep_of(e->args[i]->ty) != R_C)
@@ -594,6 +599,7 @@ static TV cg_case(CG *c, Expr *e, bool tail) {
     sb_printf(c->out, "  %s %s = 0;\n", ctype[rr], r);
   }
   const char *reuse = c->reuse;
+  bool jumps = false; /* to done: its label only then, for -Wall */
   for (int a = 0; a < e->na; a++) {
     Alt *alt = e->alts[a];
     int next = c->label++;
@@ -622,17 +628,19 @@ static TV cg_case(CG *c, Expr *e, bool tail) {
       } else {
         const char *v = conv(cg_expr(c, rh->bodies[i]), rr);
         sb_printf(c->out, "  %s = %s; goto L%d;\n", r, v, done);
+        jumps = true;
       }
       sb_puts(c->out, "  }\n");
     }
-    sb_printf(c->out, "  }\n  L%d: ;\n", next);
+    sb_puts(c->out, "  }\n");
+    if (cond.n) sb_printf(c->out, "  L%d: ;\n", next); /* a failed guard falls through */
   }
   c->reuse = reuse;
   SB where = {0};
   const char *loc = xsprintf("%s:%d:%d", e->name, e->line, e->col);
   c_string(&where, loc, (int)strlen(loc));
   sb_printf(c->out, "  fk_match_fail(%s);\n", where.s);
-  if (!tail) sb_printf(c->out, "  L%d: ;\n", done);
+  if (jumps) sb_printf(c->out, "  L%d: ;\n", done);
   return tv(r, rr);
 }
 
@@ -1041,7 +1049,10 @@ char *cgen_program(Chunk *chunks, int nchunks) {
   for (int i = 0; i < ffi_exports.n; i++) /* before the glue, which may take an export's address */
     sb_printf(&out, "%s;\n", export_head(ffi_exports.a[i]));
   sb_puts(&out, ffi_glue(fs.a, fs.n, false));
-  sb_printf(&out, "\n/* ---- generated program ---- */\n\nstatic V G[%d];\nstatic size_t G_n = %d;\n\n",
+  /* Temporaries a pattern does not read: clang removes them; -Wall need not list them. */
+  sb_puts(&out, "\n/* ---- generated program ---- */\n\n#ifdef __clang__\n#pragma clang diagnostic ignored \"-Wunknown-warning-option\"\n#endif\n"
+                "#pragma GCC diagnostic ignored \"-Wunused-variable\"\n#pragma GCC diagnostic ignored \"-Wunused-but-set-variable\"\n");
+  sb_printf(&out, "\nstatic V G[%d];\nstatic size_t G_n = %d;\n\n",
             globals.n ? globals.n : 1, globals.n);
   for (int i = 0; i < all_lambdas.n; i++)
     if (r.lam[all_lambdas.a[i]->id]) {

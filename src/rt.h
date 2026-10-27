@@ -37,6 +37,7 @@ typedef struct { FkHdr h; void *p; } FkPtr;
 #define FK_ISSMALL(v)  ((v) & 1)
 #define FK_ISINT(v)    (FK_ISSMALL(v) || (FK_ISPTR(v) && FK_HDR(v)->kind == K_INT64))
 V fk_int64_box(int64_t i);
+V fk_s_showint(int64_t i); /* show at Int */
 static inline V FK_MKINT(int64_t i) {
   V w = ((V)(uint64_t)i << 1) | 1;
   return __builtin_expect(((int64_t)w >> 1) == i, 1) ? w : fk_int64_box(i); /* the hint: about 2% (typed-backend.md) */
@@ -80,13 +81,13 @@ extern int fk_callback_depth; /* direct callbacks running, for the collector's s
 extern char *fk_snap_lo;
 void fk_snapshot_release(char *sp);
 /* Before a foreign call: no read-only snapshot page below this frame (realtime.md). */
-static inline void fk_ffi_enter(void) {
+static inline __attribute__((unused)) void fk_ffi_enter(void) {
   if (fk_snap_lo && (char *)__builtin_frame_address(0) > fk_snap_lo) fk_snapshot_release((char *)__builtin_frame_address(0));
 }
 _Noreturn void fk_cb_rethrow(void);
 bool fk_on_funk_thread(void);
 /* the failure is funk's thread's: an export on another thread leaves it */
-static inline void fk_cb_check(void) { if (fk_cb_failed && fk_on_funk_thread()) fk_cb_rethrow(); }
+static inline __attribute__((unused)) void fk_cb_check(void) { if (fk_cb_failed && fk_on_funk_thread()) fk_cb_rethrow(); }
 /* A slot of the queued-callback ring (realtime.md, R3). The trampoline
    writes its arguments into data; bytes that do not fit are malloc'd. */
 #define FK_EVENT_DATA 104

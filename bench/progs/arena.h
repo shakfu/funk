@@ -36,6 +36,17 @@ static inline long read_n(void) {
   return n;
 }
 
+/* i in decimal at p, as funk's show at Int formats it (a digit loop, not
+   snprintf); the end. */
+static inline char *put_decimal(char *p, long i) {
+  char tmp[24], *e = tmp + sizeof tmp, *d = e;
+  unsigned long u = i < 0 ? 0 - (unsigned long)i : (unsigned long)i;
+  do *--d = (char)('0' + u % 10); while (u /= 10);
+  if (i < 0) *--d = '-';
+  while (d < e) *p++ = *d++;
+  return p;
+}
+
 typedef struct Cell { long head; struct Cell *tail; } Cell;
 
 static inline Cell *cons(long h, Cell *t) {

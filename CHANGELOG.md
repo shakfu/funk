@@ -18,7 +18,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A `case` in generated C tests `[]`, `:`, `Nothing`, `Just` and other constructors of types with at most two nullary ones by comparing addresses, not by loading the constructor id: nullary constructors are unique constants. A list loop's two tests become one compare, and clang drops the unreachable match failure. Interleaved runs: `sort` -12.3%, `lists` -11.1%, `wordfreq` -2.8%, geometric mean -2.0%.
 
+- `show` at `Int` is its own primitive, `primShowInt` in C as `showi`, and typed code calls it on an `int64_t`: digits into a stack buffer, then one string, where it went through `snprintf`, a heap buffer filled byte by byte, and a copy. It allocates, so exports still reject it. Interleaved runs: `strings` -43%, `printing` -34%, `wordfreq` -6.8%.
+
+- The C versions of `printing`, `strings` and `wordfreq` format numbers with the same digit loop as funk's `show` at `Int`, not `snprintf`: with funk's new `show`, they made funk read 0.6-0.9x C. The geometric mean is 1.19x C; their older C rows are not comparable.
+
 ### Fixed
+
+- Generated C compiles without warnings under `-Wall -Wextra` (1,312 before, over the run tests, examples and benchmarks). `case` emits only the labels it jumps to; the program section ignores `-Wunused-variable` and `-Wunused-but-set-variable`, for temporaries a pattern does not read, which clang removes; warnings in foreign-import glue still show. The machine code is unchanged. A `wall` test per run test and example keeps it so.
 
 - Incremental marking steps once per 256 KiB of allocation, not 1 MiB. Nothing is freed until a cycle ends, so a long marking window took fresh chunks: `bst` ran 6% slower than before 0.4.0's collector, with a 37% larger resident set. It is now 1.6% slower; the 0.4 ms pause bound is unchanged. Details in [docs/dev/realtime.md](docs/dev/realtime.md).
 

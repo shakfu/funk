@@ -955,13 +955,29 @@ static void show_field(Buf *b, V v, int i, int prec) {
   else show(b, FK_FIELD(v, i), prec);
 }
 
+/* i in decimal, ending at end; the first character. INT64_MIN negates as unsigned. */
+static char *decimal(char *end, int64_t i) {
+  uint64_t u = i < 0 ? 0 - (uint64_t)i : (uint64_t)i;
+  do *--end = (char)('0' + u % 10); while (u /= 10);
+  if (i < 0) *--end = '-';
+  return end;
+}
+
+V fk_s_showint(int64_t i) {
+  char tmp[24], *p = decimal(tmp + sizeof tmp, i);
+  return fk_str(p, (size_t)(tmp + sizeof tmp - p));
+}
+
 static void show(Buf *b, V v, int prec) {
   FK_STACK_CHECK();
   char tmp[32];
   if (FK_ISINT(v)) {
-    long long i = FK_INT(v);
-    snprintf(tmp, sizeof tmp, prec > 6 && i < 0 ? "(%lld)" : "%lld", i);
-    buf_puts(b, tmp);
+    int64_t i = FK_INT(v);
+    char *p = decimal(tmp + sizeof tmp - 1, i);
+    tmp[sizeof tmp - 1] = 0;
+    if (prec > 6 && i < 0) buf_putc(b, '(');
+    buf_puts(b, p);
+    if (prec > 6 && i < 0) buf_putc(b, ')');
     return;
   }
   if (FK_ISCHAR(v)) {
@@ -1206,6 +1222,8 @@ V fk_p_pow(V self, V *a) { return fk_float(pow(num_d(a[0]), num_d(a[1]))); }
 
 V fk_p_ord(V self, V *a) { return FK_MKINT(FK_CHAR(a[0])); }
 V fk_p_chr(V self, V *a) { return FK_MKCHAR(fk_s_chr(FK_INT(a[0]))); }
+
+V fk_p_showi(V self, V *a) { return fk_s_showint(FK_INT(a[0])); }
 
 V fk_p_show(V self, V *a) {
   char *s = fk_show_cstr(a[0]);
