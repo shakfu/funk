@@ -139,7 +139,7 @@ Each variable reference resolves to `LOCAL slot`, `FREE index` or `GLOBAL index`
 
 Frames never outlive their call, so both backends keep them on the C stack. Top-level values become zero-parameter lambdas (`Bind.init`), run once.
 
-A non-recursive local binding also gets a zero-parameter lambda (`Bind.thunk`), unless its right side can be evaluated early without any visible difference (`eager`). That holds for literals, constructors, lambdas, variables that are not themselves thunks, total primitives (arithmetic, comparisons, `div` by a non-zero literal) and `if` over such expressions. Calls to user functions are never eager, since they might not terminate. Backends allocate a `K_THUNK` in the slot of a lazy binding, and references to it (`Expr.lazy`) call `fk_force`.
+A non-recursive local binding also gets a zero-parameter lambda (`Bind.thunk`), unless its right side can be evaluated early without any visible difference (`eager`). That holds for literals, constructors, lambdas, variables that are not themselves thunks, total primitives (arithmetic, comparisons, `div` by a non-zero literal), full calls of global functions whose bodies are such expressions under their parameters (`eager_fn`: `max` at `Int`), and `if` over them. A function that calls itself, directly or not, or calls a parameter, is not eager, since it might not terminate. Backends allocate a `K_THUNK` in the slot of a lazy binding, and references to it (`Expr.lazy`) call `fk_force`.
 
 ## Runtime (`rt.c`)
 

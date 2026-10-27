@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A second benchmark suite, `bench/game/`: n-body, spectral-norm, fannkuch-redux, binary-trees and fasta from the Benchmarks Game, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. Geometric mean 1.75x C; binary-trees runs in 0.4x C's time, n-body takes 4.0x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
+
+### Changed
+
+- A local binding whose right side calls a global function is evaluated where it is bound, not made a thunk, when that function's body is itself safe to evaluate early: `let m = max a b` at `Int`. A function that recurses, directly or not, or calls a parameter, still makes a thunk. `fannkuchredux` no longer allocates (135 to 2 MB resident); `fasta` -13.7%.
+
 ## [0.4.1] - 2026-10-27
 
 ### Changed

@@ -1,0 +1,96 @@
+-- n-body (Benchmarks Game): the symplectic integrator of nbody.c, over a
+-- list of bodies with unboxed Float fields. Pairs (i, j), j > i, update
+-- both velocities in C's order, so the arithmetic matches C's.
+data Body = Body Float Float Float Float Float Float Float -- x y z vx vy vz mass
+
+piC = 3.141592653589793
+solarMass = 4.0 * piC * piC
+daysPerYear = 365.24
+
+pair :: Float -> Body -> Body -> (Body, Body)
+pair dt (Body x y z vx vy vz m) (Body x2 y2 z2 vx2 vy2 vz2 m2) =
+  case x - x2 of
+    dx -> case y - y2 of
+      dy -> case z - z2 of
+        dz -> case sqrt (dx * dx + dy * dy + dz * dz) of
+          d -> case dt / (d * d * d) of
+            mag -> (Body x y z (vx - dx * m2 * mag) (vy - dy * m2 * mag) (vz - dz * m2 * mag) m,
+                    Body x2 y2 z2 (vx2 + dx * m * mag) (vy2 + dy * m * mag) (vz2 + dz * m * mag) m2)
+
+-- b against each later body; the updated b and the updated rest
+against :: Float -> Body -> [Body] -> (Body, [Body])
+against dt b [] = (b, [])
+against dt b (c:cs) = case pair dt b c of
+  (b1, c1) -> case against dt b1 cs of
+    (b2, cs2) -> (b2, c1 : cs2)
+
+velocities :: Float -> [Body] -> [Body]
+velocities dt [] = []
+velocities dt (b:bs) = case against dt b bs of
+  (b1, bs1) -> b1 : velocities dt bs1
+
+move :: Float -> Body -> Body
+move dt (Body x y z vx vy vz m) = Body (x + dt * vx) (y + dt * vy) (z + dt * vz) vx vy vz m
+
+advance :: Float -> [Body] -> [Body]
+advance dt bs = map (move dt) (velocities dt bs)
+
+steps :: Int -> [Body] -> [Body]
+steps k bs = if k == 0 then bs else steps (k - 1) (advance 0.01 bs)
+
+kinetic :: Body -> Float
+kinetic (Body _ _ _ vx vy vz m) = 0.5 * m * (vx * vx + vy * vy + vz * vz)
+
+potential :: Body -> Body -> Float
+potential (Body x y z _ _ _ m) (Body x2 y2 z2 _ _ _ m2) =
+  case x - x2 of
+    dx -> case y - y2 of
+      dy -> case z - z2 of
+        dz -> (m * m2) / sqrt (dx * dx + dy * dy + dz * dz)
+
+energy :: [Body] -> Float
+energy bs = go 0.0 bs
+  where
+    go e [] = e
+    go e (b:rest) = go (foldl (\acc c -> acc - potential b c) (e + kinetic b) rest) rest
+
+momentum :: (Body -> Float) -> [Body] -> Float
+momentum f bs = foldl (\p b -> p + f b) 0.0 bs
+
+offset :: [Body] -> [Body]
+offset bs = case bs of
+  [] -> []
+  (Body x y z _ _ _ m : rest) ->
+    Body x y z (0.0 - momentum (\(Body _ _ _ vx _ _ m) -> vx * m) bs / solarMass)
+               (0.0 - momentum (\(Body _ _ _ _ vy _ m) -> vy * m) bs / solarMass)
+               (0.0 - momentum (\(Body _ _ _ _ _ vz m) -> vz * m) bs / solarMass) m : rest
+
+planets :: [Body]
+planets =
+  [ Body 0.0 0.0 0.0 0.0 0.0 0.0 solarMass
+  , Body 4.84143144246472090e+00 (-1.16032004402742839e+00) (-1.03622044471123109e-01)
+         (1.66007664274403694e-03 * daysPerYear) (7.69901118419740425e-03 * daysPerYear) (-6.90460016972063023e-05 * daysPerYear)
+         (9.54791938424326609e-04 * solarMass)
+  , Body 8.34336671824457987e+00 4.12479856412430479e+00 (-4.03523417114321381e-01)
+         (-2.76742510726862411e-03 * daysPerYear) (4.99852801234917238e-03 * daysPerYear) (2.30417297573763929e-05 * daysPerYear)
+         (2.85885980666130812e-04 * solarMass)
+  , Body 1.28943695621391310e+01 (-1.51111514016986312e+01) (-2.23307578892655734e-01)
+         (2.96460137564761618e-03 * daysPerYear) (2.37847173959480950e-03 * daysPerYear) (-2.96589568540237556e-05 * daysPerYear)
+         (4.36624404335156298e-05 * solarMass)
+  , Body 1.53796971148509165e+01 (-2.59193146099879641e+01) 1.79258772950371181e-01
+         (2.68067772490389322e-03 * daysPerYear) (1.62824170038242295e-03 * daysPerYear) (-9.51592254519715870e-05 * daysPerYear)
+         (5.15138902046611451e-05 * solarMass)
+  ]
+
+-- x as C's %.9f: rounded to nine decimals
+fixed9 :: Float -> String
+fixed9 x = if x < 0.0 then "-" ++ digits (0.0 - x) else digits x
+  where
+    digits y = case floor (y * 1000000000.0 + 0.5) of
+      m -> show (div m 1000000000) ++ "." ++ pack (drop 1 (unpack (show (mod m 1000000000 + 1000000000))))
+
+main = do
+  let n = readInt (getLine ())
+      bs = offset planets
+  putStrLn (fixed9 (energy bs))
+  putStrLn (fixed9 (energy (steps n bs)))

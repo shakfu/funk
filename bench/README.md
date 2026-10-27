@@ -46,6 +46,28 @@ All backends must print the same output. A benchmark whose outputs differ is not
 
 Sizes are in `SIZES` in `bench.py`. Each size keeps the interpreter under about 3 s. On an M1, C times are therefore 5-75 ms, so `x C` ratios carry several percent of noise. Changing a size makes older rows incomparable, and `report` skips rows whose `n` differs.
 
+## Benchmarks Game suite
+
+`game/` holds programs from [The Computer Language Benchmarks Game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/): each task's funk version, `NAME.fk`, and one of the Game's own C programs, `NAME.c`, under its license (`game/LICENSE`). The core suite pairs funk with C written to match it; this suite measures funk against C written for the task, with the Game's rules: the same algorithm, any data structure.
+
+```sh
+python3 bench/bench.py --suite game run     # c and compiled; results in game-results.jsonl
+python3 bench/bench.py --suite game report
+```
+
+- **Which C.** The plainest single-threaded C program of each task without the Game's asterisk: `gcc-1`, and for spectral-norm `gcc-8`, its only one. The fastest C entries use threads and SIMD, which funk has not.
+- **Sizes.** Below the Game's, so that C takes 0.4-2.6 s on an M1 (`GAME_SIZES` in `bench.py`). The C program reads n from `argv[1]`, funk from stdin.
+- **Checks.** `NAME.expected` is the Game's output file for the small n in `NAME.stdin`; `make test` runs each program on it, interpreted and compiled (label `game`). `run` also compares the two backends' output at the full size.
+- **Flags.** `-O2` for both, as in the core suite; the Game builds C with `-O3 -march`.
+
+| Task | Size | Notes |
+|-|-|-|
+| `nbody` | 10,000,000 steps | bodies as a list of records with unboxed `Float` fields, updated pairwise in C's order, so the floating-point results are C's |
+| `spectralnorm` | 3,000 | `Array Float` vectors, the four functions of the Java program |
+| `fannkuchredux` | 11 | `Array Int` permutations, C's generation order |
+| `binarytrees` | depth 18 | the collector against C's `malloc` and `free` per node |
+| `fasta` | 10,000,000 | the same generator and binary search; one `putStrLn` per 60-character line, as C's `puts` |
+
 ## Data
 
 `results.jsonl` is append-only, one JSON object per benchmark, backend and run. Commit it to keep the history.

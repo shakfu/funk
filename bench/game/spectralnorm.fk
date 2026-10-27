@@ -1,0 +1,50 @@
+-- spectral-norm (Benchmarks Game): the power method of spectralnorm.c,
+-- with its four functions, over Arrays of unboxed Floats.
+evalA :: Int -> Int -> Float
+evalA i j = 1.0 / toFloat (div ((i + j) * (i + j + 1)) 2 + i + 1)
+
+-- out[i] = sum over j of a i j * u[j]
+times :: (Int ->> Int ->> Float) -> Int -> Array Float -> Array Float ->> ()
+times a n u out = rows 0
+  where
+    rows i = if i == n then () else do
+      writeArray out i (dot i 0 0.0)
+      rows (i + 1)
+    dot i j acc = if j == n then acc else dot i (j + 1) (acc + a i j * readArray u j)
+
+evalATimesU :: Int -> Array Float -> Array Float ->> ()
+evalATimesU n u out = times evalA n u out
+
+evalAtTimesU :: Int -> Array Float -> Array Float ->> ()
+evalAtTimesU n u out = times (\i j -> evalA j i) n u out
+
+evalAtATimesU :: Int -> Array Float -> Array Float -> Array Float ->> ()
+evalAtATimesU n u out tmp = do
+  evalATimesU n u tmp
+  evalAtTimesU n tmp out
+
+sumOver :: Int -> (Int ->> Float) ->> Float
+sumOver n f = go 0 0.0
+  where go i acc = if i == n then acc else go (i + 1) (acc + f i)
+
+-- x as C's %.9f: rounded to nine decimals
+fixed9 :: Float -> String
+fixed9 x = if x < 0.0 then "-" ++ digits (0.0 - x) else digits x
+  where
+    digits y = case floor (y * 1000000000.0 + 0.5) of
+      m -> show (div m 1000000000) ++ "." ++ pack (drop 1 (unpack (show (mod m 1000000000 + 1000000000))))
+
+main = do
+  let n = readInt (getLine ())
+  u <- newArray n 1.0
+  v <- newArray n 0.0
+  tmp <- newArray n 0.0
+  mapM_ (\i -> do
+    evalAtATimesU n u v tmp
+    evalAtATimesU n v u tmp) (enumFromTo 1 10)
+  let vBv = sumOver n (\i -> readArray u i * readArray v i)
+      vv = sumOver n (\i -> readArray v i * readArray v i)
+  putStrLn (fixed9 (sqrt (vBv / vv)))
+  freeArray u
+  freeArray v
+  freeArray tmp

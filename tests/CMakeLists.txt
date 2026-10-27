@@ -1,7 +1,7 @@
 # The test suite, one ctest test per check; tests/check.sh runs each and
 # documents what they check. `make test` runs them in parallel; one by
-# name: ctest --test-dir build -R gcdeep. Labels: run, example, error, repl,
-# ffi, stress, cli.
+# name: ctest --test-dir build -R gcdeep. Labels: run, example, game, error,
+# repl, ffi, stress, cli.
 
 set(CHECK sh ${PROJECT_SOURCE_DIR}/tests/check.sh)
 
@@ -27,6 +27,16 @@ foreach(f ${runs})
     if(EXISTS ${PROJECT_SOURCE_DIR}/${d}/${n}.${mode})
       funk_test(${label}/${n}/${mode} ${label} run ${f} ${mode})
     endif()
+  endforeach()
+endforeach()
+
+# Benchmarks Game programs (bench/game) at their small n, against the
+# Game's output files
+file(GLOB games RELATIVE ${PROJECT_SOURCE_DIR} CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/bench/game/*.fk)
+foreach(f ${games})
+  get_filename_component(n ${f} NAME_WE)
+  foreach(mode interp compiled types wall)
+    funk_test(game/${n}/${mode} game run ${f} ${mode})
   endforeach()
 endforeach()
 

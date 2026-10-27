@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
 """Benchmark funk (interpreted and compiled) against equivalent C.
 
-  bench.py run [-r N] [--only a,b] [--backends c,compiled,interp] [--note TEXT]
+  bench.py [--suite core|game] run [-r N] [--only a,b] [--backends c,compiled,interp] [--note TEXT]
       Build and time every benchmark; append one row per benchmark and
-      backend to bench/results.jsonl.
-  bench.py report [--baseline COMMIT] [--threshold 0.10] [--host HOST]
+      backend to bench/results.jsonl (game: bench/game-results.jsonl).
+  bench.py [--suite core|game] report [--baseline COMMIT] [--threshold 0.10] [--host HOST]
       Compare the latest run on this host with the previous run, or with
       the latest run of COMMIT. Exits 1 if any benchmark regressed.
-  bench.py history NAME [--backend compiled] [--host HOST]
+  bench.py [--suite core|game] history NAME [--backend compiled] [--host HOST]
       Print the timing of one benchmark across all recorded runs.
 
-See bench/README.md for the benchmarks and the row format.
+The core suite (bench/progs) pairs funk programs with C written to match.
+The game suite (bench/game) is programs from the Benchmarks Game, against
+its single-threaded C; it is compiled only by default, at its sizes. See
+bench/README.md for the benchmarks and the row format.
 """
 
 import argparse
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -31,9 +35,10 @@ BUILD = os.path.join(ROOT, "build", "bench")
 FUNK = os.environ.get("FUNK", os.path.join(ROOT, "funk"))
 BACKENDS = ["c", "compiled", "interp"]
 
-# Input size per benchmark, written to stdin. Changing a size makes old
-# rows incomparable; report only compares rows with equal n.
-SIZES = {
+# Input size per benchmark, written to stdin, and given to the C version
+# as argv[1] too. Changing a size makes old rows incomparable; report only
+# compares rows with equal n.
+CORE_SIZES = {
     "fib": 34,
     "loop": 40000000,
     "lazywhere": 20000000,
@@ -50,6 +55,21 @@ SIZES = {
     "wordfreq": 300000,
     "printing": 1000000,
 }
+
+# C takes 0.4-2.6 s at each on an M1, below the Game's own sizes.
+GAME_SIZES = {
+    "nbody": 10000000,
+    "spectralnorm": 3000,
+    "fannkuchredux": 11,
+    "binarytrees": 18,
+    "fasta": 10000000,
+}
+
+SUITES = {
+    "core": (PROGS, CORE_SIZES, RESULTS, BACKENDS),
+    "game": (os.path.join(ROOT, "bench", "game"), GAME_SIZES, os.path.join(ROOT, "bench", "game-results.jsonl"), ["c", "compiled"]),
+}
+SIZES = CORE_SIZES
 
 
 def sh(*cmd):
@@ -105,7 +125,7 @@ def measure(cmd, stdin_text):
 def build(bench, backend):
     """Return (command to run, build seconds or None)."""
     os.makedirs(BUILD, exist_ok=True)
-    exe = os.path.join(BUILD, f"{bench}_{backend}")
+    exe = os.path.join(BUILD, f"{SUITE}_{bench}_{backend}")
     if backend == "interp":
         return [FUNK, os.path.join(PROGS, bench + ".fk")], None
     if backend == "compiled":
@@ -124,7 +144,7 @@ def cmd_run(args):
     if not os.path.exists(FUNK):
         sys.exit("bench: ./funk not found; run make first")
     names = args.only.split(",") if args.only else list(SIZES)
-    backends = args.backends.split(",")
+    backends = (args.backends or ",".join(DEFAULT_BACKENDS)).split(",")
     for name in names + backends:
         if name not in SIZES and name not in BACKENDS:
             sys.exit(f"bench: unknown benchmark or backend `{name}`")
@@ -136,18 +156,21 @@ def cmd_run(args):
         for backend in backends:
             try:
                 cmd, build_s = build(bench, backend)
-                outputs[backend] = measure(cmd, f"{n}\n")[0]  # warm-up, also the output check
+                if backend == "c":
+                    cmd = cmd + [str(n)]  # the Game's C reads n from argv; the core suite's ignores it
+                out = measure(cmd, f"{n}\n")[0]  # warm-up, also the output check
+                outputs[backend] = hashlib.sha256(out.encode()).hexdigest()  # fasta prints 100 MB
                 samples = [measure(cmd, f"{n}\n") for _ in range(args.repeat)]
             except RuntimeError as e:
-                print(f"{bench:10} {backend:9} FAILED: {e}", file=sys.stderr)
+                print(f"{bench:13} {backend:9} FAILED: {e}", file=sys.stderr)
                 continue
             row = dict(meta, bench=bench, backend=backend, n=n, build_s=build_s,
                        wall=[round(s[1], 4) for s in samples], cpu=[round(s[2], 4) for s in samples],
                        maxrss_kb=max(s[3] for s in samples))
             rows.append(row)
-            print(f"{bench:10} {backend:9} {min(row['wall']):8.3f}s  {row['maxrss_kb'] // 1024:6d} MiB", flush=True)
+            print(f"{bench:13} {backend:9} {min(row['wall']):8.3f}s  {row['maxrss_kb'] // 1024:6d} MiB", flush=True)
         if len(set(outputs.values())) > 1:
-            print(f"{bench:10} output differs between backends: {outputs}; not recorded", file=sys.stderr)
+            print(f"{bench:13} output differs between backends; not recorded", file=sys.stderr)
             rows = [r for r in rows if r["bench"] != bench]
     with open(RESULTS, "a") as f:
         for r in rows:
@@ -195,13 +218,13 @@ def cmd_report(args):
     if base:
         b0 = next(iter(base.values()))
         print(f"baseline {b0['run']} {label(b0)}; metric: min wall time; threshold {args.threshold:.0%}")
-    print(f"\n{'bench':10} {'backend':9} {'time':>8} {'x C':>7} {'base':>8} {'change':>8}")
+    print(f"\n{'bench':13} {'backend':9} {'time':>8} {'x C':>7} {'base':>8} {'change':>8}")
     regressed = 0
     for (bench, backend), r in sorted(cur.items(), key=lambda kv: (list(SIZES).index(kv[0][0]) if kv[0][0] in SIZES else 99, BACKENDS.index(kv[0][1]))):
         t = min(r["wall"])
         c = cur.get((bench, "c"))
         ratio = f"{t / min(c['wall']):6.1f}x" if c and backend != "c" else ""
-        line = f"{bench:10} {backend:9} {t:7.3f}s {ratio:>7}"
+        line = f"{bench:13} {backend:9} {t:7.3f}s {ratio:>7}"
         b = base.get((bench, backend))
         if b and b["n"] == r["n"]:
             change = t / min(b["wall"]) - 1
@@ -212,7 +235,8 @@ def cmd_report(args):
     for title, run in (("run", cur), ("baseline", base)):
         g = geomean(run)
         if g:
-            print(f"\ngeomean compiled/C ({title}): {g:.2f}x over {g_count(run)} benchmarks; target 2x", end="")
+            target = "; target 2x" if SUITE == "core" else ""
+            print(f"\ngeomean compiled/C ({title}): {g:.2f}x over {g_count(run)} benchmarks{target}", end="")
     print()
     sys.exit(1 if regressed else 0)
 
@@ -241,11 +265,12 @@ def cmd_history(args):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--suite", default="core", choices=list(SUITES))
     sub = ap.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
     r.add_argument("-r", "--repeat", type=int, default=5, help="timed runs per benchmark and backend")
     r.add_argument("--only", help="comma-separated benchmark names")
-    r.add_argument("--backends", default=",".join(BACKENDS))
+    r.add_argument("--backends", help="comma-separated; default c,compiled,interp (game: c,compiled)")
     r.add_argument("--note", default="", help="free text stored with the run")
     for name in ("report", "history"):
         p = sub.add_parser(name)
@@ -254,9 +279,14 @@ def main():
             p.add_argument("--baseline", help="commit prefix to compare against")
             p.add_argument("--threshold", type=float, default=0.10)
         else:
-            p.add_argument("name", choices=list(SIZES))
+            p.add_argument("name")
             p.add_argument("--backend", default="compiled", choices=BACKENDS)
     args = ap.parse_args()
+    global SUITE, PROGS, SIZES, RESULTS, DEFAULT_BACKENDS
+    SUITE = args.suite
+    PROGS, SIZES, RESULTS, DEFAULT_BACKENDS = SUITES[SUITE]
+    if args.cmd == "history" and args.name not in SIZES:
+        sys.exit(f"bench: unknown benchmark `{args.name}` in the {SUITE} suite")
     {"run": cmd_run, "report": cmd_report, "history": cmd_history}[args.cmd](args)
 
 

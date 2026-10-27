@@ -58,10 +58,33 @@ static bool total_prim(const char *c) {
 
 static bool nonzero_literal(Expr *e) { return (e->k == E_INT && e->ival) || (e->k == E_FLOAT && e->fval); }
 
+static bool eager(Expr *e, Scope *sc);
+
+/* A full call of global g is eager when g's body is, under its parameters,
+   which are values: `max` at Int. Recursion, direct or not, might not
+   terminate, so a function being checked counts as not eager. Keyed by the
+   Bind, since a failed REPL chunk frees its global indices for reuse. */
+static bool eager_fn(int g) {
+  static VEC(struct { Bind *b; char v; }) memo; /* v: 1 checking, 2 eager, 3 not */
+  Bind *b = globals.a[g].bind;
+  if (!b || b->e->k != E_LAM) return false;
+  while (memo.n <= g) VPUSH(memo, ((__typeof__(*memo.a)){NULL, 0}));
+  if (memo.a[g].b == b && memo.a[g].v) return memo.a[g].v == 2;
+  memo.a[g].b = b;
+  memo.a[g].v = 1;
+  Lambda *L = b->e->lam;
+  Scope *sc = NULL; /* parameters are values; a call of one is unknown */
+  for (int i = 0; i < L->n; i++) sc = push(sc, L->params[i], NULL, i, NULL, false);
+  bool ok = eager(L->body, sc);
+  memo.a[g].v = ok ? 2 : 3;
+  return ok;
+}
+
 /* Can e be evaluated now instead of at its first use, with no way to tell?
    It must terminate, cannot fail and has no effect: literals, constructors,
-   lambdas, variables already evaluated, total primitives and `if` over
-   such expressions. A call to a user function might not terminate. */
+   lambdas, variables already evaluated, total primitives, full calls of
+   global functions whose bodies are such expressions (eager_fn), and `if`
+   over them. */
 static bool eager(Expr *e, Scope *sc) {
   switch (e->k) {
   case E_LAM: case E_CON: case E_INT: case E_FLOAT: case E_CHAR: case E_STR: return true;
@@ -80,7 +103,9 @@ static bool eager(Expr *e, Scope *sc) {
       if (s->name == e->fn->name) return false; /* a local function */
     int g = global_lookup(e->fn->name);
     int p = g >= 0 ? globals.a[g].prim : -1;
-    if (p < 0 || e->n != fk_prims[p].arity) return false;
+    if (p < 0) return g >= 0 && globals.a[g].bind && globals.a[g].bind->e->k == E_LAM &&
+                      e->n == globals.a[g].bind->e->lam->n && eager_fn(g);
+    if (e->n != fk_prims[p].arity) return false;
     const char *c = prim_cname(p);
     if (total_prim(c)) return true;
     return (!strcmp(c, "div") || !strcmp(c, "mod") || !strcmp(c, "quot") || !strcmp(c, "rem")) &&

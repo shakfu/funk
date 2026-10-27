@@ -1,0 +1,86 @@
+-- fasta (Benchmarks Game): fasta.c's generator and output. Random lines
+-- pick each character by binary search over cumulative probabilities,
+-- with the same linear congruential generator; the repeated sequence is
+-- copied cyclically. Lines are 60 characters.
+lineLength = 60
+
+-- the next seed, and the random number in [0, 1) from it
+next :: Int -> Int
+next s = mod (s * 3877 + 29573) 139968
+
+-- an alphabet: characters and cumulative probabilities, in Arrays
+data Alphabet = Alphabet Int (Array Int) (Array Float)
+
+alphabet :: [(Char, Float)] ->> Alphabet
+alphabet ps = do
+  let n = length ps
+  cs <- newArray n 0
+  fs <- newArray n 0.0
+  fill cs fs 0 0.0 ps
+  Alphabet n cs fs
+  where
+    fill cs fs i cp [] = ()
+    fill cs fs i cp ((c, p) : rest) = do
+      writeArray cs i (ord c)
+      writeArray fs i (cp + p)
+      fill cs fs (i + 1) (cp + p) rest
+
+-- fasta.c's selectRandom: the first character, or a binary search
+select :: Alphabet -> Float ->> Char
+select (Alphabet n cs fs) r =
+  if r < readArray fs 0 then chr (readArray cs 0) else search 0 (n - 1)
+  where
+    search lo hi = if hi > lo + 1
+      then (case div (hi + lo) 2 of i -> if r < readArray fs i then search lo i else search i hi)
+      else chr (readArray cs hi)
+
+-- m random characters; the seed after them
+pick :: Alphabet -> Int -> Int ->> ([Char], Int)
+pick a m s = if m == 0 then ([], s) else do
+  let s1 = next s
+  c <- select a (toFloat s1 / 139968.0)
+  (cs, s2) <- pick a (m - 1) s1
+  (c : cs, s2)
+
+randomFasta :: String -> Alphabet -> Int -> Int ->> Int
+randomFasta header a n seed = do
+  putStrLn header
+  go n seed
+  where
+    go todo s = if todo <= 0 then s else do
+      (cs, s2) <- pick a (min lineLength todo) s
+      putStrLn (pack cs)
+      go (todo - lineLength) s2
+
+repeatFasta :: String -> String -> Int ->> ()
+repeatFasta header seq n = do
+  putStrLn header
+  let cs = unpack seq
+      kn = length cs
+  codes <- newArray kn 0
+  mapM_ (\(i, c) -> writeArray codes i (ord c)) (zip (enumFromTo 0 (kn - 1)) cs)
+  go codes kn n 0
+  freeArray codes
+  where
+    go codes kn todo k = if todo <= 0 then () else do
+      let m = min lineLength todo
+      putStrLn (pack (map (\j -> chr (readArray codes (mod (k + j) kn))) (enumFromTo 0 (m - 1))))
+      go codes kn (todo - lineLength) (mod (k + m) kn)
+
+alu :: String
+alu = "GGCCGGGCGCGGTGGCTCACGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGCGGATCACCTGAGGTCAGGAGTTCGAGACCAGCCTGGCCAACATGGTGAAACCCCGTCTCTACTAAAAATACAAAAATTAGCCGGGCGTGGTGGCGCGCGCCTGTAATCCCAGCTACTCGGGAGGCTGAGGCAGGAGAATCGCTTGAACCCGGGAGGCGGAGGTTGCAGTGAGCCGAGATCGCGCCACTGCACTCCAGCCTGGGCGACAGAGCGAGACTCCGTCTCAAAAA"
+
+iub :: [(Char, Float)]
+iub = [('a', 0.27), ('c', 0.12), ('g', 0.12), ('t', 0.27), ('B', 0.02), ('D', 0.02), ('H', 0.02), ('K', 0.02),
+       ('M', 0.02), ('N', 0.02), ('R', 0.02), ('S', 0.02), ('V', 0.02), ('W', 0.02), ('Y', 0.02)]
+
+homosapiens :: [(Char, Float)]
+homosapiens = [('a', 0.3029549426680), ('c', 0.1979883004921), ('g', 0.1975473066391), ('t', 0.3015094502008)]
+
+main = do
+  let n = readInt (getLine ())
+  repeatFasta ">ONE Homo sapiens alu" alu (n * 2)
+  a <- alphabet iub
+  h <- alphabet homosapiens
+  s <- randomFasta ">TWO IUB ambiguity codes" a (n * 3) 42
+  randomFasta ">THREE Homo sapiens frequency" h (n * 5) s

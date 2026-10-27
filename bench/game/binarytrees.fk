@@ -1,0 +1,30 @@
+-- binary-trees (Benchmarks Game): binarytrees.c's trees, depths and
+-- output. The collector stands in for C's malloc and free.
+data Tree = Nil | Node Tree Tree
+
+bottomUp :: Int -> Tree
+bottomUp d = if d == 0 then Node Nil Nil else Node (bottomUp (d - 1)) (bottomUp (d - 1))
+
+check :: Tree -> Int
+check Nil = 0
+check (Node l r) = 1 + check l + check r
+
+-- the checks of `iterations` new trees of depth d
+sweep :: Int -> Int -> Int -> Int
+sweep d i acc = if i == 0 then acc else sweep d (i - 1) (acc + check (bottomUp d))
+
+depths :: Int -> Int -> Int ->> ()
+depths minD maxD d = if d > maxD then () else do
+  let iterations = 2 ^ (maxD - d + minD)
+  putStrLn (show iterations ++ "\t trees of depth " ++ show d ++ "\t check: " ++ show (sweep d iterations 0))
+  depths minD maxD (d + 2)
+
+main = do
+  let n = readInt (getLine ())
+      minD = 4
+      maxD = max (minD + 2) n
+      stretch = maxD + 1
+  putStrLn ("stretch tree of depth " ++ show stretch ++ "\t check: " ++ show (check (bottomUp stretch)))
+  long <- bottomUp maxD
+  depths minD maxD minD
+  putStrLn ("long lived tree of depth " ++ show maxD ++ "\t check: " ++ show (check long))

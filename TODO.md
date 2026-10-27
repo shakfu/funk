@@ -26,6 +26,16 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 - [ ] `closures` is 1.7x C. Calling an exact-arity closure inline instead of through `fk_apply`, and a partial application's call without its variable-length array, moved samples out of `fk_apply` but left the time unchanged (-0.6%, reverted). The loop is a chain of dependent `mod`s; on it, funk adds a box, an unbox and a store and reload through the `V *` argument array, which C passes in a register (inferred, not measured). A typed entry point in closures of common shapes (`Int -> Int`), called when the call site's types match, would take the value off memory.
 
+- [ ] **Benchmarks Game, phases 2-4** (`bench/game/`, [bench/README.md](bench/README.md#benchmarks-game-suite)). Phase 1 has 5 tasks, geometric mean 1.75x C (2026-10-27). Next:
+  - mandelbrot: needs bitwise primitives (`shiftL`, `.|.`) and binary output.
+  - reverse-complement and k-nucleotide: need reading stdin to its end, and a hash table.
+  - regex-redux and pidigits: POSIX `regex.h` and GMP through the FFI.
+- [ ] Benchmarks Game, phase 1 gaps:
+  - `nbody` is 4.0x C: each pair update builds two `Body`s and a tuple, and each step a list, where C updates five structs in place.
+  - `fannkuchredux` is 3.0x C. It no longer allocates (a thunk for `let m = max maxFlips f` was 1.4 GB over 40M permutations; 135 to 2 MB resident); each `Array` access is still a call with a bounds check.
+  - `fasta` is 2.4x C: each 60-character line is a `[Char]` packed into a `String`.
+- [ ] The effect checker's "declared with `->` but calls an effectful function" names the function, not the arrow. A function that acts and calls a parameter needs `->>` on each of that parameter's arrows (`(Int ->> Int ->> Float)`); a definition with fewer parameters than its signature's arrows reaches a `->` and reports the same. Both read as if the signature's last arrow were wrong.
+
 - [ ] **A pacer for incremental marking.** Steps come every 256 KiB of allocation, a constant; the heap overshoots by whatever the program allocates while a cycle marks, which grows with the live set (`churn` at 4,000,000 cells: 359 MB resident). Size each step's allocation from the live set at the cycle's start, so marking ends within a set fraction of the threshold, as Go's pacer does, and the program's share of time while marking follows from that fraction. See [docs/dev/realtime.md](docs/dev/realtime.md) ("Step size").
 
 - [ ] **Library api with prefixed symbols.** `libfunk.h` is internal and unstable, and internal names (`intern`, `lex`, `repr`, `globals`) can collide with a host's. Prefix them, or build a shared library with `-fvisibility=hidden` exporting `funk_*` and the `fk_*` symbols the interpreter's glue needs; install the header and a CMake package. A stable api follows the item below.

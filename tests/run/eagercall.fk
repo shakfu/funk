@@ -1,0 +1,36 @@
+-- A local binding whose right side calls a global function is evaluated
+-- where it is bound only when that function's body cannot fail, loop or
+-- act (resolve.c's eager_fn). Each unused binding below would fail or loop
+-- if it were evaluated early.
+apply :: (Int -> Int) -> Int -> Int
+apply f x = f x -- calls a parameter: unknown
+
+boom :: Int -> Int
+boom x = error "boom"
+
+spin :: Int -> Int
+spin x = spin (x + 1) -- recursive: might not terminate
+
+ping :: Int -> Int
+ping x = pong x
+pong :: Int -> Int
+pong x = ping x
+
+over :: Int -> Int -> Int
+over a b = div a b -- divides by a variable: may fail
+
+clamp :: Int -> Int -> Int
+clamp lo x = max lo (min 10 x) -- eager: total primitives through max and min
+
+pick :: Bool -> Int -> Int
+pick b x =
+  let a = apply boom x
+      s = spin x
+      p = ping x
+      d = over x 0
+      c = clamp 0 x
+  in if b then a + s + p + d else c
+
+main = do
+  print (pick False 42)
+  print (pick False (-3))

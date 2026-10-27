@@ -1,0 +1,71 @@
+-- fannkuch-redux (Benchmarks Game): fannkuchredux.c's permutation order
+-- and flip counting, over Arrays of Int: perm1 is the current permutation,
+-- perm the copy that is flipped, count the rotations left at each level.
+copy :: Array Int -> Array Int -> Int -> Int ->> ()
+copy from to n i = if i == n then () else do
+  writeArray to i (readArray from i)
+  copy from to n (i + 1)
+
+-- reverse perm[0..k]
+reverseTo :: Array Int -> Int -> Int ->> ()
+reverseTo perm i k = if i >= k then () else do
+  t <- readArray perm i
+  writeArray perm i (readArray perm k)
+  writeArray perm k t
+  reverseTo perm (i + 1) (k - 1)
+
+flips :: Array Int -> Int ->> Int
+flips perm acc = case readArray perm 0 of
+  k -> if k == 0 then acc else do
+    reverseTo perm 0 k
+    flips perm (acc + 1)
+
+-- count[r-1] = r down to r = 1; the new r
+fill :: Array Int -> Int ->> Int
+fill count r = if r == 1 then r else do
+  writeArray count (r - 1) r
+  fill count (r - 1)
+
+-- p[i..r-1] = p[i+1..r]
+shift :: Array Int -> Int -> Int ->> ()
+shift p i r = if i == r then () else do
+  writeArray p i (readArray p (i + 1))
+  shift p (i + 1) r
+
+-- rotate perm1[0..r] left by one
+rotate :: Array Int -> Int ->> ()
+rotate perm1 r = do
+  p0 <- readArray perm1 0
+  shift perm1 0 r
+  writeArray perm1 r p0
+
+-- the next permutation's r, or n when all are done
+next :: Array Int -> Array Int -> Int -> Int ->> Int
+next perm1 count n r = if r == n then n else do
+  rotate perm1 r
+  writeArray count r (readArray count r - 1)
+  if readArray count r > 0 then r else next perm1 count n (r + 1)
+
+-- (checksum, maximum flips)
+loop :: Array Int -> Array Int -> Array Int -> Int -> Int -> Int -> Int -> Int ->> (Int, Int)
+loop perm perm1 count n r0 permCount checksum maxFlips = do
+  r <- fill count r0
+  copy perm1 perm n 0
+  f <- flips perm 0
+  r2 <- next perm1 count n r
+  let m = max maxFlips f
+      c = if mod permCount 2 == 0 then checksum + f else checksum - f
+  if r2 == n then (c, m) else loop perm perm1 count n r2 (permCount + 1) c m
+
+main = do
+  let n = readInt (getLine ())
+  perm <- newArray n (0 :: Int)
+  perm1 <- newArray n (0 :: Int)
+  count <- newArray n (0 :: Int)
+  mapM_ (\i -> writeArray perm1 i i) (enumFromTo 0 (n - 1))
+  (checksum, maxFlips) <- loop perm perm1 count n n 0 0 0
+  print checksum
+  putStrLn ("Pfannkuchen(" ++ show n ++ ") = " ++ show maxFlips)
+  freeArray perm
+  freeArray perm1
+  freeArray count
