@@ -169,9 +169,11 @@ static void push_free(size_t words, V *o) {
 }
 
 /* A fresh chunk is allocated by bumping a pointer, not through a free list
-   built in advance, which wrote every object once before its use. Sweep
-   ends the bump region: its unallocated objects are K_FREE and go on the
-   free lists. */
+   built in advance, which wrote every object once before its use; so is a
+   chunk that sweeping finds with nothing marked, without touching its dead
+   objects. find_obj treats the unallocated rest of a bump region as free,
+   since a reused chunk's still holds dead headers. Sweep ends the bump
+   regions; their unallocated objects then go on the free lists. */
 static V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
 
 static void new_chunk(size_t words) {
@@ -208,7 +210,7 @@ static V *find_obj(uintptr_t w, uint8_t **mark, size_t *words) {
     size_t i = (size_t)(((uint64_t)(w - (uintptr_t)c->objs) * c->recip) >> 32);
     if (i >= c->nobj) return NULL;
     V *o = (V *)(c->objs + i * c->words * sizeof(V));
-    if (((FkHdr *)o)->kind == K_FREE) return NULL;
+    if (((FkHdr *)o)->kind == K_FREE || (o >= bump[c->words] && o < bump_end[c->words])) return NULL;
     *mark = &c->marks[i];
     *words = c->words;
     return o;
@@ -409,6 +411,11 @@ static Chunk *chunk_at(size_t i) { return (Chunk *)(heap_base + i * CHUNK_SIZE);
    first, and clears its marks. */
 static void sweep_chunk(Chunk *c) {
   size_t bytes = c->words * sizeof(V);
+  if (c->nmarked == 0 && bump[c->words] >= bump_end[c->words]) { /* all dead: the next bump region */
+    bump[c->words] = (V *)c->objs;
+    bump_end[c->words] = (V *)(c->objs + c->nobj * bytes);
+    return;
+  }
   bool full = c->nmarked == c->nobj; /* nothing to free: only the marks to clear */
   c->nmarked = 0;
   if (full) {
@@ -428,7 +435,7 @@ static void sweep_chunk(Chunk *c) {
 /* Sweeps unswept chunks of a size class until its free list has an object. */
 static void sweep_lazily(size_t words) {
   double t0 = gcstats ? now_ms() : 0;
-  while (!freelist[words] && unswept[words]) {
+  while (!freelist[words] && bump[words] >= bump_end[words] && unswept[words]) {
     Chunk *c = chunk_at(unswept[words] - 1);
     unswept[words] = c->next_unswept;
     sweep_chunk(c);
@@ -647,6 +654,7 @@ static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uin
       if (bump[words] >= bump_end[words]) new_chunk(words);
       o = bump[words];
       bump[words] += words;
+      o[1] = 0; /* a reused chunk's dead word, as on a free-list pop */
     }
   }
   FkHdr *h = (FkHdr *)o;
@@ -670,6 +678,7 @@ static inline __attribute__((always_inline)) V alloc(size_t words, int kind, int
   } else if (bump[words] < bump_end[words]) {
     o = bump[words];
     bump[words] += words;
+    o[1] = 0; /* a reused chunk's dead word, as on a free-list pop */
   } else {
     return alloc_slow(words, kind, n, aux);
   }
@@ -699,13 +708,26 @@ static V static_obj(size_t words, int kind, int n, uint32_t aux) {
   return (V)o;
 }
 
+static const FkNullary *nullary_table;
+static uint32_t nullary_n;
+
+void fk_nullary_table(const FkNullary *t, uint32_t n) {
+  nullary_table = t;
+  nullary_n = n;
+}
+
+static V nullary_obj(uint32_t id) {
+  if (id < nullary_n && nullary_table[id].h.kind == K_CON && nullary_table[id].h.aux == id) return (V)&nullary_table[id];
+  return static_obj(1, K_CON, 0, id);
+}
+
 uint32_t fk_register_con(const char *name, int arity) {
   if (fk_ncons == capcons) {
     capcons = capcons ? 2 * capcons : 64;
     fk_cons = rt_realloc(fk_cons, capcons * sizeof *fk_cons);
   }
   uint32_t id = fk_ncons++;
-  fk_cons[id] = (FkCon){name, arity, arity == 0 ? static_obj(1, K_CON, 0, id) : 0, 0, NULL, 0};
+  fk_cons[id] = (FkCon){name, arity, arity == 0 ? nullary_obj(id) : 0, 0, NULL, 0};
   return id;
 }
 

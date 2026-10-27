@@ -10,6 +10,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The test suite is one ctest test per check, so `make test` runs them in parallel (63 s to 21 s on 8 cores), and `ARGS="-R NAME"` or `ARGS="-L LABEL"` runs a subset. Each test has its own foreign-import cache and a 300 s timeout. `tests/check.sh` replaces `tests/run.sh`.
 
+- Generated C defines nullary constructors (`[]`, `LT`, `Nothing`, a user's `Red`) as constant objects, not objects made at startup and read through the runtime's constructor table; clang sees their ids, and `sort`'s code does 5 fewer table loads. Interleaved runs: `lists` -9.6%, `sort` -5.4%, `wordfreq` -4.9%.
+
+- `Int` boxing in generated C hints that a value fits in 63 bits (`__builtin_expect`): geometric mean -1.0% over the benchmarks, `sort` -5.3%. Of the 2.7% that 64-bit `Int` still cost, 0.7% remains; see [docs/dev/typed-backend.md](docs/dev/typed-backend.md#integers).
+
+- Sweeping a chunk with nothing marked makes it a bump region instead of threading each dead object onto a free list. In `lists`, which drops every list each round, lazy sweeping fell from 209 to 7 ms of 950. Interleaved runs: `lists` -8.9%, `trees` -8.4%, `records` -6.3%, geometric mean -1.6%.
+
 ### Fixed
 
 - Incremental marking steps once per 256 KiB of allocation, not 1 MiB. Nothing is freed until a cycle ends, so a long marking window took fresh chunks: `bst` ran 6% slower than before 0.4.0's collector, with a 37% larger resident set. It is now 1.6% slower; the 0.4 ms pause bound is unchanged. Details in [docs/dev/realtime.md](docs/dev/realtime.md).

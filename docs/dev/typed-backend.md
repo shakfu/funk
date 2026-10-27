@@ -88,6 +88,8 @@ Implemented in step 6, both were measured, A/B against the tree before the step,
 
 The decision assumed only the interpreter would box. The runtime is shared, so compiled code boxes too, wherever an `Int` enters a `V`: list elements, polymorphic calls, closures. Every such crossing now checks the range, and every exit from a `V` branches on the tag. The 63-bit wrap is one instruction (`sbfx` on ARM64), but it stops clang from reasoning about integer loops: `loop` is no longer vectorized and `fib` loses accumulator recursion elimination. A first measurement of the 63-bit option showed 0%; its build had not picked up the change, because the source was edited within the same second as the copy it was built from.
 
+Remeasured after 0.4.0, emitted C patched, 21 interleaved runs, 6 benchmarks: with no range check and no boxing (wrong on overflow; a bound only), the geometric mean is 2.7% lower, `queens` 7.3%, `sort` 5.8%, and `pipeline` 0.1%: its loop no longer crosses a `V`. `__builtin_expect` on the tests in `FK_MKINT` and `FK_INT` recovered 2.0% of the 2.7, and is in `rt.h`. Marking `fk_int64_box` cold and out of line instead cost `lists` 5.5%. Over all 15 benchmarks the hint measured -1.0% (`sort` -5.3%, `queens` -3.3%, `closures` -2.9%), none slower beyond 0.7%.
+
 ## Steps
 
 Each step is measured with `bench/bench.py report` before the next.

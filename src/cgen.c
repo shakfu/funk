@@ -624,6 +624,7 @@ static TV cg_expr(CG *c, Expr *e) {
     return tv(t, R_V);
   case E_CON:
     if (e->idx == FK_C_TRUE || e->idx == FK_C_FALSE) return tv(e->idx == FK_C_TRUE ? "1" : "0", R_B);
+    if (fk_cons[e->idx].arity == 0) return tv(xsprintf("((V)&fk_nullaries[%d])", e->idx), R_V);
     return tv(xsprintf("fk_con_value(%d)", e->idx), R_V);
   case E_INT:
     if (rep_of(e->ty) == R_I) return tv(xsprintf("%lldLL", e->ival), R_I);
@@ -1028,7 +1029,10 @@ char *cgen_program(Chunk *chunks, int nchunks) {
       for (int j = 0; j < L->n; j++) sb_printf(&out, ", %s", ctype[param_rep(L, j)]);
       sb_puts(&out, ");\n");
     }
-  sb_puts(&out, "\n");
+  sb_puts(&out, "\n/* nullary constructors: constant, so a case on one folds */\nstatic const FkNullary fk_nullaries[] = {");
+  for (uint32_t i = 0; i < fk_ncons; i++)
+    if (fk_cons[i].arity == 0) sb_printf(&out, "\n  [%u] = {{K_CON, 0, 0, %u}, 0}, /* %s */", i, i, fk_cons[i].name);
+  sb_printf(&out, "\n  [%u] = {{0}, 0}};\n\n", fk_ncons);
   int maxid = 0;
   for (int i = 0; i < all_lambdas.n; i++) maxid = all_lambdas.a[i]->id > maxid ? all_lambdas.a[i]->id : maxid;
   freps = xcalloc((size_t)maxid + 1, sizeof *freps);
@@ -1065,6 +1069,6 @@ char *cgen_program(Chunk *chunks, int nchunks) {
           if (r.global[c->groups[i].b[j]->gidx]) init_global(&out, c->groups[i].b[j], pass);
     }
   }
-  sb_puts(&out, "}\n\nint main(void) { return fk_run(program, 0); }\n");
+  sb_printf(&out, "}\n\nint main(void) {\n  fk_nullary_table(fk_nullaries, %u);\n  return fk_run(program, 0);\n}\n", fk_ncons);
   return out.s;
 }

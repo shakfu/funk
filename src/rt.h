@@ -39,9 +39,9 @@ typedef struct { FkHdr h; void *p; } FkPtr;
 V fk_int64_box(int64_t i);
 static inline V FK_MKINT(int64_t i) {
   V w = ((V)(uint64_t)i << 1) | 1;
-  return ((int64_t)w >> 1) == i ? w : fk_int64_box(i);
+  return __builtin_expect(((int64_t)w >> 1) == i, 1) ? w : fk_int64_box(i); /* the hint: about 2% (typed-backend.md) */
 }
-static inline int64_t FK_INT(V v) { return FK_ISSMALL(v) ? (int64_t)v >> 1 : ((FkInt64 *)v)->i; }
+static inline int64_t FK_INT(V v) { return __builtin_expect(FK_ISSMALL(v), 1) ? (int64_t)v >> 1 : ((FkInt64 *)v)->i; }
 #define FK_ISCHAR(v)   (((v) & 3) == 2)
 #define FK_MKCHAR(c)   ((((V)(unsigned char)(c)) << 2) | 2)
 #define FK_CHAR(v)     ((int)((v) >> 2))
@@ -115,6 +115,10 @@ typedef struct {
   uint32_t raw; /* bit i: field i holds a raw double, in compiled code (typed-backend.md, step 5) */
 } FkCon;
 extern FkCon *fk_cons;
+/* Nullary constructors' objects, from a constant table in generated code,
+   so a case on one folds; set before fk_run. The interpreter makes its own. */
+typedef struct { FkHdr h; V pad; } FkNullary;
+void fk_nullary_table(const FkNullary *t, uint32_t n);
 extern uint32_t fk_ncons;
 extern V fk_true, fk_false, fk_unit, fk_nil;
 #define FK_BOOL(b) ((b) ? fk_true : fk_false)

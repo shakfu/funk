@@ -163,7 +163,7 @@ Objects start with an 8-byte header `{kind, n, aux}`:
 | `K_STR` | `aux` = byte length; the bytes follow, NUL-terminated. Not scanned by the collector |
 | `K_INT64` | an `Int` that does not fit in a 63-bit tagged word follows. Not scanned by the collector |
 
-Nullary constructors, constructor functions and primitive closures are static objects outside the GC heap, so `b == fk_true` tests a Bool.
+Nullary constructors, constructor functions and primitive closures are static objects outside the GC heap, so `b == fk_true` tests a Bool. Generated C defines the nullary ones as a `static const` table, `fk_nullaries`, which the runtime adopts before `fk_init`, so clang sees a constant constructor's id instead of a load through `fk_cons`.
 
 All code has the signature `V code(V self, V *args)`. `fk_apply` handles the three call cases: exact arity calls the code, too few arguments builds a PAP, and too many applies the result to the rest. Interpreted closures use `interp_entry` as their code and the `Lambda` as their info, so the runtime does not distinguish them from compiled closures.
 
@@ -183,7 +183,7 @@ Non-moving conservative mark-sweep:
 
 - Marking is incremental, snapshot at the beginning ([realtime.md](realtime.md)). A cycle starts with a pause that scans the roots and snapshots the stack, making its older pages read-only so a write copies its page first, then marks in steps of at most 0.4 ms, one per MiB allocated. Objects allocated during a cycle are marked; three writes that overwrite a heap pointer shade the old value first (`FK_SHADE`): a thunk's update, and a reused cell's head and tail.
 
-- Sweeping is lazy. Each size class keeps a list of unswept chunks in address order, and allocation that finds its free list empty sweeps the next one, except while marking. A chunk whose objects were all marked only has its marks cleared. Sweeping finishes, in steps, before the next cycle marks. Large objects are swept when a cycle ends.
+- Sweeping is lazy. Each size class keeps a list of unswept chunks in address order, and allocation that finds its free list empty sweeps the next one, except while marking. A chunk whose objects were all marked only has its marks cleared. A chunk with none marked becomes the size class's bump region when the last one is used up, without a write to its dead objects; `find_obj` treats a bump region's unallocated rest as free, since a reused chunk's holds dead headers. Sweeping finishes, in steps, before the next cycle marks. Large objects are swept when a cycle ends.
 
 - `FUNK_GCSTATS=1` prints each cycle's pauses and a summary at exit. `FUNK_GCSTRESS=1` runs short cycles constantly and checks at each cycle's end that every reachable object is marked, for testing.
 
