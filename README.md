@@ -249,7 +249,8 @@ The prelude defines:
 
 - A numeric literal pattern (`f 0 = ...`) works only at `Int` and `Float`; at another `Num` type it is a runtime error.
 
-- `String` is a packed type, not `[Char]` as in Haskell. `++`, `length`, `show`, `words`, `lines`, `unwords` and `unlines` work on it; for list functions, convert with `unpack :: String -> [Char]` and `pack :: [Char] -> String`. A string literal in a pattern matches an equal `String`.
+- `String` is a packed type, not `[Char]` as in Haskell. `++`, `length`, `show`, `words`, `lines`, `unwords` and `unlines` work on it, and `indexString s i` reads one character; `writeArrayString arr i s` copies a string's bytes into an `Array CChar`; `putArray arr i n` writes `n` elements of an array to standard output as bytes, and `getArray arr i n` reads up to `n` from standard input, returning how many (0 at its end); `copyArray src i dst j n` copies elements as `memmove` does; for list functions, convert with `unpack :: String -> [Char]` and `pack :: [Char] -> String`. A string literal in a pattern matches an equal `String`. `isEOF ()` tells whether standard input has ended, for reading it line by line with `getLine ()`; `getContents ()` reads all of what is left, at once.
+- `IntTable` is a mutable hash table from `Int` to `Int` in C memory, in the prelude: `newIntTable n`, `insertIntTable t k v`, `addIntTable t k d` (adds to the value, a new key's being 0), `lookupIntTable t k :: Maybe Int`, `intTableList t` and `freeIntTable t`.
 
 - `Int` is 64 bits and wraps on overflow. `Char` is a byte; strings are not UTF-8 aware.
 

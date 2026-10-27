@@ -859,6 +859,13 @@ V fk_str_static(const char *s, size_t n) {
   return o;
 }
 
+/* the byte at i, with the index checked */
+static inline int32_t fk_s_strindex(V s, int64_t i) {
+  if (i < 0 || (uint64_t)i >= FK_STRLEN(s)) fk_error("indexString: index %lld of a string of %u", (long long)i, (unsigned)FK_STRLEN(s));
+  return (unsigned char)FK_STRBYTES(s)[i];
+}
+V fk_p_strindex(V self, V *a) { return FK_MKCHAR(fk_s_strindex(a[0], FK_INT(a[1]))); }
+
 bool fk_str_eq_lit(V s, const char *lit, size_t n) { return FK_STRLEN(s) == n && memcmp(FK_STRBYTES(s), lit, n) == 0; }
 
 typedef struct { char *s; size_t n, cap; } Buf;
@@ -1332,6 +1339,53 @@ V fk_p_newarray(V self, V *a) {
   return fk_ptr(h);
 }
 V fk_p_freearray(V self, V *a) { free(FK_PTRV(a[0])); return fk_unit; }
+/* s's bytes as elements i.. of a byte Array, in one copy */
+static inline V fk_s_awritestr(void *a, int64_t i, V s) {
+  int64_t n = (int64_t)FK_STRLEN(s), len = fk_s_alen(a);
+  if (fk_s_asize(a) != 1) fk_error("writeArrayString: an array of %lld-byte elements", (long long)fk_s_asize(a));
+  if (i < 0 || i > len || n > len - i) fk_error("writeArrayString: %lld bytes at index %lld of an array of %lld", (long long)n, (long long)i, (long long)len);
+  memcpy((char *)fk_s_aptr(a) + i, FK_STRBYTES(s), (size_t)n);
+  return fk_unit;
+}
+V fk_p_awritestr(V self, V *a) { return fk_s_awritestr(FK_PTRV(a[0]), FK_INT(a[1]), a[2]); }
+
+/* elements i to i+n-1 to standard output, as their bytes */
+static inline V fk_s_aput(void *a, int64_t i, int64_t n) {
+  int64_t len = fk_s_alen(a);
+  if (i < 0 || n < 0 || i > len || n > len - i) fk_error("putArray: %lld elements at index %lld of an array of %lld", (long long)n, (long long)i, (long long)len);
+  fwrite((char *)fk_s_aptr(a) + i * fk_s_asize(a), (size_t)fk_s_asize(a), (size_t)n, stdout);
+  return fk_unit;
+}
+V fk_p_aput(V self, V *a) { return fk_s_aput(FK_PTRV(a[0]), FK_INT(a[1]), FK_INT(a[2])); }
+
+/* n elements of a from i to b from j, as memmove: the ranges may overlap */
+static inline V fk_s_acopy(void *a, int64_t i, void *b, int64_t j, int64_t n) {
+  int64_t la = fk_s_alen(a), lb = fk_s_alen(b), size = fk_s_asize(a);
+  if (fk_s_asize(b) != size) fk_error("copyArray: elements of %lld and %lld bytes", (long long)size, (long long)fk_s_asize(b));
+  if (n < 0 || i < 0 || j < 0 || i > la || j > lb || n > la - i || n > lb - j)
+    fk_error("copyArray: %lld elements from index %lld of %lld to index %lld of %lld", (long long)n, (long long)i, (long long)la, (long long)j, (long long)lb);
+  memmove((char *)fk_s_aptr(b) + j * size, (char *)fk_s_aptr(a) + i * size, (size_t)(n * size));
+  return fk_unit;
+}
+V fk_p_acopy(V self, V *a) { return fk_s_acopy(FK_PTRV(a[0]), FK_INT(a[1]), FK_PTRV(a[2]), FK_INT(a[3]), FK_INT(a[4])); }
+
+/* whether element 0's bytes are all zero, as calloc leaves the rest */
+static inline bool fk_s_azero(void *a) {
+  for (int64_t k = 0; k < fk_s_asize(a); k++)
+    if (((char *)fk_s_aptr(a))[k]) return false;
+  return true;
+}
+V fk_p_azero(V self, V *a) { return FK_BOOL(fk_s_azero(FK_PTRV(a[0]))); }
+
+/* up to n elements from standard input into i..; how many, 0 at its end */
+static inline int64_t fk_s_aget(void *a, int64_t i, int64_t n) {
+  int64_t len = fk_s_alen(a);
+  if (i < 0 || n < 0 || i > len || n > len - i) fk_error("getArray: %lld elements at index %lld of an array of %lld", (long long)n, (long long)i, (long long)len);
+  fflush(stdout);
+  return (int64_t)fread((char *)fk_s_aptr(a) + i * fk_s_asize(a), (size_t)fk_s_asize(a), (size_t)n, stdin);
+}
+V fk_p_aget(V self, V *a) { return FK_MKINT(fk_s_aget(FK_PTRV(a[0]), FK_INT(a[1]), FK_INT(a[2]))); }
+
 V fk_p_alen(V self, V *a) { return FK_MKINT(fk_s_alen(FK_PTRV(a[0]))); }
 V fk_p_asize(V self, V *a) { return FK_MKINT(fk_s_asize(FK_PTRV(a[0]))); }
 V fk_p_aptr(V self, V *a) { return fk_ptr(fk_s_aptr(FK_PTRV(a[0]))); }
@@ -1647,17 +1701,35 @@ V fk_p_putstrln(V self, V *a) {
   return fk_unit;
 }
 
-V fk_p_getline(V self, V *a) {
-  Buf b = {0};
-  int c;
+/* The rest of standard input, read in chunks; strict, unlike Haskell's. */
+V fk_p_getcontents(V self, V *a) {
   fflush(stdout);
-  buf_putc(&b, 0);
-  b.n = 0;
-  while ((c = getchar()) != EOF && c != '\n') buf_putc(&b, (char)c);
-  if (c == EOF && b.n == 0) { free(b.s); fk_error("getLine: end of file"); }
-  V r = fk_str(b.s, b.n);
-  free(b.s);
+  size_t cap = 1 << 16, n = 0, k;
+  char *s = rt_realloc(NULL, cap);
+  while ((k = fread(s + n, 1, cap - n, stdin)) > 0)
+    if ((n += k) == cap) s = rt_realloc(s, cap *= 2);
+  V r = fk_str(s, n);
+  free(s);
   return r;
+}
+
+/* Whether standard input has ended: peeks a character and puts it back. */
+V fk_p_iseof(V self, V *a) {
+  fflush(stdout);
+  int c = getchar();
+  if (c == EOF) return fk_true;
+  ungetc(c, stdin);
+  return fk_false;
+}
+
+V fk_p_getline(V self, V *a) {
+  static char *line; /* getline's buffer, reused: it reads a line at a time, not a character */
+  static size_t cap;
+  fflush(stdout);
+  ssize_t n = getline(&line, &cap, stdin);
+  if (n < 0) fk_error("getLine: end of file");
+  if (n > 0 && line[n - 1] == '\n') n--;
+  return fk_str(line, (size_t)n);
 }
 
 V fk_p_readint(V self, V *a) {

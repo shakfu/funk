@@ -1,0 +1,70 @@
+-- pidigits (Benchmarks Game): pidigits.c's spigot (Gibbons' step by step
+-- algorithm) on GMP integers, through foreign imports, ten digits a line.
+foreign library "gmp"
+
+foreign struct "gmp.h __mpz_struct" Mpz { alloc "_mp_alloc" :: CInt } -- an mpz_t
+
+foreign import ccall "gmp.h mpz_init" mpzInit :: Ptr Mpz ->> ()
+foreign import ccall "gmp.h mpz_init_set_ui" mpzInitSetUi :: Ptr Mpz -> CULong ->> ()
+foreign import ccall "gmp.h mpz_mul_ui" mpzMulUi :: Ptr Mpz -> Ptr Mpz -> CULong ->> ()
+foreign import ccall "gmp.h mpz_add" mpzAdd :: Ptr Mpz -> Ptr Mpz -> Ptr Mpz ->> ()
+foreign import ccall "gmp.h mpz_tdiv_q" mpzTdivQ :: Ptr Mpz -> Ptr Mpz -> Ptr Mpz ->> ()
+foreign import ccall "gmp.h mpz_get_ui" mpzGetUi :: Ptr Mpz ->> CULong
+foreign import ccall "gmp.h mpz_submul_ui" mpzSubmulUi :: Ptr Mpz -> Ptr Mpz -> CULong ->> ()
+foreign import ccall "gmp.h mpz_addmul_ui" mpzAddmulUi :: Ptr Mpz -> Ptr Mpz -> CULong ->> ()
+foreign import ccall "gmp.h mpz_cmp" mpzCmp :: Ptr Mpz -> Ptr Mpz ->> CInt
+
+data State = State (Ptr Mpz) (Ptr Mpz) (Ptr Mpz) (Ptr Mpz) (Ptr Mpz) -- tmp1 tmp2 acc den num
+
+newMpz :: () ->> Ptr Mpz
+newMpz u = mallocBytes Mpz.size
+
+extractDigit :: State -> Int ->> Int
+extractDigit (State t1 t2 acc den num) nth = do
+  mpzMulUi t1 num (fromIntegral nth)
+  mpzAdd t2 t1 acc
+  mpzTdivQ t1 t2 den
+  fromIntegral (mpzGetUi t1)
+
+eliminateDigit :: State -> Int ->> ()
+eliminateDigit (State _ _ acc den num) d = do
+  mpzSubmulUi acc den (fromIntegral d)
+  mpzMulUi acc acc 10
+  mpzMulUi num num 10
+
+nextTerm :: State -> Int ->> ()
+nextTerm (State _ _ acc den num) k = do
+  let k2 = fromIntegral (k * 2 + 1)
+  mpzAddmulUi acc num 2
+  mpzMulUi acc acc k2
+  mpzMulUi den den k2
+  mpzMulUi num num (fromIntegral k)
+
+-- digits i + 1 to n, after k terms
+digits :: State -> Int -> Int -> Int ->> ()
+digits st n i k = if i >= n then () else do
+  nextTerm st (k + 1)
+  if numAboveAcc st then digits st n i (k + 1) else do
+    let d = extractDigit st 3
+    if d /= extractDigit st 4 then digits st n i (k + 1) else do
+      putStr (show d)
+      if mod (i + 1) 10 == 0 then putStrLn ("\t:" ++ show (i + 1)) else ()
+      eliminateDigit st d
+      digits st n (i + 1) (k + 1)
+
+numAboveAcc :: State ->> Bool
+numAboveAcc (State _ _ acc _ num) = mpzCmp num acc > 0
+
+main = do
+  let n = readInt (getLine ())
+  t1 <- newMpz ()
+  t2 <- newMpz ()
+  acc <- newMpz ()
+  den <- newMpz ()
+  num <- newMpz ()
+  mpzInit t1
+  mpzInit t2
+  mpzInitSetUi acc 0
+  mpzInitSetUi den 1
+  mpzInitSetUi num 1
+  digits (State t1 t2 acc den num) n 0 0

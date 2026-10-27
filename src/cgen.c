@@ -274,6 +274,12 @@ static const Scalar scalars[] = {
     {"bnot", "(~%s)", 1, R_I, R_I, NULL},
     {"shl", "fk_s_shl(%s, %s)", 2, R_I, R_I, NULL},
     {"shr", "fk_s_shr(%s, %s)", 2, R_I, R_I, NULL},
+    {"strindex", "fk_s_strindex(%s, %s)", 2, -1, R_C, "vi"},
+    {"awritestr", "fk_s_awritestr(%s, %s, %s)", 3, -1, R_V, "piv"},
+    {"aput", "fk_s_aput(%s, %s, %s)", 3, -1, R_V, "pii"},
+    {"aget", "fk_s_aget(%s, %s, %s)", 3, -1, R_I, "pii"},
+    {"acopy", "fk_s_acopy(%s, %s, %s, %s, %s)", 5, -1, R_V, "pipii"},
+    {"azero", "fk_s_azero(%s)", 1, R_P, R_B, NULL},
 };
 
 static const Scalar *scalar_prim(const char *c) {
@@ -295,9 +301,13 @@ static TV cg_call(CG *c, Expr *e) {
   const Scalar *sc = prim >= 0 && n == fk_prims[prim].arity ? scalar_prim(prim_cname(prim)) : NULL;
   if (sc && sc->reps) {
     static const char codes[] = "vifcbp"; /* Rep order */
-    const char *a[4];
+    const char *a[5];
     for (int i = 0; i < n; i++) a[i] = conv(cg_expr(c, e->args[i]), (Rep)(strchr(codes, sc->reps[i]) - codes));
-    return tv(n == 2 ? xsprintf(sc->fmt, a[0], a[1]) : n == 3 ? xsprintf(sc->fmt, a[0], a[1], a[2]) : xsprintf(sc->fmt, a[0], a[1], a[2], a[3]), sc->res);
+    return tv(n == 2   ? xsprintf(sc->fmt, a[0], a[1])
+              : n == 3 ? xsprintf(sc->fmt, a[0], a[1], a[2])
+              : n == 4 ? xsprintf(sc->fmt, a[0], a[1], a[2], a[3])
+                       : xsprintf(sc->fmt, a[0], a[1], a[2], a[3], a[4]),
+              sc->res);
   }
   if (sc) {
     TV x[2];
@@ -921,7 +931,10 @@ static void cg_lambda(SB *out, Lambda *L) {
   for (char *s; !c.reused && (s = strstr(body.s, SHADE_DST));) memmove(s, s + strlen(SHADE_DST), strlen(s + strlen(SHADE_DST)) + 1);
   char *nm = xsprintf("%s", L->name ? L->name : "lambda");
   for (char *s = nm; (s = strstr(s, "*/"));) s[1] = '|'; /* keep the comment closed */
-  sb_printf(out, "static %s w_%d(V self", ctype[rr], L->id);
+  /* `inline` raises clang's -O2 inlining threshold, so the prelude's small
+     wrappers, readArray's, inline into loops; not for a TRMC loop, which
+     ran up to 8% slower inlined into its caller (sort's randoms). */
+  sb_printf(out, "static %s%s w_%d(V self", trmc ? "" : "inline ", ctype[rr], L->id);
   for (int i = 0; i < L->n; i++) sb_printf(out, ", %s p%d", ctype[param_rep(L, i)], i);
   sb_printf(out, ") { /* %s */\n", nm);
   for (int i = 0; i < L->nslots; i++)

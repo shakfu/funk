@@ -1,0 +1,13 @@
+-- writeArrayString copies a String's bytes into a byte Array; putArray
+-- writes a range of an Array's elements as their bytes. Both check ranges.
+main = do
+  a <- newArray 12 (fromIntegral 46 :: CChar) -- '.'
+  writeArrayString a 2 "hello"
+  writeArrayString a 7 ""
+  writeArrayString a 7 "world"
+  putArray a 0 12
+  putStrLn ""
+  putArray a 2 5
+  putArray a 12 0
+  putStrLn ""
+  freeArray a

@@ -1,0 +1,15 @@
+-- IntTable (prelude): insert, add, lookup and list, through several
+-- doublings, with negative and large keys and colliding hashes.
+main = do
+  t <- newIntTable 4
+  mapM_ (\k -> addIntTable t (k * 1024) 1) (enumFromTo 0 999)
+  mapM_ (\k -> addIntTable t (k * 1024) k) (enumFromTo 0 99)
+  insertIntTable t (-5) 7
+  insertIntTable t 9223372036854775807 3
+  insertIntTable t (-5) 8
+  print (lookupIntTable t 0, lookupIntTable t (99 * 1024), lookupIntTable t (999 * 1024), lookupIntTable t 1)
+  print (lookupIntTable t (-5), lookupIntTable t 9223372036854775807)
+  let kvs = intTableList t
+  print (length kvs, sum (map fst kvs) == sum (map (\k -> k * 1024) (enumFromTo 0 999)) + 9223372036854775807 - 5, sum (map snd kvs))
+  print (sort (filter (\(k, v) -> v > 50) kvs))
+  freeIntTable t

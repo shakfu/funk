@@ -1,0 +1,106 @@
+-- k-nucleotide (Benchmarks Game): knucleotide.c's counting, over the
+-- prelude's IntTable. Sequence THREE is read line by line into an Array of
+-- 2-bit codes; each k-nucleotide is a key of 2 bits a base, rolled along
+-- the sequence. Percentages are single precision, as C's 100.0f * count /
+-- positions.
+codeOf :: Char -> Int
+codeOf c = case ord c .&. 7 of
+  1 -> 0 -- A
+  3 -> 1 -- C
+  7 -> 2 -- G
+  _ -> 3 -- T
+
+nucleotide :: Int -> Char
+nucleotide c = case c of
+  0 -> 'A'
+  1 -> 'C'
+  2 -> 'G'
+  _ -> 'T'
+
+startsWith :: String -> String -> Int -> Bool
+startsWith l p i = i == length p || (i < length l && indexString l i == indexString p i && startsWith l p (i + 1))
+
+skipToThree :: () ->> ()
+skipToThree u = if isEOF () then () else
+  if startsWith (getLine ()) ">THREE" 0 then () else skipToThree ()
+
+-- the lines up to the end of input or the next header
+sequenceLines :: [String] ->> [String]
+sequenceLines acc = if isEOF () then reverse acc else do
+  l <- getLine ()
+  if startsWith l ">" 0 then reverse acc else sequenceLines (l : acc)
+
+-- the codes of l from j on, at s[i..]; the next free index
+fillLine :: Array CChar -> Int -> String -> Int ->> Int
+fillLine s i l j = if j == length l then i else do
+  writeArray s i (fromIntegral (codeOf (indexString l j)))
+  fillLine s (i + 1) l (j + 1)
+
+fill :: Array CChar -> Int -> [String] ->> ()
+fill s i ls = case ls of
+  [] -> ()
+  (l : rest) -> do
+    j <- fillLine s i l 0
+    fill s j rest
+
+codeAt :: Array CChar -> Int ->> Int
+codeAt s i = fromIntegral (readArray s i)
+
+-- the key of codes i to n - 1, after key
+keyOf :: Array CChar -> Int -> Int -> Int -> Int ->> Int
+keyOf s mask key i n = if i == n then key else keyOf s mask (key `shiftL` 2 .&. mask .|. codeAt s i) (i + 1) n
+
+addAll :: IntTable -> Array CChar -> Int -> Int -> Int -> Int ->> ()
+addAll t s mask key i len = if i == len then () else
+  case key `shiftL` 2 .&. mask .|. codeAt s i of
+    key2 -> do
+      addIntTable t key2 1
+      addAll t s mask key2 (i + 1) len
+
+-- the counts of every k-nucleotide, from a small table that grows
+counts :: Array CChar -> Int -> Int ->> IntTable
+counts s len k = do
+  t <- newIntTable 16
+  let mask = 1 `shiftL` (2 * k) - 1
+  addAll t s mask (keyOf s mask 0 0 (k - 1)) (k - 1) len
+  t
+
+name :: Int -> Int -> String
+name key k = pack (reverse (go key k))
+  where go x j = if j == 0 then [] else nucleotide (x .&. 3) : go (x `shiftR` 2) (j - 1)
+
+-- x as C's %.3f: rounded to three decimals
+fixed3 :: Float -> String
+fixed3 x = case floor (x * 1000.0 + 0.5) of
+  m -> show (div m 1000) ++ "." ++ pack (drop 1 (unpack (show (mod m 1000 + 1000))))
+
+frequencies :: Array CChar -> Int -> Int ->> String
+frequencies s len k = do
+  t <- counts s len k
+  kvs <- intTableList t
+  freeIntTable t
+  let positions = toCFloat (toFloat (len - k + 1))
+      byCount (k1, v1) (k2, v2) = if v1 /= v2 then compare v2 v1 else compare k1 k2
+      percent v = toCFloat (fromCFloat (toCFloat 100.0 * toCFloat (toFloat v)) / fromCFloat positions)
+  concatStrings (map (\(key, v) -> name key k ++ " " ++ fixed3 (fromCFloat (percent v)) ++ "\n") (sortBy byCount kvs))
+
+countOf :: Array CChar -> Int -> String ->> String
+countOf s len oligo = do
+  let cs = unpack oligo
+  t <- counts s len (length cs)
+  n <- lookupIntTable t (foldl (\key c -> key `shiftL` 2 .|. codeOf c) 0 cs)
+  freeIntTable t
+  show (case n of
+    Nothing -> 0
+    Just v -> v) ++ "\t" ++ oligo
+
+main = do
+  skipToThree ()
+  ls <- sequenceLines []
+  let len = sum (map length ls)
+  s <- newArray len (fromIntegral 0 :: CChar)
+  fill s 0 ls
+  putStrLn (frequencies s len 1)
+  putStrLn (frequencies s len 2)
+  mapM_ (\o -> putStrLn (countOf s len o)) ["GGT", "GGTA", "GGTATT", "GGTATTTTAATT", "GGTATTTTAATTTATAGT"]
+  freeArray s

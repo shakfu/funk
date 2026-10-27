@@ -6,14 +6,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A second benchmark suite, `bench/game/`: the Benchmarks Game's 10 tasks, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. regex-redux and pidigits use PCRE and GMP through foreign imports, as their C does. Geometric mean 1.45x C: binary-trees 0.4x, spectral-norm 0.8x, mandelbrot, regex-redux and pidigits 1.0x, fannkuch-redux 1.1x, reverse-complement 2.1x, n-body 4.0x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
 - Bitwise operations on `Int`, with `Data.Bits`' names and fixities: `.&.`, `.|.`, `xor`, `complement`, `shiftL`, `shiftR`. A shift by 64 or more gives 0 (or -1 for `shiftR` of a negative number), as GHC's; a negative shift is an error, so a shift by a variable is not treated as total.
-- mandelbrot in `bench/game/`, a binary PBM: 1.0x C; the suite's geometric mean is 1.62x C over 6 tasks.
-
-- A second benchmark suite, `bench/game/`: n-body, spectral-norm, fannkuch-redux, binary-trees and fasta from the Benchmarks Game, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. Geometric mean 1.75x C; binary-trees runs in 0.4x C's time, n-body takes 4.0x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
+- `isEOF ()`, for reading standard input line by line to its end; `getContents ()`, all of it at once, strictly; `indexString s i`, one character of a `String` without unpacking it; `writeArrayString arr i s`, a string's bytes into an `Array CChar` in one copy; `putArray arr i n` and `getArray arr i n`, a range of an array to standard output or from standard input; `copyArray src i dst j n`, as `memmove`.
+- `IntTable` in the prelude: a mutable hash table from `Int` to `Int` in C memory, written in funk over `Array` (open addressing; doubles at three quarters full).
 
 ### Changed
 
+- `newArray` writes its first element and fills the rest by doubling copies (`copyArray`), and skips the fill when that element's bytes are zero, since the memory starts zeroed: an array's pages are then touched only when used. reverse-complement, reading in chunks into such a buffer, went from 0.49 to 0.25 s and 373 to 288 MB.
+
+- Generated workers are `static inline`, except TRMC loops: the keyword raises clang's inlining threshold at `-O2`, so the prelude's small wrappers, such as `readArray`'s chain to `peek`, inline into loops. Interleaved runs: fannkuch-redux -53%, reverse-complement -31%, k-nucleotide -30%, records -9%; the core suite -0.8%, the game suite -14%. Inlined TRMC loops were up to 8% slower (sort's `randoms`), so they stay out of line.
+
+- `readArray` and `writeArray` build their index error in a separate function, so the C compiler inlines them: spectral-norm -44.6% (now 0.8x C), fannkuch-redux -28%, k-nucleotide -26.5%. `newArray` fills with a loop instead of `mapM_` over `enumFromTo`, which built the list of indices first (300 MB for 12.5M elements). `getLine` reads a line with `getline(3)`, not a character at a time.
+
 - A local binding whose right side calls a global function is evaluated where it is bound, not made a thunk, when that function's body is itself safe to evaluate early: `let m = max a b` at `Int`. A function that recurses, directly or not, or calls a parameter, still makes a thunk. `fannkuchredux` no longer allocates (135 to 2 MB resident); `fasta` -13.7%.
+
+### Fixed
+
+- A `data` constructor may hold a `foreign struct`'s type (`data St = St (Ptr Mpz)`); it was an unknown type, since data types were registered before structs. A `data` and a struct of the same name are still an error.
 
 ## [0.4.1] - 2026-10-27
 

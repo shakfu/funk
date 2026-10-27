@@ -52,8 +52,14 @@ run)
     exit 0 ;;
   wall)
     "$FUNK" emit-c "$f" -o "$tmp/w.c" || fail "funk emit-c"
+    inc= # FLAGS' -I DIR only: -L is unused with -c, which -Werror would fail
+    while [ $# -gt 0 ]; do
+      case $1 in -I) inc="$inc -I $2"; shift ;; -I*) inc="$inc $1" ;; esac
+      shift
+    done
     # overflow.fk recurses forever on purpose
-    ${CC:-cc} -O2 -Wall -Wextra -Wno-unused-parameter -Wno-infinite-recursion -Werror -c -o /dev/null "$tmp/w.c" >"$tmp/cc" 2>&1 ||
+    # shellcheck disable=SC2086
+    ${CC:-cc} -O2 -Wall -Wextra -Wno-unused-parameter -Wno-infinite-recursion -Werror $inc -c -o /dev/null "$tmp/w.c" >"$tmp/cc" 2>&1 ||
       fail "warnings in the generated C" "$tmp/cc"
     exit 0 ;;
   reuse)

@@ -334,22 +334,33 @@ pokeByteOff p off x = poke (plusPtr p off) x
 -- foreign export (docs/dev/realtime.md).
 newArray :: Storable a => Int -> a ->> Array a
 newArray n x = do
-  arr <- primNewArray n (sizeOf x)
-  fillArray arr x
+  arr <- primNewArray n (sizeOf x) -- zeroed
+  writeArray arr 0 x
+  if primArrayZeroFirst arr then () else fillArray arr x -- untouched pages stay unused
   arr
 
+-- x at 0, then the filled prefix copied after itself: log2 n copies
 fillArray :: Storable a => Array a -> a ->> ()
-fillArray arr x = mapM_ (\i -> writeArray arr i x) (enumFromTo 0 (arrayLength arr - 1))
+fillArray arr x = if arrayLength arr == 0 then () else do
+  writeArray arr 0 x
+  go 1
+  where go k = if k >= arrayLength arr then () else do
+          copyArray arr 0 arr k (min k (arrayLength arr - k))
+          go (2 * k)
 
 readArray :: Storable a => Array a -> Int ->> a
 readArray arr i =
-  if i < 0 || i >= arrayLength arr then error ("readArray: index " ++ show i ++ " of an array of " ++ show (arrayLength arr))
+  if i < 0 || i >= arrayLength arr then arrayIndexError "readArray" i (arrayLength arr)
   else peekByteOff (arrayPtr arr) (i * primArraySize arr)
 
 writeArray :: Storable a => Array a -> Int -> a ->> ()
 writeArray arr i x =
-  if i < 0 || i >= arrayLength arr then error ("writeArray: index " ++ show i ++ " of an array of " ++ show (arrayLength arr))
+  if i < 0 || i >= arrayLength arr then arrayIndexError "writeArray" i (arrayLength arr)
   else pokeByteOff (arrayPtr arr) (i * primArraySize arr) x
+
+-- out of line, so the C compiler inlines readArray and writeArray
+arrayIndexError :: String -> Int -> Int -> a
+arrayIndexError what i n = error (what ++ ": index " ++ show i ++ " of an array of " ++ show n)
 
 readArrayWrap :: Storable a => Array a -> Int ->> a
 readArrayWrap arr i = peekByteOff (arrayPtr arr) (primWrapIndex i (arrayLength arr) * primArraySize arr)
@@ -396,6 +407,98 @@ instance Storable (Ring a) where
   sizeOf _ = 8
   peek p = primPtrToRing (primPeekPtr (castPtr p))
   poke p r = primPokePtr (castPtr p) (primRingToPtr r)
+
+-- IntTable: a hash table from Int keys to Int values in C memory, freed
+-- with freeIntTable. Open addressing with linear probing over one Array:
+-- the count of keys, then per slot a used flag, the key and the value. The
+-- slots, a power of two, double when three quarters are used.
+data IntTable = IntTable (Array (Array Int)) -- one cell: the current slots
+
+newIntTable :: Int ->> IntTable
+newIntTable n = do
+  cell <- newArray 1 (primPtrToArray nullPtr)
+  writeArray cell 0 (intTableSlots (intTableCapacity 8 n))
+  IntTable cell
+
+intTableCapacity :: Int -> Int -> Int
+intTableCapacity c n = if c * 3 >= n * 4 then c else intTableCapacity (c * 2) n
+
+intTableSlots :: Int ->> Array Int
+intTableSlots cap = newArray (1 + 3 * cap) 0
+
+intTableMask :: Array Int ->> Int
+intTableMask s = div (arrayLength s - 1) 3 - 1
+
+intTableHash :: Int -> Int -> Int
+intTableHash k mask = case k * (-7046029254386353131) of
+  h -> xor h (h `shiftR` 32) .&. mask
+
+-- the index of k's slot in s, or of the empty slot it would take
+intTableFind :: Array Int -> Int ->> Int
+intTableFind s k = go (intTableHash k (intTableMask s))
+  where
+    go j = case 1 + 3 * j of
+      b -> if readArray s b == 0 || readArray s (b + 1) == k then b else go ((j + 1) .&. intTableMask s)
+
+intTablePut :: Array Int -> Int -> Int -> Int ->> ()
+intTablePut s b k v = do
+  if readArray s b == 0
+    then do
+      writeArray s b 1
+      writeArray s (b + 1) k
+      writeArray s 0 (readArray s 0 + 1)
+    else ()
+  writeArray s (b + 2) v
+
+-- the slots, first doubled if one more key would fill three quarters
+intTableRoom :: IntTable ->> Array Int
+intTableRoom (IntTable cell) = do
+  s <- readArray cell 0
+  if (readArray s 0 + 1) * 4 <= (intTableMask s + 1) * 3 then s
+  else do
+    t <- intTableSlots (2 * (intTableMask s + 1))
+    intTableMove s t 0
+    freeArray s
+    writeArray cell 0 t
+    t
+
+-- the used slots of s from slot j on, into t
+intTableMove :: Array Int -> Array Int -> Int ->> ()
+intTableMove s t j = if j > intTableMask s then () else do
+  if readArray s (1 + 3 * j) == 0 then ()
+  else intTablePut t (intTableFind t (readArray s (2 + 3 * j))) (readArray s (2 + 3 * j)) (readArray s (3 + 3 * j))
+  intTableMove s t (j + 1)
+
+insertIntTable :: IntTable -> Int -> Int ->> ()
+insertIntTable t k v = do
+  s <- intTableRoom t
+  intTablePut s (intTableFind s k) k v
+
+-- adds d to k's value, a new key's being 0
+addIntTable :: IntTable -> Int -> Int ->> ()
+addIntTable t k d = do
+  s <- intTableRoom t
+  b <- intTableFind s k
+  intTablePut s b k (if readArray s b == 0 then d else readArray s (b + 2) + d)
+
+lookupIntTable :: IntTable -> Int ->> Maybe Int
+lookupIntTable (IntTable cell) k = do
+  s <- readArray cell 0
+  b <- intTableFind s k
+  if readArray s b == 0 then Nothing else Just (readArray s (b + 2))
+
+-- the keys and values, in slot order
+intTableList :: IntTable ->> [(Int, Int)]
+intTableList (IntTable cell) = do
+  s <- readArray cell 0
+  go s (intTableMask s) []
+  where go s j acc = if j < 0 then acc else
+          go s (j - 1) (if readArray s (1 + 3 * j) == 0 then acc else (readArray s (2 + 3 * j), readArray s (3 + 3 * j)) : acc)
+
+freeIntTable :: IntTable ->> ()
+freeIntTable (IntTable cell) = do
+  freeArray (readArray cell 0)
+  freeArray cell
 
 -- memory another thread reads or writes: an acquire load and a release
 -- store, so a value is read whole, after what was written before it

@@ -1,0 +1,74 @@
+-- reverse-complement (Benchmarks Game): revcomp.c's complements. Input is
+-- read in chunks into a byte buffer that doubles as it fills; each
+-- sequence is written after its header line, reversed and complemented,
+-- 60 bytes a line, from an output buffer in one write.
+pairs :: String
+pairs = "ATCGGCTAUAMKRYWWSSYRKMVBHDDHBVNN"
+
+-- each code's complement, in either case
+complements :: () ->> Array Int
+complements u = do
+  t <- newArray 128 0
+  mapM_ (\i -> do
+    let c = ord (indexString pairs (2 * i))
+        d = ord (indexString pairs (2 * i + 1))
+    writeArray t c d
+    writeArray t (c + 32) d) (enumFromTo 0 (div (length pairs) 2 - 1))
+  t
+
+-- all of standard input, read in chunks into a buffer that doubles; its length
+readAll :: Array CChar -> Int ->> (Array CChar, Int)
+readAll a n =
+  if n == arrayLength a then do
+    b <- newArray (2 * arrayLength a) (fromIntegral 0 :: CChar)
+    copyArray a 0 b 0 n
+    freeArray a
+    readAll b n
+  else case getArray a n (arrayLength a - n) of
+    0 -> (a, n)
+    k -> readAll a (n + k)
+
+byteAt :: Array CChar -> Int ->> Int
+byteAt a i = fromIntegral (readArray a i)
+
+-- the first index from i at which a[i] is c, or n
+find :: Array CChar -> Int -> Int -> Int ->> Int
+find a c i n = if i == n || byteAt a i == c then i else find a c (i + 1) n
+
+-- the end of the sequence starting at i: the next line that is a header, or n
+sequenceEnd :: Array CChar -> Int -> Int ->> Int
+sequenceEnd a i n = case find a 10 i n of
+  j -> if j + 1 >= n then n else if byteAt a (j + 1) == 62 then j + 1 else sequenceEnd a (j + 1) n
+
+-- a[from..p] backwards, newlines dropped, complemented into out from o,
+-- with a newline after every 60; k bytes in the current line; out's length
+reverseInto :: Array Int -> Array CChar -> Int -> Int -> Array CChar -> Int -> Int ->> Int
+reverseInto t a from p out o k =
+  if p < from then (if k == 0 then o else do
+    writeArray out o (fromIntegral 10)
+    o + 1)
+  else case byteAt a p of
+    10 -> reverseInto t a from (p - 1) out o k
+    c -> do
+      writeArray out o (fromIntegral (readArray t c))
+      if k == 59
+        then do
+          writeArray out (o + 1) (fromIntegral 10)
+          reverseInto t a from (p - 1) out (o + 2) 0
+        else reverseInto t a from (p - 1) out (o + 1) (k + 1)
+
+sequences :: Array Int -> Array CChar -> Int -> Array CChar -> Int ->> ()
+sequences t a n out i = if i >= n then () else do
+  h <- find a 10 i n -- the header line's newline
+  putArray a i (min n (h + 1) - i)
+  e <- sequenceEnd a (h + 1) n
+  m <- reverseInto t a (h + 1) (e - 1) out 0 0
+  putArray out 0 m
+  sequences t a n out e
+
+main = do
+  t <- complements ()
+  start <- newArray 1048576 (fromIntegral 0 :: CChar)
+  (a, n) <- readAll start 0
+  out <- newArray (n + div n 60 + 2) (fromIntegral 0 :: CChar)
+  sequences t a n out 0

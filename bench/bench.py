@@ -64,7 +64,26 @@ GAME_SIZES = {
     "binarytrees": 18,
     "fasta": 10000000,
     "mandelbrot": 4000,
+    "knucleotide": 2500000, # these two read fasta's output for n
+    "revcomp": 10000000,
+    "regexredux": 1000000,
+    "pidigits": 10000,
 }
+GAME_INPUTS = {"knucleotide", "revcomp", "regexredux"}
+# C libraries the Game's programs use, as (header, library), and where to look
+GAME_LIBS = {"regexredux": ("pcre.h", "pcre"), "pidigits": ("gmp.h", "gmp")}
+LIB_PREFIXES = ["/opt/homebrew", "/usr/local", "/usr"]
+
+
+def lib_flags(bench):
+    """-I and -L for bench's C library, or [] if it needs none."""
+    if SUITE != "game" or bench not in GAME_LIBS:
+        return []
+    header, _ = GAME_LIBS[bench]
+    for p in LIB_PREFIXES:
+        if os.path.exists(os.path.join(p, "include", header)):
+            return ["-I", os.path.join(p, "include"), "-L", os.path.join(p, "lib")]
+    raise RuntimeError(f"{header} not found under {', '.join(LIB_PREFIXES)}")
 
 SUITES = {
     "core": (PROGS, CORE_SIZES, RESULTS, BACKENDS),
@@ -110,7 +129,7 @@ def measure(cmd, stdin_text):
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         t0 = time.perf_counter()
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=out, stderr=err)
-        p.stdin.write(stdin_text.encode())
+        p.stdin.write(stdin_text.encode("latin-1"))
         p.stdin.close()
         _, status, ru = os.wait4(p.pid, 0)  # per-child rusage, unlike RUSAGE_CHILDREN
         wall = time.perf_counter() - t0
@@ -127,18 +146,34 @@ def build(bench, backend):
     """Return (command to run, build seconds or None)."""
     os.makedirs(BUILD, exist_ok=True)
     exe = os.path.join(BUILD, f"{SUITE}_{bench}_{backend}")
+    flags = lib_flags(bench)
     if backend == "interp":
-        return [FUNK, os.path.join(PROGS, bench + ".fk")], None
+        return [FUNK, "run", os.path.join(PROGS, bench + ".fk")] + flags, None
     if backend == "compiled":
-        cmd = [FUNK, "build", os.path.join(PROGS, bench + ".fk"), "-o", exe]
+        cmd = [FUNK, "build", os.path.join(PROGS, bench + ".fk"), "-o", exe] + flags
     else:
         cc = (os.environ.get("CC") or "cc").split()
-        cmd = cc + ["-O2", "-o", exe, os.path.join(PROGS, bench + ".c"), "-lm"]
+        libs = ["-l" + GAME_LIBS[bench][1]] if bench in GAME_LIBS and SUITE == "game" else []
+        cmd = cc + ["-O2", "-I", PROGS] + flags + ["-o", exe, os.path.join(PROGS, bench + ".c")] + libs + ["-lm"]  # -I: game/khash.h
     t0 = time.perf_counter()
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"build failed: {' '.join(cmd)}\n{r.stdout}{r.stderr}")
     return [exe], time.perf_counter() - t0
+
+
+def stdin_for(bench, n):
+    """What bench reads: n, or for the game's readers, fasta's output for n."""
+    if SUITE != "game" or bench not in GAME_INPUTS:
+        return f"{n}\n"
+    path = os.path.join(BUILD, f"fasta-{n}.txt")
+    if not os.path.exists(path):
+        cmd, _ = build("fasta", "c")
+        with open(path + ".tmp", "wb") as f:
+            subprocess.run(cmd + [str(n)], stdout=f, check=True)
+        os.replace(path + ".tmp", path)
+    with open(path, encoding="latin-1") as f:
+        return f.read()
 
 
 def cmd_run(args):
@@ -153,15 +188,16 @@ def cmd_run(args):
     rows = []
     for bench in names:
         n = SIZES[bench]
+        stdin = stdin_for(bench, n)
         outputs = {}
         for backend in backends:
             try:
                 cmd, build_s = build(bench, backend)
                 if backend == "c":
                     cmd = cmd + [str(n)]  # the Game's C reads n from argv; the core suite's ignores it
-                out = measure(cmd, f"{n}\n")[0]  # warm-up, also the output check
+                out = measure(cmd, stdin)[0]  # warm-up, also the output check
                 outputs[backend] = hashlib.sha256(out.encode("latin-1")).hexdigest()  # fasta prints 100 MB
-                samples = [measure(cmd, f"{n}\n") for _ in range(args.repeat)]
+                samples = [measure(cmd, stdin) for _ in range(args.repeat)]
             except RuntimeError as e:
                 print(f"{bench:13} {backend:9} FAILED: {e}", file=sys.stderr)
                 continue

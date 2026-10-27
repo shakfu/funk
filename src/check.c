@@ -628,6 +628,8 @@ static void register_datas(Module *m) {
     int ti = map_get(&tmap, d->name);
     if (ti >= 0 && ti < nprelude_types)
       cerror(d->line, d->col, "type `%s` is defined in the prelude and cannot be redefined", d->name);
+    for (int j = 0; j < m->nstructs; j++)
+      if (m->structs[j]->name == d->name) cerror(d->line, d->col, "type `%s` is already defined", d->name);
     VPUSH(tydefs, ((TyDef){d->name, d->np, d->nc}));
     map_put(&tmap, d->name, tydefs.n - 1);
   }
@@ -2425,13 +2427,18 @@ static CStruct *cstruct(Type *t) {
   return NULL;
 }
 
-static void register_structs(Module *m) {
-  for (int i = 0; i < m->nstructs; i++) { /* the types first, so a field of a later struct's type says so */
+/* Struct types are named before data types, whose constructors may hold
+   them (`Ptr S`); their fields, which may be data types, come later. */
+static void register_struct_names(Module *m) {
+  for (int i = 0; i < m->nstructs; i++) {
     StructDecl *s = m->structs[i];
     if (map_get(&tmap, s->name) >= 0) cerror(s->line, s->col, "type `%s` is already defined", s->name);
     VPUSH(tydefs, ((TyDef){s->name, 0, 0}));
     map_put(&tmap, s->name, tydefs.n - 1);
   }
+}
+
+static void register_structs(Module *m) {
   for (int i = 0; i < m->nstructs; i++) {
     StructDecl *s = m->structs[i];
     const char *ct = s->ctype ? s->ctype : xsprintf("struct fk_struct_%s", s->name);
@@ -2561,6 +2568,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   }
   cerr_jmp = &jb;
   pending.n = 0;
+  register_struct_names(m);
   register_datas(m);
   BindVec extra = {0}, raw = {0};
   int first_inst;

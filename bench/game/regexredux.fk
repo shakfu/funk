@@ -1,0 +1,80 @@
+-- regex-redux (Benchmarks Game): regexredux.c's matches and substitutions,
+-- with the same library, PCRE with its JIT, through foreign imports. The
+-- input is read whole with getContents and copied once into C memory;
+-- each substitution writes a new buffer, as fb_subst does.
+foreign library "pcre"
+
+data Pcre
+data PcreExtra
+
+foreign import ccall "pcre.h pcre_compile" pcreCompile :: String -> CInt -> Ptr (Ptr CChar) -> Ptr CInt -> Ptr () ->> Ptr Pcre
+foreign import ccall "pcre.h pcre_study" pcreStudy :: Ptr Pcre -> CInt -> Ptr (Ptr CChar) ->> Ptr PcreExtra
+foreign import ccall "pcre.h pcre_exec" pcreExec :: Ptr Pcre -> Ptr PcreExtra -> Ptr CChar -> CInt -> CInt -> CInt -> Ptr CInt -> CInt ->> CInt
+foreign import ccall "pcre.h PCRE_STUDY_JIT_COMPILE" studyJit :: CInt
+foreign import ccall "string.h memcpy" copyBytes :: Ptr CChar -> Ptr CChar -> CSize ->> Ptr ()
+foreign import ccall "string.h memcpy" copyString :: Ptr CChar -> String -> CSize ->> Ptr ()
+
+data Regex = Regex (Ptr Pcre) (Ptr PcreExtra)
+
+compile :: String ->> Regex
+compile p = alloca (\err -> alloca (\off -> do
+  re <- pcreCompile p 0 err off nullPtr
+  if re == nullPtr then error ("pcre_compile failed: " ++ p) else Regex re (pcreStudy re studyJit err)))
+
+-- the first match in s[0..n) from pos, as (start, end), or (-1, -1)
+match :: Regex -> Ptr CChar -> Int -> Int -> Ptr CInt ->> (Int, Int)
+match (Regex re ex) s n pos ov =
+  if pcreExec re ex s (fromIntegral n) (fromIntegral pos) 0 ov 3 < 0 then (-1, -1)
+  else (fromIntegral (peekByteOff ov 0 :: CInt), fromIntegral (peekByteOff ov 4 :: CInt))
+
+count :: Regex -> Ptr CChar -> Int -> Ptr CInt ->> Int
+count re s n ov = go 0 0
+  where go pos k = case match re s n pos ov of
+          (m0, m1) -> if m0 < 0 then k else go m1 (k + 1)
+
+-- s[0..n) with each match of p replaced by r, in a new buffer; its length
+subst :: String -> String -> Ptr CChar -> Int -> Ptr CInt ->> (Ptr CChar, Int)
+subst p r s n ov = do
+  re <- compile p
+  d <- (mallocBytes (div (n * 3) 2 + 16) :: Ptr CChar) -- a replacement is at most 1.5 times what it replaces
+  go re d 0 0
+  where
+    go re d pos len = case match re s n pos ov of
+      (m0, m1) -> if m0 < 0
+        then do
+          copyBytes (plusPtr d len) (plusPtr s pos) (fromIntegral (n - pos))
+          (d, len + n - pos)
+        else do
+          copyBytes (plusPtr d len) (plusPtr s pos) (fromIntegral (m0 - pos))
+          copyString (plusPtr d (len + m0 - pos)) r (fromIntegral (length r))
+          go re d m1 (len + m0 - pos + length r)
+
+variants :: [String]
+variants = ["agggtaaa|tttaccct", "[cgt]gggtaaa|tttaccc[acg]", "a[act]ggtaaa|tttacc[agt]t", "ag[act]gtaaa|tttac[agt]ct",
+            "agg[act]taaa|ttta[agt]cct", "aggg[acg]aaa|ttt[cgt]ccct", "agggt[cgt]aa|tt[acg]accct", "agggta[cgt]a|t[acg]taccct",
+            "agggtaa[cgt]|[acg]ttaccct"]
+
+magic :: [(String, String)]
+magic = [("tHa[Nt]", "<4>"), ("aND|caN|Ha[DS]|WaS", "<3>"), ("a[NSt]|BY", "<2>"), ("<[^>]*>", "|"), ("\\|[^|][^|]*\\|", "-")]
+
+-- the substitutions in order, each from the last one's buffer; the final length
+substAll :: [(String, String)] -> Ptr CChar -> Int -> Ptr CInt ->> Int
+substAll ps s n ov = case ps of
+  [] -> n
+  ((p, r) : rest) -> do
+    (d, m) <- subst p r s n ov
+    free s
+    substAll rest d m ov
+
+main = do
+  input <- getContents ()
+  let ilen = length input
+  ov <- (mallocBytes 12 :: Ptr CInt)
+  s <- (mallocBytes (ilen + 1) :: Ptr CChar)
+  copyString s input (fromIntegral ilen)
+  (seq, clen) <- subst ">.*|\n" "" s ilen ov
+  free s
+  mapM_ (\v -> putStrLn (v ++ " " ++ show (count (compile v) seq clen ov))) variants
+  slen <- substAll magic seq clen ov
+  putStrLn ("\n" ++ show ilen ++ "\n" ++ show clen ++ "\n" ++ show slen)
+  free ov

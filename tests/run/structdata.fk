@@ -1,0 +1,15 @@
+-- A data type may hold a foreign struct's type, declared before or after
+-- it, and a struct may point to a data type.
+data Holder = Holder (Ptr Point) Int
+foreign struct Point { x :: CInt, y :: CInt, next :: Ptr Node }
+data Node = Node Int
+
+sumPoint :: Holder ->> Int
+sumPoint (Holder p k) = fromIntegral (readField p Point.x) + fromIntegral (readField p Point.y) + k
+
+main = do
+  p <- (mallocBytes Point.size :: Ptr Point)
+  writeField p Point.x 3
+  writeField p Point.y 4
+  print (sumPoint (Holder p 10), Point.size >= 16)
+  free p

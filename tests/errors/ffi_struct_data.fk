@@ -1,0 +1,4 @@
+-- expect: type `S` is already defined
+foreign struct S { a :: CInt }
+data S = S Int
+main = print 1

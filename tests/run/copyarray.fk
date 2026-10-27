@@ -1,0 +1,18 @@
+-- copyArray, as memmove: overlapping ranges either way; newArray fills
+-- with it, doubling the filled prefix; getArray at the end of input.
+main = do
+  a <- newArray 10 (0 :: Int)
+  mapM_ (\i -> writeArray a i i) (enumFromTo 0 9)
+  copyArray a 0 a 2 5
+  print (map (\i -> readArray a i) (enumFromTo 0 9))
+  copyArray a 3 a 0 6
+  print (map (\i -> readArray a i) (enumFromTo 0 9))
+  b <- newArray 7 1.5
+  print (map (\i -> readArray b i) (enumFromTo 0 6))
+  c <- newArray 1 (fromIntegral 65 :: CChar)
+  putArray c 0 1
+  putStrLn ""
+  print (getArray c 0 1)
+  freeArray a
+  freeArray b
+  freeArray c
