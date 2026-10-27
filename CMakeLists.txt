@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(funk VERSION 0.4.0 LANGUAGES C)
+project(funk VERSION 0.4.1 LANGUAGES C)
 
 # funk is one executable over libfunk. The runtime (src/rt.c, with what it includes)
 # and the prelude are embedded in it as C strings: compiled programs get

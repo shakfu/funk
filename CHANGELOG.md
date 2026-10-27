@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-27
+
 ### Changed
 
 - funk is a static library, `libfunk.a`, with an internal api in `src/libfunk.h`, and a command line, `cli/main.c`, that uses only that api. The api returns errors and never exits. It is internal, with no stability promise, since the compiler's global tables allow one session per process.
