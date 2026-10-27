@@ -30,7 +30,8 @@ Both backends link the same runtime, `rt.c`.
 | `src/ffi.c` | 122 | foreign-import glue; the interpreter's compile, cache and load |
 | `src/rt.c`, `rt.h` | 898 | values, GC, apply, `show`, compare, primitives |
 | `src/prims.def` | 64 | primitive table: C name, funk name, arity, type |
-| `src/main.c` | 323 | CLI, REPL, `cc` invocation |
+| `src/driver.c`, `libfunk.h` | 271 | the library's api: prelude, files, backends, REPL input |
+| `cli/main.c` | 287 | command line and REPL loop, over `libfunk.h` only |
 | `src/util.c`, `funk.h` | 549 | allocation, interning, maps with undo, AST types |
 | `lib/prelude.fk` | 274 | standard functions in funk |
 | `tools/embed.c` | 45 | embeds `rt.c`, `rt.h` and the prelude into the binary |
@@ -218,10 +219,10 @@ Output: the embedded runtime source, a global array `G`, one `static V fn_N(V se
 
 `funk build` writes the C to a temporary file and runs `$CC -O2 -o OUT FILE.c -lm -lpthread`.
 
-## REPL (`main.c`)
+## REPL (`driver.c`, `cli/main.c`)
 
-Each input is a chunk. `is_decl_text` classifies it: `data`, a signature, or `=` at bracket depth 0 before any expression keyword means a declaration. An expression is compiled as a binding named `$it`, printed unless it is `()`, then aliased to `it`. Compile errors and runtime errors both return to the prompt through `longjmp`.
+`cli/main.c` reads lines and `:` commands; `funk_eval` in `driver.c` compiles and runs each. Each input is a chunk. `is_decl_text` classifies it: `data`, a signature, or `=` at bracket depth 0 before any expression keyword means a declaration. An expression is compiled as a binding named `$it`, printed unless it is `()`, then aliased to `it`. Compile errors and runtime errors both return to the prompt through `longjmp`.
 
 ## Build and tests
 
-The CMake build compiles `tools/embed` first. It inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/embedded.c`. `tests/CMakeLists.txt` registers one ctest test per check; `tests/check.sh` runs each and documents what it checks.
+The CMake build compiles `tools/embed` first, then `libfunk.a` from `src/`, then the `funk` executable from `cli/main.c`. `libfunk.h` is internal: it has no stability promise, and the library holds one session per process, since the compiler's tables and the heap are global. `tools/embed` inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/embedded.c`. `tests/CMakeLists.txt` registers one ctest test per check; `tests/check.sh` runs each and documents what it checks.

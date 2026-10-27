@@ -1,0 +1,2 @@
+:l tests/no-such-file.fk
+1 + 1

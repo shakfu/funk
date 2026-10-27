@@ -1,22 +1,20 @@
-/* main.c -- command line driver and REPL. */
+/* main.c -- the command line and the REPL, over libfunk.h. */
 #define _DEFAULT_SOURCE
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
-#include "funk.h"
-
-#ifndef FUNK_VERSION
-#define FUNK_VERSION "dev" /* CMake defines it from the project version */
-#endif
+#include "libfunk.h"
 
 enum { M_REPL, M_RUN, M_BUILD, M_EMITC, M_CHECK, M_EVAL };
 typedef struct {
   int mode;
   const char *file, *out, *expr;
   const char *opt; /* C optimization level for build */
-  Strs cc_args; /* -I, -l and -L: for build, and for the interpreter's foreign-import glue */
+  const char **cc_args; /* -I, -l and -L: for build, and for the interpreter's foreign-import glue */
+  int ncc_args;
 } Opts;
-
-static Chunk prelude;
 
 static _Noreturn void die(const char *fmt, const char *arg) {
   fflush(stdout);
@@ -54,7 +52,7 @@ static const Command commands[] = {
 #define NCOMMANDS (int)(sizeof commands / sizeof commands[0])
 
 static void help(FILE *f) {
-  fputs("funk " FUNK_VERSION " -- a strict functional language with Haskell syntax\n\nusage:\n", f);
+  fprintf(f, "funk %s -- a strict functional language with Haskell syntax\n\nusage:\n", funk_version());
   for (int i = 0; i < NCOMMANDS; i++) fprintf(f, "  funk %s\n", commands[i].synopsis);
   fputs("  funk FILE              same as funk run FILE\n"
         "  funk -e EXPR           same as funk eval EXPR\n"
@@ -78,57 +76,6 @@ static _Noreturn void usage_error(const char *cmd, const char *fmt, const char *
   exit(2);
 }
 
-/* Parse with compile errors caught; NULL on error (already reported). */
-static Module *parse_caught(const char *src, size_t len) {
-  jmp_buf jb, *saved = cerr_jmp;
-  Module *volatile m = NULL;
-  if (!setjmp(jb)) {
-    cerr_jmp = &jb;
-    m = parse_module(src, len);
-  }
-  cerr_jmp = saved;
-  return m;
-}
-
-static Expr *parse_expr_caught(const char *src, size_t len) {
-  jmp_buf jb, *saved = cerr_jmp;
-  Expr *volatile e = NULL;
-  if (!setjmp(jb)) {
-    cerr_jmp = &jb;
-    e = parse_expr_text(src, len);
-  }
-  cerr_jmp = saved;
-  return e;
-}
-
-static int is_decl_caught(const char *src, size_t len) {
-  jmp_buf jb, *saved = cerr_jmp;
-  volatile int r = -1;
-  if (!setjmp(jb)) {
-    cerr_jmp = &jb;
-    r = is_decl_text(src, len);
-  }
-  cerr_jmp = saved;
-  return r;
-}
-
-static bool compile_file(const char *path, Chunk *out) {
-  size_t len;
-  char *src = read_file(path, &len);
-  if (!src) die("cannot read %s", path);
-  cur_file = path;
-  Module *m = parse_caught(src, len);
-  return m && compile_chunk(m, out);
-}
-
-static int main_global(int first) {
-  int g = global_lookup(intern("main"));
-  if (g < first) die("%s: no `main` defined", cur_file);
-  return g;
-}
-
-/* ------------------------------------------------------------------ build */
-
 static void write_text(const char *path, const char *text) {
   FILE *f = path ? fopen(path, "w") : stdout;
   if (!f) die("cannot write %s", path);
@@ -136,148 +83,30 @@ static void write_text(const char *path, const char *text) {
   if (path) fclose(f);
 }
 
-static int run_cc(const char *csrc, const char *exe, Opts *o) {
-  Argv argv = cc_argv();
-  char *fixed[] = {xsprintf("-O%s", o->opt), "-o", (char *)exe, (char *)csrc, NULL};
-  for (int i = 0; fixed[i]; i++) VPUSH(argv, fixed[i]);
-  for (int i = 0; i < o->cc_args.n; i++) VPUSH(argv, (char *)o->cc_args.a[i]);
-  for (int i = 0; i < ffi_libs.n; i++) VPUSH(argv, xsprintf("-l%s", ffi_libs.a[i])); /* before -lm, which they may use */
-  static const char *const runtime_libs[] = {"-lm", "-lpthread"};
-  for (int i = 0; i < 2; i++) {
-    bool given = false; /* the linker warns about a library named twice */
-    for (int j = 0; j < o->cc_args.n; j++) given |= strcmp(o->cc_args.a[j], runtime_libs[i]) == 0;
-    for (int j = 0; j < ffi_libs.n; j++) given |= strcmp(ffi_libs.a[j], runtime_libs[i] + 2) == 0;
-    if (!given) VPUSH(argv, (char *)runtime_libs[i]);
-  }
-  int status = spawn_wait(&argv);
-  if (status < 0) die("cannot run %s", argv.a[0]);
-  return status;
-}
-
 static char *default_exe(const char *file) {
   const char *base = strrchr(file, '/');
   base = base ? base + 1 : file;
-  char *s = xsprintf("%s", base);
-  char *dot = strrchr(s, '.');
-  if (dot && strcmp(dot, ".fk") == 0) *dot = 0;
-  else s = xsprintf("%s.exe", s);
+  size_t n = strlen(base);
+  char *s = malloc(n + 5);
+  if (!s) die("%s", "out of memory");
+  memcpy(s, base, n + 1);
+  if (n >= 3 && strcmp(s + n - 3, ".fk") == 0) s[n - 3] = 0;
+  else strcpy(s + n, ".exe");
   return s;
-}
-
-static void build(Opts *o) {
-  int first = globals.n;
-  Chunk user;
-  if (!compile_file(o->file, &user)) exit(1);
-  main_global(first);
-  char *c = cgen_program((Chunk[]){prelude, user}, 2);
-  if (o->mode == M_EMITC) {
-    write_text(o->out, c);
-    exit(0);
-  }
-  const char *dir = getenv("TMPDIR");
-  char *tmp = xsprintf("%s/funkXXXXXX.c", dir && *dir ? dir : "/tmp");
-  int fd = mkstemps(tmp, 2);
-  if (fd < 0) die("cannot create %s", tmp);
-  FILE *f = fdopen(fd, "w");
-  fputs(c, f);
-  fclose(f);
-  int rc = run_cc(tmp, o->out ? o->out : default_exe(o->file), o);
-  unlink(tmp);
-  exit(rc);
 }
 
 /* ------------------------------------------------------------------- REPL */
 
-/* Print a REPL result with its Show instance. Without one, print it
-   structurally; a function prints as `<function> :: type`. */
-static void print_result(Bind *it) {
-  Bind *b = NEW(Bind);
-  b->name = intern("$shown");
-  b->line = it->line;
-  b->col = it->col;
-  Expr *f = NEW(Expr), *x = NEW(Expr);
-  *f = (Expr){.k = E_VAR, .line = b->line, .col = b->col, .name = intern("show")};
-  *x = (Expr){.k = E_VAR, .line = b->line, .col = b->col, .name = it->name};
-  b->e = NEW(Expr);
-  *b->e = (Expr){.k = E_APP, .line = b->line, .col = b->col, .fn = f, .n = 1, .args = xmalloc(sizeof(Expr *))};
-  b->e->args[0] = x;
-  Module m = {.binds = &b, .nb = 1};
-  Chunk c;
-  cerr_quiet = true;
-  bool ok = compile_chunk(&m, &c);
-  cerr_quiet = false;
-  if (ok) {
-    interp_install(&c);
-    char *s = fk_cstring(interp_global(b->gidx), NULL);
-    puts(s);
-    free(s);
-    return;
-  }
-  V v = interp_global(it->gidx);
-  if (FK_ISPTR(v) && FK_HDR(v)->kind != K_CON && FK_HDR(v)->kind != K_FLOAT) {
-    printf("<function> :: %s\n", type_str(globals.a[it->gidx].type));
-    return;
-  }
-  char *s = fk_show_cstr(v);
-  puts(s);
-  free(s);
-}
-
-static bool eval_failed; /* the last eval_input reported an error */
-
-static void eval_input(const char *src) {
-  size_t len = strlen(src);
-  jmp_buf rt;
-  eval_failed = true;
-  fk_error_jmp = &rt;
-  if (setjmp(rt)) { fk_error_jmp = NULL; return; }
-  int decl = is_decl_caught(src, len);
-  if (decl < 0) { fk_error_jmp = NULL; return; }
-  Chunk c;
-  if (decl) {
-    int mark = undo_mark(); /* fixities installed by the parser */
-    Module *m = parse_caught(src, len);
-    if (m && compile_chunk(m, &c)) {
-      interp_install(&c);
-      eval_failed = false;
-    } else {
-      undo_to(mark);
-    }
-  } else {
-    Expr *e = parse_expr_caught(src, len);
-    if (!e) { fk_error_jmp = NULL; return; }
-    Bind *b = NEW(Bind); /* bound as $it so `it` in e means the previous result */
-    b->name = intern("$it");
-    b->e = e;
-    b->line = e->line;
-    b->col = e->col;
-    Module m = {.binds = &b, .nb = 1};
-    if (compile_chunk(&m, &c)) {
-      interp_install(&c);
-      global_alias(intern("it"), b->gidx);
-      V v = interp_global(b->gidx);
-      if (v != fk_unit) print_result(b);
-      eval_failed = false;
-    }
-  }
-  fk_error_jmp = NULL;
+static bool eval_print(const char *src, const char *name) {
+  char *shown;
+  bool ok = funk_eval(src, name, &shown);
+  if (shown) puts(shown);
+  free(shown);
+  return ok;
 }
 
 static void load(const char *path) {
-  jmp_buf rt;
-  Chunk c;
-  int mark = undo_mark();
-  fk_error_jmp = &rt;
-  if (!setjmp(rt)) {
-    if (compile_file(path, &c)) {
-      interp_install(&c);
-      printf("loaded %s\n", path);
-    } else {
-      undo_to(mark);
-    }
-  }
-  fk_error_jmp = NULL;
-  cur_file = "<repl>";
+  if (funk_load_file(path)) printf("loaded %s\n", path);
 }
 
 static void command(const char *line) {
@@ -285,9 +114,9 @@ static void command(const char *line) {
   while (*arg == ' ') arg++;
   if (line[1] == 'q') exit(0);
   if (line[1] == 't' && (line[2] == ' ' || !line[2])) {
-    Expr *e = parse_expr_caught(arg, strlen(arg));
-    const char *t = e ? infer_type_text(e) : NULL;
+    char *t = funk_type_of(arg, "<repl>");
     if (t) printf("%s :: %s\n", arg, t);
+    free(t);
     return;
   }
   if (line[1] == 'l' && (line[2] == ' ' || !line[2])) {
@@ -300,7 +129,8 @@ static void command(const char *line) {
 static void repl(void) {
   bool tty = isatty(0);
   if (tty) puts("funk REPL. :t EXPR shows a type, :{ starts multi-line input, :q quits.");
-  SB block = {0};
+  char *block = NULL; /* multi-line input so far */
+  size_t nblock = 0;
   bool multi = false;
   char *line = NULL;
   size_t cap = 0;
@@ -310,14 +140,17 @@ static void repl(void) {
     fflush(stdout);
     if ((n = getline(&line, &cap, stdin)) < 0) break;
     while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
-    cur_file = "<repl>";
     if (multi) {
       if (strcmp(line, ":}") == 0) {
         multi = false;
-        eval_input(block.s ? block.s : "");
+        eval_print(block ? block : "", "<repl>");
       } else {
-        sb_puts(&block, line);
-        sb_puts(&block, "\n");
+        block = realloc(block, nblock + (size_t)n + 2);
+        if (!block) die("%s", "out of memory");
+        memcpy(block + nblock, line, (size_t)n);
+        nblock += (size_t)n;
+        block[nblock++] = '\n';
+        block[nblock] = 0;
       }
       continue;
     }
@@ -326,55 +159,51 @@ static void repl(void) {
     if (!*s) continue;
     if (strcmp(s, ":{") == 0) {
       multi = true;
-      block.n = 0;
-      if (block.s) block.s[0] = 0;
+      nblock = 0;
+      if (block) block[0] = 0;
       continue;
     }
     if (*s == ':') command(s);
-    else eval_input(line);
+    else eval_print(line, "<repl>");
   }
   if (tty) putchar('\n');
 }
 
 /* ------------------------------------------------------------------- main */
 
-static void task(void *arg) {
+static int task(void *arg) {
   Opts *o = arg;
-  compiler_init();
-  cur_file = "<prelude>";
-  char *src = xsprintf("%s\n%s", fk_prelude_src, builtin_instances_src());
-  Module *m = parse_caught(src, strlen(src));
-  if (!m || !compile_chunk(m, &prelude)) die("%s", "internal error: prelude failed to compile");
-  if (o->mode == M_BUILD || o->mode == M_EMITC) build(o);
-  if (o->mode == M_CHECK) {
-    Chunk user;
-    exit(compile_file(o->file, &user) ? 0 : 1);
+  if (!funk_init(o->cc_args, o->ncc_args)) return 1;
+  switch (o->mode) {
+  case M_BUILD: {
+    int rc = funk_build(o->file, o->out ? o->out : default_exe(o->file), o->opt);
+    return rc < 0 ? 1 : rc; /* the C compiler's status */
   }
-  interp_install(&prelude);
-  if (o->mode == M_EVAL) {
-    cur_file = "<eval>";
-    eval_input(o->expr);
+  case M_EMITC: {
+    char *c = funk_emit_c(o->file);
+    if (!c) return 1;
+    write_text(o->out, c);
+    return 0;
+  }
+  case M_CHECK: return funk_check_file(o->file) ? 0 : 1;
+  case M_EVAL: {
+    bool ok = eval_print(o->expr, "<eval>");
     fflush(stdout);
-    exit(eval_failed ? 1 : 0);
+    return ok ? 0 : 1;
   }
-  if (o->mode == M_REPL) {
+  case M_REPL:
     if (o->file) load(o->file);
     repl();
-    exit(0);
+    return 0;
+  default: return funk_run_file(o->file) ? 0 : 1;
   }
-  int first = globals.n;
-  Chunk user;
-  if (!compile_file(o->file, &user)) exit(1);
-  main_global(first);
-  interp_install(&user);
-  fflush(stdout);
-  exit(0);
 }
 
 static bool is_help(const char *a) { return strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0; }
 
 int main(int argc, char **argv) {
-  Opts o = {.mode = M_REPL, .opt = "2"};
+  Opts o = {.mode = M_REPL, .opt = "2", .cc_args = calloc((size_t)argc, sizeof(char *))};
+  if (!o.cc_args) die("%s", "out of memory");
   static const int modes[] = {M_REPL, M_RUN, M_BUILD, M_EMITC, M_CHECK, M_EVAL};
   const char *cmd = NULL;
   int i = 1;
@@ -386,7 +215,7 @@ int main(int argc, char **argv) {
       return 0;
     }
     if (strcmp(a, "-V") == 0 || strcmp(a, "--version") == 0) {
-      puts("funk " FUNK_VERSION);
+      printf("funk %s\n", funk_version());
       return 0;
     }
     if (strcmp(a, "-e") == 0) {
@@ -435,7 +264,14 @@ int main(int argc, char **argv) {
         usage_error(cmd, "`-O` takes one of 0, 1, 2, 3, s, z", NULL);
     } else if (links && (strncmp(a, "-l", 2) == 0 || strncmp(a, "-L", 2) == 0 || strncmp(a, "-I", 2) == 0)) {
       if (!a[2] && !more) usage_error(cmd, "`%s` needs an argument", a);
-      VPUSH(o.cc_args, a[2] ? a : xsprintf("%s%s", a, argv[++i]));
+      if (a[2]) {
+        o.cc_args[o.ncc_args++] = a;
+      } else { /* -I DIR as -IDIR */
+        const char *v = argv[++i];
+        char *j = malloc(strlen(a) + strlen(v) + 1);
+        if (!j) die("%s", "out of memory");
+        o.cc_args[o.ncc_args++] = strcat(strcpy(j, a), v);
+      }
     } else if (a[0] == '-' && a[1]) {
       usage_error(cmd, "unknown option `%s`", a);
     } else if (!o.file && o.mode != M_EVAL) {
@@ -447,6 +283,5 @@ int main(int argc, char **argv) {
   if (o.mode == M_EVAL && !o.expr) usage_error(cmd, "missing EXPR", NULL);
   if (o.mode != M_REPL && o.mode != M_EVAL && !o.file) usage_error(cmd, "missing FILE", NULL);
   if (o.file && access(o.file, R_OK) != 0) die("cannot read %s", o.file);
-  if (!build) ffi_cc_args = o.cc_args;
-  return fk_run(task, &o);
+  return funk_main(task, &o);
 }

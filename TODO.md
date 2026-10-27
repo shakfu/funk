@@ -24,6 +24,10 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 - [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): no test proves the stack snapshot's page copy necessary since protection stops below the thread's first frame (`tests/run/gcdeep.fk` passes without it); the Linux limit is from glibc's layout, not run on Linux. An export's stack bound is not computed; for targets with small stacks, sum `-fstack-usage` frame sizes along the call graph. `foreign struct` has no C arrays inside structs (Core Audio's `AudioBufferList`).
 
+- [ ] **Library api with prefixed symbols.** `libfunk.h` is internal and unstable, and internal names (`intern`, `lex`, `repr`, `globals`) can collide with a host's. Prefix them, or build a shared library with `-fvisibility=hidden` exporting `funk_*` and the `fk_*` symbols the interpreter's glue needs; install the header and a CMake package. A stable api follows the item below.
+
+- [ ] **Per-instance context.** About 165 file-scope variables (41 in `check.c`, 36 in `rt.c`, 25 in `elab.c`) allow one session per process. Move compiler state into a context passed through the passes, and remove globals where a parameter or a local serves. The runtime's (heap, collector, stack snapshot) are shared with generated C, which pastes `rt.c`: a context pointer there costs every allocation, so measure against the benchmarks before moving them.
+
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).
 
 ## Low

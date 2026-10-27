@@ -6,7 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- funk is a static library, `libfunk.a`, with an internal api in `src/libfunk.h`, and a command line, `cli/main.c`, that uses only that api. The api returns errors and never exits. It is internal, with no stability promise, since the compiler's global tables allow one session per process.
+
 - The test suite is one ctest test per check, so `make test` runs them in parallel (63 s to 21 s on 8 cores), and `ARGS="-R NAME"` or `ARGS="-L LABEL"` runs a subset. Each test has its own foreign-import cache and a 300 s timeout. `tests/check.sh` replaces `tests/run.sh`.
+
+### Fixed
+
+- `:l` with an unreadable file in the REPL reports it and continues; it ended the REPL.
 
 ## [0.4.0] - 2026-10-27
 
