@@ -261,7 +261,7 @@ static Expr *eapp(Expr *f, int n, Expr **args, Type *t) {
   e->fn = f;
   e->n = n;
   e->args = xmalloc((size_t)n * sizeof *e->args + 1);
-  memcpy(e->args, args, (size_t)n * sizeof *args);
+  copy_n(e->args, args, (size_t)n * sizeof *args);
   return e;
 }
 
@@ -306,7 +306,7 @@ static Expr *ecase(Expr *s, int na, Alt **alts, Type *t) {
   e->scruts[0] = s;
   e->na = na;
   e->alts = xmalloc((size_t)na * sizeof *e->alts);
-  memcpy(e->alts, alts, (size_t)na * sizeof *alts);
+  copy_n(e->alts, alts, (size_t)na * sizeof *alts);
   return e;
 }
 
@@ -753,7 +753,7 @@ static int param(Gen *g, const char *name, Type *t) {
 
 static Expr **cur_copy(Gen *g, Expr **cur) {
   Expr **c = xmalloc((size_t)g->pn.n * sizeof *c + 1);
-  memcpy(c, cur, (size_t)g->pn.n * sizeof *c);
+  copy_n(c, cur, (size_t)g->pn.n * sizeof *c);
   return c;
 }
 

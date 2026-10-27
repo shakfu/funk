@@ -62,7 +62,7 @@ static inline double fk_rawf(V v) { double d; memcpy(&d, &v, sizeof d); return d
 #define FK_STRLEN(s)   ((size_t)FK_HDR(s)->aux)
 #define FK_STRBYTES(s) ((char *)&FK_W(s)[1])
 #define FK_PTRV(v)     (((FkPtr *)(v))->p)
-V fk_ptr(const void *p);
+V fk_ptr(void *p); /* not const: GCC would take the memory for read, and warn that a fresh malloc is uninitialized */
 
 /* Incremental marking (realtime.md, R2): a write that overwrites a heap
    pointer shades the old value while a cycle is marking. */

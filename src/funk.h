@@ -23,6 +23,11 @@ const char *intern(const char *s);
 const char *intern_n(const char *s, size_t n);
 char *read_file(const char *path, size_t *len);
 #define NEW(T) ((T *)xcalloc(1, sizeof(T)))
+/* memcpy and memmove of n bytes, which may be 0 from an empty array that
+   is NULL: C makes a NULL argument undefined even then, and glibc's
+   declarations let UBSan report it. */
+static inline void *copy_n(void *d, const void *s, size_t n) { return n ? memcpy(d, s, n) : d; }
+static inline void *move_n(void *d, const void *s, size_t n) { return n ? memmove(d, s, n) : d; }
 
 #define VEC(T) struct { T *a; int n, cap; }
 typedef VEC(char *) Argv;

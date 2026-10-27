@@ -125,7 +125,7 @@ static V eval(Expr *e, V *fr, V self, Tail *tc) {
       if (FK_ISPTR(f) && FK_HDR(f)->kind == K_CLOSURE && FK_CODE(f) == interp_entry && (int)FK_ARITY(f) == n) {
         Lambda *L = FK_INFO(f);
         if (!tc || L->nslots > tc->cap) return run(L, f, args);
-        memcpy(tc->fr, args, (size_t)n * sizeof(V));
+        copy_n(tc->fr, args, (size_t)n * sizeof(V));
         tc->f = f;
         return 0;
       }

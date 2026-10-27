@@ -186,7 +186,7 @@ static Expr *mkapp(Expr *f, int n, Expr **args) {
   e->fn = f;
   e->n = n;
   e->args = xmalloc((size_t)n * sizeof *args);
-  memcpy(e->args, args, (size_t)n * sizeof *args);
+  copy_n(e->args, args, (size_t)n * sizeof *args);
   return e;
 }
 

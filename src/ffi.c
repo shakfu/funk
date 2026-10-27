@@ -86,7 +86,7 @@ static const char *box(Type *t, const char *x) {
   case 'f': return xsprintf("fk_float((double)(%s))", x);
   case 'c': return xsprintf("FK_MKCHAR((unsigned char)(%s))", x);
   case 'b': return xsprintf("FK_BOOL((%s) != 0)", x);
-  case 'p': return xsprintf("fk_ptr(%s)", x);
+  case 'p': return xsprintf("fk_ptr((void *)(%s))", x); /* the C type may be const */
   default: return "fk_unit";
   }
 }
@@ -205,7 +205,7 @@ char *ffi_glue(ForeignDecl **fs, int n, bool exported) {
     switch (ffi_kind(t)) {
     case 'v': sb_printf(&body, "  %s; %s\n  fk_cb_check();\n  return fk_unit;\n", call.s, what); break;
     case 's': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_cstr_result(r, \"%s\");\n", call.s, what, f->cname); break;
-    case 'p': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_ptr(r);\n", call.s, what); break;
+    case 'p': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_ptr((void *)r);\n", call.s, what); break;
     default: sb_printf(&body, "  %s r = %s; %s\n  fk_cb_check();\n  return %s;\n", ffi_param_type(t), call.s, what, box(t, "r"));
     }
     sb_printf(&b, "%sV fk_ffi_%d(V self, V *a) {\n  (void)self; (void)a;\n%s%s}\n", exported ? "" : "static ", f->gidx,

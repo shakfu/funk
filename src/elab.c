@@ -397,11 +397,11 @@ static void elab_one(Bind *b, Sc *sc, DEnv *env) {
     if (b->e->k == E_LAM) {
       Lambda *L = b->e->lam;
       const char **all = xmalloc((size_t)(n + L->n) * sizeof *all);
-      memcpy(all, names, (size_t)n * sizeof *all);
-      memcpy(all + n, L->params, (size_t)L->n * sizeof *all);
+      copy_n(all, names, (size_t)n * sizeof *all);
+      copy_n(all + n, L->params, (size_t)L->n * sizeof *all);
       Type **ts = xmalloc((size_t)(n + L->n) * sizeof *ts);
-      memcpy(ts, dts, (size_t)n * sizeof *ts);
-      memcpy(ts + n, L->ptypes, (size_t)L->n * sizeof *ts);
+      copy_n(ts, dts, (size_t)n * sizeof *ts);
+      copy_n(ts + n, L->ptypes, (size_t)L->n * sizeof *ts);
       L->params = all;
       L->ptypes = ts;
       L->n += n;
@@ -477,8 +477,8 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
       int n = var_dicts(e->fn, sc, env, &ds);
       if (n) { /* f d.. x.., one application so known calls stay saturated */
         Expr **all = xmalloc((size_t)(n + e->n) * sizeof *all);
-        memcpy(all, ds, (size_t)n * sizeof *all);
-        memcpy(all + n, e->args, (size_t)e->n * sizeof *all);
+        copy_n(all, ds, (size_t)n * sizeof *all);
+        copy_n(all + n, e->args, (size_t)e->n * sizeof *all);
         e->args = all;
         e->n += n;
         for (int i = n; i < e->n; i++) elab(e->args[i], sc, env);
@@ -885,10 +885,10 @@ static void replace(Expr *e, const char *x, Expr *arg) {
       if (!simple) continue;
       for (int a = 0; a < e->na; a++) {
         Alt *alt = e->alts[a];
-        memmove(alt->pats + i, alt->pats + i + 1, (size_t)(alt->np - i - 1) * sizeof *alt->pats);
+        move_n(alt->pats + i, alt->pats + i + 1, (size_t)(alt->np - i - 1) * sizeof *alt->pats);
         alt->np--;
       }
-      memmove(e->scruts + i, e->scruts + i + 1, (size_t)(e->ns - i - 1) * sizeof *e->scruts);
+      move_n(e->scruts + i, e->scruts + i + 1, (size_t)(e->ns - i - 1) * sizeof *e->scruts);
       e->ns--;
       i--;
     }
@@ -957,8 +957,8 @@ static void ho_call(Expr *e, Nm *locals) {
     Fv try = fv;
     try.names.a = xmalloc((size_t)(fv.names.n + 8) * sizeof(char *));
     try.types.a = xmalloc((size_t)(fv.names.n + 8) * sizeof(Type *));
-    memcpy(try.names.a, fv.names.a, (size_t)fv.names.n * sizeof(char *));
-    memcpy(try.types.a, fv.types.a, (size_t)fv.names.n * sizeof(Type *));
+    copy_n(try.names.a, fv.names.a, (size_t)fv.names.n * sizeof(char *));
+    copy_n(try.types.a, fv.types.a, (size_t)fv.names.n * sizeof(Type *));
     try.names.cap = try.types.cap = fv.names.n + 8;
     if (!liftable(x, NULL, locals, 0, &try) || try.names.n > 4) continue;
     fv = try;
@@ -1137,8 +1137,8 @@ static void ho_expr(Expr *e, Nm *s) {
     while (e->fn->k == E_APP) { /* (f a) b is f a b */
       Expr *f = e->fn;
       Expr **all = xmalloc((size_t)(f->n + e->n) * sizeof *all);
-      memcpy(all, f->args, (size_t)f->n * sizeof *all);
-      memcpy(all + f->n, e->args, (size_t)e->n * sizeof *all);
+      copy_n(all, f->args, (size_t)f->n * sizeof *all);
+      copy_n(all + f->n, e->args, (size_t)e->n * sizeof *all);
       e->fn = f->fn;
       e->args = all;
       e->n += f->n;
@@ -1386,10 +1386,14 @@ static Lift *lift_group(Group *g, Expr **rest, int nrest, Nm *locals, Lift *lift
     Lift *l = lift_find(lifts, b->name);
     const char **ps = xmalloc((size_t)(l->nfv + L->n) * sizeof *ps);
     Type **ts = xmalloc((size_t)(l->nfv + L->n) * sizeof *ts);
-    memcpy(ps, l->fv, (size_t)l->nfv * sizeof *ps);
-    memcpy(ts, l->fvt, (size_t)l->nfv * sizeof *ts);
-    memcpy(ps + l->nfv, L->params, (size_t)L->n * sizeof *ps);
-    memcpy(ts + l->nfv, L->ptypes, (size_t)L->n * sizeof *ts);
+    if (l->nfv) { /* an empty array may be NULL, which memcpy's arguments must not be */
+      memcpy(ps, l->fv, (size_t)l->nfv * sizeof *ps);
+      memcpy(ts, l->fvt, (size_t)l->nfv * sizeof *ts);
+    }
+    if (L->n) {
+      memcpy(ps + l->nfv, L->params, (size_t)L->n * sizeof *ps);
+      memcpy(ts + l->nfv, L->ptypes, (size_t)L->n * sizeof *ts);
+    }
     L->params = ps;
     L->ptypes = ts;
     L->n += l->nfv;
@@ -1418,7 +1422,7 @@ static void lift_call(Expr *e, Lift *lifts) {
     v->ty = l->fvt[i];
     all[i] = v;
   }
-  memcpy(all + l->nfv, e->args, (size_t)e->n * sizeof *all);
+  copy_n(all + l->nfv, e->args, (size_t)e->n * sizeof *all);
   e->args = all;
   e->n += l->nfv;
   Type *t = f->ty;
@@ -1439,7 +1443,7 @@ static void lift_wgs(Rhs *r, Nm **locals, Lift **lifts, const char *owner) {
     bool done;
     *lifts = lift_group(&r->wg[i], rest.a, rest.n, *locals, *lifts, owner, &done);
     if (done) {
-      memmove(r->wg + i, r->wg + i + 1, (size_t)(r->nwg - i - 1) * sizeof *r->wg);
+      move_n(r->wg + i, r->wg + i + 1, (size_t)(r->nwg - i - 1) * sizeof *r->wg);
       r->nwg--;
       i--;
       continue;

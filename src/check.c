@@ -70,7 +70,7 @@ static Type *tcon(const char *name, int n, Type **args) {
   t->n = n;
   if (n) {
     t->args = xmalloc((size_t)n * sizeof *args);
-    memcpy(t->args, args, (size_t)n * sizeof *args);
+    copy_n(t->args, args, (size_t)n * sizeof *args);
   }
   return t;
 }
@@ -1754,7 +1754,7 @@ static Pat **missing(Pat ***rows, int nr, int n) {
         if (!is_wild(h) && h->con != c) continue;
         Pat **row = xmalloc((size_t)(ar + n - 1) * sizeof *row + 1);
         for (int k = 0; k < ar; k++) row[k] = is_wild(h) ? &wild_pat : h->args[k];
-        memcpy(row + ar, rows[r] + 1, (size_t)(n - 1) * sizeof *row);
+        copy_n(row + ar, rows[r] + 1, (size_t)(n - 1) * sizeof *row);
         sub[ns++] = row;
       }
       Pat **w = missing(sub, ns, ar + n - 1);
@@ -1766,7 +1766,7 @@ static Pat **missing(Pat ***rows, int nr, int n) {
       p->args = w;
       Pat **out = xmalloc((size_t)n * sizeof *out);
       out[0] = p;
-      memcpy(out + 1, w + ar, (size_t)(n - 1) * sizeof *out);
+      copy_n(out + 1, w + ar, (size_t)(n - 1) * sizeof *out);
       return out;
     }
     return NULL;
@@ -1787,7 +1787,7 @@ static Pat **missing(Pat ***rows, int nr, int n) {
   }
   Pat **out = xmalloc((size_t)n * sizeof *out);
   out[0] = p;
-  memcpy(out + 1, w, (size_t)(n - 1) * sizeof *out);
+  copy_n(out + 1, w, (size_t)(n - 1) * sizeof *out);
   return out;
 }
 
@@ -2613,7 +2613,7 @@ bool compile_chunk(Module *m, Chunk *out) {
       if (m->binds[j] != gs[i].b[0]) deps_expr(m->binds[j]->e, NULL, &d);
     if (!d.adj[0]) {
       Group g = gs[i];
-      memmove(&gs[i], &gs[i + 1], (size_t)(ng - i - 1) * sizeof *gs);
+      move_n(&gs[i], &gs[i + 1], (size_t)(ng - i - 1) * sizeof *gs);
       gs[ng - 1] = g;
     }
     break;

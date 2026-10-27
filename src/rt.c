@@ -770,9 +770,9 @@ V fk_int64_box(int64_t i) {
   return o;
 }
 
-V fk_ptr(const void *p) {
+V fk_ptr(void *p) {
   V o = alloc(2, K_PTR, 0, 0);
-  FK_PTRV(o) = (void *)p;
+  FK_PTRV(o) = p;
   return o;
 }
 
