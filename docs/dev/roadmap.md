@@ -55,6 +55,7 @@ Interpreter speed (splitting `eval`, 26% in its prologue) is not part of this go
 Released 2026-10-26; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - Effect arrows, option E of [typed-effects.md](typed-effects.md): `a ->> b`, inferred and checked; effectful bindings are `do` statements; `trace`.
+
 - Prelude functions, methods, types and constructors are reserved.
 
 ## 0.4 -- done: foreign functions and real time
@@ -62,6 +63,7 @@ Released 2026-10-26; see [CHANGELOG.md](../../CHANGELOG.md).
 Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - A foreign function interface ([ffi.md](ffi.md)): libm, sqlite3 and libremidi; C types, structs, pointers, callbacks.
+
 - Real time ([realtime.md](realtime.md)): incremental collection with pauses under 0.5 ms at any heap size and stack depth, a lock-free event ring, allocation-free exports for audio threads, `Array`, `Ring` and atomics; a PortAudio synth.
 
 ## 0.5 -- done: the Benchmarks Game and ownership
@@ -69,7 +71,9 @@ Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - The Benchmarks Game's 10 tasks against its single-threaded C ([bench/README.md](../../bench/README.md#benchmarks-game-suite)): geometric mean 1.16x C; the core suite 1.18x.
+
 - Reuse of cells by ownership: list elements, tuple components and any allocation of a matched cell's size ([element-reuse.md](element-reuse.md)); tuple results as C structs; n-body from 4.0x to 1.2x C.
+
 - Bitwise operations, `IntTable`, and bulk `String` and `Array` input and output.
 
 ## 0.6 -- done: modules
@@ -77,6 +81,7 @@ Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - Modules ([modules.md](modules.md)): files found by path and `-M`, qualified imports, import and export lists, abstract types, `import` at the REPL prompt, and Haskell's base imports.
+
 - CI on Linux and macOS, plain and under UBSan.
 
 ## 0.7 -- language growth

@@ -7,6 +7,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - GitHub Actions CI (`.github/workflows/ci.yml`): `make test` on Linux and macOS, plain and with funk built under UBSan.
+
 - Modules, phase 1 ([docs/dev/modules.md](docs/dev/modules.md)). `import a.b` compiles `a/b.fk`, found beside the importing file or under `-M DIR`, and makes its names available qualified by the last segment, or by the name after `as`: `b.f`, `b.T`, `b.C`, `x b.<+> y`. Qualified-only, since a name added to a module then cannot clash in the files that import it. Every module is compiled once per program, and whole-program optimization still crosses module boundaries: a module's list pipeline fuses as before.
 
   ```haskell
@@ -23,19 +24,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - `pipeline` runs at n = 100,000,000, 0.3 s, up from 300,000, 3-6 ms, which was too short to time; old rows are not compared. `report` judges only funk's rows, since nothing in funk changes C's.
+
 - regex-redux uses PCRE2, not PCRE, which Homebrew has deprecated and recent Linux releases drop: funk through foreign imports, and the Game's PCRE2 C program (`gcc-5`), built without OpenMP. Homebrew's PCRE had no JIT on arm64 (`gcc-2` took 1.50 s on fasta's output for 1,000,000, `gcc-5` 0.56 s); funk takes 0.58 s.
 
 ### Fixed
 
 - An effectful function could not call a parameter declared pure: `each :: (Int -> ()) ->> ()` with `each f = f 1` was rejected, since the call merged the signature's shared `->` effect into the body's `Eff`. A body that is already `Eff` takes a call of any effect now (`docs/dev/typed-effects.md`).
+
 - The effect error for a signature's `->` names the arrow, by the arguments before it: "its signature's arrow after 2 arguments is `->`; it needs `->>`". A returned function that acts at a `->` reports "where its signature has `->`".
+
 - `show` parenthesizes `-0.0` as an argument, as GHC does: `Just (-0.0)`, not `Just -0.0`.
 
 Found by the first Linux run:
 
 - The compiler passed NULL to `memcpy` and `memmove` with a size of 0, from empty arrays, in 24 places; undefined in C, and reported by UBSan against glibc's `nonnull` declarations, which macOS's headers lack. They go through `copy_n` and `move_n` now.
+
 - Generated C failed GCC's `-Wall -Werror`: a worker that only loops had no `return` (`-Wreturn-type`; each ends in `__builtin_unreachable()`, with unchanged machine code), and `fk_ptr` took a `const void *`, from which GCC concluded that `mallocBytes`' fresh memory was read uninitialized.
+
 - `tests/run/overflow.fk` recursed through `1 + 2 * _`, which GCC turns into a loop with an accumulator, so it ran 2 billion steps instead of overflowing; it uses `mod` now.
+
 - The reuse and fusion tests sorted their lists by the locale; they sort by bytes (`LC_ALL=C`).
 
 ## [0.5.0] - 2026-10-27
@@ -43,8 +50,11 @@ Found by the first Linux run:
 ### Added
 
 - A second benchmark suite, `bench/game/`: the Benchmarks Game's 10 tasks, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. regex-redux and pidigits use PCRE and GMP through foreign imports, as their C does. Geometric mean 1.16x C: binary-trees 0.4x, spectral-norm 0.8x, mandelbrot, regex-redux and pidigits 1.0x, fannkuch-redux 1.1x, n-body 1.2x, reverse-complement 2.1x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
+
 - Bitwise operations on `Int`, with `Data.Bits`' names and fixities: `.&.`, `.|.`, `xor`, `complement`, `shiftL`, `shiftR`. A shift by 64 or more gives 0 (or -1 for `shiftR` of a negative number), as GHC's; a negative shift is an error, so a shift by a variable is not treated as total.
+
 - `isEOF ()`, for reading standard input line by line to its end; `getContents ()`, all of it at once, strictly; `indexString s i`, one character of a `String` without unpacking it; `writeArrayString arr i s`, a string's bytes into an `Array CChar` in one copy; `putArray arr i n` and `getArray arr i n`, a range of an array to standard output or from standard input; `copyArray src i dst j n`, as `memmove`.
+
 - `IntTable` in the prelude: a mutable hash table from `Int` to `Int` in C memory, written in funk over `Array` (open addressing; doubles at three quarters full).
 
 ### Changed
@@ -98,38 +108,61 @@ Found by the first Linux run:
 ### Added
 
 - `foreign export ccall "cname" name :: type` makes `cname` a C function that runs `name`, callable from any thread, for callers with deadlines such as audio callbacks. The compiler checks that the function's compiled code cannot allocate, and names what would: lists, strings, closures, lazy bindings, unknown calls. `Ptr`, `FunPtr` and `StablePtr` are now C addresses in typed code, and `castPtr`, `plusPtr`, `peek` and `poke` at scalar types compile to C, so pointer code no longer allocates. A literal at a known `Num` instance, such as `0 :: CInt`, calls its `fromInt` without a dictionary. A runtime error on a foreign thread aborts the program. See [docs/dev/realtime.md](docs/dev/realtime.md), R4.
+
 - `droppedEvents ()`: queued callbacks that found the event ring full.
+
 - The export check also rejects recursion other than a self call in tail position, a loop, so an export's stack use is bounded by its call graph.
+
 - The export check also rejects code that can fail, since a runtime error on a foreign thread ends the program: `div`, `mod`, `quot` and `rem` by anything but a non-zero literal, `chr`, `floor` and the other partial primitives, and a `case` that does not cover every value. It accepts enumerations such as `Ordering`, whose values are static.
+
 - `Array a`: a fixed-length array of `Storable` values in C memory, freed with `freeArray`. `arrayLength` acts (`->>`), since it reads memory `freeArray` frees. `readArray` and `writeArray` check the index; `readArrayWrap` and `writeArrayWrap` take it modulo the length and cannot fail, so a foreign export may use them. In typed code an array is a C address. C memory, over the funk heap, because a collected array could be freed while a foreign thread reads it.
+
 - `Ring a`: a single-producer, single-consumer ring of `Storable` values in C memory, between any two threads, such as funk's thread and an audio callback. `ringPush` returns `False` when full; the consumer uses `ringCount`, `ringFront` and `ringDrop`, three calls where a `Maybe` would allocate.
+
 - `sizeOf` in `Storable`, as in Haskell; `Storable` instances for `Array a` and `Ring a`.
+
 - `truncateSat :: Float -> Int`: truncation that saturates at `Int`'s range and maps NaN to 0, so it cannot fail.
+
 - `foreign struct ["header.h ctype"] T { field ["c.member"] :: type, ... }` declares a C struct: the header's, with its field types checked, or one laid out as C would. A field may be another foreign struct, held by value and reached with `fieldPtr`. `T.field :: Field T a` is a field's offset, from `offsetof`, and `T.size` the size; `readField`, `writeField` and `fieldPtr` use them, also in exports. C computes the layout, over funk, so it matches the platform's alignment rules.
+
 - `atomicAdd` and `atomicCompareSwap` in `Atomic`, sequentially consistent; floats through a compare-and-swap loop.
+
 - `Atomic`, with `atomicPeek` and `atomicPoke`: an acquire load and a release store, for memory shared between funk's thread and a foreign export. Instances for `Int`, `Float` and the C types.
+
 - [examples/ffi/portaudio.fk](examples/ffi/portaudio.fk): a wavetable synth whose PortAudio callback is a foreign export, fed frequency changes through a `Ring`; 0 underflows in three runs, callbacks of at most 5 us against a 1.33 ms buffer, with four collection cycles during each run.
+
 - `FUNK_GCSTATS=1` prints each collection cycle's pauses, and a summary at exit, in both backends. `FUNK_GCSTRESS=1` runs short collection cycles constantly and stops the program if a reachable object is left unmarked, for testing the collector.
 
 - Foreign imports, phase 1 of [docs/dev/ffi.md](docs/dev/ffi.md): `foreign import ccall "math.h cbrt" cbrt :: Float -> Float` calls a C function, and `foreign library "name"` links `-lname`. Arguments and results are `Int`, `Float`, `Char`, `Bool`, `()` and the C types below; `->>` marks an import that acts. An import of a non-function type reads a C value once (`"math.h M_PI"`). Compiled code calls the C function directly, as fast as a primitive. The interpreter compiles the same glue with `$CC` into a shared library, cached by its hash in `$XDG_CACHE_HOME/funk/ffi`, and loads it: about 90 ms the first time, nothing after. Compiled glue, over libffi in the interpreter, lets imports call macros and `static inline` functions, and keeps both backends' conversions identical. `funk run` and `repl` take `-I`, `-L` and `-l` for the glue, and `build` takes `-I`.
+
 - The declared types of an import are checked against the C declaration by the C compiler: a conversion that can change a value or drop a `const` is an error, so `abs :: Int -> Int` is rejected, since `abs` takes an `int`. Widening is allowed, and a `Ptr` passes as any object pointer. An exact comparison of the function type was tried first; it cannot pass `Ptr Db` where C has `sqlite3 *`.
+
 - Foreign imports, phase 3: callbacks. `foreign import ccall "callback" f :: FunPtr (Ptr () -> a ->> r)` is the address of a C function that runs a funk closure, passed in its context argument as a `StablePtr`, on funk's thread; `"queue"` makes one that any thread may call, whose calls `waitEvent` and `pollEvent` run later. `CStringLen` in a callback's type is a C pointer and length, received as a copied `String`. An error in a callback is raised when the foreign call returns, never across C frames. A value import may be any C expression, such as `sizeof(T)` or `offsetof(T, f)`, for `peekByteOff` and `pokeByteOff`. Also: `allocaBytes`, `newCString`, `CBool`, `newStablePtr`, `deRefStablePtr`, `freeStablePtr` and the `FunPtr` and `StablePtr` casts. libremidi works ([examples/ffi/libremidi.fk](examples/ffi/libremidi.fk)). A trampoline per callback type, with the closure in the context, needs no code generated at run time, unlike Haskell's `"wrapper"`; C APIs without a context pointer cannot call funk.
+
 - Foreign imports, phase 2: `String` arguments and results (`const char *`), `Ptr a`, opaque types (`data Db` without constructors), and Haskell's `Storable` (`peek`, `poke`), `alloca`, `mallocBytes`, `free`, `nullPtr`, `castPtr`, `plusPtr` and `peekCString`, with `CChar`. A NUL inside a `String` passed to C, or a NULL `String` result, is a run-time error rather than a shortened string. sqlite3 works in both backends.
+
 - `CInt`, `CUInt`, `CLong`, `CULong`, `CLLong`, `CSize` and `CFloat`, C's scalar types, with `Eq`, `Ord`, `Show` and `Num` instances whose arithmetic wraps to the C width. `CULong` and `CSize` compare and show unsigned. A new class `Integral`, with `toInt`, and `fromIntegral :: (Integral a, Num b) => a -> b` convert between integer types; `toCFloat` and `fromCFloat` between `Float` and `CFloat`. These names are now reserved. Real types, over names that mean a range-checked `Int` in foreign signatures only, keep Haskell bindings close to their source and give C's wrapping arithmetic.
 
 ### Changed
 
 - The glue cache rebuilds when a header the glue read is newer (from the compiler's `-MD` list), or a library named with `-l` in an `-L` directory has changed.
+
 - A NULL `String` passed to a queued callback is an error raised after the event's slot is released, so the ring moves on.
+
 - `fk_cb_check` in code an export runs on another thread leaves funk's thread's pending callback failure alone.
+
 - A struct holding a header's struct by value includes that header; a failed REPL chunk's foreign structs are forgotten.
+
 - A collection cycle's start pause no longer scans the stack: it makes the stack's older pages read-only, a write copies a page before it proceeds, and marking steps scan the pages. At a million frames the start pause fell from 28.9 ms to 0.2 to 0.27 ms and the longest pause is 0.47 ms. Protection over a `memcpy` of the stack, which a first version used: 0.2 ms against 9 to 12 ms for 96 MiB. The kernel cannot write into a read-only page (`EFAULT`), so a foreign call first makes the pages below its frame writable, and while a direct callback runs the stack is copied instead. Protection stops below the funk thread's first frame, above which glibc keeps thread data the kernel writes.
+
 - `FUNK_GCSTRESS`'s check maps fresh pages over the dead stack at each cycle's start: unset slots in new frames held words of dead frames, which it reported as unmarked objects. `madvise(MADV_DONTNEED)` zeroes them on Linux but not on macOS. Its steps scan the stack's snapshot a chunk at a time, so a stressed run repeats.
 
 - `plusPtr` adds as integers: C's pointer arithmetic on a null pointer, as in `plusPtr nullPtr 16`, is undefined.
 
 - The collector sweeps lazily: allocation sweeps a chunk when its free list runs out, so a pause is roots and marking only. The longest pause of a program with 100,000 live cells fell from 17.9 ms to 1.0 ms, and with 1,000,000 from 35.0 ms to 9.8 ms; a sweep step costs at most 0.15 ms. Allocation-heavy benchmarks ran 2-8% faster. A chunk still unswept at the next collection has its marks cleared rather than being swept, which would put the sweep back in the pause. See [docs/dev/realtime.md](docs/dev/realtime.md).
+
 - Queued callbacks go through a fixed ring of 4096 events: a trampoline claims a slot with a compare-and-swap and writes its arguments into it, where it called `malloc` and took a mutex. A full ring drops the event and counts it; bytes over 104 per event still use `malloc`. A callback on a real-time thread then waits on nothing funk holds.
+
 - The collector marks incrementally: after a pause that scans the stack and the roots, it marks in steps of at most 0.4 ms, one per MiB allocated, and sweeping finishes in steps of the same size before the next cycle marks. The longest pause no longer grows with the heap: 0.40 ms with 1,000,000 or 4,000,000 live cells, where lazy sweeping alone left 9.8 and 37.5 ms. The start pause still grows with the stack, 29 us per 1,000 frames, and the heap is up to 70% larger. Three writes that overwrite a heap pointer, a thunk's update and a reused cell's head and tail, shade the old value while a cycle marks; compiled throughput changed by -0.2% to +7.9%, within what code placement alone moves. Snapshot at the beginning, over Dijkstra's insertion barrier, needs barriers only at those writes, since funk's other stores initialize new objects. See [docs/dev/realtime.md](docs/dev/realtime.md).
 
 ## [0.3.0] - 2026-10-26
@@ -181,6 +214,7 @@ Found by the first Linux run:
 ### Added
 
 - A CMake build (`CMakeLists.txt`), with `make` as a frontend: it configures on first use, builds in `build/` and links `./funk`. `make SANITIZE=undefined test` builds and tests funk under a sanitizer in its own directory, and `make install` installs it. `ctest` runs the test suite.
+
 - Command line: `funk check FILE` type-checks without running; `funk eval EXPR` (`-e`) evaluates an expression; `funk repl FILE` loads a file into the REPL. `funk build` takes `-O LEVEL`, `-l LIB` and `-L DIR`. `funk help [COMMAND]`, `-h` and `--version` print to standard output. Usage errors name the problem and the help to read, and exit with status 2; failing programs exit with 1.
 
 - `do` blocks with `p <- e`, expression and `let` statements. Each statement becomes `case e of p -> rest`, chosen over `>>` and over a strict bind primitive because both evaluate the rest inside a call: a recursive `do` loop of 20M iterations overflowed the 4 GiB stack, and now runs in constant stack. Without an `IO` type, `<-` accepts any expression. A `where` at the column of a block's items now closes that block.

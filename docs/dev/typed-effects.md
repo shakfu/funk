@@ -21,17 +21,21 @@ funk is strict except for non-recursive `let` and `where` value bindings. The ra
 For a lazy `let`:
 
 - **Haskell compatibility.** `f x = let y = div 1 x in if x == 0 then 0 else y` is valid Haskell, and fails on `f 0` with a strict `let`. It is rarer than the `where` form, and occurs in `do` blocks too. The difference would show at run time, not as a compile error.
+
 - **Uniformity.** Haskell defines `where` as a `let` scoped over the guards. One rule for both is simpler, and funk implements both with the same thunks.
 
 For a strict `let`:
 
 - **Source order.** A `let` precedes its use, so strict evaluation reads naturally, as in ML. The guard problem exists only because `where` follows the code it scopes over.
+
 - **Effects.** A lazy `let` moves effects: `let a = getLine ()` reads at the first use of `a`. That is the first problem above, and why A' makes `let` statements in `do` strict.
 
 Speed does not decide it. Eager `let` already evaluates a binding where it is bound when its right side cannot fail, loop or act, so both rules generate the same code for most bindings ([performance-first.md](performance-first.md)). The choice is about meaning only, and it depends on the options below:
 
 - **Under E,** an effectful binding must be a `let` statement in `do`, which runs on its line; in `where` or `let ... in` it is an error. That removes the harm. What laziness keeps is that an unused binding cannot fail or loop, and there lazy is the Haskell-compatible choice. `let` stays lazy.
+
 - **Under A or A',** the question stands. Strict `let` statements in `do`, as A' proposes, with expression `let` left lazy for compatibility, give `let` two rules, which is A''s price.
+
 - **Under B1,** binding an action does not run it, so a lazy `let` is harmless for effects, as for E.
 
 ## Options
@@ -50,6 +54,7 @@ Speed does not decide it. Eager `let` already evaluates a binding where it is bo
 - **A** is what strict ML-family languages do, and it works there because their `let` is strict. Effect order is then the order of the source.
 
 - **A'** removes the `do` surprise: a `let` statement in `do` would run at its line, as `<-` does. Effects stay invisible in types, top-level effects still run at startup, and `let` would mean two things.
+
 - **A''** is A' plus the purity that `fuse.c` already infers ([fusion.md](fusion.md#semantics-when-fusion-is-exact)), made visible: a `pure` declaration the checker verifies, rejecting the program if the function can act ("A'' in detail"). Effects compose with any function, as in A', and readers and the optimizer learn some of what B1 would tell them. The guarantee is weaker than a type: inference stops at unknown calls (closures, parameters, dictionaries) and must assume they act.
 
 - **B1** is Haskell's `IO` ([Peyton Jones and Wadler, POPL 1993](https://dl.acm.org/doi/10.1145/158511.158524)), with `bindIO :: IO a -> (a -> IO b) -> IO b` as a plain function. `do` works for `IO` only. No higher-kinded classes are needed.
@@ -149,8 +154,11 @@ Alternatives: a pragma, `{-# PURE area #-}`, would let Haskell tools ignore it, 
 The claim is about the definition, not every call: the function may call its parameters, and their effects belong to its caller. This is what the inference computes, and it makes higher-order functions annotatable. `pure map` holds, though `map print xs` acts.
 
 - **Allowed:** calls to pure globals, to parameters and to pattern variables bound from them, to local lambdas, and to `trace`. `trace` is exempt, so a debug print does not break an annotation, as with `Debug.Trace`.
+
 - **Rejected:** a call to an effect primitive (`putStr`, `putStrLn`, `getLine`, `print`), to an impure global, or to a function value not traced to an argument.
+
 - **Not total:** `error` and non-termination are allowed. Totality is fusion's other analysis.
+
 - **Thunks:** the analysis walks lazy `let` and `where` bodies, so an effect in a thunk is caught.
 
 ### Unknown calls
@@ -179,7 +187,9 @@ The analysis returns one bit today; it would also record, per function, the firs
 ### Limits
 
 - **No new information for the optimizer.** The annotation checks the inference fusion already uses. Where the inference gives up, the annotation fails instead of adding facts.
+
 - **No constraint on callers.** `map print xs` stays legal; the claim says nothing about arguments.
+
 - **Opt-in.** Unannotated code keeps today's semantics. A'' is documentation the compiler verifies.
 
 The next step would be annotating parameters, `applyTwice :: pure (a -> a) -> a -> a`, checked at each call site. The optimizer could then treat calls to that parameter as pure inside the function, which is where inference fails today. But that is a one-bit effect system in the types, with subtyping (a pure function goes where any function does) and questions about polymorphism. It is the start of option C, and no longer cheap.
@@ -205,10 +215,14 @@ area :: Shape -> Float             -- rejected if area can act
 ```
 
 - **`a -> b` in a signature** means the function has no effects of its own. All the `->` arrows of one signature share an effect variable, so a higher-order function acts exactly when its function arguments do. That is A'''s "pure modulo arguments" ([A'' in detail](#a-in-detail)), stated in the type.
+
 - **`a ->> b`** means the function may act.
+
 - **`->>`, decided over three alternatives** (2026-10-26):
   - `=>`, Roc's spelling, already separates a class context in funk and Haskell. One signature could hold both meanings, as in `print :: Show a => a => ()`.
+
   - `~>`, the first proposal, differs from `->` by one stroke, which is easy to miss in many fonts.
+
   - `-!>` stands out as much, but breaks the arrow.
 
   `->>` stays an arrow, is longer than `->` in aligned signatures, and borrows `>>`, which Haskell readers know as effect sequencing. No funk source contains `->>`, and the lexer already reads it as one token.
@@ -227,6 +241,7 @@ class Logger a where log :: a -> ()      class Logger a where log :: a ->> ()  -
 ```
 
 - **`->>` appears** wherever a type is written: signatures, data fields, class methods. Unannotated code needs nothing, since effects are inferred.
+
 - **Unchanged:** calls (`print x`, `getLine ()`), `do`, `<-`, `let` statements and `>>`. There is no `!` suffix on effectful names: Roc's is a naming convention, and `!` cannot be part of a funk identifier. There is no `IO` type, no `return`, no `>>=`, and no new keyword.
 
 What changes is which programs are accepted:
@@ -254,6 +269,7 @@ Pure Haskell code parses and checks unchanged, because its `->` signatures are h
 Two things E's syntax, as designed, cannot say:
 
 - **A pure argument, regardless.** `(a -> b) -> c` means the function acts when its argument does. Requiring the argument itself to be pure needs another marker. Data fields have that rigidity; signatures do not.
+
 - **Independent effects for two arguments.** All arrows of one signature share one variable, so a function taking two callbacks acts if either does. That is sound, and no program in the prototype's corpus needed more.
 
 Both would need an explicit effect variable in the syntax, as Koka writes it. Neither came up in the prototype.
@@ -261,12 +277,19 @@ Both would need an explicit effect variable in the syntax, as Koka writes it. Ne
 ### Semantics
 
 - Each arrow carries an effect: pure, effectful, or a variable. A function's effect is effectful if its body, when the function is applied, calls a function whose arrow is effectful.
+
 - A pure function can be used where an effectful one is expected. Inference treats a pure function as polymorphic in its effect, so it unifies with either. This is the standard trick of effect systems, as in Koka, where a total function is polymorphic in its effect row.
+
 - Evaluation is strict and left to right, as today, so effects happen in source order. There is no runner, and `>>` stays an ordinary primitive.
+
 - **Lazy bindings.** A binding whose evaluation can act must be a `let` statement in `do`, and runs on its line. In `where` or `let ... in` it is an error, with a hint: bind it with `<-` or a `let` statement, or make it a function. Lazy bindings were the first problem in this note; this rule removes it without moving any effect silently. Pure bindings stay lazy, so `y = div 1 x` under a guard still does not fail. The design first evaluated every effectful binding where it is bound; see "Implementation" for why that was wrong for `where`.
+
 - **Top-level values** must be pure: a top-level value with an effect is an error, except `main`, whose evaluation is the program. `act () = do ...`, a function, may act. Pure top-level values could then be evaluated at compile time, as in Roc.
+
 - **Data fields** of function type are pure if written with `->`, effectful if written with `->>`. A field written `Int -> ()` cannot hold `print`.
+
 - **Class methods** follow their signature. `show :: a -> String` is pure in every instance, so an instance cannot print, except through `trace`. A class that needs effects says so: `log :: a ->> ()`.
+
 - **`trace` and `error`** are pure, as in Haskell.
 
 ### Inference
@@ -280,6 +303,7 @@ Unifying all of a body's calls into one variable over-approximates: a function c
 Roc's functions take several arguments at once; funk's are curried. If every arrow of a signature shares the effect, applying an effectful function to fewer arguments than it takes also counts as acting, although it only builds a closure. `greeter = putStrLn . ("hi " ++)` would be rejected as a top-level value with an effect. Two refinements, to choose between with a prototype:
 
 - **By arity.** A call is effectful only when it saturates a known function of known arity. The checker knows the arity of every global and every local lambda. Unknown function values keep the over-approximation.
+
 - **Effect on the last arrow only.** `a -> b ->> c` would act only when given both arguments. That is more precise, but signatures have to say where the effect sits.
 
 The prototype chose by arity; see "Prototype". A lambda's inferred type already puts the effect on the arrow that runs its body (`mk :: a -> a ->> ()`), and a signature may write `->>` on its last arrow only.
@@ -337,7 +361,9 @@ The prototype also reports 15 lazy bindings that act and that E would evaluate w
 The design changed in three places to get there:
 
 - **Class methods take a signature's shared effect variable, not rigid `Pure`.** With `Pure`, `putStrLn . (++) "hi "` was rejected: composing a pure method with an effectful function merged their effects. A signature's variable is polymorphic at uses and becomes rigid when an instance is checked against it, so an instance that prints is still rejected.
+
 - **Arity is the arity before elaboration.** A constrained function gains a dictionary parameter when elaborated, so `print` looked like arity 2, and `print x` did not count as a call. A class method's arity is its signature's, not its selector's.
+
 - **Substituting a class's type variable** into a method's scheme for an instance must keep the effects, or the instance escapes the check.
 
 Mode 3 is the design: E as described, with the arity rule and deferred calls. The repo's programs are small, so they do not show whether merging all of a body's calls into one effect is precise enough on larger code. Neither do they show the error messages' quality.
@@ -356,10 +382,15 @@ Mode 3 of the prototype is now the checker, always on; `FK_EFFECTS` and modes 1 
   ```
 
   `rest` ran before the guards that protect it, so `countdown` never stopped. In Haskell this works because `rest` is an `IO` action, a value that runs only when sequenced; under E, evaluating `rest` is running it. Now such a binding is an error, with the hint "bind it in `do` (`rest <- ...`, or a `let` statement), or make it a function (`rest () = ...`)". A `let` statement in `do` still runs on its line. No effect moves silently, under either rule.
+
 - **Which bindings can act.** A local value binding can act if its own effect is `Eff`, or the effect of an argument of any function around it, top-level or local, which callers choose. It is decided at the end of the binding's group, before its effect is merged into the enclosing function's. Merging first made a pure binding inside a function that prints look effectful, and `where y = div 1 x` under a guard failed. A free effect means only pure calls, and is not merged. An effect tied to something outside the binding, such as a recursive call of the function being inferred, is decided after that function is generalized: a recursive call of a pure function (`where y = depth (n - 1) + 1`) stays lazy.
+
 - **A function that acts and calls a function argument** may declare that argument with `->`: `each :: (Int -> ()) ->> ()`. A call merges the callee's effect into the body's, except into a body already `Eff`, which any effect fits. Through 0.5.0 it merged there too, and the signature's shared `->` effect became `Eff`, so the argument had to be written `->>` (`withArg :: (Int ->> ()) ->> ()`). A body whose effect is still a variable merges as before. Whether a lazy binding acts reads the argument's type, not the merge, so no binding became lazy.
+
 - **Error messages** name the binding, and for an instance method the instance, and the arrow at fault by the arguments before it: "in `shout` of `instance Shout Bool`: calls an effectful function, but its signature's arrow after 1 argument is `->`; it needs `->>`". A signature's `->`s share one effect variable, so the arrow is found from the lambda whose body made the call; through 0.5.0 the message named none, and read as if the last were wrong.
+
 - **`trace :: String -> a -> a`** is a primitive. It flushes standard output, writes its message to standard error, and is pure in its type.
+
 - **Not done:** `fuse.c` keeps its own purity analysis; elaboration's type copies drop arrow effects, so it cannot read them yet ([TODO.md](../../TODO.md)).
 
 Tests: 18 error tests (`tests/errors/effect_*.fk`), one per effect channel plus effectful `where`, `let ... in`, and `let ... in` over an argument's effect; and `tests/run/effects.fk`, which covers accepted programs, the order of `let` statements, the lazy recursive call, an argument's effect and `trace`. `syntax.fk` and `fuse.fk` no longer run effects at startup. `io.fk` reads with `<-`, `do.fk`'s `where` helper is a function, and `lazy.fk` shows at-most-once evaluation with `trace`. The benchmarks' `main = let n = readInt (getLine ()) in ...` became `main = do` with a `let` statement; their C versions and results do not change.
@@ -625,7 +656,9 @@ and the input loop's `let s = parse (getLine ()) in ...` becomes a `do` block. E
 A', A'' and E keep composition without coloring, which is the ML experience and an advantage for small programs; E also puts it in the types. B2 adds `do` for every monad, with three costs specific to a strict language:
 
 - **Recursive applicative definitions loop.** `some p = (:) <$> p <*> many p` evaluates `many p` while building the parser and never terminates. `do` style is safe, because the recursive call is under a lambda. OCaml parser-combinator libraries need explicit thunks for the same reason.
+
 - **`>>` must be lazy for every monad,** not only `IO`, so the special form applies to all of them.
+
 - **Kinds.** `m :: * -> *` and phase 2 of type classes ([type-classes.md](type-classes.md#later-phases)) are a second type-class project. B1 needs neither.
 
 ### Performance
@@ -643,9 +676,13 @@ The last row is B1's and E's performance argument, and for B1 it partly offsets 
 ### Weighing
 
 - **A'** fits if funk stays an ML with Haskell syntax. It costs nothing, but keeps the mismatch this note began with: a Haskell reader assumes a purity the types do not promise.
+
 - **A''** narrows that mismatch for little work: the analysis exists, and only a report or an annotation check is new. Its guarantee stops at unknown calls, which are common in higher-order code.
+
 - **B1** gets most of the value: types that tell the truth, `do` that means what it says, and an optimizer that knows purity. It costs about 250 lines, 5% on effect-heavy code, and a migration of every program's first line.
+
 - **B2** adds generality whose costs are specific to a strict language. It is better decided on its own, once a program needs a monad other than `IO`, than committed to now as "B1 then B2".
+
 - **E** has B1's honest types and optimizer knowledge at A'''s cost, 0%. It keeps composition without coloring and needs little migration, because funk's runtime semantics do not change. It costs Haskell compatibility for `IO` code, about 400 lines in the checker, and two unproven points: whether unification-based effect inference is precise enough on real code, and how partial application is treated. Roc shows the approach in a strict language, but without currying or effect polymorphism.
 
 Recommendation: E. The prototype of its inference, with two refinements, rejects only what E intends in this repo's programs, and catches all 15 effect channels in its test ("Prototype"). Otherwise B1, with B2 decided later. A'' if funk stays impure; it subsumes A'.
@@ -661,6 +698,7 @@ Recommendation: E. The prototype of its inference, with two refinements, rejects
 4. **Keep `trace`?** Without it, printing from pure code is impossible, which is the point of B1 but hurts debugging.
 
 5. **Accept the break?** funk is pre-1.0, and 0.2 already breaks `deriving` and `f.g`. Releasing 0.2 first and then B1 or E as 0.3 gives users one version with `do` over untyped effects.
+
 6. ~~**Under E, the spelling of the effectful arrow.**~~ Decided: `->>` ("Syntax" in "E in detail"). Partial application is settled by arity, as the prototype showed.
 
 The citations are from memory and were not checked in this session.

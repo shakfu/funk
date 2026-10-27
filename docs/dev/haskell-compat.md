@@ -11,12 +11,19 @@ funk has Haskell's syntax and an ML's semantics: strict evaluation, with lazy `l
 Each was run through `funk -e` or as a file:
 
 - `case` alternatives with guards; `where` over several guards;
+
 - tuple and lambda patterns, `let (a, b) = ...`;
+
 - sections, `2 ^ 10`, `negate (-3)`;
+
 - arithmetic ranges `[1 .. 10]`, `[1, 3 .. 9]`;
+
 - `foldr`, `filter`, `reverse`, `concat`, `replicate`, `lookup`, `fst`, `mapM_`, `print`;
+
 - `toUpper` on a `Char`;
+
 - `show` on data, lists, `Maybe` and `Float`;
+
 - `deriving (Eq, Ord, Show)`.
 
 ## What does not
@@ -48,12 +55,15 @@ The deepest difference is evaluation order, not syntax. Idiomatic Haskell relies
 Two narrower forms are possible without changing the default:
 
 - **Infinite ranges as producers only.** `[n ..]` consumed by `take`, `takeWhile` or `zip` could be accepted when fusion removes the list ([fusion.md](fusion.md)). That makes a program's acceptance depend on an optimization, which is a poor rule.
+
 - **An explicit lazy list type,** a `Stream` in the prelude. That is a library, not compatibility: Haskell code would still need rewriting.
 
 ## What the effect options change
 
 - **B1:** Haskell code that differs from funk only in `IO` typing ports: small programs built from `getLine`, `putStrLn`, `do` and pure helpers.
+
 - **B2:** `Monad`-generic code ports too, once kinds exist: `mapM`, `when`, `do` over `Maybe` or `State`.
+
 - **E:** no `IO` code ports, since funk would have no `IO` type. Pure code ports as it does today.
 
 Because `IO` is one gap among many, "Haskell compatibility" is a weaker argument for B1 than [typed-effects.md](typed-effects.md#the-options-compared) suggests. What remains of it is familiarity: Haskell readers know the `IO` style.
@@ -79,6 +89,7 @@ Two items are decisions taken in 0.2 and kept deliberately, not gaps to close: p
 ## Questions
 
 1. **What level of compatibility is the goal?** "Small, strict-safe Haskell programs port with edits" is close: the first five rows of the table above would cover most of what such programs hit. "Haskell libraries port" is not reachable without laziness.
+
 2. **Does compatibility change the typed-effects decision?** If the goal is the first level, `IO` matters little, and E loses little by not having it.
 
 These results are for funk 0.2.0 as built on 2026-10-26.

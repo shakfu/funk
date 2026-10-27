@@ -30,10 +30,15 @@ Roc has no release yet. Its compiler was rewritten from Rust to Zig, about 300,0
 Roc makes types tell the truth about effects without a monad. This is a fifth option for [typed-effects.md](typed-effects.md), between A'' and B1:
 
 - **No runtime cost.** An effectful call is a direct call: A'''s 0%, against B1's 5% for the runner.
+
 - **None of B1's traps in a strict language.** There is no `>>` special form, no `bindIO` desugaring and no strict construction of actions. Strict left-to-right evaluation orders effects, as in funk today.
+
 - **Purity for the optimizer.** The arrow says whether a function value is pure, so fusion and eager `let` can see through closures and parameters. That is where A'''s inference gives up.
+
 - **The cost is coloring.** Higher-order functions need effectful variants. Roc's builtins have `List.for_each!` and `map_try!`, as B1 has `mapM_`.
+
 - **Migration.** Haskell's `IO` code would not port. funk's current programs would, with little change: effectful functions get `=>`.
+
 - **A rule Roc does not need.** Lazy `let` and `where` bindings must not hold effectful expressions, or must be evaluated where they are bound when they do. Roc has no laziness.
 
 For funk's strict semantics, this may fit better than A'' or B1. It is option E in [typed-effects.md](typed-effects.md#e-in-detail), designed for funk there: spelled `->>`, with effect polymorphism, and compared with the other options.
@@ -53,16 +58,21 @@ Roc's `?` gives `Either`-style early return without a monad, as its arrows give 
 ### 5. Smaller items
 
 - **Inline `expect` tests,** run by the test command and skipped in optimized builds. They are cheap, and keep tests next to code.
+
 - **Pure top-level constants evaluated at compile time,** which Roc does because their values cannot differ at run time. funk evaluates them at startup.
+
 - **One entry point for effects.** All effects enter through the platform, and the standard library stays pure. For [ffi.md](ffi.md), this means foreign imports, plus the runtime's own I/O, are the only sources of effects.
 
 ### Not worth adopting
 
 - **Roc's syntax.** funk's identity is Haskell syntax.
+
 - **Structural records and tag unions.** They need row polymorphism, as large a change as type classes.
+
 - **`var` and `for` loops.** They fit Roc's syntax, not Haskell's.
 
 ## Caveats
 
 - **Sources.** The full language reference could not be read; its pages are mostly navigation over builtins. The purity rules come from the functions page and the new-compiler tutorial. The memory model comes from a thesis and a forum discussion, which may describe the old compiler.
+
 - **Effect polymorphism.** Whether Roc can write one higher-order function for both pure and effectful arguments was not confirmed. The `!` variants in its builtins suggest it cannot.
