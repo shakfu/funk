@@ -1,6 +1,6 @@
 # Memory: design note
 
-Status: TRMC implemented (unreleased). After it, a profile rules out B; C is deferred (see "After TRMC"). It covers step 6 of [performance-first.md](performance-first.md): the cost of allocation and collection. The geometric mean is 2.4x against the 2x target. The largest ratios left are `lists` 8.0x, `queens` 5.4x, `sort` 4.7x and `strings` 4.0x, all allocation-heavy.
+Status: TRMC implemented, released in 0.2.0. After it, a profile rules out B; C is deferred (see "After TRMC"). It covers step 6 of [performance-first.md](performance-first.md): the cost of allocation and collection. The geometric mean is 2.4x against the 2x target. The largest ratios left are `lists` 8.0x, `queens` 5.4x, `sort` 4.7x and `strings` 4.0x, all allocation-heavy.
 
 ## Where the time goes
 

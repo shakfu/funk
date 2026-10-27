@@ -7,12 +7,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - GitHub Actions CI (`.github/workflows/ci.yml`): `make test` on Linux and macOS, plain and with funk built under UBSan.
+- `bench.py ab OLD [NEW]`: compares two compilers by running their binaries alternately, which cancels the drift of about 5% between sessions (`bench/README.md`).
 
 ### Changed
 
+- `pipeline` runs at n = 100,000,000, 0.3 s, up from 300,000, 3-6 ms, which was too short to time; old rows are not compared. `report` judges only funk's rows, since nothing in funk changes C's.
 - regex-redux uses PCRE2, not PCRE, which Homebrew has deprecated and recent Linux releases drop: funk through foreign imports, and the Game's PCRE2 C program (`gcc-5`), built without OpenMP. Homebrew's PCRE had no JIT on arm64 (`gcc-2` took 1.50 s on fasta's output for 1,000,000, `gcc-5` 0.56 s); funk takes 0.58 s.
 
 ### Fixed
+
+- An effectful function could not call a parameter declared pure: `each :: (Int -> ()) ->> ()` with `each f = f 1` was rejected, since the call merged the signature's shared `->` effect into the body's `Eff`. A body that is already `Eff` takes a call of any effect now (`docs/dev/typed-effects.md`).
+- The effect error for a signature's `->` names the arrow, by the arguments before it: "its signature's arrow after 2 arguments is `->`; it needs `->>`". A returned function that acts at a `->` reports "where its signature has `->`".
+- `show` parenthesizes `-0.0` as an argument, as GHC does: `Just (-0.0)`, not `Just -0.0`.
 
 Found by the first Linux run:
 

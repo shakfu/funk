@@ -91,6 +91,8 @@ bool type_acts(Type *t) {
   return false;
 }
 static const char *cur_bind;
+static Type *cur_sig; /* the signature, rigid, of the binding being checked */
+static int cur_args;  /* arguments before cur_eff's arrow in cur_sig; 0 if not in it */
 static int nprelude; /* globals defined by the prelude and the primitives: their names are reserved */
 static int nprelude_types = NBUILTIN_TYPES, nprelude_cons = FK_NBUILTIN_CONS; /* likewise, types and constructors */
 static Type *newvar(void);
@@ -373,6 +375,8 @@ static void unify_eff(Type *a, Type *b) {
     a->link = b;
     return;
   }
+  if ((a == eff_eff && b->skolem) || (b == eff_eff && a->skolem))
+    eff_error("an effectful function (`->>`) where its signature has `->`");
   if (a == eff_eff || b == eff_eff) eff_error("an effectful function (`->>`) where a pure one (`->`) is required");
   eff_error("functions whose effects differ: a signature fixes one, and another is required");
 }
@@ -394,7 +398,7 @@ static void unify_rec(Type *a, Type *b) {
 /* Calls of a function whose type was unknown when the call was inferred,
    such as a record field resolved later: their effect is settled at the
    end of the binding group, once the type is known. */
-typedef struct { Type *eff, *ctx; int line, col; const char *bind; } Deferred;
+typedef struct { Type *eff, *ctx; int line, col; const char *bind; int args; } Deferred;
 static VEC(Deferred) deferred;
 
 /* A local value binding whose effect is tied to something outside it,
@@ -411,10 +415,12 @@ static void call_effect(Type *e);
 static void settle_deferred(int from) {
   Type *saved = cur_eff;
   const char *sb = cur_bind;
+  int sa = cur_args;
   for (int i = from; i < deferred.n; i++) {
     Deferred *d = &deferred.a[i];
     cur_eff = d->ctx;
     cur_bind = d->bind;
+    cur_args = d->args;
     uline = d->line;
     ucol = d->col;
     call_effect(d->eff); /* Pure: nothing; Eff or still unknown: as an immediate call */
@@ -422,6 +428,7 @@ static void settle_deferred(int from) {
   deferred.n = from;
   cur_eff = saved;
   cur_bind = sb;
+  cur_args = sa;
 }
 
 /* A call through an arrow with effect e, in code whose effect is cur_eff. */
@@ -430,7 +437,16 @@ static void call_effect(Type *e) {
   e = repr(e);
   if (e == eff_pure) return; /* a pure call constrains nothing */
   Type *c = repr(cur_eff);
-  if (e == eff_eff && c->skolem) eff_error("declared with `->` but calls an effectful function; its signature needs `->>`");
+  if (c == eff_eff) return; /* an effectful body may call a function of any effect */
+  if (e == eff_eff && c->skolem) {
+    if (cur_args) {
+      char msg[160];
+      snprintf(msg, sizeof msg, "calls an effectful function, but its signature's arrow after %d argument%s is `->`; it needs `->>`",
+               cur_args, cur_args == 1 ? "" : "s");
+      eff_error(msg);
+    }
+    eff_error("declared with `->` but calls an effectful function; its signature needs `->>`");
+  }
   if (e == eff_eff && c == eff_pure)
     eff_error("calls an effectful function, but must be pure: a data field or class method declared with `->`");
   unify_eff(c, e);
@@ -1404,11 +1420,17 @@ static void check(Expr *e, Env *env, Type *expected) {
       t = r;
     }
     Type *saved = cur_eff;
+    int saved_args = cur_args;
     cur_eff = last && last->eff ? last->eff : newvar();
+    cur_args = 0;
+    int k = 1;
+    for (Type *a = cur_sig ? repr(cur_sig) : NULL; a && a->k == TY_CON && a->name == s_arrow; a = repr(a->args[1]), k++)
+      if (a == last) { cur_args = k; break; }
     for (int i = 0; i < e->lam->n; i++) VPUSH(param_stack, e->lam->ptypes[i]);
     check(e->lam->body, env, t);
     param_stack.n -= e->lam->n;
     cur_eff = saved;
+    cur_args = saved_args;
     return;
   }
   case E_LET:
@@ -1516,7 +1538,7 @@ static Type *infer0(Expr *e, Env *env) {
         uline = e->line;
         ucol = e->col;
         if (arrow == f) call_effect(arrow->eff);
-        else VPUSH(deferred, ((Deferred){arrow->eff, cur_eff, e->line, e->col, cur_bind}));
+        else VPUSH(deferred, ((Deferred){arrow->eff, cur_eff, e->line, e->col, cur_bind, cur_args}));
       }
     }
     return tf;
@@ -1634,7 +1656,10 @@ static void infer_group(Group *g, Env **env, bool top) {
       Type *rigid = inst_rec(sch[i], &s, true);
       b->skolem = s.a;
       b->nskolem = s.n / 2;
+      Type *saved_sig = cur_sig;
+      cur_sig = rigid;
       check(b->e, *env, rigid);
+      cur_sig = saved_sig;
     } else {
       check(b->e, *env, mono[i]);
     }

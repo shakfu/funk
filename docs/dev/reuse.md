@@ -1,6 +1,6 @@
 # In-place reuse of list cells: design note
 
-Status: implemented (unreleased); see "Result". Elements, tuple components and cells outside TRMC sites: [element-reuse.md](element-reuse.md), whose ownership analysis replaced `fresh` and `consumes` below. It follows the Perceus prototype in [memory.md](memory.md#perceus-prototyped-by-hand). Writing `filter`'s and `map`'s output into their input's cells made `lists` 18-23% faster (69 ms to 53-57 ms, with only those two functions changed). Freeing cells made it slower, because it scatters later allocations. This note gets the reuse without reference counts, from a static check.
+Status: implemented, released in 0.2.0; see "Result". Elements, tuple components and cells outside TRMC sites: [element-reuse.md](element-reuse.md), whose ownership analysis replaced `fresh` and `consumes` below. It follows the Perceus prototype in [memory.md](memory.md#perceus-prototyped-by-hand). Writing `filter`'s and `map`'s output into their input's cells made `lists` 18-23% faster (69 ms to 53-57 ms, with only those two functions changed). Freeing cells made it slower, because it scatters later allocations. This note gets the reuse without reference counts, from a static check.
 
 ## The rule
 

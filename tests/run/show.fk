@@ -13,4 +13,5 @@ main =
   print (Node Leaf (one ()) (Node Leaf 2.5 Leaf) :: Tree Float) >>
   print (negate (one ()) :: Float, Left (one ()) :: Either Float Int) >>
   mapM_ print ([one (), 2.5] :: [Float]) >>
-  print (map show ["", "x"])
+  print (map show ["", "x"]) >>
+  print (Just (-0.0), [-0.0], Just 0.0, Just (toCFloat (-0.0))) -- -0.0 is parenthesized like a negative

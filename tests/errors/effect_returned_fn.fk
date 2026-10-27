@@ -1,0 +1,6 @@
+-- expect: in `twice`: an effectful function (`->>`) where its signature has `->`
+-- Fewer parameters than arrows: the function returned acts at a `->`.
+twice :: Int ->> Int -> ()
+twice n = go
+  where go m = print (n + m)
+main = twice 1 2

@@ -65,7 +65,7 @@ instance Eq Float where
 instance Ord Float where
   compare x y = if primLtFloat x y then LT else if primEqFloat x y then EQ else GT
 instance Show Float where
-  showPrec d x = if d > 6 && x < 0.0 then "(" ++ primShowFloat x ++ ")" else primShowFloat x
+  showPrec d x = if d > 6 && (x < 0.0 || (x == 0.0 && 1.0 / x < 0.0)) then "(" ++ primShowFloat x ++ ")" else primShowFloat x -- -0.0 too
 instance Num Float where
   (+) = primAddFloat
   (-) = primSubFloat

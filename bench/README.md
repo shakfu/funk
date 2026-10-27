@@ -14,9 +14,13 @@ python3 bench/bench.py run --only fib,trees --backends compiled -r 10
 python3 bench/bench.py report               # latest run vs the previous one
 python3 bench/bench.py report --baseline 690ac24 --threshold 0.05
 python3 bench/bench.py history trees --backend interp
+python3 bench/bench.py ab HEAD                # HEAD's compiler vs ./funk
+python3 bench/bench.py --suite game ab 6101ca2 HEAD --only nbody -r 21
 ```
 
-`report` exits 1 if any benchmark is slower than its baseline by more than the threshold (default 10%). It needs Python 3; nothing outside the standard library.
+`report` exits 1 if any compiled or interpreted benchmark is slower than its baseline by more than the threshold (default 10%); C rows are shown, not judged. It needs Python 3; nothing outside the standard library.
+
+Runs in different sessions drift by about 5% on an M1, more than many changes. To decide a change, use `ab`. It builds each revision's compiler once from `git archive`, in `build/bench/ab/`, compiles each benchmark with both, checks that their outputs match, and runs the two binaries alternately, 11 times each by default. It prints each side's minimum, the change in the minimum and in the median, and their geometric mean. It records nothing.
 
 ## What the C programs are
 
@@ -33,7 +37,7 @@ All backends must print the same output. A benchmark whose outputs differ is not
 | `lazywhere` | one thunk per iteration for a `where` binding | iterations |
 | `floats` | boxed Float arithmetic (midpoint integration) | steps |
 | `lists` | `map`, `filter`, `foldl` over fresh lists, each named so fusion cannot apply, 20 rounds | list length |
-| `pipeline` | `sum (map f (filter p (enumFromTo 1 n)))`, 20 rounds; fused into a loop, and the C version is that loop | list length |
+| `pipeline` | `sum (map f (filter p (enumFromTo 1 n)))`, 20 rounds; fused into a loop, and the C version is that loop. n was 300,000 (3-6 ms) until 2026-10-27 | list length |
 | `sort` | prelude merge sort of pseudo-random Ints | list length |
 | `queens` | all n-queens solutions as lists of partial boards | board size |
 | `trees` | binary trees from the Benchmarks Game: allocation and GC with a live tree | max depth |

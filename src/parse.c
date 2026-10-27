@@ -1137,7 +1137,7 @@ char *builtin_instances_src(void) {
     if (ffi_types[i].kind == 'f') {
       sb_printf(&b, "instance Eq %s where\n  x == y = fromCFloat x == fromCFloat y\n  x /= y = fromCFloat x /= fromCFloat y\n"
                     "instance Ord %s where\n  compare x y = compare (fromCFloat x) (fromCFloat y)\n"
-                    "instance Show %s where\n  showPrec d x = if d > 6 && fromCFloat x < 0.0 then \"(\" ++ primShowCFloat x ++ \")\" else primShowCFloat x\n"
+                    "instance Show %s where\n  showPrec d x = if d > 6 && (fromCFloat x < 0.0 || (fromCFloat x == 0.0 && 1.0 / fromCFloat x < 0.0)) then \"(\" ++ primShowCFloat x ++ \")\" else primShowCFloat x\n"
                     "instance Num %s where\n  x + y = toCFloat (fromCFloat x + fromCFloat y)\n  x - y = toCFloat (fromCFloat x - fromCFloat y)\n"
                     "  x * y = toCFloat (fromCFloat x * fromCFloat y)\n  negate x = toCFloat (negate (fromCFloat x))\n"
                     "  abs x = toCFloat (abs (fromCFloat x))\n  fromInt n = toCFloat (toFloat n)\n"

@@ -1,4 +1,4 @@
--- expect: in `seed`: declared with `->` but calls an effectful function
+-- expect: in `seed`: calls an effectful function, but its signature's arrow after 1 argument is `->`
 foreign import ccall "stdlib.h srand" c_srand :: Int ->> ()
 seed :: Int -> ()
 seed n = c_srand n

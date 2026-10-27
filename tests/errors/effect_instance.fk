@@ -1,4 +1,4 @@
--- expect: in `shout` of `instance Shout Bool`: declared with `->` but calls an effectful function
+-- expect: in `shout` of `instance Shout Bool`: calls an effectful function, but its signature's arrow after 1 argument is `->`
 -- An instance of a method declared pure, whose body prints.
 class Shout a where
   shout :: a -> ()

@@ -20,7 +20,7 @@ total :: [Shape] -> Float
 total ss = sum (map area ss)                        -- pure function through map
 counter :: Int ->> ()
 counter n = if n == 0 then () else case print n of _ -> counter (n - 1)
-main = main1 () >> main2 () >> main3 ()
+main = main1 () >> main2 () >> main3 () >> main4 ()
 main1 () = do
   greeter "x"
   mapM_ print (map (* 2) [1, 2])
@@ -60,3 +60,15 @@ traced :: Int -> Int
 traced n = trace ("traced " ++ show n) (n * 2)
 
 main3 () = print (traced 21)
+
+-- An effectful body calls a parameter declared pure, and one declared with
+-- `->` that the caller makes effectful: a signature's `->`s share one effect.
+sumWith :: (Int -> Int -> Float) ->> ()
+sumWith f = print (f 1 2)
+each :: (Int -> ()) ->> ()
+each f = f 1 >> f 2
+
+main4 () = do
+  sumWith (\a b -> fromIntegral (a + b))
+  each print
+  each (\n -> ())

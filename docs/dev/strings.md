@@ -1,6 +1,6 @@
 # Packed strings: design note
 
-Status: option A implemented (unreleased). [performance-first.md](performance-first.md) decided that strings become a packed type. Breaking `String = [Char]` was accepted because funk has no releases and no users yet.
+Status: option A implemented, released in 0.2.0. [performance-first.md](performance-first.md) decided that strings become a packed type. Breaking `String = [Char]` was accepted because funk has no releases and no users yet.
 
 ## What the metric says
 

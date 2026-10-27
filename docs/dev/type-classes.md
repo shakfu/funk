@@ -1,6 +1,6 @@
 # Type classes: design note
 
-Status: phase 1 implemented (unreleased). Records are in [records.md](records.md); the 0.1 decisions this replaces are in [design.md](design.md).
+Status: phase 1 implemented, released in 0.2.0. Records are in [records.md](records.md); the 0.1 decisions this replaces are in [design.md](design.md).
 
 ## Problem
 

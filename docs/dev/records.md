@@ -1,6 +1,6 @@
 # Records: design note
 
-Status: implemented (unreleased), except where marked. Type classes are in [type-classes.md](type-classes.md).
+Status: implemented, released in 0.2.0, except where marked. Type classes are in [type-classes.md](type-classes.md).
 
 ## Problem
 

@@ -9,6 +9,10 @@
       the latest run of COMMIT. Exits 1 if any benchmark regressed.
   bench.py [--suite core|game] history NAME [--backend compiled] [--host HOST]
       Print the timing of one benchmark across all recorded runs.
+  bench.py [--suite core|game] ab OLD [NEW] [-r N] [--only a,b]
+      Compare two compilers: OLD and NEW are commits, or `.` for ./funk
+      (NEW's default). Each benchmark's two binaries run alternately, which
+      cancels the drift between sessions. Records nothing.
 
 The core suite (bench/progs) pairs funk programs with C written to match.
 The game suite (bench/game) is programs from the Benchmarks Game, against
@@ -44,7 +48,7 @@ CORE_SIZES = {
     "lazywhere": 20000000,
     "floats": 10000000,
     "lists": 250000,
-    "pipeline": 300000,
+    "pipeline": 100000000,
     "sort": 300000,
     "queens": 11,
     "trees": 16,
@@ -265,8 +269,8 @@ def cmd_report(args):
         b = base.get((bench, backend))
         if b and b["n"] == r["n"]:
             change = t / min(b["wall"]) - 1
-            flag = "  REGRESSION" if change > args.threshold else "  improved" if change < -args.threshold else ""
-            regressed += change > args.threshold
+            flag = "" if backend == "c" else "  REGRESSION" if change > args.threshold else "  improved" if change < -args.threshold else ""
+            regressed += backend != "c" and change > args.threshold  # nothing in funk changes C
             line += f" {min(b['wall']):7.3f}s {change:+7.1%}{flag}"
         print(line)
     for title, run in (("run", cur), ("baseline", base)):
@@ -286,6 +290,66 @@ def geomean(run):
     """Geometric mean of compiled over C min wall times: the performance goal."""
     rs = [min(r["wall"]) / min(run[(b, "c")]["wall"]) for (b, k), r in run.items() if k == "compiled" and (b, "c") in run]
     return math.exp(sum(map(math.log, rs)) / len(rs)) if rs else None
+
+
+def compiler(rev):
+    """Path to the funk built from rev, `.` being ./funk; built once per commit."""
+    if rev == ".":
+        if not os.path.exists(FUNK):
+            sys.exit("bench: ./funk not found; run make first")
+        return FUNK
+    sha = sh("git", "rev-parse", "--verify", "--quiet", rev + "^{commit}")
+    if not sha:
+        sys.exit(f"bench: unknown revision `{rev}`")
+    src = os.path.join(ROOT, "build", "bench", "ab", sha[:12])
+    exe = os.path.join(src, "funk")
+    if not os.path.exists(exe):
+        os.makedirs(src, exist_ok=True)
+        print(f"building funk at {sha[:12]} in {os.path.relpath(src, ROOT)}", file=sys.stderr, flush=True)
+        archive = subprocess.Popen(["git", "archive", sha], cwd=ROOT, stdout=subprocess.PIPE)  # touches no index or worktree
+        subprocess.run(["tar", "-x", "-C", src], stdin=archive.stdout, check=True)
+        if archive.wait() != 0:
+            sys.exit(f"bench: git archive {sha} failed")
+        r = subprocess.run(["make", "funk"], cwd=src, capture_output=True, text=True)
+        if r.returncode != 0 or not os.path.exists(exe):
+            sys.exit(f"bench: building {rev} failed:\n{r.stdout[-2000:]}{r.stderr[-2000:]}")
+    return exe
+
+
+def cmd_ab(args):
+    global FUNK
+    names = args.only.split(",") if args.only else list(SIZES)
+    for name in names:
+        if name not in SIZES:
+            sys.exit(f"bench: unknown benchmark `{name}` in the {SUITE} suite")
+    funks = [compiler(args.old), compiler(args.new)]
+    print(f"old {args.old}  new {args.new}; {args.repeat} alternating runs each; metric: min wall time\n")
+    print(f"{'bench':13} {'old':>8} {'new':>8} {'change':>8} {'median':>8}")
+    ratios = []
+    for bench in names:
+        n = SIZES[bench]
+        stdin = stdin_for(bench, n)
+        cmds = []
+        for i, f in enumerate(funks):
+            FUNK = f
+            cmd, _ = build(bench, "compiled")
+            exe = cmd[0] + ("_old" if i == 0 else "_new")
+            os.replace(cmd[0], exe)
+            cmds.append([exe])
+        outs = [hashlib.sha256(measure(c, stdin)[0].encode("latin-1")).hexdigest() for c in cmds]  # also the warm-up
+        if outs[0] != outs[1]:
+            print(f"{bench:13} output differs between old and new; skipped", flush=True)
+            continue
+        walls = [[], []]
+        for k in range(args.repeat):
+            for i in ((0, 1) if k % 2 == 0 else (1, 0)):  # alternate which goes first
+                walls[i].append(measure(cmds[i], stdin)[1])
+        lo = [min(w) for w in walls]
+        med = [sorted(w)[len(w) // 2] for w in walls]
+        ratios.append(lo[1] / lo[0])
+        print(f"{bench:13} {lo[0]:7.3f}s {lo[1]:7.3f}s {lo[1] / lo[0] - 1:+7.1%} {med[1] / med[0] - 1:+7.1%}", flush=True)
+    if ratios:
+        print(f"\ngeomean new/old: {math.exp(sum(map(math.log, ratios)) / len(ratios)) - 1:+.1%} over {len(ratios)} benchmarks")
 
 
 def cmd_history(args):
@@ -309,6 +373,11 @@ def main():
     r.add_argument("--only", help="comma-separated benchmark names")
     r.add_argument("--backends", help="comma-separated; default c,compiled,interp (game: c,compiled)")
     r.add_argument("--note", default="", help="free text stored with the run")
+    a = sub.add_parser("ab")
+    a.add_argument("old")
+    a.add_argument("new", nargs="?", default=".")
+    a.add_argument("-r", "--repeat", type=int, default=11, help="timed runs per binary")
+    a.add_argument("--only", help="comma-separated benchmark names")
     for name in ("report", "history"):
         p = sub.add_parser(name)
         p.add_argument("--host", default=platform.node())
@@ -324,7 +393,7 @@ def main():
     PROGS, SIZES, RESULTS, DEFAULT_BACKENDS = SUITES[SUITE]
     if args.cmd == "history" and args.name not in SIZES:
         sys.exit(f"bench: unknown benchmark `{args.name}` in the {SUITE} suite")
-    {"run": cmd_run, "report": cmd_report, "history": cmd_history}[args.cmd](args)
+    {"run": cmd_run, "report": cmd_report, "history": cmd_history, "ab": cmd_ab}[args.cmd](args)
 
 
 if __name__ == "__main__":

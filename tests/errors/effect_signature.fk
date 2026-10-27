@@ -1,4 +1,4 @@
--- expect: declared with `->` but calls an effectful function
+-- expect: its signature's arrow after 2 arguments is `->`; it needs `->>`
 -- A signature that says pure over a body that prints.
 wrap :: (Int -> ()) -> Int -> ()
 wrap f n = print n

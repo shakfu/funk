@@ -1,0 +1,5 @@
+-- expect: in `twice`: calls an effectful function, but its signature's arrow after 2 arguments is `->`; it needs `->>`
+-- The body that acts is a lambda: the arrow at fault is the second, not the first.
+twice :: Int ->> Int -> ()
+twice n = \m -> print (n + m)
+main = twice 1 2

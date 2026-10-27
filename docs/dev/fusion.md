@@ -1,6 +1,6 @@
 # List fusion: design note
 
-Status: implemented (unreleased), with exact semantics and benchmark option (c); see "Result". It follows [reuse.md](reuse.md), which writes `map`'s output into its input's cells; fusion removes the intermediate list instead.
+Status: implemented, released in 0.2.0, with exact semantics and benchmark option (c); see "Result". It follows [reuse.md](reuse.md), which writes `map`'s output into its input's cells; fusion removes the intermediate list instead.
 
 ## What fusion would gain
 

@@ -1,4 +1,4 @@
--- expect: declared with `->` but calls an effectful function
+-- expect: its signature's arrow after 1 argument is `->`; it needs `->>`
 -- A class-constrained signature that says pure over a body that prints.
 showAll :: Show a => [a] -> ()
 showAll xs = mapM_ print xs
