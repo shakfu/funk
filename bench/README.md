@@ -55,11 +55,11 @@ python3 bench/bench.py --suite game run     # c and compiled; results in game-re
 python3 bench/bench.py --suite game report
 ```
 
-- **Which C.** The plainest single-threaded C program of each task without the Game's asterisk: `gcc-1`, `gcc-8` for spectral-norm and mandelbrot, `gcc-5` for reverse-complement and `gcc-2` for regex-redux. k-nucleotide's only C program, `gcc-1`, is threaded with OpenMP; built without `-fopenmp`, it runs on one thread unchanged. The fastest C entries use threads and SIMD, which funk has not.
+- **Which C.** The plainest single-threaded C program of each task without the Game's asterisk: `gcc-1`, `gcc-8` for spectral-norm and mandelbrot, and `gcc-5` for reverse-complement. k-nucleotide's only C program, `gcc-1`, and regex-redux's `gcc-5`, the one using PCRE2, are threaded with OpenMP; built without `-fopenmp`, they run on one thread unchanged. The fastest C entries use threads and SIMD, which funk has not.
 - **Sizes.** Below the Game's, so that C takes 0.1-2.8 s on an M1 (`GAME_SIZES` in `bench.py`). The C program reads n from `argv[1]`, funk from stdin. k-nucleotide and reverse-complement read fasta's output for n instead, which `bench.py` writes once with the C fasta into `build/bench/`.
 - **Checks.** `NAME.expected` is the Game's output file for the small n in `NAME.stdin`; `make test` runs each program on it, interpreted and compiled (label `game`). `run` also compares the two backends' output at the full size.
 - **Flags.** `-O2` for both, as in the core suite; the Game builds C with `-O3 -march`.
-- **Libraries.** regex-redux needs PCRE (version 1, `pcre.h`) and pidigits GMP; `bench.py` and the tests look under `/opt/homebrew`, `/usr/local` and `/usr`, and the tests skip a program whose library is missing.
+- **Libraries.** regex-redux needs PCRE2 (`pcre2.h`, `-lpcre2-8`) and pidigits GMP; `bench.py` and the tests look under `/opt/homebrew`, `/usr/local` and `/usr`, and the tests skip a program whose library is missing.
 
 | Task | Size | Notes |
 |-|-|-|
@@ -71,7 +71,7 @@ python3 bench/bench.py --suite game report
 | `mandelbrot` | 4,000 | the same iteration, in C's order of operations; a binary PBM, one `putStr` per row of bytes |
 | `knucleotide` | fasta's output for 2,500,000 | the prelude's `IntTable`, keys of 2 bits a base, percentages in single precision as C's; C uses klib's `khash.h` and is built without OpenMP, so its sections run on one thread |
 | `revcomp` | fasta's output for 10,000,000 | as C: read in chunks (`getArray`) into a buffer that doubles (`copyArray`); each sequence reversed and complemented into an output buffer with its newlines, written at once (`putArray`) |
-| `regexredux` | fasta's output for 1,000,000 | the same library as C, PCRE with its JIT, through foreign imports; the input read whole with `getContents` and copied once into C memory |
+| `regexredux` | fasta's output for 1,000,000 | the same library as C, PCRE2 with its JIT, through foreign imports (`pcre2_8.h` sets the code unit width `pcre2.h` needs); the input read whole with `getContents` and copied once into C memory |
 | `pidigits` | 10,000 digits | GMP through foreign imports, the same calls as C |
 
 ## Data

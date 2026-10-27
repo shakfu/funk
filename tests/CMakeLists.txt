@@ -32,10 +32,10 @@ endforeach()
 
 # Benchmarks Game programs (bench/game) at their small n, against the
 # Game's output files
-# regex-redux and pidigits use PCRE and GMP; they run only where found
+# regex-redux and pidigits use PCRE2 and GMP; they run only where found
 set(LIB_HINTS /opt/homebrew /usr/local)
-find_path(PCRE_INCLUDE pcre.h HINTS ${LIB_HINTS} PATH_SUFFIXES include)
-find_library(PCRE_LIB pcre HINTS ${LIB_HINTS} PATH_SUFFIXES lib)
+find_path(PCRE_INCLUDE pcre2.h HINTS ${LIB_HINTS} PATH_SUFFIXES include)
+find_library(PCRE_LIB pcre2-8 HINTS ${LIB_HINTS} PATH_SUFFIXES lib)
 find_path(GMP_INCLUDE gmp.h HINTS ${LIB_HINTS} PATH_SUFFIXES include)
 find_library(GMP_LIB gmp HINTS ${LIB_HINTS} PATH_SUFFIXES lib)
 file(GLOB games RELATIVE ${PROJECT_SOURCE_DIR} CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/bench/game/*.fk)
@@ -52,7 +52,7 @@ foreach(f ${games})
       continue()
     endif()
     get_filename_component(libdir ${${lib}_LIB} DIRECTORY)
-    set(flags -I ${${lib}_INCLUDE} -L ${libdir})
+    set(flags -I bench/game -I ${${lib}_INCLUDE} -L ${libdir}) # bench/game: pcre2_8.h
   endif()
   foreach(mode interp compiled types wall)
     funk_test(game/${n}/${mode} game run ${f} ${mode} ${flags})

@@ -20,11 +20,11 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 - [x] Generated C compiles without `-Wall -Wextra` warnings; the `wall` tests check every run test and example.
 
-- [ ] **Linux CI: a green run.** The first run of `.github/workflows/ci.yml` passed on macOS and failed on Linux; its causes are fixed (CHANGELOG, Unreleased) and checked here against glibc's `nonnull` declarations and GCC 16, but the next run is the test. In that run, the plain Linux job's stack snapshot, `EFAULT` and stress tests passed, so the 0.4.0 runtime works on x86-64 Linux; the UBSan job stopped at the compiler's first `memcpy`, so its runtime tests have not run under UBSan on Linux.
+- [x] **Linux CI.** `.github/workflows/ci.yml` passes on `ubuntu-latest` (x86-64) and `macos-latest` (arm64), plain and under UBSan: the 0.4.0 runtime's stack snapshot, `EFAULT` handling and stress tests included.
 
 ## Medium
 
-- [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): no test proves the stack snapshot's page copy necessary since protection stops below the thread's first frame (`tests/run/gcdeep.fk` passes without it); the Linux limit is from glibc's layout, not run on Linux. An export's stack bound is not computed; for targets with small stacks, sum `-fstack-usage` frame sizes along the call graph. `foreign struct` has no C arrays inside structs (Core Audio's `AudioBufferList`).
+- [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): no test proves the stack snapshot's page copy necessary since protection stops below the thread's first frame (`tests/run/gcdeep.fk` passes without it); the Linux limit is from glibc's layout; CI runs it on x86-64 Linux, plain and under UBSan. An export's stack bound is not computed; for targets with small stacks, sum `-fstack-usage` frame sizes along the call graph. `foreign struct` has no C arrays inside structs (Core Audio's `AudioBufferList`).
 
 - [ ] `closures` is 1.7x C. Calling an exact-arity closure inline instead of through `fk_apply`, and a partial application's call without its variable-length array, moved samples out of `fk_apply` but left the time unchanged (-0.6%, reverted). The loop is a chain of dependent `mod`s; on it, funk adds a box, an unbox and a store and reload through the `V *` argument array, which C passes in a register (inferred, not measured). A typed entry point in closures of common shapes (`Int -> Int`), called when the call site's types match, would take the value off memory.
 
@@ -54,5 +54,4 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 - [ ] The interpreter spends 26% of its time in `eval`'s prologue and epilogue; split out the hot cases. Interpreter speed is not part of the primary goal.
 - [ ] **Benchmark harness.** Runs in different sessions drift by about 5%, so `report` flags noise; every decision this session came from interleaved A/B runs scripted by hand. A `bench.py ab OLD NEW` that builds both compilers and interleaves their binaries would replace those scripts. `pipeline` runs 3-6 ms, too short to measure; raise its size. `report` also flags changes in the C rows, which nothing in funk affects.
 - [ ] `tests/run/reuseown.fk`: `map (scale 2.0) (replicate 3 v)` gets no copy at all, where a spine-only `@reuse0` copy was expected; sound, since nothing is reused, but not explained.
-- [ ] regex-redux's C takes 7.5 s on fasta's output for 5,000,000 here, against 3.2 s on the Game's machine: Homebrew's PCRE may lack its JIT on arm64. Unverified; funk calls the same library, so the ratio holds.
 - [ ] Six design notes still say "implemented (unreleased)" for work released since: `memory.md`, `fusion.md`, `reuse.md`, `type-classes.md`, `records.md`, `strings.md`.

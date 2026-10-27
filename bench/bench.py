@@ -71,7 +71,7 @@ GAME_SIZES = {
 }
 GAME_INPUTS = {"knucleotide", "revcomp", "regexredux"}
 # C libraries the Game's programs use, as (header, library), and where to look
-GAME_LIBS = {"regexredux": ("pcre.h", "pcre"), "pidigits": ("gmp.h", "gmp")}
+GAME_LIBS = {"regexredux": ("pcre2.h", "pcre2-8"), "pidigits": ("gmp.h", "gmp")}
 LIB_PREFIXES = ["/opt/homebrew", "/usr/local", "/usr"]
 
 
@@ -81,8 +81,8 @@ def lib_flags(bench):
         return []
     header, _ = GAME_LIBS[bench]
     for p in LIB_PREFIXES:
-        if os.path.exists(os.path.join(p, "include", header)):
-            return ["-I", os.path.join(p, "include"), "-L", os.path.join(p, "lib")]
+        if os.path.exists(os.path.join(p, "include", header)):  # -I PROGS: game/pcre2_8.h
+            return ["-I", PROGS, "-I", os.path.join(p, "include"), "-L", os.path.join(p, "lib")]
     raise RuntimeError(f"{header} not found under {', '.join(LIB_PREFIXES)}")
 
 SUITES = {

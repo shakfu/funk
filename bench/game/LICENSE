@@ -4,7 +4,7 @@ and so are the *.expected files, its output files for each program's small n.
 binarytrees.c includes <stdlib.h> in place of <malloc.h>, which macOS lacks;
 they are otherwise unchanged. khash.h, which knucleotide.c includes, is from
 klib (https://github.com/attractivechaos/klib), under the MIT license in its
-own header.
+own header. pcre2_8.h is funk's.
 
 Revised BSD license
 

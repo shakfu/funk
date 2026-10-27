@@ -8,6 +8,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - GitHub Actions CI (`.github/workflows/ci.yml`): `make test` on Linux and macOS, plain and with funk built under UBSan.
 
+### Changed
+
+- regex-redux uses PCRE2, not PCRE, which Homebrew has deprecated and recent Linux releases drop: funk through foreign imports, and the Game's PCRE2 C program (`gcc-5`), built without OpenMP. Homebrew's PCRE had no JIT on arm64 (`gcc-2` took 1.50 s on fasta's output for 1,000,000, `gcc-5` 0.56 s); funk takes 0.58 s.
+
 ### Fixed
 
 Found by the first Linux run:
