@@ -1,0 +1,20 @@
+$def.Show.show@([Int], [Int])@own0
+$def.Show.show@[Int]@own0
+$def.Show.showList@Int@own0
+$m.Append.[].++@own0@own1
+$m.Show.(,).show@[Int],[Int]@own0
+$m.Show.(,).showPrec@[Int],[Int]@own1
+$m.Show.[].show@Int@own0
+$m.Show.[].showPrec@Int@own1
+$m.Show.Int.showList@own0
+both@own0
+map@{0=(\1 (primAppendString "1:, ($m.Show.Int.showPrec 0 #0)))}<Int -> String,[Int]>@own0
+map@{0=(flip@{0=primAddInt}<Int -> Int -> Int,Int,Int> 1)}<Int -> Int,[Int]>@own0
+print@([Int], [Int])@own0
+print@[Int]@own0
+rev@own0@own1
+scale@own1
+showS@own0
+showV@own0
+swap@own0
+turn@own0

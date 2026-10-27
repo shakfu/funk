@@ -9,8 +9,8 @@
 #                                   stress-interp, stress-compiled: the same under FUNK_GCSTRESS=1
 #                                   types: every expression has a type (FK_CHECK_TYPES)
 #                                   wall: the C compiles without warnings under -Wall -Wextra
-#                                   reuse, fuse: the reuse copies emitted without fusion, or the
-#                                     fused loops, equal FILE.reuse or FILE.fuse
+#                                   reuse, fuse: the reuse copies (@reuseK, @ownK) emitted without
+#                                     fusion, or the fused loops, equal FILE.reuse or FILE.fuse
 #                                   gcstats: FUNK_GCSTATS=1 reports each cycle and a summary
 #                                   FLAGS (-I, -L, -l) go to funk run and funk build
 #   check.sh error FILE [FLAGS]     funk run FILE fails, and its output contains the text
@@ -64,12 +64,13 @@ run)
     exit 0 ;;
   reuse)
     FK_NOFUSE=1 "$FUNK" emit-c "$f" -o "$tmp/c" || fail "funk emit-c"
-    grep '^static .* w_[0-9]*(.*) { /\* .*@reuse[0-9]* \*/$' "$tmp/c" | sed 's|.*/\* ||; s| \*/$||' | sort >"$tmp/out"
+    grep '^static .* w_[0-9]*(.*) { /\* .*@\(reuse\|own\)[0-9]* \*/$' "$tmp/c" | sed 's|.*/\* ||; s| \*/$||' | sort >"$tmp/out"
     same "$base.reuse" "$tmp/out"
     exit 0 ;;
   fuse)
     "$FUNK" emit-c "$f" -o "$tmp/c" || fail "funk emit-c"
-    grep '^static .* w_[0-9]*(.*) { /\* .*/\$f[0-9]' "$tmp/c" | sed 's|.*/\* ||; s|/\$f.*||' | sort >"$tmp/out"
+    # a fused loop's name ends in its id, or in its reuse copies' suffixes
+    grep '^static .* w_[0-9]*(.*) { /\* .*/\$f[0-9]*\(@\(reuse\|own\)[0-9]*\)* \*/$' "$tmp/c" | sed 's|.*/\* ||; s|/\$f.*||' | sort -u >"$tmp/out"
     same "$base.fuse" "$tmp/out"
     exit 0 ;;
   gcstats)

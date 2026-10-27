@@ -1,0 +1,10 @@
+map@{0=(\1 $0)}<Int -> a,[Int]>@own1
+map@{0=(scale 1)}<V2 -> V2,[V2]>@own0
+map@{0=(scale 2)}<V2 -> V2,[V2]>@own0
+map@{0=(scale 2)}<V2 -> V2,[V2]>@reuse0
+map@{0=(scale 3)}<V2 -> V2,[V2]>@own0
+map@{0=showV}<V2 -> String,[V2]>@own0
+scale@own1
+shows@own0
+showV@own0
+split@own0

@@ -1,0 +1,35 @@
+-- Functions whose every tail builds a tuple return it as a C struct in
+-- compiled code (cgen's tuple_result): typed components, three of them,
+-- loops, guards, nested and wildcard patterns, and uses that box it.
+divMod2 :: Int -> Int -> (Int, Int)
+divMod2 a b = if b == 0 then (0, 0) else (div a b, mod a b)
+
+stats :: [Float] -> Float -> Float -> Int -> (Float, Float, Int) -- a loop
+stats xs lo hi n = case xs of
+  [] -> (lo, hi, n)
+  (x : rest) -> stats rest (min lo x) (max hi x) (n + 1)
+
+classify :: Int -> (String, Bool)
+classify k
+  | k < 0 = ("negative", False)
+  | k == 0 = ("zero", True)
+  | otherwise = ("positive", even k)
+
+notAlways :: Int -> (Int, Int) -- one tail is a call: stays a heap tuple
+notAlways k = if k > 0 then (k, k) else divMod2 k 3
+
+main = do
+  print (case divMod2 17 5 of (q, r) -> q * 10 + r)
+  print (case stats [2.5, -1.0, 4.0] 100.0 (-100.0) 0 of (lo, hi, n) -> (lo, hi, n))
+  print (case classify 4 of
+    ("zero", _) -> "z"
+    (s, True) -> s ++ " even"
+    (s, False) -> s ++ " odd")
+  print (case classify (-2) of
+    (_, b) -> b)
+  print (divMod2 7 2) -- boxed: shown
+  let p = divMod2 9 4
+  print (fst p + snd p)
+  print (map (\k -> divMod2 k 3) [1, 7]) -- boxed: in a list
+  print (map (uncurry (+)) (map (divMod2 20) [3, 7])) -- through a function value
+  print (notAlways 5, notAlways (-4))

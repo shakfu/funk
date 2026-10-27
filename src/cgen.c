@@ -32,9 +32,14 @@ typedef struct {
   bool looped;
   Rep *slot; /* representation of each frame slot */
   bool trmc; /* results go through dst; see cg_tail */
-  const char *reuse; /* a dead cons cell, matched from an `own` scrutinee */
+  const char *reuse[8]; /* dead cells matched from `own` scrutinees, taken by allocations of their size */
   Rep rrep;          /* the worker's result */
   bool reused;       /* the body reuses a cell somewhere */
+  bool tuple;        /* the worker returns its tuple result as a struct (tuple_result) */
+  int reuse_con[8];  /* the constructor each was matched with */
+  const char **reuse_same[8]; /* per field: the word its pattern variable holds, or NULL */
+  int nreuse;
+  int takes;         /* allocations that took a reusable cell: a branch that took one leaves none */
 } CG;
 
 static TV cg_expr(CG *c, Expr *e);
@@ -293,6 +298,75 @@ static bool scalar_allocs(const Scalar *s) { return !strcmp(s->name, "showi"); }
 
 /* The call for an application, as a C expression; args evaluated first,
    left to right. */
+static bool tuple_result(Lambda *L);
+static Rep tuple_rep(Lambda *L, int i);
+
+/* A constructor's cell size in words; reuse needs the same size, since a
+   chunk holds one. */
+static int cell_words(int con) { return fk_cons[con].arity + 1 < 2 ? 2 : fk_cons[con].arity + 1; }
+
+/* The dead cell an allocation of con can take, or -1. */
+static int can_reuse(CG *c, int con) {
+  for (int i = 0; i < c->nreuse; i++)
+    if (cell_words(con) == cell_words(c->reuse_con[i])) return i;
+  return -1;
+}
+
+/* The pool of dead cells is saved around a branch, and empty after one that took any. */
+typedef struct { const char *cell[8]; int con[8], n, takes; const char **same[8]; } Pool;
+
+static Pool pool_save(CG *c) {
+  Pool p = {.n = c->nreuse, .takes = c->takes};
+  memcpy(p.cell, c->reuse, sizeof p.cell);
+  memcpy(p.con, c->reuse_con, sizeof p.con);
+  memcpy(p.same, c->reuse_same, sizeof p.same);
+  return p;
+}
+
+static void pool_restore(CG *c, Pool p) {
+  memcpy(c->reuse, p.cell, sizeof p.cell);
+  memcpy(c->reuse_con, p.con, sizeof p.con);
+  memcpy(c->reuse_same, p.same, sizeof p.same);
+  c->nreuse = p.n;
+}
+
+static void pool_after(CG *c, Pool p) { /* after the branches: what none took */
+  if (c->takes == p.takes) pool_restore(c, p);
+  else c->nreuse = 0;
+}
+
+/* con's fields w[0..n) into dead cell k, which is then taken; w[n-1] too
+   unless last is false (TRMC writes it through dst). Old pointer fields
+   are shaded first: during marking, overwriting one deletes a reference
+   (realtime.md, R2). The header changes with the constructor. */
+/* Does field i of dead cell k already hold w: rebuilt with the
+   constructor it had, from the variable matched there? */
+static bool reuse_kept(CG *c, int k, int con, int i, const char *w) {
+  return con == c->reuse_con[k] && c->reuse_same[k] && i < 32 && c->reuse_same[k][i] && !strcmp(c->reuse_same[k][i], w);
+}
+
+static const char *reuse_cell(CG *c, int k, int con, const char **w, int n, bool last) {
+  const char *cell = newtmp(c);
+  int old = c->reuse_con[k];
+  sb_printf(c->out, "  V %s = %s;\n", cell, c->reuse[k]);
+  uint32_t raw = con_raw(old);
+  bool keep[32] = {0};
+  for (int i = 0; i < n && i < 32; i++) keep[i] = reuse_kept(c, k, con, i, w[i]);
+  for (int i = 0; i < fk_cons[old].arity; i++)
+    if (!(i < 32 && keep[i]) && ((i >= n - 1 && !last) ? false : !(i < 32 && (raw >> i & 1))))
+      sb_printf(c->out, "  FK_SHADE(FK_FIELD(%s, %d));\n", cell, i);
+  if (con != old) sb_printf(c->out, "  FK_HDR(%s)->aux = %d;\n  FK_HDR(%s)->n = %d;\n", cell, con, cell, n);
+  for (int i = 0; i < (last ? n : n - 1); i++)
+    if (!(i < 32 && keep[i])) sb_printf(c->out, "  FK_FIELD(%s, %d) = %s;\n", cell, i, w[i]);
+  c->nreuse--;
+  c->reuse[k] = c->reuse[c->nreuse];
+  c->reuse_con[k] = c->reuse_con[c->nreuse];
+  c->reuse_same[k] = c->reuse_same[c->nreuse];
+  c->takes++;
+  return cell;
+}
+static const char *worker_call(CG *c, Expr *e);
+
 static TV cg_call(CG *c, Expr *e) {
   Expr *f = e->fn;
   int n = e->n;
@@ -364,6 +438,12 @@ static TV cg_call(CG *c, Expr *e) {
   if (f->k == E_CON) {
     arity = fk_cons[f->idx].arity;
     if (n < arity) return tv(xsprintf("fk_apply(fk_con_value(%d), %d, %s)", f->idx, n, arg_array(a, n)), R_V);
+    int k = n == arity && n > 0 ? can_reuse(c, f->idx) : -1;
+    if (k >= 0) { /* the fields first, then the writes into the dead cell; a field it already holds stays */
+      for (int i = 0; i < n; i++)
+        if (!reuse_kept(c, k, f->idx, i, a[i])) a[i] = hold(c, tv(a[i], R_V)).s;
+      return tv(reuse_cell(c, k, f->idx, a, n, true), R_V);
+    }
     call = xsprintf("fk_mkcon(%d, %d, %s)", f->idx, n, arg_array(a, n));
   } else if (prim >= 0) {
     arity = fk_prims[prim].arity;
@@ -377,7 +457,7 @@ static TV cg_call(CG *c, Expr *e) {
     sb_printf(&w, "w_%d(%s", K->id, self);
     for (int i = 0; i < arity; i++) sb_printf(&w, ", %s", a[i]);
     sb_puts(&w, ")");
-    if (n == arity) return tv(w.s, result_rep(K));
+    if (n == arity) return tuple_result(K) ? tv(xsprintf("box_%d(%s)", K->id, w.s), R_V) : tv(w.s, result_rep(K));
     call = as_v(tv(w.s, result_rep(K)));
   } else {
     return tv(xsprintf("fk_apply(%s, %d, %s)", fv, n, arg_array(a, n)), R_V);
@@ -601,11 +681,39 @@ static void pat_bind(CG *c, Pat *p, const char *path, Rep r) {
 
 /* Alternatives are tried in order; a failed pattern or a fallthrough
    past every guard jumps to the next one. */
+/* Does every alternative match scrutinee i as a tuple's fields, or not at all? */
+static bool tuple_pats(Expr *e, int i) {
+  for (int a = 0; a < e->na; a++)
+    if (e->alts[a]->pats[i]->k != P_CON && e->alts[a]->pats[i]->k != P_WILD) return false;
+  return true;
+}
+
+/* Pattern p at scrutinee sv; at a tuple result's struct (K), p's fields at its members. */
+static void scrut_cond(SB *cond, Pat *p, TV sv, Lambda *K) {
+  if (!K) pat_cond(cond, p, sv.s, sv.r);
+  else for (int j = 0; p->k == P_CON && j < p->n; j++) pat_cond(cond, p->args[j], xsprintf("%s.f%d", sv.s, j), tuple_rep(K, j));
+}
+
+static void scrut_bind(CG *c, Pat *p, TV sv, Lambda *K) {
+  if (!K) pat_bind(c, p, sv.s, sv.r);
+  else for (int j = 0; p->k == P_CON && j < p->n; j++) pat_bind(c, p->args[j], xsprintf("%s.f%d", sv.s, j), tuple_rep(K, j));
+}
+
 static TV cg_case(CG *c, Expr *e, bool tail) {
   TV *sv = xmalloc((size_t)e->ns * sizeof *sv + 1);
+  Lambda **tk = xcalloc((size_t)e->ns + 1, sizeof *tk); /* scrutinee i: a call returning its tuple as a struct */
   for (int i = 0; i < e->ns; i++) {
-    Rep r = rep_of(e->scruts[i]->ty);
-    sv[i] = hold(c, tv(conv(cg_expr(c, e->scruts[i]), r), r));
+    Expr *s = e->scruts[i];
+    Lambda *K = s->k == E_APP && s->fn->k == E_VAR && s->fn->known && s->n == s->fn->known->n ? s->fn->known : NULL;
+    if (K && tuple_result(K) && tuple_pats(e, i)) {
+      const char *t = newtmp(c);
+      sb_printf(c->out, "  R_%d %s = %s;\n", K->id, t, worker_call(c, s));
+      sv[i] = tv(t, R_V);
+      tk[i] = K;
+      continue;
+    }
+    Rep r = rep_of(s->ty);
+    sv[i] = hold(c, tv(conv(cg_expr(c, s), r), r));
   }
   Rep rr = rep_of(e->ty);
   const char *r = NULL;
@@ -614,21 +722,29 @@ static TV cg_case(CG *c, Expr *e, bool tail) {
     r = newtmp(c);
     sb_printf(c->out, "  %s %s = 0;\n", ctype[rr], r);
   }
-  const char *reuse = c->reuse;
+  Pool saved = pool_save(c);
   bool jumps = false; /* to done: its label only then, for -Wall */
   for (int a = 0; a < e->na; a++) {
     Alt *alt = e->alts[a];
     int next = c->label++;
-    c->reuse = reuse;
-    for (int i = 0; i < alt->np; i++)
-      if (e->scruts[i]->k == E_VAR && e->scruts[i]->own && alt->pats[i]->k == P_CON && alt->pats[i]->con == FK_C_CONS)
-        c->reuse = sv[i].s, c->reused = true;
+    pool_restore(c, saved);
+    for (int i = 0; i < alt->np; i++) /* a cell matched from an own scrutinee is dead: its fields are in locals */
+      if (e->scruts[i]->own && !tk[i] && alt->pats[i]->k == P_CON && alt->pats[i]->n > 0 && c->nreuse < 8) {
+        Pat *p = alt->pats[i];
+        const char **same = xcalloc((size_t)p->n, sizeof *same);
+        for (int j = 0; j < p->n && j < 32; j++) /* the field word a rebuild from p's variable would store */
+          if (p->args[j]->k == P_VAR) same[j] = field_word(p->con, j, tv(xsprintf("l%d", p->args[j]->slot), c->slot[p->args[j]->slot]));
+        c->reuse[c->nreuse] = sv[i].s;
+        c->reuse_same[c->nreuse] = same;
+        c->reuse_con[c->nreuse++] = p->con;
+        c->reused = true;
+      }
     SB cond = {0};
     sb_puts(&cond, "");
-    for (int i = 0; i < alt->np; i++) pat_cond(&cond, alt->pats[i], sv[i].s, sv[i].r);
+    for (int i = 0; i < alt->np; i++) scrut_cond(&cond, alt->pats[i], sv[i], tk[i]);
     if (cond.n) sb_printf(c->out, "  if (!(1%s)) goto L%d;\n", cond.s, next);
     sb_puts(c->out, "  {\n");
-    for (int i = 0; i < alt->np; i++) pat_bind(c, alt->pats[i], sv[i].s, sv[i].r);
+    for (int i = 0; i < alt->np; i++) scrut_bind(c, alt->pats[i], sv[i], tk[i]);
     Rhs *rh = &alt->rhs;
     for (int i = 0; i < rh->nwg; i++) cg_group(c, &rh->wg[i]);
     bool total = false;
@@ -651,7 +767,7 @@ static TV cg_case(CG *c, Expr *e, bool tail) {
     sb_puts(c->out, "  }\n");
     if (cond.n) sb_printf(c->out, "  L%d: ;\n", next); /* a failed guard falls through */
   }
-  c->reuse = reuse;
+  pool_after(c, saved); /* an alternative may have taken some */
   SB where = {0};
   const char *loc = xsprintf("%s:%d:%d", e->name, e->line, e->col);
   c_string(&where, loc, (int)strlen(loc));
@@ -698,8 +814,11 @@ static TV cg_expr(CG *c, Expr *e) {
     Rep r = rep_of(e->ty);
     t = newtmp(c);
     sb_printf(c->out, "  %s %s;\n  if (%s) {\n", ctype[r], t, cond);
+    Pool saved = pool_save(c);
     sb_printf(c->out, "  %s = %s;\n  } else {\n", t, conv(cg_expr(c, e->then_), r));
+    pool_restore(c, saved); /* each branch may take from it; after both, what either took is gone */
     sb_printf(c->out, "  %s = %s;\n  }\n", t, conv(cg_expr(c, e->else_), r));
+    pool_after(c, saved);
     return tv(t, r);
   }
   case E_CASE: return cg_case(c, e, false);
@@ -740,6 +859,74 @@ static bool has_trmc(Lambda *L, Expr *e) {
   }
 }
 
+/* Tuple results. A worker whose every tail position builds a tuple, or
+   loops, returns the tuple's components in a C struct, R_N, instead of a
+   heap tuple; a case on a call of it reads them directly, and other uses
+   box them (box_N). pair and against in bench/game/nbody.fk allocated a
+   tuple per call. */
+static bool tuple_con(Expr *e) {
+  return e->k == E_APP && e->fn->k == E_CON && e->fn->idx >= FK_C_TUP2 && e->fn->idx < FK_NBUILTIN_CONS &&
+         e->n == fk_cons[e->fn->idx].arity;
+}
+
+static bool tuple_tails(Lambda *L, Expr *e) { /* cg_tail's cases */
+  switch (e->k) {
+  case E_APP: return self_call(L, e) || tuple_con(e);
+  case E_LET: return tuple_tails(L, e->body);
+  case E_IF: return tuple_tails(L, e->then_) && tuple_tails(L, e->else_);
+  case E_ANN: return tuple_tails(L, e->body);
+  case E_CASE:
+    for (int a = 0; a < e->na; a++)
+      for (int i = 0; i < e->alts[a]->rhs.ng; i++)
+        if (!tuple_tails(L, e->alts[a]->rhs.bodies[i])) return false;
+    return true;
+  default: return false;
+  }
+}
+
+static bool tuple_result(Lambda *L) {
+  static signed char *memo; /* by lambda id: 0 unknown, 1 no, 2 yes */
+  static int cap;
+  if (L->id >= cap) {
+    int n = L->id + 256;
+    memo = xrealloc(memo, (size_t)n);
+    memset(memo + cap, 0, (size_t)(n - cap));
+    cap = n;
+  }
+  if (!memo[L->id]) {
+    Type *t = L->body->ty ? repr(L->body->ty) : NULL; /* dictionary bodies have no type */
+    bool tup = t && t->k == TY_CON && t->n >= 2 && t->name[0] == '(' && t->name[1] == ',';
+    memo[L->id] = tup && !has_trmc(L, L->body) && tuple_tails(L, L->body) ? 2 : 1;
+  }
+  return memo[L->id] == 2;
+}
+
+static Rep tuple_rep(Lambda *L, int i) { return rep_of(repr(L->body->ty)->args[i]); }
+
+static const char *result_ctype(Lambda *L, Rep rr) { return tuple_result(L) ? xsprintf("R_%d", L->id) : ctype[rr]; }
+
+/* The struct and its boxing, before the worker's prototype. */
+static void tuple_decls(SB *out, Lambda *L) {
+  Type *t = repr(L->body->ty);
+  sb_puts(out, "typedef struct {");
+  for (int i = 0; i < t->n; i++) sb_printf(out, " %s f%d;", ctype[tuple_rep(L, i)], i);
+  sb_printf(out, " } R_%d;\nstatic V box_%d(R_%d r) { return fk_mkcon(%d, %d, (V[]){", L->id, L->id, L->id, FK_C_TUP2 + t->n - 2, t->n);
+  for (int i = 0; i < t->n; i++) sb_printf(out, "%s%s", i ? ", " : "", as_v(tv(xsprintf("r.f%d", i), tuple_rep(L, i))));
+  sb_puts(out, "}); }\n");
+}
+
+/* A saturated call of a known worker, as C, unboxed: for a tuple result, its struct. */
+static const char *worker_call(CG *c, Expr *e) {
+  Lambda *K = e->fn->known;
+  const char **a = xmalloc((size_t)e->n * sizeof *a);
+  for (int i = 0; i < e->n; i++) a[i] = conv(cg_expr(c, e->args[i]), param_rep(K, i));
+  SB w = {0};
+  sb_printf(&w, "w_%d(%s", K->id, as_v(var_ref(c, e->fn)));
+  for (int i = 0; i < e->n; i++) sb_printf(&w, ", %s", a[i]);
+  sb_puts(&w, ")");
+  return w.s;
+}
+
 /* *dst may be a reused cell's old tail, a heap pointer the write deletes
    (realtime.md, R2). In a body that reuses no cell it is the placeholder,
    and cg_lambda removes the barrier. */
@@ -775,13 +962,26 @@ static void cg_tail(CG *c, Expr *e) {
       const char **a = xmalloc((size_t)n * sizeof *a);
       for (int i = 0; i < n - 1; i++) a[i] = field_word(e->fn->idx, i, cg_expr(c, e->args[i]));
       a[n - 1] = "fk_unit"; /* the placeholder */
-      const char *cell = newtmp(c);
-      if (c->reuse && e->fn->idx == FK_C_CONS) /* the old tail stays until *dst overwrites it */
-        sb_printf(c->out, "  V %s = %s;\n  FK_SHADE(FK_FIELD(%s, 0));\n  FK_FIELD(%s, 0) = %s;\n", cell, c->reuse, cell, cell, a[0]);
-      else
+      const char *cell;
+      int k = can_reuse(c, e->fn->idx);
+      if (k >= 0) { /* the old last field stays until *dst overwrites it */
+        for (int i = 0; i < n - 1; i++)
+          if (!reuse_kept(c, k, e->fn->idx, i, a[i])) a[i] = hold(c, tv(a[i], R_V)).s;
+        cell = reuse_cell(c, k, e->fn->idx, a, n, false);
+      } else {
+        cell = newtmp(c);
         sb_printf(c->out, "  V %s = fk_mkcon(%d, %d, %s);\n", cell, e->fn->idx, n, arg_array(a, n));
+      }
       sb_printf(c->out, SHADE_DST "  *dst = %s;\n  dst = &FK_FIELD(%s, %d);\n", cell, cell, n - 1);
       self_jump(c, e->args[n - 1]);
+      return;
+    }
+    if (c->tuple && tuple_con(e)) {
+      const char **a = xmalloc((size_t)e->n * sizeof *a);
+      for (int i = 0; i < e->n; i++) a[i] = conv(cg_expr(c, e->args[i]), tuple_rep(c->lam, i));
+      sb_printf(c->out, "  return (R_%d){", c->lam->id);
+      for (int i = 0; i < e->n; i++) sb_printf(c->out, "%s%s", i ? ", " : "", a[i]);
+      sb_puts(c->out, "};\n");
       return;
     }
     ret(c, cg_call(c, e));
@@ -790,7 +990,9 @@ static void cg_tail(CG *c, Expr *e) {
   case E_LET: cg_group(c, &e->g); cg_tail(c, e->body); return;
   case E_IF: {
     sb_printf(c->out, "  if (%s) {\n", conv(cg_expr(c, e->cond), R_B));
+    Pool saved = pool_save(c);
     cg_tail(c, e->then_);
+    pool_restore(c, saved); /* each branch may take from it */
     sb_puts(c->out, "  } else {\n");
     cg_tail(c, e->else_);
     sb_puts(c->out, "  }\n");
@@ -926,7 +1128,7 @@ static void cg_lambda(SB *out, Lambda *L) {
   sb_puts(&body, "");
   bool trmc = has_trmc(L, L->body);
   Rep rr = trmc ? R_V : result_rep(L);
-  CG c = {&body, L, 0, 0, false, slot, trmc, NULL, rr, false};
+  CG c = {&body, L, 0, 0, false, slot, trmc, {0}, rr, false, tuple_result(L), {0}, {0}, 0, 0};
   cg_tail(&c, L->body);
   for (char *s; !c.reused && (s = strstr(body.s, SHADE_DST));) memmove(s, s + strlen(SHADE_DST), strlen(s + strlen(SHADE_DST)) + 1);
   char *nm = xsprintf("%s", L->name ? L->name : "lambda");
@@ -934,7 +1136,7 @@ static void cg_lambda(SB *out, Lambda *L) {
   /* `inline` raises clang's -O2 inlining threshold, so the prelude's small
      wrappers, readArray's, inline into loops; not for a TRMC loop, which
      ran up to 8% slower inlined into its caller (sort's randoms). */
-  sb_printf(out, "static %s%s w_%d(V self", trmc ? "" : "inline ", ctype[rr], L->id);
+  sb_printf(out, "static %s%s w_%d(V self", trmc ? "" : "inline ", result_ctype(L, rr), L->id);
   for (int i = 0; i < L->n; i++) sb_printf(out, ", %s p%d", ctype[param_rep(L, i)], i);
   sb_printf(out, ") { /* %s */\n", nm);
   for (int i = 0; i < L->nslots; i++)
@@ -943,7 +1145,8 @@ static void cg_lambda(SB *out, Lambda *L) {
   if (c.looped) sb_puts(out, "  top:;\n");
   sb_puts(out, body.s);
   sb_puts(out, "}\n");
-  sb_printf(out, "static V fn_%d(V self, V *a) { return %s; }\n\n", L->id, as_v(tv(wrapper_call(L), rr)));
+  sb_printf(out, "static V fn_%d(V self, V *a) { return %s; }\n\n", L->id,
+            c.tuple ? xsprintf("box_%d(%s)", L->id, wrapper_call(L)) : as_v(tv(wrapper_call(L), rr)));
 }
 
 /* Pass 0 creates function closures, pass 1 runs value initializers. Raw
@@ -1077,7 +1280,8 @@ char *cgen_program(Chunk *chunks, int nchunks) {
     if (r.lam[all_lambdas.a[i]->id]) {
       Lambda *L = all_lambdas.a[i];
       Rep rr = has_trmc(L, L->body) ? R_V : result_rep(L);
-      sb_printf(&out, "static V fn_%d(V self, V *a);\nstatic %s w_%d(V self", L->id, ctype[rr], L->id);
+      if (tuple_result(L)) tuple_decls(&out, L);
+      sb_printf(&out, "static V fn_%d(V self, V *a);\nstatic %s w_%d(V self", L->id, result_ctype(L, rr), L->id);
       for (int j = 0; j < L->n; j++) sb_printf(&out, ", %s", ctype[param_rep(L, j)]);
       sb_puts(&out, ");\n");
     }

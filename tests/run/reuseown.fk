@@ -1,0 +1,36 @@
+-- Ownership (element-reuse.md, phases 2 and 3): elements of a unique list,
+-- components of a tuple result, and the cases that must not reuse, where
+-- a wrong reuse would print changed values.
+data V2 = V2 Float Float
+
+scale :: Float -> V2 -> V2
+scale k (V2 x y) = V2 (k * x) (k * y)
+
+split :: V2 -> (V2, V2)
+split (V2 x y) = (V2 x 0.0, V2 0.0 y)
+
+showV :: V2 -> String
+showV (V2 x y) = show (x, y)
+
+shows :: [V2] -> String
+shows vs = unwords (map showV vs)
+
+-- a list used twice: not owned, so the first map must not change it
+twice :: [V2] -> String
+twice xs = shows (map (scale 2.0) xs) ++ " | " ++ shows xs
+
+-- polymorphic: its elements' type is a variable, which may stand for one
+-- with cells; the one shared v must not count as unique
+dup :: a -> [a]
+dup v = map (\i -> v) [1, 2, 3]
+
+main = do
+  putStrLn (shows (map (scale 2.0) (map (scale 3.0) [V2 1.0 2.0, V2 3.0 4.0]))) -- elements reused
+  putStrLn (shows (map (scale 2.0) (replicate 3 (V2 1.0 2.0)))) -- one shared element: not reused
+  putStrLn (case split (V2 5.0 6.0) of (a, b) -> showV (scale 2.0 a) ++ " " ++ showV (scale 3.0 b)) -- components
+  putStrLn (case split (V2 5.0 6.0) of (a, b) -> showV (scale 2.0 a) ++ " " ++ showV a) -- a used twice
+  putStrLn (twice [V2 1.0 1.0, V2 2.0 2.0])
+  putStrLn (case map (scale 1.0) [V2 7.0 8.0] of
+    [] -> ""
+    (v : _) -> let f = \k -> scale k v in showV (f 2.0) ++ " " ++ showV (f 3.0)) -- an element captured by a lambda
+  putStrLn (shows (map (scale 2.0) (dup (V2 1.0 2.0)))) -- one shared element, through a polymorphic clone

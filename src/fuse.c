@@ -43,6 +43,7 @@ static int gref(Expr *e, Nm *loc) {
 
 static Bind *gbind(int g) {
   Bind *b = g >= 0 ? globals.a[g].bind : NULL;
+  if (b && b->own_of) b = b->own_of; /* a reuse copy computes what it copies: fusion sees concat, not concat@reuse0 */
   return b && b->e->k == E_LAM && b->e->lam->ptypes ? b : NULL;
 }
 

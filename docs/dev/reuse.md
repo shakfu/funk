@@ -1,6 +1,6 @@
 # In-place reuse of list cells: design note
 
-Status: implemented (unreleased); see "Result". It follows the Perceus prototype in [memory.md](memory.md#perceus-prototyped-by-hand). Writing `filter`'s and `map`'s output into their input's cells made `lists` 18-23% faster (69 ms to 53-57 ms, with only those two functions changed). Freeing cells made it slower, because it scatters later allocations. This note gets the reuse without reference counts, from a static check.
+Status: implemented (unreleased); see "Result". Elements, tuple components and cells outside TRMC sites: [element-reuse.md](element-reuse.md), whose ownership analysis replaced `fresh` and `consumes` below. It follows the Perceus prototype in [memory.md](memory.md#perceus-prototyped-by-hand). Writing `filter`'s and `map`'s output into their input's cells made `lists` 18-23% faster (69 ms to 53-57 ms, with only those two functions changed). Freeing cells made it slower, because it scatters later allocations. This note gets the reuse without reference counts, from a static check.
 
 ## The rule
 
@@ -87,7 +87,7 @@ A rewrite is wrong only if a reference to a reused cell survives, and the two co
 
 Implemented as designed, at the end of `elab.c`, plus about 15 lines in `cgen.c`. Differences from the design:
 
-- **Copies only where they pay.** A call is redirected only if the callee has a TRMC site, where cgen can write into a cell. `foldl` and `length` are consuming, but a copy of either would allocate the same.
+- **Copies only where they pay.** A call is redirected only if the callee has a TRMC site, where cgen can write into a cell. Since [element-reuse.md](element-reuse.md)'s phase 1, any allocation of the parameter's cell size counts. `foldl` and `length` are consuming, but a copy of either would allocate the same.
 
 - **Type-class clones are visible.** Clones such as `enumFromTo@Int,Int` had no `Bind` registered with their global. The pass registers it, or their results would not count as fresh.
 

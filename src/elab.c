@@ -1562,236 +1562,400 @@ static int occ(Expr *e, const char *x) {
   }
 }
 
-static bool is_list(Type *t) {
+/* Bit w: a constructor of t's type takes w words (element-reuse.md,
+   phase 1); 0 for a type without cells, such as Int or a function. */
+static uint32_t cell_sizes(Type *t) {
   t = t ? repr(t) : NULL;
-  return t && t->k == TY_CON && !strcmp(t->name, "[]");
+  if (!t || t->k != TY_CON || !strcmp(t->name, "->")) return 0;
+  uint32_t m = 0;
+  for (int i = 0; i < condefs.n; i++) {
+    int a = condefs.a[i].arity;
+    if (a > 0 && a < 31 && tydefs.a[condefs.a[i].tydef].name == t->name) m |= 1u << (a + 1); /* a header word, then the fields */
+  }
+  return m;
 }
 
+/* The sizes of the cells e allocates directly, outside nested lambdas. */
+static uint32_t alloc_sizes(Expr *e);
+
+static uint32_t alloc_sizes_rhs(Rhs *r) {
+  uint32_t m = 0;
+  for (int i = 0; i < r->nwg; i++)
+    for (int j = 0; j < r->wg[i].n; j++) m |= alloc_sizes(r->wg[i].b[j]->e);
+  for (int i = 0; i < r->ng; i++) m |= (r->guards[i] ? alloc_sizes(r->guards[i]) : 0) | alloc_sizes(r->bodies[i]);
+  return m;
+}
+
+static uint32_t alloc_sizes(Expr *e) {
+  uint32_t m = 0;
+  switch (e->k) {
+  case E_APP:
+    if (e->fn->k == E_CON && e->n == fk_cons[e->fn->idx].arity && e->n > 0 && e->n < 31) m |= 1u << (e->n + 1);
+    m |= alloc_sizes(e->fn);
+    for (int i = 0; i < e->n; i++) m |= alloc_sizes(e->args[i]);
+    return m;
+  case E_LET:
+    for (int i = 0; i < e->g.n; i++) m |= alloc_sizes(e->g.b[i]->e);
+    return m | alloc_sizes(e->body);
+  case E_IF: return alloc_sizes(e->cond) | alloc_sizes(e->then_) | alloc_sizes(e->else_);
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) m |= alloc_sizes(e->scruts[i]);
+    for (int a = 0; a < e->na; a++) m |= alloc_sizes_rhs(&e->alts[a]->rhs);
+    return m;
+  case E_ANN: return alloc_sizes(e->body);
+  default: return 0;
+  }
+}
+
+/* ------------------------------------------- ownership (element-reuse.md)
+
+   A value is unowned, owned in its spine (a list's cells, another type's
+   top cell), or unique: no cell reachable from it is referenced from
+   anywhere else. A variable used at most once on each path is linear; a
+   linear variable bound to an owned value owns it. A copy f@reuseK or
+   f@ownK takes parameter K in the spine or unique mode; in it, a case on
+   an owned value marks the scrutinee `own`, and cgen reuses the matched
+   cell for an allocation of its size. Results are summarized per version,
+   a function and its parameters' modes, as a greatest fixpoint. */
+
+enum { M_NONE, M_SPINE, M_UNIQUE };
+
+typedef struct Own { const char *name; int mode; struct Own *next; } Own;
+
+static Own *own_push(Own *o, const char *name, int mode) {
+  Own *n = NEW(Own);
+  *n = (Own){name, mode, o};
+  return n;
+}
+
+static int own_get(Own *o, const char *x) { /* -1: not a local */
+  for (; o; o = o->next)
+    if (o->name == x) return o->mode;
+  return -1;
+}
+
+static int mode_min(int a, int b) { return a < b ? a : b; }
+
 /* The top-level function f calls, unless a local shadows it. */
-static Bind *callee(Expr *f, Nm *loc) {
-  if (f->k != E_VAR || (!f->global_ref && in(loc, f->name))) return NULL;
+static Bind *own_callee(Expr *f, Own *o) {
+  if (f->k != E_VAR || (!f->global_ref && own_get(o, f->name) >= 0)) return NULL;
   int g = global_lookup(f->name);
   Bind *b = g >= 0 ? globals.a[g].bind : NULL;
   return b && b->e->k == E_LAM && b->e->lam->ptypes ? b : NULL;
 }
 
-/* Does e evaluate to cells nothing else references? */
-static bool fresh(Expr *e, Nm *loc) {
-  switch (e->k) {
-  case E_CON: return e->idx == FK_C_NIL;
-  case E_ANN: return fresh(e->body, loc);
-  case E_LET: return fresh(e->body, group_nm(&e->g, loc));
-  case E_IF: return fresh(e->then_, loc) && fresh(e->else_, loc);
-  case E_CASE:
-    for (int a = 0; a < e->na; a++) {
-      Alt *alt = e->alts[a];
-      Nm *t = loc;
-      for (int i = 0; i < alt->np; i++) t = pat_nm(alt->pats[i], t);
-      for (int i = 0; i < alt->rhs.nwg; i++) t = group_nm(&alt->rhs.wg[i], t);
-      for (int i = 0; i < alt->rhs.ng; i++)
-        if (!fresh(alt->rhs.bodies[i], t)) return false;
-    }
-    return true;
-  case E_APP: {
-    if (e->fn->k == E_CON) return e->fn->idx == FK_C_CONS && e->n == 2 && fresh(e->args[1], loc);
-    Bind *b = callee(e->fn, loc);
-    if (b) return b->fresh && e->n == b->e->lam->n;
-    Expr *f = e->fn; /* error never returns */
-    return f->k == E_VAR && (f->global_ref || !in(loc, f->name)) && !strcmp(f->name, "error");
-  }
-  default: return false;
-  }
-}
+/* Uses of x on the worst path through e; a use inside a lambda counts
+   twice, since the lambda may run more than once. */
+static int uses(Expr *e, const char *x);
 
-/* The variable continuing a matched list's spine: the pattern itself if a
-   variable, else the innermost tail of its cons cells. */
-static const char *spine_rest(Pat *p) {
-  while (p->k == P_CON && p->con == FK_C_CONS) p = p->args[1];
-  return p->k == P_VAR ? p->name : NULL;
-}
-
-static bool consumes(Expr *e, const char *v, Nm *loc);
-
-static bool consumes_rhs(Rhs *r, const char *v, Nm *loc) {
-  if (!occ_rhs(r, v)) return true;
-  for (int i = 0; i < r->nwg; i++) {
-    if (binds_in(&r->wg[i], v) || occ_group(&r->wg[i], v)) return false;
-    loc = group_nm(&r->wg[i], loc);
-  }
-  for (int i = 0; i < r->ng; i++)
-    if ((r->guards[i] && occ(r->guards[i], v)) || !consumes(r->bodies[i], v, loc)) return false;
-  return true;
-}
-
-/* Is the list v taken apart at most once on each path through e, with no
-   reference kept to a cell taken apart? */
-static bool consumes(Expr *e, const char *v, Nm *loc) {
-  if (!occ(e, v)) return true;
-  switch (e->k) {
-  case E_ANN: return consumes(e->body, v, loc);
-  case E_LET:
-    if (binds_in(&e->g, v) || occ_group(&e->g, v)) return false;
-    return consumes(e->body, v, group_nm(&e->g, loc));
-  case E_IF:
-    if (occ(e->cond, v)) return !occ(e->then_, v) && !occ(e->else_, v) && consumes(e->cond, v, loc);
-    return consumes(e->then_, v, loc) && consumes(e->else_, v, loc);
-  case E_APP: {
-    if (occ(e->fn, v)) return false;
-    int k = -1;
-    for (int i = 0; i < e->n; i++)
-      if (occ(e->args[i], v)) {
-        if (k >= 0) return false;
-        k = i;
-      }
-    Expr *a = e->args[k];
-    if (a->k != E_VAR) return consumes(a, v, loc);
-    Bind *b = callee(e->fn, loc);
-    return b && e->n >= b->e->lam->n && k < 32 && (b->consumes >> k & 1);
-  }
-  case E_CASE: {
-    int k = -1;
-    for (int i = 0; i < e->ns; i++)
-      if (occ(e->scruts[i], v)) {
-        if (k >= 0) return false;
-        k = i;
-      }
-    if (k >= 0 && e->scruts[k]->k != E_VAR) { /* taken apart inside the scrutinee */
-      for (int a = 0; a < e->na; a++)
-        if (occ_rhs(&e->alts[a]->rhs, v)) return false;
-      return consumes(e->scruts[k], v, loc);
-    }
-    for (int a = 0; a < e->na; a++) {
-      Alt *alt = e->alts[a];
-      Nm *t = loc;
-      bool shadow = false;
-      for (int i = 0; i < alt->np; i++) {
-        t = pat_nm(alt->pats[i], t);
-        shadow |= pat_binds(alt->pats[i], v);
-      }
-      const char *w = v;
-      if (k >= 0) { /* the matched cell is dead; its tail continues the spine */
-        w = spine_rest(alt->pats[k]);
-        if (!shadow && occ_rhs(&alt->rhs, v)) return false;
-      } else if (shadow) {
-        if (occ_rhs(&alt->rhs, v)) return false;
-        continue;
-      }
-      if (w && !consumes_rhs(&alt->rhs, w, t)) return false;
-    }
-    return true;
-  }
-  default: return false; /* returned, stored or captured */
-  }
-}
-
-/* A tail result `x : self ...`, where cgen's TRMC allocates a cell. */
-static bool trmc_site(Expr *e, const char *self) {
-  switch (e->k) {
-  case E_APP:
-    return e->fn->k == E_CON && e->fn->idx == FK_C_CONS && e->n == 2 && e->args[1]->k == E_APP &&
-           e->args[1]->fn->k == E_VAR && e->args[1]->fn->name == self;
-  case E_LET: return trmc_site(e->body, self);
-  case E_IF: return trmc_site(e->then_, self) || trmc_site(e->else_, self);
-  case E_ANN: return trmc_site(e->body, self);
-  case E_CASE:
-    for (int a = 0; a < e->na; a++)
-      for (int i = 0; i < e->alts[a]->rhs.ng; i++)
-        if (trmc_site(e->alts[a]->rhs.bodies[i], self)) return true;
-    return false;
-  default: return false;
-  }
-}
-
-static VEC(Bind *) reuse_work;
-
-static const char *reuse_copy(Bind *fb, int k) {
-  const char *name = intern(xsprintf("%s@reuse%d", fb->name, k));
-  if (global_lookup(name) < 0) {
-    Bind *b = NEW(Bind);
-    *b = (Bind){.name = name, .e = copy_expr(fb->e), .line = fb->line, .col = fb->col, .type = fb->type,
-                .fresh = fb->fresh, .consumes = fb->consumes, .gain = fb->gain, .reuse = k + 1};
-    b->e->lam->name = name;
-    b->gidx = global_add(name, NULL, b->e->lam);
-    globals.a[b->gidx].bind = b;
-    VPUSH(specialized, b);
-    VPUSH(reuse_work, b);
-  }
-  return name;
-}
-
-/* Redirect calls passing a fresh list, or the spine v of a reuse copy, at
-   a parameter whose cells can be reused; mark v's scrutinees. */
-static void rw(Expr *e, const char *v, Nm *loc);
-
-static void rw_rhs(Rhs *r, const char *v, Nm *loc) {
-  for (int i = 0; i < r->nwg; i++) {
-    if (binds_in(&r->wg[i], v)) v = NULL;
-    loc = group_nm(&r->wg[i], loc);
-    for (int j = 0; j < r->wg[i].n; j++) rw(r->wg[i].b[j]->e, NULL, loc);
-  }
+static int uses_rhs(Rhs *r, const char *x) {
+  int n = 0, m = 0;
+  for (int i = 0; i < r->nwg; i++) n += occ_group(&r->wg[i], x);
   for (int i = 0; i < r->ng; i++) {
-    if (r->guards[i]) rw(r->guards[i], NULL, loc);
-    rw(r->bodies[i], v, loc);
+    if (r->guards[i]) n += uses(r->guards[i], x);
+    int b = uses(r->bodies[i], x);
+    if (b > m) m = b;
+  }
+  return n + m;
+}
+
+static int uses(Expr *e, const char *x) {
+  int n = 0, m = 0;
+  switch (e->k) {
+  case E_VAR: return e->name == x && !e->global_ref;
+  case E_APP:
+    n = uses(e->fn, x);
+    for (int i = 0; i < e->n; i++) n += uses(e->args[i], x);
+    return n;
+  case E_LAM: return occ(e->lam->body, x) ? 2 : 0;
+  case E_LET: return occ_group(&e->g, x) + uses(e->body, x);
+  case E_IF: {
+    int t = uses(e->then_, x), f = uses(e->else_, x);
+    return uses(e->cond, x) + (t > f ? t : f);
+  }
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) n += uses(e->scruts[i], x);
+    for (int a = 0; a < e->na; a++) {
+      bool shadow = false;
+      for (int i = 0; i < e->alts[a]->np; i++) shadow |= pat_binds(e->alts[a]->pats[i], x);
+      int u = shadow ? 0 : uses_rhs(&e->alts[a]->rhs, x);
+      if (u > m) m = u;
+    }
+    return n + m;
+  case E_ANN: return uses(e->body, x);
+  default: return 0;
   }
 }
 
-static void rw(Expr *e, const char *v, Nm *loc) {
+/* Cell sizes of t, its type arguments (list elements, tuple components)
+   and its constructors' monomorphic fields: what an owned t can reuse. */
+static uint32_t deep_sizes(Type *t) {
+  t = t ? repr(t) : NULL;
+  uint32_t m = cell_sizes(t);
+  if (!m) return 0;
+  for (int i = 0; i < t->n; i++) m |= cell_sizes(t->args[i]);
+  for (int i = 0; i < condefs.n; i++)
+    if (tydefs.a[condefs.a[i].tydef].name == t->name)
+      for (Type *f = condefs.a[i].scheme ? repr(condefs.a[i].scheme) : NULL; f && f->k == TY_CON && !strcmp(f->name, "->");
+           f = repr(f->args[1]))
+        m |= cell_sizes(f->args[0]);
+  return m;
+}
+
+/* Versions: a function and its parameters' modes, 2 bits each. */
+typedef struct { Bind *f; uint32_t key; int res; Bind *copy; } Ver;
+static VEC(Ver) vers;
+static bool vers_new;  /* the fixpoint met a version it had not seen */
+static bool vers_done; /* the fixpoint is over: an unseen version is unowned */
+
+static int ver_find(Bind *f, uint32_t key) {
+  for (int i = 0; i < vers.n; i++)
+    if (vers.a[i].f == f && vers.a[i].key == key) return i;
+  return -1;
+}
+
+static int ver_res(Bind *f, uint32_t key) {
+  int i = ver_find(f, key);
+  if (i >= 0) return vers.a[i].res;
+  if (vers_done) return M_NONE;
+  VPUSH(vers, ((Ver){f, key, M_UNIQUE, NULL})); /* optimistic, lowered by the fixpoint */
+  vers_new = true;
+  return M_UNIQUE;
+}
+
+static int mode_of(Expr *e, Own *o);
+
+/* The modes a call passes: an owned argument at a linear parameter of a
+   function whose copies pay. */
+static uint32_t arg_key(Bind *b, Expr *e, Own *o) {
+  uint32_t key = 0;
+  for (int j = 0; b->gain && j < e->n && j < 16; j++)
+    if (b->linear >> j & 1) key |= (uint32_t)mode_of(e->args[j], o) << (2 * j);
+  return key;
+}
+
+/* Is t known to hold no cell that reuse could take: a function (closures
+   are never matched), or a type whose constructors take nothing (Int,
+   Bool)? A type variable may stand for a list. */
+static bool cell_free(Type *t) {
+  t = t ? repr(t) : NULL;
+  return t && t->k == TY_CON && (!strcmp(t->name, "->") || !cell_sizes(t));
+}
+
+/* A field: unique, or of a type without cells. */
+static bool field_ok(Expr *a, Own *o) { return cell_free(a->ty) || mode_of(a, o) == M_UNIQUE; }
+
+/* Pattern variables' modes, the scrutinee's in mode sm; a variable owns
+   only if linear in r. */
+static Own *pat_env(Pat *p, int sm, Rhs *r, Own *o) {
+  switch (p->k) {
+  case P_VAR: return own_push(o, p->name, uses_rhs(r, p->name) <= 1 ? sm : M_NONE);
+  case P_CON:
+    if (p->con == FK_C_CONS && p->n == 2) { /* the tail continues the spine; the head is owned if the list is unique */
+      o = pat_env(p->args[0], sm == M_UNIQUE ? M_UNIQUE : M_NONE, r, o);
+      return pat_env(p->args[1], sm, r, o);
+    }
+    for (int j = 0; j < p->n; j++) o = pat_env(p->args[j], sm == M_UNIQUE ? M_UNIQUE : M_NONE, r, o);
+    return o;
+  default: {
+    for (Nm *n = pat_nm(p, NULL); n; n = n->next) o = own_push(o, n->name, M_NONE);
+    return o;
+  }
+  }
+}
+
+static Own *alt_env(Expr *e, Alt *alt, Own *o) {
+  Own *t = o;
+  for (int i = 0; i < alt->np; i++) t = pat_env(alt->pats[i], mode_of(e->scruts[i], o), &alt->rhs, t);
+  for (int i = 0; i < alt->rhs.nwg; i++) /* where values: lazy, so held by a thunk */
+    for (int j = 0; j < alt->rhs.wg[i].n; j++) t = own_push(t, alt->rhs.wg[i].b[j]->name, M_NONE);
+  return t;
+}
+
+static int mode_of(Expr *e, Own *o) {
+  switch (e->k) {
+  case E_INT: case E_FLOAT: case E_CHAR: case E_STR: return M_UNIQUE; /* no cell to reuse */
+  case E_CON: return M_UNIQUE; /* nullary: a static object, never matched for reuse */
+  case E_ANN: return mode_of(e->body, o);
+  case E_VAR: {
+    int m = e->global_ref ? -1 : own_get(o, e->name);
+    return m < 0 ? M_NONE : m; /* a global is shared */
+  }
+  case E_LET: { /* a let value may be a thunk, which keeps its value: not owned */
+    Own *t = o;
+    for (int i = 0; i < e->g.n; i++) t = own_push(t, e->g.b[i]->name, M_NONE);
+    return mode_of(e->body, t);
+  }
+  case E_IF: return mode_min(mode_of(e->then_, o), mode_of(e->else_, o));
+  case E_CASE: {
+    int m = M_UNIQUE;
+    for (int a = 0; a < e->na && m; a++) {
+      Own *t = alt_env(e, e->alts[a], o);
+      for (int i = 0; i < e->alts[a]->rhs.ng; i++) m = mode_min(m, mode_of(e->alts[a]->rhs.bodies[i], t));
+    }
+    return m;
+  }
+  case E_APP: {
+    Expr *f = e->fn;
+    if (f->k == E_CON) {
+      if (e->n != fk_cons[f->idx].arity) return M_NONE; /* a closure */
+      if (f->idx == FK_C_CONS) {
+        int tl = mode_of(e->args[1], o);
+        return tl == M_NONE ? M_NONE : tl == M_UNIQUE && field_ok(e->args[0], o) ? M_UNIQUE : M_SPINE;
+      }
+      for (int i = 0; i < e->n; i++)
+        if (!field_ok(e->args[i], o)) return M_SPINE;
+      return M_UNIQUE;
+    }
+    if (f->k == E_VAR && (f->global_ref || own_get(o, f->name) < 0) && !strcmp(f->name, "error")) return M_UNIQUE; /* never returns */
+    Bind *b = own_callee(f, o);
+    if (b && b->own_of) return ver_res(b->own_of, b->own_key); /* a call already redirected to a copy */
+    return b && e->n == b->e->lam->n ? ver_res(b, arg_key(b, e, o)) : M_NONE;
+  }
+  default: return M_NONE;
+  }
+}
+
+/* Does e call a function whose copies pay, outside lambdas? */
+static bool calls_gain(Expr *e, Own *o);
+
+static bool calls_gain_rhs(Rhs *r, Own *o) {
+  for (int i = 0; i < r->nwg; i++)
+    for (int j = 0; j < r->wg[i].n; j++)
+      if (calls_gain(r->wg[i].b[j]->e, o)) return true;
+  for (int i = 0; i < r->ng; i++)
+    if ((r->guards[i] && calls_gain(r->guards[i], o)) || calls_gain(r->bodies[i], o)) return true;
+  return false;
+}
+
+static bool calls_gain(Expr *e, Own *o) {
   switch (e->k) {
   case E_APP: {
-    Bind *b = callee(e->fn, loc);
-    for (int i = 0; b && !b->reuse && i < e->n && i < b->e->lam->n && i < 32; i++) {
-      Expr *a = e->args[i];
-      if (!(b->gain >> i & 1) || e->n < b->e->lam->n) continue;
-      if ((v && a->k == E_VAR && a->name == v && !a->global_ref) || fresh(a, loc)) {
-        Expr *f = var(reuse_copy(b, i), e->fn->line, e->fn->col);
+    Bind *b = own_callee(e->fn, o);
+    if (b && b->gain && e->n == b->e->lam->n) return true;
+    if (calls_gain(e->fn, o)) return true;
+    for (int i = 0; i < e->n; i++)
+      if (calls_gain(e->args[i], o)) return true;
+    return false;
+  }
+  case E_LET:
+    for (int i = 0; i < e->g.n; i++) o = own_push(o, e->g.b[i]->name, M_NONE);
+    for (int i = 0; i < e->g.n; i++)
+      if (calls_gain(e->g.b[i]->e, o)) return true;
+    return calls_gain(e->body, o);
+  case E_IF: return calls_gain(e->cond, o) || calls_gain(e->then_, o) || calls_gain(e->else_, o);
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++)
+      if (calls_gain(e->scruts[i], o)) return true;
+    for (int a = 0; a < e->na; a++) {
+      Own *t = o;
+      for (int i = 0; i < e->alts[a]->np; i++)
+        for (Nm *n = pat_nm(e->alts[a]->pats[i], NULL); n; n = n->next) t = own_push(t, n->name, M_NONE);
+      if (calls_gain_rhs(&e->alts[a]->rhs, t)) return true;
+    }
+    return false;
+  case E_ANN: return calls_gain(e->body, o);
+  default: return false;
+  }
+}
+
+static Own *params_env(Bind *b, uint32_t key) {
+  Lambda *L = b->e->lam;
+  Own *o = NULL;
+  for (int j = 0; j < L->n; j++) o = own_push(o, L->params[j], j < 16 && (b->linear >> j & 1) ? (int)(key >> (2 * j) & 3) : M_NONE);
+  return o;
+}
+
+static VEC(Bind *) own_work;
+
+static const char *own_copy(Bind *b, uint32_t key) {
+  int v = ver_find(b, key);
+  if (v >= 0 && vers.a[v].copy) return vers.a[v].copy->name;
+  SB name = {0};
+  sb_puts(&name, b->name);
+  for (int j = 0; j < 16; j++) {
+    int m = key >> (2 * j) & 3;
+    if (m) sb_printf(&name, "@%s%d", m == M_SPINE ? "reuse" : "own", j);
+  }
+  const char *nm = intern(name.s);
+  int g = global_lookup(nm); /* made in an earlier chunk: the same function and modes */
+  if (g >= 0 && globals.a[g].bind) {
+    if (v >= 0) vers.a[v].copy = globals.a[g].bind;
+    return nm;
+  }
+  Bind *c = NEW(Bind);
+  *c = (Bind){.name = nm, .e = copy_expr(b->own_src), .line = b->line, .col = b->col, .type = b->type,
+              .linear = b->linear, .gain = b->gain, .own_key = key, .own_of = b};
+  c->e->lam->name = nm;
+  c->gidx = global_add(nm, NULL, c->e->lam);
+  globals.a[c->gidx].bind = c;
+  VPUSH(specialized, c);
+  VPUSH(own_work, c);
+  if (v >= 0) vers.a[v].copy = c;
+  return nm;
+}
+
+/* Redirect calls passing owned values to copies, and mark owned
+   scrutinees; or, before vers_done, only record the versions met. */
+static void own_rw(Expr *e, Own *o);
+
+static void own_rw_rhs(Rhs *r, Own *o) {
+  for (int i = 0; i < r->nwg; i++)
+    for (int j = 0; j < r->wg[i].n; j++) own_rw(r->wg[i].b[j]->e, o);
+  for (int i = 0; i < r->ng; i++) {
+    if (r->guards[i]) own_rw(r->guards[i], o);
+    own_rw(r->bodies[i], o);
+  }
+}
+
+static Own *unowned(Own *o) { /* the same locals, none owned: inside a lambda */
+  Own *n = NULL;
+  for (; o; o = o->next) n = own_push(n, o->name, M_NONE);
+  return n;
+}
+
+static void own_rw(Expr *e, Own *o) {
+  switch (e->k) {
+  case E_APP: {
+    Bind *b = own_callee(e->fn, o);
+    if (b && !b->own_of && e->n == b->e->lam->n) {
+      uint32_t key = arg_key(b, e, o);
+      if (key && !vers_done) ver_res(b, key);
+      else if (key && ver_find(b, key) >= 0) {
+        Expr *f = var(own_copy(b, key), e->fn->line, e->fn->col);
         f->global_ref = true;
         f->ty = e->fn->ty;
         e->fn = f;
-        break;
       }
     }
-    rw(e->fn, NULL, loc);
-    for (int i = 0; i < e->n; i++) rw(e->args[i], v, loc);
+    own_rw(e->fn, o);
+    for (int i = 0; i < e->n; i++) own_rw(e->args[i], o);
     return;
   }
-  case E_LAM:
-    for (int i = 0; i < e->lam->n; i++) loc = nm(loc, e->lam->params[i]);
-    rw(e->lam->body, NULL, loc);
+  case E_LAM: {
+    Own *t = unowned(o);
+    for (int i = 0; i < e->lam->n; i++) t = own_push(t, e->lam->params[i], M_NONE);
+    own_rw(e->lam->body, t);
     return;
+  }
   case E_LET:
-    loc = group_nm(&e->g, loc);
-    for (int i = 0; i < e->g.n; i++) rw(e->g.b[i]->e, NULL, loc);
-    rw(e->body, binds_in(&e->g, v) ? NULL : v, loc);
+    for (int i = 0; i < e->g.n; i++) o = own_push(o, e->g.b[i]->name, M_NONE);
+    for (int i = 0; i < e->g.n; i++) own_rw(e->g.b[i]->e, o);
+    own_rw(e->body, o);
     return;
   case E_IF:
-    rw(e->cond, v, loc);
-    rw(e->then_, v, loc);
-    rw(e->else_, v, loc);
+    own_rw(e->cond, o);
+    own_rw(e->then_, o);
+    own_rw(e->else_, o);
     return;
-  case E_CASE: {
-    int k = -1;
+  case E_CASE:
     for (int i = 0; i < e->ns; i++) {
-      Expr *s = e->scruts[i];
-      if (v && s->k == E_VAR && s->name == v && !s->global_ref) {
-        s->own = true;
-        k = i;
-      }
-      rw(s, v, loc);
+      if (mode_of(e->scruts[i], o) != M_NONE && vers_done) e->scruts[i]->own = true; /* its matched cell is dead */
+      own_rw(e->scruts[i], o);
     }
-    for (int a = 0; a < e->na; a++) {
-      Alt *alt = e->alts[a];
-      Nm *t = loc;
-      const char *w = v;
-      for (int i = 0; i < alt->np; i++) {
-        t = pat_nm(alt->pats[i], t);
-        if (pat_binds(alt->pats[i], v)) w = NULL;
-      }
-      if (k >= 0) w = spine_rest(alt->pats[k]);
-      rw_rhs(&alt->rhs, w, t);
-    }
+    for (int a = 0; a < e->na; a++) own_rw_rhs(&e->alts[a]->rhs, alt_env(e, e->alts[a], o));
     return;
-  }
-  case E_ANN: rw(e->body, v, loc); return;
+  case E_ANN: own_rw(e->body, o); return;
   default: return;
   }
 }
@@ -1917,43 +2081,57 @@ static void recon(Expr *e) {
 void reuse_cells(Bind **bs, int n, Bind **cs, int nc) {
   VEC(Bind *) all = {0}, fns = {0};
   for (int i = 0; i < n + nc; i++) VPUSH(all, i < n ? bs[i] : cs[i - n]);
+  vers.n = 0;
+  vers_done = false;
   for (int i = 0; i < all.n; i++) {
     Bind *b = all.a[i];
     if (b->e->k == E_LAM && !globals.a[b->gidx].bind) globals.a[b->gidx].bind = b; /* type-class clones */
     recon(b->e);
     if (b->e->k != E_LAM || !b->e->lam->ptypes) continue;
     Lambda *L = b->e->lam;
-    b->fresh = true;
-    b->consumes = 0;
-    for (int j = 0; j < L->n && j < 32; j++)
-      if (is_list(L->ptypes[j])) b->consumes |= 1u << j;
+    b->linear = 0;
+    uint32_t sizes = alloc_sizes(L->body), wants = 0;
+    for (int j = 0; j < L->n && j < 16; j++)
+      if (cell_sizes(L->ptypes[j]) && uses(L->body, L->params[j]) <= 1) {
+        b->linear |= 1u << j;
+        wants |= deep_sizes(L->ptypes[j]);
+      }
+    b->gain = b->linear && (sizes & wants); /* it allocates what an owned parameter could give */
+    b->own_src = copy_expr(b->e);
     VPUSH(fns, b);
   }
-  for (bool changed = true; changed;) {
+  for (bool changed = true; changed;) { /* copies also pay if they pass owned values to copies that do */
     changed = false;
     for (int i = 0; i < fns.n; i++) {
       Bind *b = fns.a[i];
-      Lambda *L = b->e->lam;
-      Nm *loc = NULL;
-      for (int j = 0; j < L->n; j++) loc = nm(loc, L->params[j]);
-      if (b->fresh && !fresh(L->body, loc)) {
-        b->fresh = false;
-        changed = true;
-      }
-      for (int j = 0; j < L->n && j < 32; j++)
-        if ((b->consumes >> j & 1) && !consumes(L->body, L->params[j], loc)) {
-          b->consumes &= ~(1u << j);
-          changed = true;
-        }
+      if (b->gain || !b->linear || !calls_gain(b->e->lam->body, params_env(b, 0))) continue;
+      b->gain = changed = true;
     }
   }
-  for (int i = 0; i < fns.n; i++) fns.a[i]->gain = trmc_site(fns.a[i]->e->lam->body, fns.a[i]->name) ? fns.a[i]->consumes : 0;
-  for (int i = 0; i < all.n; i++) rw(all.a[i]->e, NULL, NULL);
-  while (reuse_work.n) {
-    Bind *b = reuse_work.a[--reuse_work.n];
-    Lambda *L = b->e->lam;
-    Nm *loc = NULL;
-    for (int j = 0; j < L->n; j++) loc = nm(loc, L->params[j]);
-    rw(L->body, L->params[b->reuse - 1], loc);
+  for (int i = 0; i < fns.n; i++) ver_res(fns.a[i], 0);
+  for (bool changed = true; changed;) { /* lower each version's result to what its body gives */
+    changed = vers_new = false;
+    for (int i = 0; i < vers.n; i++) {
+      Bind *b = vers.a[i].f;
+      Expr *src = b->own_src ? b->own_src : b->e; /* calls still name the originals */
+      Own *o = params_env(b, vers.a[i].key);
+      int r = mode_of(src->lam->body, o);
+      own_rw(src->lam->body, o); /* the versions its calls need, in every position */
+      if (r < vers.a[i].res) {
+        vers.a[i].res = r;
+        changed = true;
+      }
+    }
+    for (int i = 0; i < all.n; i++) /* values, such as main */
+      if (all.a[i]->e->k != E_LAM || !all.a[i]->e->lam->ptypes) own_rw(all.a[i]->e, NULL);
+    changed |= vers_new;
+  }
+  vers_done = true;
+  for (int i = 0; i < fns.n; i++) own_rw(fns.a[i]->e, NULL);
+  for (int i = 0; i < all.n; i++)
+    if (all.a[i]->e->k != E_LAM || !all.a[i]->e->lam->ptypes) own_rw(all.a[i]->e, NULL);
+  while (own_work.n) {
+    Bind *c = own_work.a[--own_work.n];
+    own_rw(c->e->lam->body, params_env(c->own_of, c->own_key));
   }
 }

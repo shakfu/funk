@@ -6,12 +6,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- A second benchmark suite, `bench/game/`: the Benchmarks Game's 10 tasks, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. regex-redux and pidigits use PCRE and GMP through foreign imports, as their C does. Geometric mean 1.45x C: binary-trees 0.4x, spectral-norm 0.8x, mandelbrot, regex-redux and pidigits 1.0x, fannkuch-redux 1.1x, reverse-complement 2.1x, n-body 4.0x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
+- A second benchmark suite, `bench/game/`: the Benchmarks Game's 10 tasks, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. regex-redux and pidigits use PCRE and GMP through foreign imports, as their C does. Geometric mean 1.16x C: binary-trees 0.4x, spectral-norm 0.8x, mandelbrot, regex-redux and pidigits 1.0x, fannkuch-redux 1.1x, n-body 1.2x, reverse-complement 2.1x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
 - Bitwise operations on `Int`, with `Data.Bits`' names and fixities: `.&.`, `.|.`, `xor`, `complement`, `shiftL`, `shiftR`. A shift by 64 or more gives 0 (or -1 for `shiftR` of a negative number), as GHC's; a negative shift is an error, so a shift by a variable is not treated as total.
 - `isEOF ()`, for reading standard input line by line to its end; `getContents ()`, all of it at once, strictly; `indexString s i`, one character of a `String` without unpacking it; `writeArrayString arr i s`, a string's bytes into an `Array CChar` in one copy; `putArray arr i n` and `getArray arr i n`, a range of an array to standard output or from standard input; `copyArray src i dst j n`, as `memmove`.
 - `IntTable` in the prelude: a mutable hash table from `Int` to `Int` in C memory, written in funk over `Array` (open addressing; doubles at three quarters full).
 
 ### Changed
+
+- Reuse of matched cells extends to every data type, to the elements of a list nothing else references, to the components of a tuple result, and to any allocation of the same size, not only list cells at TRMC sites. A variable used at most once on each path owns its value, so a function may also return or store what it was passed. n-body allocates nothing per step: 2.8x to 1.2x C, 134 to 2 MB; `records` -22.5%. `bst`'s inserts now update in place, and its lookups are 27% slower on the resulting layout (+8.6% in all). See [docs/dev/element-reuse.md](docs/dev/element-reuse.md).
+
+- A function whose every result is a tuple it builds returns it as a C struct in compiled code, so a `case` on its call allocates nothing; other uses box the tuple. Interleaved runs: n-body -30% (4.0x to 2.8x C), fasta -11%; the core suite -0.3%.
 
 - `newArray` writes its first element and fills the rest by doubling copies (`copyArray`), and skips the fill when that element's bytes are zero, since the memory starts zeroed: an array's pages are then touched only when used. reverse-complement, reading in chunks into such a buffer, went from 0.49 to 0.25 s and 373 to 288 MB.
 

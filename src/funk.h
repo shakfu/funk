@@ -197,9 +197,11 @@ struct Bind {
   struct Pred *preds; /* constraints generalized at this binding: its dictionary parameters */
   int npreds;
   Expr *orig;    /* overloaded function before elaboration, copied for specializations */
-  bool fresh;    /* returns only cells it allocated (reuse.md) */
-  uint32_t consumes, gain; /* bit i: list parameter i is consuming; and reusing it can pay */
-  int reuse;     /* a reuse copy: 1 + the parameter whose cells it reuses */
+  uint32_t linear; /* bit i: parameter i, a list or data, is used at most once on each path (element-reuse.md) */
+  bool gain;       /* a copy taking owned parameters can reuse cells, or passes them to one that can */
+  uint32_t own_key; /* a copy: each parameter's mode, 2 bits (M_NONE, M_SPINE, M_UNIQUE) */
+  struct Bind *own_of; /* a copy: the function copied */
+  struct Expr *own_src; /* the body before calls were redirected, for copies */
   struct Bind *from; /* type-class clone: the definition it was cloned from */
   bool pure, total;  /* no effects; and cannot fail, given such arguments (fusion.md) */
   bool prelude;      /* defined in the prelude */

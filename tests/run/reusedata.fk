@@ -1,0 +1,46 @@
+-- Reuse of a matched cell at any allocation of the same size
+-- (element-reuse.md, phase 1): data types passed fresh to consuming
+-- parameters, allocations outside TRMC, a constructor change, pointer
+-- fields, and a branch that takes the cell before a later allocation.
+data V2 = V2 Float Float
+data Shape = Circle Float Float | Rect Float Float
+data Two = Two [Int] [Int]
+
+scale :: Float -> V2 -> V2
+scale k (V2 x y) = V2 (k * x) (k * y)
+
+turn :: Shape -> Shape -- the cell changes constructor
+turn s = case s of
+  Circle a b -> Rect b a
+  Rect a b -> Circle b a
+
+swap :: Two -> Two -- pointer fields
+swap (Two a b) = Two (map (+ 1) b) a
+
+rev :: [Int] -> [Int] -> [Int] -- a cons cell built as an argument, not TRMC
+rev xs acc = case xs of
+  [] -> acc
+  (x : rest) -> rev rest (x : acc)
+
+-- the branch may take the cell; the later V2 must be a new one
+both :: V2 -> (V2, V2)
+both (V2 x y) = case (if x > 0.0 then V2 y x else V2 (x - 1.0) y) of
+  q -> (q, V2 9.0 9.0)
+
+showV :: V2 -> String
+showV (V2 x y) = show (x, y)
+
+showS :: Shape -> String
+showS s = case s of
+  Circle a b -> "Circle " ++ show (a, b)
+  Rect a b -> "Rect " ++ show (a, b)
+
+main = do
+  putStrLn (showV (scale 2.0 (scale 3.0 (V2 1.0 2.0))))
+  putStrLn (showS (turn (turn (turn (Circle 1.5 2.5)))))
+  print (case swap (swap (Two [1, 2] [3])) of Two a b -> (a, b))
+  print (rev (enumFromTo 1 6) [])
+  print (case both (V2 1.0 2.0) of (a, b) -> (showV a, showV b))
+  print (case both (V2 (-1.0) 2.0) of (a, b) -> (showV a, showV b))
+  let v = V2 4.0 5.0 -- a variable: not fresh, so v survives
+  putStrLn (showV (scale 10.0 v) ++ " " ++ showV v)
