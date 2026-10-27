@@ -516,6 +516,28 @@ static const char *af_lambda(Lambda *L) {
 const char *cgen_alloc_free(Lambda *L) { return af_lambda(L); }
 
 /* Tests of pattern p against path, whose representation is r; fields are V. */
+/* Tests that path holds constructor con. Nullary constructors are unique
+   constants in compiled code (fk_nullaries), so a test for one, or for a
+   type's only other constructor when it has one or two nullary ones, as
+   `:` and `Just`, compares addresses instead of loading the header. */
+static void con_test(SB *cond, const char *path, int con) {
+  int td = condefs.a[con].tydef, nullary[2], nn = 0, others = 0;
+  if (condefs.a[con].arity == 0) {
+    sb_printf(cond, " && %s == (V)&fk_nullaries[%d]", path, con);
+    return;
+  }
+  for (int i = 0; i < condefs.n; i++)
+    if (condefs.a[i].tydef == td && i != con) {
+      if (condefs.a[i].arity == 0 && nn < 2) nullary[nn++] = i;
+      else others++;
+    }
+  if (others) {
+    sb_printf(cond, " && FK_CONID(%s) == %d", path, con);
+    return;
+  }
+  for (int i = 0; i < nn; i++) sb_printf(cond, " && %s != (V)&fk_nullaries[%d]", path, nullary[i]);
+}
+
 static void pat_cond(SB *cond, Pat *p, const char *path, Rep r) {
   switch (p->k) {
   case P_VAR:
@@ -540,7 +562,7 @@ static void pat_cond(SB *cond, Pat *p, const char *path, Rep r) {
       sb_printf(cond, p->con == FK_C_TRUE ? " && %s" : " && !%s", path);
       return;
     }
-    if (tydefs.a[condefs.a[p->con].tydef].ncons > 1) sb_printf(cond, " && FK_CONID(%s) == %d", path, p->con);
+    if (tydefs.a[condefs.a[p->con].tydef].ncons > 1) con_test(cond, path, p->con);
     for (int i = 0; i < p->n; i++) {
       TV f = field_read(p->con, i, path);
       pat_cond(cond, p->args[i], f.s, f.r);

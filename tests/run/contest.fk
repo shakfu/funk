@@ -1,0 +1,32 @@
+-- Constructor tests in compiled code (cgen's con_test): a nullary
+-- constructor, or a type's only other one beside one or two nullary ones,
+-- compares addresses; with three nullary ones, the constructor id.
+data Two = A | B | C Int
+data Three = P | Q | R | S Int
+
+two :: Two -> Int
+two t = case t of
+  A -> 1
+  B -> 2
+  C n -> n
+
+three :: Three -> Int
+three t = case t of
+  S n -> n
+  P -> 10
+  Q -> 20
+  R -> 30
+
+firstJust :: [Maybe Int] -> Int
+firstJust ms = case ms of
+  [] -> 0
+  (Just n : _) -> n
+  (Nothing : rest) -> firstJust rest
+
+main = do
+  print (map two [A, B, C 7])
+  print (map three [P, Q, R, S 4])
+  print (map two (map (\k -> if k == 0 then A else if k == 1 then B else C k) [0, 1, 5]))
+  print (firstJust (map (\k -> if k < 3 then Nothing else Just k) [1, 2, 3, 4]))
+  print (firstJust (map Just [9]) + firstJust [] + firstJust (replicate 3 Nothing))
+  print (map (\x -> case x of { Nothing -> 0; Just y -> y }) (zipWith (\a b -> if a then Just b else Nothing) [True, False, True] [1, 2, 3]))

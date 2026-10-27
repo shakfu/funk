@@ -215,7 +215,7 @@ Output: the embedded runtime source, a global array `G`, one `static V fn_N(V se
 
 - A case alternative becomes a pattern test, then bindings, then guards. A failure jumps to the next alternative's label.
 
-- Constructor tag tests are skipped for single-constructor types.
+- Constructor tag tests are skipped for single-constructor types. A test for a nullary constructor compares the value with its `fk_nullaries` object, and so does a test for a type's only other constructor beside one or two nullary ones (`:`, `Just`); others read the id from the header (`con_test`).
 
 `funk build` writes the C to a temporary file and runs `$CC -O2 -o OUT FILE.c -lm -lpthread`.
 

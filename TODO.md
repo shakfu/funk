@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.30x now (2026-10-27); the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.26x now (2026-10-27); the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 

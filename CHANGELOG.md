@@ -16,6 +16,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Sweeping a chunk with nothing marked makes it a bump region instead of threading each dead object onto a free list. In `lists`, which drops every list each round, lazy sweeping fell from 209 to 7 ms of 950. Interleaved runs: `lists` -8.9%, `trees` -8.4%, `records` -6.3%, geometric mean -1.6%.
 
+- A `case` in generated C tests `[]`, `:`, `Nothing`, `Just` and other constructors of types with at most two nullary ones by comparing addresses, not by loading the constructor id: nullary constructors are unique constants. A list loop's two tests become one compare, and clang drops the unreachable match failure. Interleaved runs: `sort` -12.3%, `lists` -11.1%, `wordfreq` -2.8%, geometric mean -2.0%.
+
 ### Fixed
 
 - Incremental marking steps once per 256 KiB of allocation, not 1 MiB. Nothing is freed until a cycle ends, so a long marking window took fresh chunks: `bst` ran 6% slower than before 0.4.0's collector, with a 37% larger resident set. It is now 1.6% slower; the 0.4 ms pause bound is unchanged. Details in [docs/dev/realtime.md](docs/dev/realtime.md).
