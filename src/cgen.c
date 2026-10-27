@@ -1144,7 +1144,7 @@ static void cg_lambda(SB *out, Lambda *L) {
   if (c.trmc) sb_puts(out, "  V head = 0, *dst = &head;\n");
   if (c.looped) sb_puts(out, "  top:;\n");
   sb_puts(out, body.s);
-  sb_puts(out, "}\n");
+  sb_puts(out, "  __builtin_unreachable(); /* every path returns, jumps to top or fails: for GCC's -Wreturn-type */\n}\n");
   sb_printf(out, "static V fn_%d(V self, V *a) { return %s; }\n\n", L->id,
             c.tuple ? xsprintf("box_%d(%s)", L->id, wrapper_call(L)) : as_v(tv(wrapper_call(L), rr)));
 }

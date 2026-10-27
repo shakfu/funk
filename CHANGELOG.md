@@ -8,6 +8,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - GitHub Actions CI (`.github/workflows/ci.yml`): `make test` on Linux and macOS, plain and with funk built under UBSan.
 
+### Fixed
+
+Found by the first Linux run:
+
+- The compiler passed NULL to `memcpy` and `memmove` with a size of 0, from empty arrays, in 24 places; undefined in C, and reported by UBSan against glibc's `nonnull` declarations, which macOS's headers lack. They go through `copy_n` and `move_n` now.
+- Generated C failed GCC's `-Wall -Werror`: a worker that only loops had no `return` (`-Wreturn-type`; each ends in `__builtin_unreachable()`, with unchanged machine code), and `fk_ptr` took a `const void *`, from which GCC concluded that `mallocBytes`' fresh memory was read uninitialized.
+- `tests/run/overflow.fk` recursed through `1 + 2 * _`, which GCC turns into a loop with an accumulator, so it ran 2 billion steps instead of overflowing; it uses `mod` now.
+- The reuse and fusion tests sorted their lists by the locale; they sort by bytes (`LC_ALL=C`).
+
 ## [0.5.0] - 2026-10-27
 
 ### Added

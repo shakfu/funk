@@ -20,7 +20,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 - [x] Generated C compiles without `-Wall -Wextra` warnings; the `wall` tests check every run test and example.
 
-- [ ] **Linux CI: its first run.** `.github/workflows/ci.yml` builds and tests on `ubuntu-latest` and `macos-latest`, plain and under UBSan, but has not run yet. Nothing has run on Linux, or on x86-64, since 0.4.0: the stack snapshot's protection limit below `task_main`'s frame (from glibc's layout), the dead stack cleared with `mmap(MAP_FIXED)`, `EFAULT` from system calls into read-only pages, and `getline(3)`. Expect fixes. Ubuntu may lack `libpcre3-dev`; then the regex-redux tests skip.
+- [ ] **Linux CI: a green run.** The first run of `.github/workflows/ci.yml` passed on macOS and failed on Linux; its causes are fixed (CHANGELOG, Unreleased) and checked here against glibc's `nonnull` declarations and GCC 16, but the next run is the test. In that run, the plain Linux job's stack snapshot, `EFAULT` and stress tests passed, so the 0.4.0 runtime works on x86-64 Linux; the UBSan job stopped at the compiler's first `memcpy`, so its runtime tests have not run under UBSan on Linux.
 
 ## Medium
 

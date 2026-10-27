@@ -64,13 +64,13 @@ run)
     exit 0 ;;
   reuse)
     FK_NOFUSE=1 "$FUNK" emit-c "$f" -o "$tmp/c" || fail "funk emit-c"
-    grep '^static .* w_[0-9]*(.*) { /\* .*@\(reuse\|own\)[0-9]* \*/$' "$tmp/c" | sed 's|.*/\* ||; s| \*/$||' | sort >"$tmp/out"
+    grep '^static .* w_[0-9]*(.*) { /\* .*@\(reuse\|own\)[0-9]* \*/$' "$tmp/c" | sed 's|.*/\* ||; s| \*/$||' | LC_ALL=C sort >"$tmp/out"
     same "$base.reuse" "$tmp/out"
     exit 0 ;;
   fuse)
     "$FUNK" emit-c "$f" -o "$tmp/c" || fail "funk emit-c"
     # a fused loop's name ends in its id, or in its reuse copies' suffixes
-    grep '^static .* w_[0-9]*(.*) { /\* .*/\$f[0-9]*\(@\(reuse\|own\)[0-9]*\)* \*/$' "$tmp/c" | sed 's|.*/\* ||; s|/\$f.*||' | sort -u >"$tmp/out"
+    grep '^static .* w_[0-9]*(.*) { /\* .*/\$f[0-9]*\(@\(reuse\|own\)[0-9]*\)* \*/$' "$tmp/c" | sed 's|.*/\* ||; s|/\$f.*||' | LC_ALL=C sort -u >"$tmp/out"
     same "$base.fuse" "$tmp/out"
     exit 0 ;;
   gcstats)

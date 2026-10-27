@@ -1,5 +1,6 @@
 -- Stack overflow is a runtime error in both backends: compiled code has no
--- stack check and faults on the guard region below the stack. `1 + 2 * _`
--- keeps clang from turning the recursion into a loop with an accumulator.
-count n = 1 + 2 * count (n - 1)
+-- stack check and faults on the guard region below the stack. `mod` keeps
+-- the C compiler from turning the recursion into a loop with an
+-- accumulator, which GCC does for `1 + 2 * _`.
+count n = 1 + mod (count (n - 1)) 1000
 main = print (count 2000000000)

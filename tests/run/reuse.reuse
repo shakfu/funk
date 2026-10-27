@@ -1,25 +1,25 @@
 $def.Show.show@(([Int], [Int]), ([Int], [Int]))@reuse0
+$def.Show.show@(Box, [Int])@reuse0
 $def.Show.show@([Int], [(Int, Char)])@reuse0
 $def.Show.show@([Int], [Int])@own0
 $def.Show.show@([Int], [Int])@reuse0
-$def.Show.show@(Box, [Int])@reuse0
 $def.Show.show@[Int]@own0
 $def.Show.showList@Int@own0
 $m.Append.[].++@own0
 $m.Append.[].++@own0@own1
 $m.Show.(,).show@([Int], [Int]),([Int], [Int])@reuse0
+$m.Show.(,).show@Box,[Int]@reuse0
 $m.Show.(,).show@[Int],[(Int, Char)]@reuse0
 $m.Show.(,).show@[Int],[Int]@own0
 $m.Show.(,).show@[Int],[Int]@reuse0
-$m.Show.(,).show@Box,[Int]@reuse0
 $m.Show.(,).showPrec@([Int], [Int]),([Int], [Int])@reuse1
+$m.Show.(,).showPrec@Box,[Int]@reuse1
 $m.Show.(,).showPrec@[Int],[(Int, Char)]@reuse1
 $m.Show.(,).showPrec@[Int],[Int]@own1
 $m.Show.(,).showPrec@[Int],[Int]@reuse1
-$m.Show.(,).showPrec@Box,[Int]@reuse1
+$m.Show.Int.showList@own0
 $m.Show.[].show@Int@own0
 $m.Show.[].showPrec@Int@own1
-$m.Show.Int.showList@own0
 filter@{0=even}<Int -> Bool,[Int]>@own0
 init@own0
 map@{0=(\1 (: #0 []))}@own0
@@ -31,17 +31,17 @@ map@{0=(flip@{0=primMulInt}<Int -> Int -> Int,Int,Int> 2)}<Int -> Int,[Int]>@own
 map@{0=(flip@{0=primMulInt}<Int -> Int -> Int,Int,Int> 3)}<Int -> Int,[Int]>@own0
 map@{0=primNegateInt}<Int -> Int,[Int]>@own0
 print@(([Int], [Int]), ([Int], [Int]))@reuse0
+print@(Box, [Int])@reuse0
 print@([Int], [(Int, Char)])@reuse0
 print@([Int], [Int])@own0
 print@([Int], [Int])@reuse0
-print@(Box, [Int])@reuse0
 print@[Int]@own0
 sort@Int@own0
-sortBy@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[Int]>@own0
 sortBy/mergeAll3@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@own0
 sortBy/mergeAll3@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@reuse0
 sortBy/mergePairs2@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@own0
 sortBy/mergePairs2@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@reuse0
+sortBy@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[Int]>@own0
 take@Int,Int@own1
 zip@own0
 zipWith@{0=primAddInt}<Int -> Int -> Int,[Int],[Int]>@reuse0@own1

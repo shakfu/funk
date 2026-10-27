@@ -17,7 +17,7 @@ jobs:
         os: [ubuntu-latest, macos-latest]
         sanitize: ["", undefined]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
