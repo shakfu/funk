@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Actions CI (`.github/workflows/ci.yml`): `make test` on Linux and macOS, plain and with funk built under UBSan.
+
 ## [0.5.0] - 2026-10-27
 
 ### Added

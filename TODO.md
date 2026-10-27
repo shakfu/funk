@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). The can include which can include subsections as required for organization.
 
-The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.19x now (2026-10-27); the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
+The primary goal is generated C speed: a geometric mean of 2x over C on the benchmark suite. It is 1.18x now (2026-10-27; the Benchmarks Game suite 1.16x); the remaining items lower it further. See [docs/dev/performance-first.md](docs/dev/performance-first.md).
 
 ## Critical
 
@@ -20,6 +20,8 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 - [x] Generated C compiles without `-Wall -Wextra` warnings; the `wall` tests check every run test and example.
 
+- [ ] **Linux CI: its first run.** `.github/workflows/ci.yml` builds and tests on `ubuntu-latest` and `macos-latest`, plain and under UBSan, but has not run yet. Nothing has run on Linux, or on x86-64, since 0.4.0: the stack snapshot's protection limit below `task_main`'s frame (from glibc's layout), the dead stack cleared with `mmap(MAP_FIXED)`, `EFAULT` from system calls into read-only pages, and `getline(3)`. Expect fixes. Ubuntu may lack `libpcre3-dev`; then the regex-redux tests skip.
+
 ## Medium
 
 - [ ] **Real time, what remains** ([docs/dev/realtime.md](docs/dev/realtime.md)): no test proves the stack snapshot's page copy necessary since protection stops below the thread's first frame (`tests/run/gcdeep.fk` passes without it); the Linux limit is from glibc's layout, not run on Linux. An export's stack bound is not computed; for targets with small stacks, sum `-fstack-usage` frame sizes along the call graph. `foreign struct` has no C arrays inside structs (Core Audio's `AudioBufferList`).
@@ -29,8 +31,10 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 - [ ] **Benchmarks Game gaps** (`bench/game/`, [bench/README.md](bench/README.md#benchmarks-game-suite)): all 10 tasks, geometric mean 1.16x C (2026-10-27); n-body is 1.2x since element reuse. The largest:
   - `knucleotide` is 2.6x C: `IntTable`'s probe reads three slots of an `Array Int` with bounds checks.
   - `fasta` is 2.0x C: each 60-character line is a `[Char]` packed into a `String`.
+  - `revcomp` is 2.1x C (through `bench.py`'s pipe; 2.8x from a file): finding newlines and complementing go byte by byte through bounds-checked accesses, and the output is a second buffer, where C works in place in one (288 MB resident against 105).
 - [ ] `bst` is 8.6% slower since element reuse: inserts update the tree in place, and lookups are 27% slower on the layout that leaves (path copying kept the upper levels adjacent). [docs/dev/element-reuse.md](docs/dev/element-reuse.md#phases-2-and-3-result).
 - [ ] Element reuse's field reads (`records`' `step p` reads `p.px` before rebuilding `p`), so `step` reuses its particle.
+- [ ] Element reuse: a `let`-bound value is never owned, since a lazy `let`'s thunk keeps it; `resolve.c` decides which `let`s are eager after the ownership analysis runs, and an eager one could own its value. A tuple result is a struct only if every tail builds the tuple; a tail calling another such worker (`notAlways` in `tests/run/tupleresult.fk`) keeps the heap tuple.
 - [ ] The effect checker's "declared with `->` but calls an effectful function" names the function, not the arrow. A function that acts and calls a parameter needs `->>` on each of that parameter's arrows (`(Int ->> Int ->> Float)`); a definition with fewer parameters than its signature's arrows reaches a `->` and reports the same. Both read as if the signature's last arrow were wrong.
 
 - [ ] **A pacer for incremental marking.** Steps come every 256 KiB of allocation, a constant; the heap overshoots by whatever the program allocates while a cycle marks, which grows with the live set (`churn` at 4,000,000 cells: 359 MB resident). Size each step's allocation from the live set at the cycle's start, so marking ends within a set fraction of the threshold, as Go's pacer does, and the program's share of time while marking follows from that fraction. See [docs/dev/realtime.md](docs/dev/realtime.md) ("Step size").
@@ -48,3 +52,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 - [x] **Typed effects: effect arrows** (`a ->> b`), option E of [docs/dev/typed-effects.md](docs/dev/typed-effects.md).
 - [ ] Fusion still uses its own purity analysis. With effects in types it could see through closures, parameters and dictionaries, but elaboration's type copies drop the arrows' effects first.
 - [ ] The interpreter spends 26% of its time in `eval`'s prologue and epilogue; split out the hot cases. Interpreter speed is not part of the primary goal.
+- [ ] **Benchmark harness.** Runs in different sessions drift by about 5%, so `report` flags noise; every decision this session came from interleaved A/B runs scripted by hand. A `bench.py ab OLD NEW` that builds both compilers and interleaves their binaries would replace those scripts. `pipeline` runs 3-6 ms, too short to measure; raise its size. `report` also flags changes in the C rows, which nothing in funk affects.
+- [ ] `tests/run/reuseown.fk`: `map (scale 2.0) (replicate 3 v)` gets no copy at all, where a spine-only `@reuse0` copy was expected; sound, since nothing is reused, but not explained.
+- [ ] regex-redux's C takes 7.5 s on fasta's output for 5,000,000 here, against 3.2 s on the Game's machine: Homebrew's PCRE may lack its JIT on arm64. Unverified; funk calls the same library, so the ratio holds.
+- [ ] Six design notes still say "implemented (unreleased)" for work released since: `memory.md`, `fusion.md`, `reuse.md`, `type-classes.md`, `records.md`, `strings.md`.

@@ -1,0 +1,35 @@
+# Build funk and run the test suite on Linux and macOS, plain and with
+# funk built under UBSan. The sqlite, PCRE and GMP tests run where their
+# headers are installed and are skipped otherwise (tests/CMakeLists.txt).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}${{ matrix.sanitize && format(' ({0})', matrix.sanitize) || '' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        sanitize: ["", undefined]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libsqlite3-dev libgmp-dev
+          # PCRE version 1, for regex-redux; newer releases may have dropped it
+          sudo apt-get install -y libpcre3-dev || echo "libpcre3-dev unavailable: the regex-redux tests are skipped"
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja gmp pcre
+
+      - name: Build and test
+        run: make SANITIZE=${{ matrix.sanitize }} test
