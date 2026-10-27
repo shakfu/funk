@@ -116,7 +116,7 @@ Shape.scale (Rect w h) k = Rect (w * k) (h * k)
 
 ## Modules
 
-Modules are not designed yet (see [roadmap.md](roadmap.md)). Reserved syntax:
+Modules are proposed in [modules.md](modules.md). Reserved syntax:
 
 - Module names are lowercase and use `.` as types do: `geometry.pi`, `geometry.Shape`, `geometry.Shape.area`. Case already decides the meaning: uppercase after `.` is a type or constructor, lowercase is a value, field or function.
 

@@ -80,7 +80,7 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 
 - Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.
 
-- Modules and `import`. Lowercase module names with `.` paths are reserved in [records.md](records.md#modules).
+- Modules and `import`: proposed in [modules.md](modules.md), on the syntax [records.md](records.md#modules) reserves.
 
 - As-patterns, list comprehensions.
 
