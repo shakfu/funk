@@ -1,0 +1,3 @@
+-- expect: badhead.fk:1:1: error: the module is named `other`, but it is imported as `modules.badhead`
+import modules.badhead
+main = ()

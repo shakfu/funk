@@ -1,0 +1,3 @@
+-- expect: module `modules.listed` does not export `nosuch`
+import modules.listed (open, nosuch)
+main = ()

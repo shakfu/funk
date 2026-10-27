@@ -1,0 +1,3 @@
+-- expect: module `modules.listed` does not export constructor `MkBox`
+import modules.listed
+main = print (listed.open (listed.MkBox 2))

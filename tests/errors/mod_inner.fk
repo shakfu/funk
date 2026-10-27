@@ -1,0 +1,4 @@
+-- expect: tests/errors/modules/broken.fk:5:
+-- An error inside a module is reported at the module's file.
+import modules.broken
+main = print broken.one

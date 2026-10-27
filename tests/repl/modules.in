@@ -1,0 +1,6 @@
+:l tests/run/modules/util/text.fk
+banner "plain"
+:l tests/run/modules.fk
+side (Square 3.0)
+:l tests/run/modules.fk
+origin

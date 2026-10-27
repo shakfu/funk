@@ -34,7 +34,7 @@ add_custom_command(
 # in src/libfunk.h. Internal and static; the command line links it.
 add_library(libfunk STATIC
   src/driver.c src/util.c src/lex.c src/parse.c src/check.c src/elab.c src/fuse.c
-  src/resolve.c src/interp.c src/cgen.c src/ffi.c src/rt.c
+  src/resolve.c src/qualify.c src/interp.c src/cgen.c src/ffi.c src/rt.c
   ${CMAKE_CURRENT_BINARY_DIR}/embedded.c)
 set_target_properties(libfunk PROPERTIES OUTPUT_NAME funk)
 target_include_directories(libfunk INTERFACE src)

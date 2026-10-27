@@ -40,6 +40,7 @@ The primary goal is generated C speed: a geometric mean of 2x over C on the benc
 
 - [ ] **Library api with prefixed symbols.** `libfunk.h` is internal and unstable, and internal names (`intern`, `lex`, `repr`, `globals`) can collide with a host's. Prefix them, or build a shared library with `-fvisibility=hidden` exporting `funk_*` and the `fk_*` symbols the interpreter's glue needs; install the header and a CMake package. A stable api follows the item below.
 
+- [ ] **Modules, phase 3** ([docs/dev/modules.md](docs/dev/modules.md#phasing)): `import` at the REPL prompt, and a compatibility layer for Haskell's base imports. `eff_error` takes `$m.Class.Type.method` apart at its first and last `.`, so a message about a module's instance names the class and type wrongly.
 - [ ] **Per-instance context.** About 165 file-scope variables (41 in `check.c`, 36 in `rt.c`, 25 in `elab.c`) allow one session per process. Move compiler state into a context passed through the passes, and remove globals where a parameter or a local serves. The runtime's (heap, collector, stack snapshot) are shared with generated C, which pastes `rt.c`: a context pointer there costs every allocation, so measure against the benchmarks before moving them.
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases).

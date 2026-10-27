@@ -99,6 +99,26 @@ main =
 
 `p.x` needs the type of `p`. A function like `getW s = s.w` needs a signature, except inside `Shape.f`, where an unconstrained first parameter is a `Shape`. Details are in [docs/dev/records.md](docs/dev/records.md); [examples/shop.fk](examples/shop.fk) is a longer example.
 
+A module is a file with a lowercase name. `import` makes its names available qualified:
+
+```haskell
+import shapes.geometry          -- shapes/geometry.fk, beside this file or under -M DIR
+import util.text as t
+
+main = do
+  print (geometry.area (geometry.Circle 2.0))
+  putStrLn (t.banner "done")
+```
+
+Types, constructors, fields and operators are qualified the same way: `geometry.Shape`, `a geometry.<+> b`. An import list also brings names in unqualified, and an export list hides the rest:
+
+```haskell
+module stack (Stack, empty, push) where      -- Stack without (..): its constructors and fields stay inside
+import shapes.geometry (Shape(..), area, (<+>))
+```
+
+A type's namespace functions (`Stack.size`) are exported with it. See [docs/dev/modules.md](docs/dev/modules.md).
+
 Function operators:
 
 | Operator | Meaning | Fixity |

@@ -14,6 +14,8 @@ typedef struct {
   const char *opt; /* C optimization level for build */
   const char **cc_args; /* -I, -l and -L: for build, and for the interpreter's foreign-import glue */
   int ncc_args;
+  const char **mod_dirs; /* -M */
+  int nmod_dirs;
 } Opts;
 
 static _Noreturn void die(const char *fmt, const char *arg) {
@@ -27,25 +29,30 @@ static _Noreturn void die(const char *fmt, const char *arg) {
 typedef struct { const char *name, *synopsis, *help; } Command;
 
 static const Command commands[] = {
-    {"repl", "repl [FILE] [-I DIR] [-l LIB] [-L DIR]", "Start the REPL, after loading FILE if given. This is the default with no arguments.\n"
+    {"repl", "repl [FILE] [-M DIR] [-I DIR] [-l LIB] [-L DIR]", "Start the REPL, after loading FILE if given. This is the default with no arguments.\n"
                             "In the REPL, :t EXPR shows a type, :l FILE loads, :{ ... :} is multi-line, :q quits.\n"
+                            "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"
                             "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
                             "  -l LIB    link foreign imports with LIB; repeatable\n"
                             "  -L DIR    search DIR for libraries; repeatable\n"},
-    {"run", "run FILE [-I DIR] [-l LIB] [-L DIR]", "Interpret FILE and run its `main`. `funk FILE` does the same.\n"
+    {"run", "run FILE [-M DIR] [-I DIR] [-l LIB] [-L DIR]", "Interpret FILE and run its `main`. `funk FILE` does the same.\n"
+                                          "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"
                                           "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
                                           "  -l LIB    link foreign imports with LIB; repeatable\n"
                                           "  -L DIR    search DIR for libraries; repeatable\n"},
-    {"build", "build FILE [-o OUT] [-O LEVEL] [-I DIR] [-l LIB] [-L DIR]",
+    {"build", "build FILE [-o OUT] [-O LEVEL] [-M DIR] [-I DIR] [-l LIB] [-L DIR]",
      "Compile FILE to a native executable with $CC (default cc).\n"
+     "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"
      "  -o OUT    the executable; default FILE without .fk\n"
      "  -O LEVEL  the C optimization level passed to $CC; default 2\n"
      "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
      "  -l LIB    link with LIB; repeatable\n"
      "  -L DIR    search DIR for libraries; repeatable\n"},
-    {"emit-c", "emit-c FILE [-o OUT]", "Write the C program that build compiles, to OUT or standard output.\n"},
-    {"check", "check FILE", "Parse and type-check FILE, report errors and warnings, and run nothing.\n"
-                            "Exits 0 if FILE compiles. FILE need not define `main`.\n"},
+    {"emit-c", "emit-c FILE [-o OUT] [-M DIR]", "Write the C program that build compiles, to OUT or standard output.\n"
+                                               "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"},
+    {"check", "check FILE [-M DIR]", "Parse and type-check FILE, report errors and warnings, and run nothing.\n"
+                            "Exits 0 if FILE compiles. FILE need not define `main`.\n"
+                            "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"},
     {"eval", "eval EXPR", "Evaluate EXPR with the prelude in scope and print it. `funk -e EXPR` does the same.\n"},
     {"help", "help [COMMAND]", "Show this help, or COMMAND's.\n"},
 };
@@ -174,6 +181,7 @@ static void repl(void) {
 static int task(void *arg) {
   Opts *o = arg;
   if (!funk_init(o->cc_args, o->ncc_args)) return 1;
+  for (int i = 0; i < o->nmod_dirs; i++) funk_module_dir(o->mod_dirs[i]);
   switch (o->mode) {
   case M_BUILD: {
     int rc = funk_build(o->file, o->out ? o->out : default_exe(o->file), o->opt);
@@ -202,8 +210,8 @@ static int task(void *arg) {
 static bool is_help(const char *a) { return strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0; }
 
 int main(int argc, char **argv) {
-  Opts o = {.mode = M_REPL, .opt = "2", .cc_args = calloc((size_t)argc, sizeof(char *))};
-  if (!o.cc_args) die("%s", "out of memory");
+  Opts o = {.mode = M_REPL, .opt = "2", .cc_args = calloc((size_t)argc, sizeof(char *)), .mod_dirs = calloc((size_t)argc, sizeof(char *))};
+  if (!o.cc_args || !o.mod_dirs) die("%s", "out of memory");
   static const int modes[] = {M_REPL, M_RUN, M_BUILD, M_EMITC, M_CHECK, M_EVAL};
   const char *cmd = NULL;
   int i = 1;
@@ -258,6 +266,9 @@ int main(int argc, char **argv) {
     } else if (out && strcmp(a, "-o") == 0) {
       if (!more) usage_error(cmd, "`-o` needs a file name", NULL);
       o.out = argv[++i];
+    } else if (o.mode != M_EVAL && strncmp(a, "-M", 2) == 0) {
+      if (!a[2] && !more) usage_error(cmd, "`-M` needs a directory", NULL);
+      o.mod_dirs[o.nmod_dirs++] = a[2] ? a + 2 : argv[++i];
     } else if (build && strncmp(a, "-O", 2) == 0) {
       o.opt = a[2] ? a + 2 : more ? argv[++i] : NULL;
       if (!o.opt || strspn(o.opt, "0123sz") != strlen(o.opt) || strlen(o.opt) != 1)

@@ -1,0 +1,21 @@
+-- An abstract type: Stack without its constructor or fields. Its
+-- namespace function size goes with it; helper stays inside.
+module stack (Stack, empty, push, pop) where
+
+data Stack a = MkStack { items :: [a], depth :: Int }
+
+empty :: Stack a
+empty = MkStack [] 0
+
+push :: a -> Stack a -> Stack a
+push x s = MkStack (x : s.items) (helper s)
+
+pop :: Stack a -> Maybe (a, Stack a)
+pop (MkStack [] _) = Nothing
+pop (MkStack (x : xs) n) = Just (x, MkStack xs (n - 1))
+
+Stack.size :: Stack a -> Int
+Stack.size s = s.depth
+
+helper :: Stack a -> Int
+helper s = s.depth + 1

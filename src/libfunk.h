@@ -22,6 +22,11 @@ int funk_main(int (*fn)(void *), void *arg);
    and funk_build; the strings must outlive the session. */
 bool funk_init(const char *const *cc_args, int ncc_args);
 
+/* Search dir for imported modules, after the importing file's own
+   directory; in the order given (modules.md). The string must outlive
+   the session. */
+void funk_module_dir(const char *dir);
+
 /* Parse and type-check path, running nothing; it need not define `main`. */
 bool funk_check_file(const char *path);
 

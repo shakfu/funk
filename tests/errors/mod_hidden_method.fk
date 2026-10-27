@@ -1,0 +1,6 @@
+-- expect: module `modules.listed` does not export `label`
+-- Named is exported without (..): its methods stay inside.
+import modules.listed (Named)
+instance Named Int where
+  label _ = "int"
+main = ()

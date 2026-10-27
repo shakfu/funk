@@ -1,0 +1,3 @@
+-- Reached by a two-level path, modules.util.text.
+banner :: String -> String
+banner s = "== " ++ s ++ " =="

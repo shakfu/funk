@@ -1,0 +1,30 @@
+-- Modules (docs/dev/modules.md): qualified names of values, types,
+-- constructors, fields, a class, an operator with its fixity, `as`, a
+-- two-level path, and a diamond (vec is imported here and by geometry).
+import modules.geometry
+import modules.vec
+import modules.util.text as t
+
+data Shape = Square Float -- the program's own Shape, distinct from geometry.Shape
+
+origin :: vec.Vec
+origin = vec.Vec 0.0 0.0
+
+side :: Shape -> Float
+side (Square a) = a
+
+main = do
+  putStrLn (t.banner "modules")
+  let c = geometry.Circle (vec.Vec 1.0 2.0) 2.0
+      p = geometry.Poly [vec.Vec 0.0 0.0, vec.Vec 2.0 0.0, vec.Vec 2.0 2.0, vec.Vec 0.0 2.0]
+  print (geometry.area c, geometry.area p)
+  print (geometry.centroid p)
+  print (geometry.shift 1.0 c)
+  print c.radius
+  print (c.center.x, geometry.Shape.radius c)
+  putStrLn c.describe
+  print (vec.Vec 1.0 1.0 vec.<+> vec.Vec 2.0 2.0 vec.<+> origin)
+  print ((vec.Vec 3.0 4.0).norm2, vec.Vec.norm2 (vec.Vec 1.0 0.0))
+  print (map (\s -> case s of { geometry.Circle _ r -> r; geometry.Poly ps -> fromIntegral (length ps) }) [c, p])
+  print (vec.sumSquares 10, side (Square 2.5))
+  print (vec.Vec 1.0 2.0 == vec.Vec 1.0 2.0)

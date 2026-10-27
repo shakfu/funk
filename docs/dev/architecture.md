@@ -8,6 +8,7 @@ How funk 0.1 is built. The reasons behind each choice are in
 ```text
 source --lex.c--> tokens (layout applied)
        --parse.c--> AST, desugared
+       --qualify.c--> a module's names prefixed (modules.md)
        --check.c--> SCC groups, inferred types, class constraints
        --elab.c--> dictionaries passed explicitly, specializations
        --resolve.c--> frame slots, free-variable lists
@@ -25,6 +26,7 @@ Both backends link the same runtime, `rt.c`.
 | `src/elab.c` | 475 | dictionary passing, specialization |
 | `src/fuse.c` | 1148 | fusion of list pipelines into loops |
 | `src/resolve.c` | 158 | closure conversion |
+| `src/qualify.c` | 234 | module scope: a module's names prefixed, imports' qualifiers resolved |
 | `src/interp.c` | 173 | interpreter |
 | `src/cgen.c` | 321 | C generator |
 | `src/ffi.c` | 122 | foreign-import glue; the interpreter's compile, cache and load |
@@ -220,6 +222,10 @@ Output: the embedded runtime source, a global array `G`, one `static V fn_N(V se
 - Constructor tag tests are skipped for single-constructor types. A test for a nullary constructor compares the value with its `fk_nullaries` object, and so does a test for a type's only other constructor beside one or two nullary ones (`:`, `Just`); others read the id from the header (`con_test`).
 
 `funk build` writes the C to a temporary file and runs `$CC -O2 -o OUT FILE.c -lm -lpthread`.
+
+## Modules (`qualify.c`, `driver.c`)
+
+`import a.b` reads `a/b.fk` beside the importing file, then in each `-M` directory. The parser stops after a file's header (`parse_begin`), so that the imports, whose fixities the body needs, are compiled first; `parse_finish` parses the rest. `driver.c` compiles each module once per session, keyed by `realpath`, before the files that import it. Each module is a chunk, and `cgen_program` receives the prelude, the modules in dependency order, then the program. The parser joins `q.x`, `q.X` and `q.op` into one token when `q` is an import's qualifier. `qualify.c` then renames a module's top-level values, types, constructors and classes to `prefix.name`, and `q.name` to the imported module's `prefix.name`. The program's own names and the prelude's stay unqualified. See [modules.md](modules.md).
 
 ## REPL (`driver.c`, `cli/main.c`)
 

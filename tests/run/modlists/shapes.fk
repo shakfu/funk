@@ -1,0 +1,22 @@
+module shapes (Shape(..), Size(..), area, HasName(..), (<->)) where
+
+data Shape = Circle Float | Square Float deriving (Show)
+
+-- Exported with (..): its fields are visible outside.
+data Size = Size { w, h :: Float }
+
+class HasName a where
+  name :: a -> String
+
+instance HasName Shape where
+  name (Circle _) = "circle"
+  name (Square _) = "square"
+
+area :: Shape -> Float
+area (Circle r) = 3.0 * r * r
+area (Square a) = a * a
+
+-- infixr: a <-> b <-> x is a <-> (b <-> x), which the default, infixl 9, would reject
+infixr 5 <->
+(<->) :: Shape -> Float -> Float
+a <-> x = area a - x

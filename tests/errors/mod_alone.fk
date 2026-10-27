@@ -1,0 +1,3 @@
+-- expect: `ok` names an imported module; use `ok.name`
+import modules.ok
+main = print ok

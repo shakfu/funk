@@ -1,0 +1,3 @@
+-- expect: mod_missing.fk:2:1: error: module `modules.nosuch` not found; looked for tests/errors/modules/nosuch.fk
+import modules.nosuch
+main = ()

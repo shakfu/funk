@@ -7,6 +7,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - GitHub Actions CI (`.github/workflows/ci.yml`): `make test` on Linux and macOS, plain and with funk built under UBSan.
+- Modules, phase 1 ([docs/dev/modules.md](docs/dev/modules.md)). `import a.b` compiles `a/b.fk`, found beside the importing file or under `-M DIR`, and makes its names available qualified by the last segment, or by the name after `as`: `b.f`, `b.T`, `b.C`, `x b.<+> y`. Qualified-only, since a name added to a module then cannot clash in the files that import it. Every module is compiled once per program, and whole-program optimization still crosses module boundaries: a module's list pipeline fuses as before.
+
+  ```haskell
+  import shapes.geometry
+  main = print (geometry.area (geometry.Circle 2.0))
+  ```
+
+- Import and export lists, modules phase 2. `import m (f, T(..), C(..), (<+>))` also brings those names in unqualified. `module m (f, T, C(..)) where` exports only those. A type exported without `(..)` is abstract: its constructors and fields stay inside its module, and its namespace functions go with it. A type not exported keeps its fields and namespace functions inside even when its values leave the module.
+
 - `bench.py ab OLD [NEW]`: compares two compilers by running their binaries alternately, which cancels the drift of about 5% between sessions (`bench/README.md`).
 
 ### Changed

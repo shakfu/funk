@@ -1,0 +1,7 @@
+-- T(A, B): Blue stays inside.
+module color (Color(Red, Green), favourite) where
+
+data Color = Red | Green | Blue deriving (Show)
+
+favourite :: Color
+favourite = Blue

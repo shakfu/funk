@@ -277,7 +277,26 @@ typedef struct {
   int nf, line, col;
 } StructDecl;
 
+/* An import or export list's item: x, (op), T, T(..) or T(A, B) (modules.md). */
 typedef struct {
+  const char *name;
+  bool all;          /* T(..) */
+  const char **subs; /* T(A, B) */
+  int nsubs, line, col;
+} ListItem;
+typedef VEC(ListItem) ListItems;
+
+/* import a.b [as q] [(items)] */
+typedef struct { const char *path, *qual; bool listed; ListItems items; int line, col; } Import;
+
+typedef struct {
+  const char *name; /* module name [(items)] where: its header, or NULL */
+  int line, col;
+  bool exports_listed;
+  ListItems exports;
+  void *pending; /* parser state between parse_begin and parse_finish */
+  Import *imports;
+  int nimports;
   Bind **binds;
   int nb;
   DataDecl **datas;
@@ -295,6 +314,25 @@ typedef struct {
 } Module;
 
 Module *parse_module(const char *src, size_t len);
+Module *parse_begin(const char *src, size_t len); /* the header and imports only */
+void parse_finish(Module *m);                      /* the rest, once the imports are compiled */
+
+/* modules.md: give a module's top-level names its prefix, and imported
+   qualifiers theirs. prefix NULL for the program, whose names stay. */
+enum { NS_VALUE, NS_TYPE, NS_CON, NS_CLASS };
+/* What a module exports, by unprefixed name. A type's namespace functions
+   and fields are values named `T.f`; a constructor's parent is its type,
+   a method's its class. */
+typedef struct { const char *name, *parent; int ns; } Export;
+typedef VEC(Export) Exports;
+typedef struct { Import *im; const char *prefix; Exports *ex; } ImportInfo;
+/* Qualify m, and return what it exports. */
+Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nimps);
+extern Strs sealed_types, hidden_types; /* prefix.T: fields not exported; the type not exported at all */
+extern const char *cur_module; /* the module being checked: its prefix, or NULL for the program */
+bool in_prelude(int ns, const char *name);
+/* In `[module.]Type.member`, the '.' before member; NULL for other names. */
+const char *ns_dot(const char *name);
 Expr *parse_expr_text(const char *src, size_t len);
 Sig *parse_sig_text(const char *src);
 bool is_decl_text(const char *src, size_t len);

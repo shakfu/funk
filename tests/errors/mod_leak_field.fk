@@ -1,0 +1,4 @@
+-- expect: the fields of `secret.Secret` are not exported by module `secret`
+-- Secret is not exported; mkSecret returns one.
+import modules.secret
+main = print (secret.mkSecret 7).sv

@@ -1,0 +1,21 @@
+-- Imported by modules.fk and by geometry.fk: compiled once.
+module vec where
+
+data Vec = Vec { x, y :: Float } deriving (Eq, Show)
+
+infixl 6 <+>
+(<+>) :: Vec -> Vec -> Vec
+Vec a b <+> Vec c d = Vec (a + c) (b + d)
+
+Vec.norm2 :: Vec -> Float
+Vec.norm2 v = v.x * v.x + v.y * v.y
+
+scale :: Float -> Vec -> Vec
+scale k v = Vec (k * v.x) (k * v.y)
+
+sumVecs :: [Vec] -> Vec
+sumVecs = foldl (<+>) (Vec 0.0 0.0)
+
+-- A pipeline over a list, for fusion across the module boundary.
+sumSquares :: Int -> Int
+sumSquares n = sum (map (\i -> i * i) (filter even (enumFromTo 1 n)))

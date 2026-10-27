@@ -1,0 +1,3 @@
+-- expect: `ok` names an imported module, so it cannot also name a variable
+import modules.ok
+main = let ok = 2 in print ok

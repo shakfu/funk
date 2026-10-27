@@ -1,0 +1,3 @@
+-- expect: module `modules.color` does not export constructor `Blue`
+import modules.color
+main = print color.Blue

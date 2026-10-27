@@ -1,0 +1,4 @@
+-- expect: two modules are named `dup`
+import modules.dup
+import modules.sub.dup as d2
+main = ()

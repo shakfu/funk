@@ -1,0 +1,4 @@
+-- expect: `open` is imported from `modules.listed`; choose another name
+import modules.listed (open)
+open = 3
+main = ()

@@ -1,0 +1,24 @@
+-- Import and export lists (docs/dev/modules.md, phase 2).
+import modlists.stack (Stack, empty, push)
+import modlists.shapes (Shape(..), Size(..), HasName(..), (<->))
+import modlists.color (Color(Red))
+
+data Dog = Dog
+
+instance HasName Dog where
+  name _ = "dog"
+
+top :: Stack Int -> Maybe Int
+top s = case stack.pop s of
+  Nothing -> Nothing
+  Just (x, _) -> Just x
+
+main = do
+  let s = push 3 (push 2 (push 1 empty))
+  print (top s, s.size, stack.Stack.size (stack.push 0 s))
+  print (map name [Circle 1.0, Square 2.0], name Dog)
+  print (Square 3.0 <-> Circle 1.0 <-> 1.0, shapes.area (Circle 2.0))
+  print (case Circle 2.0 of { Circle r -> r; Square a -> a })
+  print (Red, color.Green, color.favourite)
+  let z = Size 2.0 3.0
+  print (z.w, (z { h = 4.0 }).h, map (.w) [z])

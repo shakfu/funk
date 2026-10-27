@@ -1,0 +1,15 @@
+module listed (Box, open, box, Named) where
+
+data Box = MkBox { content :: Int }
+
+open :: Box -> Int
+open b = b.content
+
+hidden :: Int
+hidden = 1
+
+class Named a where
+  label :: a -> String
+
+box :: Box
+box = MkBox 1

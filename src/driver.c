@@ -14,6 +14,14 @@ static Chunk prelude;
 static bool prelude_installed; /* in the interpreter: build and check do not need it there */
 static Strs cc_args;
 
+/* Imported modules (modules.md): each file once, keyed by realpath, its
+   chunk compiled before the files that import it. */
+typedef struct { const char *real, *file, *prefix; bool done; Exports *ex; } Mod; /* file: as found, for messages */
+static VEC(Mod) mods;
+static VEC(Chunk) mod_chunks;
+static int mods_installed; /* in the interpreter */
+static Strs mod_dirs;      /* -M DIR */
+
 static void report(const char *fmt, const char *arg) {
   fflush(stdout);
   fprintf(stderr, "funk: ");
@@ -42,6 +50,17 @@ static Module *parse_caught(const char *src, size_t len) {
   if (!setjmp(jb)) {
     cerr_jmp = &jb;
     m = parse_module(src, len);
+  }
+  cerr_jmp = saved;
+  return m;
+}
+
+static Module *begin_caught(const char *src, size_t len) {
+  jmp_buf jb, *saved = cerr_jmp;
+  Module *volatile m = NULL;
+  if (!setjmp(jb)) {
+    cerr_jmp = &jb;
+    m = parse_begin(src, len);
   }
   cerr_jmp = saved;
   return m;
@@ -87,6 +106,124 @@ static void install_prelude(void) {
   prelude_installed = true;
 }
 
+void funk_module_dir(const char *dir) { VPUSH(mod_dirs, dir); }
+
+static Exports *prepare(Module *m, const char *file, const char *prefix);
+
+/* The file for module path a.b, looked for as a/b.fk beside from, then
+   in each -M directory; its realpath, or NULL. */
+static const char *find_module(const char *path, const char *from, const char **found, SB *searched) {
+  char *rel = xsprintf("%s.fk", path);
+  for (size_t i = 0, n = strlen(rel) - 3; i < n; i++)
+    if (rel[i] == '.') rel[i] = '/';
+  const char *slash = strrchr(from, '/');
+  Strs dirs = {0};
+  VPUSH(dirs, slash ? xsprintf("%.*s", (int)(slash - from), from) : ".");
+  for (int i = 0; i < mod_dirs.n; i++) VPUSH(dirs, mod_dirs.a[i]);
+  for (int i = 0; i < dirs.n; i++) {
+    char *cand = xsprintf("%s/%s", dirs.a[i], rel);
+    sb_printf(searched, "%s%s", i ? ", " : "", cand);
+    char *real = access(cand, R_OK) == 0 ? realpath(cand, NULL) : NULL;
+    if (real) {
+      *found = cand;
+      free(dirs.a);
+      return intern(real);
+    }
+  }
+  free(dirs.a);
+  return NULL;
+}
+
+/* Compile the module im names, once; its entry in mods, or -1 after an
+   error inside it. Other errors unwind through cerror to prepare_caught. */
+static int import_module(Import *im, const char *from) {
+  const char *found;
+  SB searched = {0};
+  const char *real = find_module(im->path, from, &found, &searched);
+  if (!real) cerror(im->line, im->col, "module `%s` not found; looked for %s", im->path, searched.s);
+  for (int i = 0; i < mods.n; i++) {
+    if (mods.a[i].real != real) continue;
+    if (mods.a[i].done) return i;
+    SB chain = {0}; /* the modules still loading, from this one, are the cycle */
+    for (int j = i; j < mods.n; j++) sb_printf(&chain, "%s -> ", mods.a[j].prefix);
+    cerror(im->line, im->col, "import cycle: %s%s", chain.s, mods.a[i].prefix);
+  }
+  const char *dot = strrchr(im->path, '.'), *prefix = intern(dot ? dot + 1 : im->path);
+  for (int i = 0; i < mods.n; i++)
+    if (mods.a[i].prefix == prefix)
+      cerror(im->line, im->col, "two modules are named `%s`: %s, and %s imported earlier", prefix, found, mods.a[i].file);
+  VPUSH(mods, ((Mod){real, found, prefix, false, NULL}));
+  int me = mods.n - 1;
+  size_t len;
+  char *src = read_file(found, &len);
+  if (!src) cerror(im->line, im->col, "cannot read %s", found);
+  cur_file = found;
+  Module *m = parse_begin(src, len);
+  if (m->name) {
+    const char *hd = strrchr(m->name, '.');
+    if (strcmp(hd ? hd + 1 : m->name, prefix)) cerror(m->line, m->col, "the module is named `%s`, but it is imported as `%s`", m->name, im->path);
+  }
+  Chunk c;
+  Exports *ex = prepare(m, found, prefix);
+  if (!ex) return -1;
+  cur_file = found;
+  const char *cm = cur_module;
+  cur_module = prefix;
+  bool ok = compile_chunk(m, &c);
+  cur_module = cm;
+  if (!ok) return -1;
+  VPUSH(mod_chunks, c);
+  mods.a[me].done = true;
+  mods.a[me].ex = ex;
+  cur_file = from;
+  return me;
+}
+
+/* Compile m's imports, parse the rest of m, then qualify it: with prefix
+   for a module, NULL for the program. What m exports, or NULL after an
+   error. */
+static Exports *prepare(Module *m, const char *file, const char *prefix) {
+  static Exports none;
+  if (!m->nimports && !prefix) {
+    parse_finish(m);
+    return &none;
+  }
+  ImportInfo *imps = xmalloc((size_t)m->nimports * sizeof *imps + 1);
+  for (int i = 0; i < m->nimports; i++) {
+    cur_file = file;
+    int k = import_module(&m->imports[i], file);
+    if (k < 0) return NULL;
+    imps[i] = (ImportInfo){&m->imports[i], mods.a[k].prefix, mods.a[k].ex};
+  }
+  cur_file = file;
+  parse_finish(m);
+  return qualify_module(m, prefix, imps, m->nimports);
+}
+
+static bool prepare_caught(Module *m, const char *file) {
+  jmp_buf jb, *saved = cerr_jmp;
+  const char *cf = cur_file;
+  int n0 = mods.n;
+  volatile bool ok = false;
+  if (!setjmp(jb)) {
+    cerr_jmp = &jb;
+    ok = prepare(m, file, NULL) != NULL;
+  }
+  cerr_jmp = saved;
+  cur_file = cf;
+  if (!ok) { /* forget the modules left half-loaded; compiled ones stay */
+    int k = n0;
+    for (int i = n0; i < mods.n; i++)
+      if (mods.a[i].done) mods.a[k++] = mods.a[i];
+    mods.n = k;
+  }
+  return ok;
+}
+
+static void install_modules(void) {
+  for (; mods_installed < mod_chunks.n; mods_installed++) interp_install(&mod_chunks.a[mods_installed]);
+}
+
 static bool compile_file(const char *path, Chunk *out) {
   size_t len;
   char *src = read_file(path, &len);
@@ -95,8 +232,8 @@ static bool compile_file(const char *path, Chunk *out) {
     return false;
   }
   cur_file = path;
-  Module *m = parse_caught(src, len);
-  return m && compile_chunk(m, out);
+  Module *m = begin_caught(src, len);
+  return m && prepare_caught(m, path) && compile_chunk(m, out);
 }
 
 /* Compile path, which must define `main`. */
@@ -127,6 +264,7 @@ bool funk_run_file(const char *path) {
   if (!compile_program(path, &c)) return false;
   CATCH_RUNTIME(return false);
   install_prelude();
+  install_modules();
   interp_install(&c);
   fk_error_jmp = NULL;
   fflush(stdout);
@@ -135,7 +273,13 @@ bool funk_run_file(const char *path) {
 
 char *funk_emit_c(const char *path) {
   Chunk c;
-  return compile_program(path, &c) ? cgen_program((Chunk[]){prelude, c}, 2) : NULL;
+  if (!compile_program(path, &c)) return NULL;
+  int n = mod_chunks.n + 2;
+  Chunk *all = xmalloc((size_t)n * sizeof *all);
+  all[0] = prelude;
+  copy_n(all + 1, mod_chunks.a, (size_t)mod_chunks.n * sizeof *all);
+  all[n - 1] = c;
+  return cgen_program(all, n);
 }
 
 static int run_cc(const char *csrc, const char *exe, const char *opt) {
@@ -182,6 +326,7 @@ bool funk_load_file(const char *path) {
   CATCH_RUNTIME(cur_file = file; return false);
   install_prelude();
   if (compile_file(path, &c)) {
+    install_modules();
     interp_install(&c);
     ok = true;
   } else {

@@ -1,0 +1,5 @@
+-- expect: the fields of `listed.Box` are not exported by module `listed`
+import modules.listed
+f :: listed.Box -> Int
+f b = b.content
+main = print (f listed.box)

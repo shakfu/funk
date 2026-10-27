@@ -1,0 +1,2 @@
+open :: Int -> Int
+open x = x

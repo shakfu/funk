@@ -1,0 +1,5 @@
+one :: Int
+one = 1
+
+broken :: Int
+broken = one + "two"

@@ -1,0 +1,3 @@
+-- expect: module `modules.listed` does not export `hidden`
+import modules.listed
+main = print listed.hidden

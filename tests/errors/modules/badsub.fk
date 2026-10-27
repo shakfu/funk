@@ -1,0 +1,2 @@
+module badsub (T(B)) where
+data T = A

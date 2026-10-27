@@ -1,0 +1,3 @@
+-- expect: redef.fk:1:1: error: `map` is defined in the prelude and cannot be redefined
+import modules.redef
+main = ()

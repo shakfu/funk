@@ -1,0 +1,30 @@
+loaded tests/run/modules/util/text.fk
+"== plain =="
+== modules ==
+(12.0,4.0)
+Vec {x = 1.0, y = 1.0}
+Circle {center = Vec {x = 2.0, y = 3.0}, radius = 2.0}
+2.0
+(1.0,2.0)
+area 12.0
+Vec {x = 3.0, y = 3.0}
+(25.0,1.0)
+[2.0,4.0]
+(220,2.5)
+True
+loaded tests/run/modules.fk
+3.0
+== modules ==
+(12.0,4.0)
+Vec {x = 1.0, y = 1.0}
+Circle {center = Vec {x = 2.0, y = 3.0}, radius = 2.0}
+2.0
+(1.0,2.0)
+area 12.0
+Vec {x = 3.0, y = 3.0}
+(25.0,1.0)
+[2.0,4.0]
+(220,2.5)
+True
+loaded tests/run/modules.fk
+Vec {x = 0.0, y = 0.0}

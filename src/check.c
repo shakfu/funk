@@ -95,6 +95,7 @@ static Type *cur_sig; /* the signature, rigid, of the binding being checked */
 static int cur_args;  /* arguments before cur_eff's arrow in cur_sig; 0 if not in it */
 static int nprelude; /* globals defined by the prelude and the primitives: their names are reserved */
 static int nprelude_types = NBUILTIN_TYPES, nprelude_cons = FK_NBUILTIN_CONS; /* likewise, types and constructors */
+static int nprelude_classes;
 static Type *newvar(void);
 
 static Type *tarrow(Type *a, Type *b) {
@@ -763,8 +764,8 @@ static void deps_expr(Expr *e, Sh *sh, Deps *d) {
   case E_FIELD: /* p.x may call any Type.x defined in this group */
     deps_expr(e->body, sh, d);
     for (int i = 0; i < d->n; i++) {
-      const char *dot = strchr(d->b[i]->name, '.');
-      if (isupper((unsigned char)d->b[i]->name[0]) && dot && strcmp(dot + 1, e->name) == 0)
+      const char *dot = ns_dot(d->b[i]->name);
+      if (dot && strcmp(dot + 1, e->name) == 0)
         d->adj[d->cur * d->n + i] = true;
     }
     return;
@@ -1045,11 +1046,25 @@ static void make_case(Expr *e, Expr *scrut, int na, Alt **alts) {
   e->alts = alts;
 }
 
+/* Type n is in set, and this is not its module (modules.md). */
+static bool outside(const char *n, Strs *set) {
+  const char *dot = strrchr(n, '.');
+  bool in = false;
+  for (int i = 0; i < set->n && !in; i++) in = set->a[i] == n;
+  return in && !(cur_module && strlen(cur_module) == (size_t)(dot - n) && !strncmp(cur_module, n, (size_t)(dot - n)));
+}
+
+static void fields_visible(int ti, int line, int col) {
+  const char *n = tydefs.a[ti].name, *dot = strrchr(n, '.');
+  if (outside(n, &sealed_types)) cerror(line, col, "the fields of `%s` are not exported by module `%.*s`", n, (int)(dot - n), n);
+}
+
 /* C { f = e, ... } -> C e1 .. en */
 static void lower_construction(Expr *e) {
   Expr *fn = e->fn;
   int c = con_lookup(fn->name, fn->line, fn->col);
   ConDef *cd = &condefs.a[c];
+  fields_visible(cd->tydef, e->line, e->col);
   Expr **args = xcalloc((size_t)cd->arity + 1, sizeof *args);
   for (int k = 0; k < e->n; k++) {
     int i = label_index(c, e->fields[k]);
@@ -1075,6 +1090,7 @@ static void lower_construction(Expr *e) {
 /* C { f = p } -> C _ .. p .. _ */
 static void lower_rec_pat(Pat *p, int con) {
   ConDef *cd = &condefs.a[con];
+  fields_visible(cd->tydef, p->line, p->col);
   Pat **args = xcalloc((size_t)cd->arity + 1, sizeof *args);
   for (int k = 0; k < p->n; k++) {
     int i = label_index(con, p->fields[k]);
@@ -1095,6 +1111,7 @@ static void lower_rec_pat(Pat *p, int con) {
 /* p.x on type ti: one alternative per constructor. */
 static void lower_field(Pending *pd, int ti) {
   Expr *e = pd->e;
+  fields_visible(ti, e->line, e->col);
   const char *x = e->name, *v = intern("$f");
   int first = first_con(ti), nc = tydefs.a[ti].ncons;
   Alt **alts = xmalloc((size_t)nc * sizeof *alts);
@@ -1125,6 +1142,7 @@ static void lower_field(Pending *pd, int ti) {
    values first when several constructors would each mention them. */
 static void lower_update(Pending *pd, int ti) {
   Expr *e = pd->e;
+  fields_visible(ti, e->line, e->col);
   int first = first_con(ti), nc = tydefs.a[ti].ncons, nok = 0, ok1 = -1;
   for (int k = 0; k < e->n; k++) {
     if (!has_label(ti, e->fields[k]))
@@ -1211,6 +1229,10 @@ static bool lower_method(Pending *pd, Type *r) {
   const char *q = intern(xsprintf("%s.%s", r->name, e->name));
   int g = map_get(&gmap, q);
   if (g < 0 || !globals.a[g].type) return false;
+  if (outside(r->name, &hidden_types)) {
+    const char *dot = strrchr(r->name, '.');
+    cerror(e->line, e->col, "`%s` is in the namespace of `%s`, which module `%.*s` does not export", q, r->name, (int)(dot - r->name), r->name);
+  }
   Expr *f = ex_var(q, e->line, e->col);
   unify(f->ty = inst_var(globals.a[g].type, f), tarrow(pd->rec, pd->res), e->line, e->col);
   Expr **a = xmalloc(sizeof *a);
@@ -1267,8 +1289,8 @@ static bool is_pending_rec(Type *t) {
 static void default_receivers(Group *g, Type **mono, Type **sch) {
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
-    const char *dot = strchr(b->name, '.');
-    if (sch[i] || !dot || !isupper((unsigned char)b->name[0]) || b->e->k != E_LAM) continue;
+    const char *dot = ns_dot(b->name);
+    if (sch[i] || !dot || b->e->k != E_LAM) continue;
     Type *p0 = repr(repr(mono[i])->args[0]);
     if (p0->k != TY_VAR || !is_pending_rec(p0)) continue;
     const char *tn = intern_n(b->name, (size_t)(dot - b->name));
@@ -1304,7 +1326,7 @@ static void resolve_fields(bool final) {
 
 /* Type.x where x is a field: \r -> r.x with r of type Type. */
 static Type *infer_qualified_field(Expr *e, Env *env) {
-  const char *dot = strchr(e->name, '.');
+  const char *dot = ns_dot(e->name);
   const char *tn = intern_n(e->name, (size_t)(dot - e->name)), *x = intern(dot + 1);
   int ti = map_get(&tmap, tn);
   if (ti < 0) cerror(e->line, e->col, "unknown type `%s`", tn);
@@ -1507,7 +1529,7 @@ static Type *infer0(Expr *e, Env *env) {
     for (Env *x = env; x; x = x->next)
       if (x->name == e->name) return inst_var(x->t, e);
     int g = map_get(&gmap, e->name);
-    if (g < 0 && isupper((unsigned char)e->name[0])) return infer_qualified_field(e, env);
+    if (g < 0 && ns_dot(e->name)) return infer_qualified_field(e, env);
     if (g < 0) cerror(e->line, e->col, "variable not in scope: `%s`", e->name);
     return inst_var(globals.a[g].type, e);
   }
@@ -2606,8 +2628,8 @@ bool compile_chunk(Module *m, Chunk *out) {
   m->nb = extra.n;
   for (int i = 0; i < m->nb; i++) {
     Bind *b = m->binds[i];
-    const char *dot = strchr(b->name, '.');
-    if (isupper((unsigned char)b->name[0]) && dot) { /* Type.name */
+    const char *dot = ns_dot(b->name);
+    if (dot) { /* Type.name */
       const char *tn = intern_n(b->name, (size_t)(dot - b->name));
       int ti = map_get(&tmap, tn);
       if (ti < 0) cerror(b->line, b->col, "unknown type `%s`", tn);
@@ -2679,6 +2701,7 @@ bool compile_chunk(Module *m, Chunk *out) {
     nprelude = globals.n;
     nprelude_types = tydefs.n;
     nprelude_cons = condefs.n;
+    nprelude_classes = classes.n;
   }
   out->groups = gs;
   out->ng = ng;
@@ -2714,4 +2737,17 @@ const char *infer_type_text(Expr *e) {
   cvars.n = 0;
   cerr_jmp = saved;
   return type_str(t);
+}
+
+
+bool in_prelude(int ns, const char *name) {
+  int i = map_get(ns == NS_VALUE ? &gmap : ns == NS_TYPE ? &tmap : ns == NS_CON ? &cmap : &clsmap, name);
+  return i >= 0 && i < (ns == NS_VALUE ? nprelude : ns == NS_TYPE ? nprelude_types : ns == NS_CON ? nprelude_cons : nprelude_classes);
+}
+
+const char *ns_dot(const char *name) {
+  const char *d = strrchr(name, '.'), *s = d;
+  if (!d || d == name || name[0] == '$' || !(islower((unsigned char)d[1]) || d[1] == '_')) return NULL; /* $def.C.m: generated */
+  while (s > name && s[-1] != '.') s--;
+  return isupper((unsigned char)*s) ? d : NULL;
 }

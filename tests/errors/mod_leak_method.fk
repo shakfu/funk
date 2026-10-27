@@ -1,0 +1,4 @@
+-- expect: `secret.Secret.reveal` is in the namespace of `secret.Secret`, which module `secret` does not export
+-- A namespace function goes with its type, which is not exported.
+import modules.secret
+main = print (secret.mkSecret 7).reveal

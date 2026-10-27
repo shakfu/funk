@@ -1,0 +1,3 @@
+-- expect: badexport.fk:1:19: error: the export list names `nosuch`, which this module does not define
+import modules.badexport
+main = ()

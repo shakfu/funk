@@ -1,0 +1,24 @@
+module geometry where
+import vec
+
+data Shape = Circle { center :: vec.Vec, radius :: Float } | Poly [vec.Vec] deriving (Show)
+
+class HasArea a where
+  area :: a -> Float
+
+instance HasArea Shape where
+  area (Circle _ r) = 3.0 * r * r
+  area (Poly ps) = fromIntegral (length ps)
+
+centroid :: Shape -> vec.Vec
+centroid (Circle c _) = c
+centroid (Poly ps) = vec.scale (1.0 / fromIntegral (length ps)) (vec.sumVecs ps)
+
+-- The local `centroid` shadows the module's own.
+shift :: Float -> Shape -> Shape
+shift d s = case s of
+  Circle c r -> let centroid = vec.Vec d d in Circle (c vec.<+> centroid) r
+  Poly ps -> Poly (map (\p -> p vec.<+> vec.Vec d d) ps)
+
+Shape.describe :: Shape -> String
+Shape.describe s = "area " ++ show (area s)

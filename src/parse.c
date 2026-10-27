@@ -8,6 +8,8 @@
                               -> case e of p -> case e2 of _ -> let ds in e3
    Record syntax (p.x, C { f = e }, r { f = e }) is kept as E_FIELD and
    E_RECORD; check.c lowers it once constructor fields are known. */
+#include <ctype.h>
+
 #include "funk.h"
 
 typedef struct { Token *t; int n, pos; } P;
@@ -98,6 +100,8 @@ static const Fixity fixities[] = {
 static Map user_fixities;
 
 static Fixity fixity(const char *op) {
+  const char *dot = islower((unsigned char)op[0]) ? strchr(op, '.') : NULL;
+  if (dot && dot[1]) op = intern(dot + 1); /* q.op: an import's operator has its own fixity */
   int v = map_get(&user_fixities, op);
   if (v >= 0) return (Fixity){op, v / 3, "lrn"[v % 3]};
   for (size_t i = 0; i < sizeof fixities / sizeof fixities[0]; i++)
@@ -739,7 +743,7 @@ static Rhs parse_rhs(P *p, TokKind sep, bool allow_where) {
   return r;
 }
 
-/* Items of an explicit or layout block, separated by ';'. */
+/* ListItems of an explicit or layout block, separated by ';'. */
 #define BLOCK(p, item)                                                         \
   do {                                                                         \
     Token *open_ = cur(p);                                                     \
@@ -1540,16 +1544,152 @@ static P start(const char *src, size_t len) {
   return p;
 }
 
+/* A dotted module path: a varid and the field tokens after it, `a.b`. */
+static const char *module_path(P *p, const char *what) {
+  const char *s = expect(p, T_VARID, what)->s;
+  while (is(p, T_FIELD)) s = intern(xsprintf("%s.%s", s, next(p)->s));
+  return s;
+}
+
+static bool word(P *p, int off, const char *w) { return ahead(p, off)->k == T_VARID && !strcmp(ahead(p, off)->s, w); }
+
+/* (x, (op), T, T(..), T(A, b), ...) */
+static ListItems parse_items(P *p) {
+  ListItems its = {0};
+  expect(p, T_LPAREN, NULL);
+  while (!is(p, T_RPAREN)) {
+    Token *t = cur(p);
+    ListItem it = {.line = t->line, .col = t->col};
+    if (accept(p, T_LPAREN)) {
+      if (!is(p, T_VARSYM) && !is(p, T_CONSYM)) unexpected(p, "an operator");
+      it.name = next(p)->s;
+      expect(p, T_RPAREN, NULL);
+    } else if (is(p, T_VARID)) {
+      it.name = next(p)->s;
+    } else {
+      it.name = expect(p, T_CONID, "a name")->s;
+      if (accept(p, T_LPAREN)) {
+        if (accept(p, T_DOTDOT)) {
+          it.all = true;
+        } else {
+          VEC(const char *) subs = {0};
+          while (!is(p, T_RPAREN)) {
+            VPUSH(subs, expect(p, T_CONID, "a constructor")->s);
+            if (!accept(p, T_COMMA)) break;
+          }
+          it.subs = subs.a;
+          it.nsubs = subs.n;
+        }
+        expect(p, T_RPAREN, NULL);
+      }
+    }
+    VPUSH(its, it);
+    if (!accept(p, T_COMMA)) break;
+  }
+  expect(p, T_RPAREN, NULL);
+  return its;
+}
+
+/* `module name where` and the `import` lines at the top of a file
+   (modules.md). The words are reserved only there. */
+static void parse_header(P *p, Module *m) {
+  while (accept(p, T_SEMI)) {}
+  if (word(p, 0, "module") && ahead(p, 1)->k == T_VARID) {
+    Token *t = next(p);
+    m->line = t->line;
+    m->col = t->col;
+    m->name = module_path(p, "a module name");
+    if (is(p, T_LPAREN)) {
+      m->exports_listed = true;
+      m->exports = parse_items(p);
+    }
+    expect(p, T_WHERE, "`where` after the module name");
+    expect(p, T_VLBRACE, NULL);
+    if (!accept(p, T_VRBRACE)) cerror(t->line, t->col, "a module's declarations start at column 1, as the `module` line does");
+  }
+  VEC(Import) ims = {0};
+  for (;;) {
+    while (accept(p, T_SEMI)) {}
+    if (!word(p, 0, "import") || ahead(p, 1)->k != T_VARID) break;
+    Token *t = next(p);
+    Import im = {.line = t->line, .col = t->col};
+    im.path = module_path(p, "a module name");
+    const char *dot = strrchr(im.path, '.');
+    im.qual = dot ? intern(dot + 1) : im.path;
+    if (word(p, 0, "as")) {
+      next(p);
+      im.qual = expect(p, T_VARID, "a name after `as`")->s;
+    }
+    if (is(p, T_LPAREN)) {
+      im.listed = true;
+      im.items = parse_items(p);
+    }
+    for (int i = 0; i < ims.n; i++)
+      if (ims.a[i].qual == im.qual) cerror(t->line, t->col, "`%s` already names an import, at line %d", im.qual, ims.a[i].line);
+    if (!is(p, T_SEMI) && !is(p, T_EOF)) unexpected(p, "a new line after the import");
+    VPUSH(ims, im);
+  }
+  m->imports = ims.a;
+  m->nimports = ims.n;
+}
+
+/* q.x, q.X and q.op with no spaces, q an import's qualifier: one token
+   named `q.x`, `q.X` or `q.op`. Elsewhere `f.X` stays composition. */
+static void join_qualified(P *p, Module *m) {
+  if (!m->nimports) return;
+  int o = p->pos;
+  for (int i = p->pos; i < p->n; i++) {
+    Token t = p->t[i];
+    bool q = false;
+    for (int k = 0; k < m->nimports && !q; k++) q = t.k == T_VARID && t.s == m->imports[k].qual;
+    Token *d = &p->t[i + 1 < p->n ? i + 1 : i];
+    int end = t.col + (int)strlen(q ? t.s : "");
+    if (q && d->k == T_FIELD && d->line == t.line && d->col == end) {
+      t.s = intern(xsprintf("%s.%s", t.s, d->s));
+      i++;
+    } else if (q && d->k == T_VARSYM && d->s[0] == '.' && d->s[1] && d->line == t.line && d->col == end) {
+      t.k = d->s[1] == ':' ? T_CONSYM : T_VARSYM;
+      t.s = intern(xsprintf("%s%s", t.s, d->s));
+      i++;
+    } else if (q && d->k == T_VARSYM && !strcmp(d->s, ".") && d->line == t.line && d->col == end && i + 2 < p->n &&
+               p->t[i + 2].k == T_CONID && p->t[i + 2].line == t.line && p->t[i + 2].col == end + 1) {
+      t.s = intern(xsprintf("%s.%s", t.s, p->t[i + 2].s));
+      t.k = T_CONID;
+      i += 2;
+    }
+    p->t[o++] = t;
+  }
+  p->n = o;
+}
+
+/* The header first, so that the driver can compile the imports, whose
+   fixities the body's operators need, before parse_finish. */
+Module *parse_begin(const char *src, size_t len) {
+  P *p = NEW(P);
+  *p = start(src, len);
+  Module *m = NEW(Module);
+  parse_header(p, m);
+  m->pending = p;
+  return m;
+}
+
 Module *parse_module(const char *src, size_t len) {
-  P p = start(src, len);
+  Module *m = parse_begin(src, len);
+  parse_finish(m);
+  return m;
+}
+
+void parse_finish(Module *m) {
+  P p = *(P *)m->pending;
+  m->pending = NULL;
   prescan_fixities(p);
+  join_qualified(&p, m);
   Decls ds = {0};
   while (!is(&p, T_EOF)) {
     if (accept(&p, T_SEMI)) continue;
     parse_decl(&p, &ds, true);
     if (!is(&p, T_SEMI) && !is(&p, T_EOF)) unexpected(&p, "a new declaration at column 1");
   }
-  Module *m = NEW(Module);
   Binds bs = {0};
   Datas datas = {0};
   build_binds(&ds, &bs, &datas);
@@ -1579,7 +1719,6 @@ Module *parse_module(const char *src, size_t len) {
   m->ncl = cs.n;
   m->insts = is.a;
   m->ni = is.n;
-  return m;
 }
 
 Expr *parse_expr_text(const char *src, size_t len) {

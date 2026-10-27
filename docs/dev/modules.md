@@ -1,6 +1,6 @@
 # Modules and `import`: design note
 
-Status: proposed. Not implemented. It builds on the syntax [records.md](records.md#modules) reserves.
+Status: phases 1 and 2 implemented (unreleased); see "Phase 1 result" and "Phase 2 result". It builds on the syntax [records.md](records.md#modules) reserves.
 
 ## Problem
 
@@ -107,9 +107,45 @@ About 400 lines: parser 120, driver 100, scope and the name-splitting helper in 
 2. Import lists and export lists, with abstract types.
 3. The REPL's `import`, then the Haskell compatibility layer.
 
-## Decisions needed
+## Decisions
 
-- Qualified-only by default, or Haskell's unqualified default.
-- A single-identifier qualifier, or full paths (`shapes.geometry.area`).
-- `-M DIR` for the search path, or an environment variable such as `FUNK_PATH`, or both.
-- Whether phase 1 should already ship the `bench/game` helpers as a module, to test it on real code.
+- Qualified-only by default.
+- A single-identifier qualifier.
+- The search path is given with `-M DIR` only. A command then shows where every module comes from; `FUNK_PATH` can be added later if `-M` proves tedious.
+- `fixed9` stays copied. The Benchmarks Game requires one source file per program, and `bench/game/` follows it.
+
+## Phase 1 result
+
+Files, the search path, qualified imports and `as`, in `src/qualify.c` (234 lines), `parse.c`, `driver.c`, `check.c` and `cli/main.c` (264 lines). Tests: `tests/run/modules.fk` with its modules in `tests/run/modules/`, nine error tests (`tests/errors/mod_*.fk`), and `tests/repl/modules.in`.
+
+It departs from the proposal in these points:
+
+- **Renaming instead of aliases.** The proposal installed short aliases in the name maps while a module compiled. Generated globals are keyed by name, such as reuse copies (`step@own1`) and specializations, and two modules' `step` would share them. `qualify.c` renames the parsed module instead: every top-level name of a module becomes `prefix.name` before `compile_chunk`, and later passes see unique names.
+- **Qualified operators**, not in phase 1 as proposed: `a vec.<+> b`, and `(vec.<+>)`. An imported operator has its own fixity. Fixities stay session-wide, as before modules.
+- **Module names are unique in a program.** Two files with one last segment, such as `dup` and `sub.dup`, are an error, since the prefix is that segment.
+- **The header** must match the import path's last segment, not the whole path. A module imported from two directories has two paths.
+- **`module`, `import` and `as`** are reserved only in a file's header, so programs that use them as names still compile.
+- **The REPL.** `:l` follows a file's imports and compiles each module once per session. A failed load keeps the modules it compiled, as `:l` keeps a file's earlier definitions. Qualifiers are not in scope at the prompt; that is phase 3's `import`.
+
+Programs without imports are unchanged: the 67 programs in `bench/`, `examples/` and `tests/run/` emit the same C with the type-namespace test the five `check.c` sites used before (`ns_dot` replaces it).
+
+## Phase 2 result
+
+Import lists, export lists and abstract types, in `qualify.c` (now 399 lines), with export tables kept per module by `driver.c`, and a check in `check.c` that an abstract type's fields stay in its module. Tests: `tests/run/modlists.fk` with its modules in `tests/run/modlists/`, and 10 more error tests.
+
+```haskell
+module stack (Stack, empty, push, pop) where   -- Stack is abstract
+import modlists.shapes (Shape(..), HasName(..), (<->))
+```
+
+Rules settled while implementing:
+
+- **A type's namespace functions go with the type.** Exporting `Stack` exports `Stack.size`, so `s.size` works outside, and none can be kept inside. An export list cannot name `Stack.size` alone.
+- **Fields need `T(..)`.** `T(A, B)` names constructors only. A type exported without `(..)` is abstract: outside its module, `s.items`, `s { items = ... }`, record construction and record patterns are errors, even where a constructor is exported.
+- **A type not exported at all keeps its fields and namespace functions inside**, though its values may leave through an exported function (`mkSecret :: Int -> Secret`). Dot syntax resolves by the value's type in `check.c`, not by name in `qualify.c`, so `qualify.c` records each type whose fields stay inside (`sealed_types`) and each type not exported (`hidden_types`) for `check.c` to enforce. A first version recorded only types exported without `(..)`, and `(mkSecret 7).sv`, record update, `(.sv)` and `(mkSecret 7).reveal` all worked outside; `tests/errors/mod_leak_*.fk` are those four.
+- **A class exported without `(..)` keeps its methods inside**, so no other module can define an instance of it.
+- **No re-exports.** An export list names only the module's own definitions.
+- **A name an import list brings in** clashes with the same name from another list, and with a definition in the importing file; both are errors at the second.
+
+A phase 1 bug surfaced here: the program's body was parsed before its imports were compiled, so an imported operator had the default fixity, `infixl 9`. Phase 1's test gave the same output at either fixity. The parser now stops after the header (`parse_begin`); the driver compiles the imports, then parses the rest (`parse_finish`). `modlists.fk` uses an `infixr 5` operator that `infixl 9` would reject.
+

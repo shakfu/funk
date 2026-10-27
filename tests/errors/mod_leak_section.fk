@@ -1,0 +1,4 @@
+-- expect: the fields of `secret.Secret` are not exported by module `secret`
+-- So does a field section.
+import modules.secret
+main = print (map (.sv) [secret.mkSecret 3])

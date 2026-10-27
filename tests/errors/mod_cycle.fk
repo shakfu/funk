@@ -1,0 +1,3 @@
+-- expect: import cycle: cyca -> cycb -> cyca
+import modules.cyca
+main = ()
