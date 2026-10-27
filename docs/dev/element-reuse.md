@@ -1,6 +1,6 @@
 # Reuse of elements and of cells outside TRMC: design note
 
-Status: phases 1-3 implemented (unreleased; see "Phase 1 result" and "Phases 2 and 3 result"); field reads not. It extends [reuse.md](reuse.md), which reuses a list's spine cells at TRMC sites.
+Status: phases 1-3 implemented, released in 0.5.0 (see "Phase 1 result" and "Phases 2 and 3 result"); field reads not. It extends [reuse.md](reuse.md), which reuses a list's spine cells at TRMC sites.
 
 ## Problem
 

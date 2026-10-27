@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-27
+
 ### Added
 
 - A second benchmark suite, `bench/game/`: the Benchmarks Game's 10 tasks, against its single-threaded C programs (`bench.py --suite game`). Each matches the Game's output file in both backends, in `make test`. regex-redux and pidigits use PCRE and GMP through foreign imports, as their C does. Geometric mean 1.16x C: binary-trees 0.4x, spectral-norm 0.8x, mandelbrot, regex-redux and pidigits 1.0x, fannkuch-redux 1.1x, n-body 1.2x, reverse-complement 2.1x. See [bench/README.md](bench/README.md#benchmarks-game-suite).
