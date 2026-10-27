@@ -137,7 +137,7 @@ Done 2026-10-26, as designed above, with these differences and details:
 Tests:
 - `tests/run/ffi.fk`, in both backends: `sin`, `pow` and `floor` against the primitives; a 64-bit value through `llabs`; `ctype.h` through `CInt`; `sinf`; the constants `M_PI` and `INT_MAX`; `rand` and `srand` in order.
 - `tests/run/ctypes.fk`: wrapping, unsigned comparison and `show`, and `CFloat` digits.
-- `tests/ffi/link.fk`: a test library in `tests/ffi/`, built by `tests/run.sh` and found with `-I`, `-L` and `-l`, in both backends.
+- `tests/ffi/link.fk`: a test library in `tests/ffi/`, built by `tests/CMakeLists.txt` and found with `-I`, `-L` and `-l`, in both backends.
 - Eight error tests (`tests/errors/ffi_*.fk`): an unsupported type, `()` among other arguments, a `()` value, the entity string, the calling convention, a prelude name, a `->>` import called under `->`, and a type that differs from the prototype.
 
 ## Implementation (phase 2)

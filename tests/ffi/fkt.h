@@ -1,4 +1,4 @@
-/* A library outside the default search paths, for tests/run.sh: funk run
+/* A library outside the default search paths, for tests/CMakeLists.txt: funk run
    and funk build find it with -I, -L and -l. Its callbacks take a context
    first, as libremidi's do. */
 #ifndef FKT_H

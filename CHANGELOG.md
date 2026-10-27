@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The test suite is one ctest test per check, so `make test` runs them in parallel (63 s to 21 s on 8 cores), and `ARGS="-R NAME"` or `ARGS="-L LABEL"` runs a subset. Each test has its own foreign-import cache and a 300 s timeout. `tests/check.sh` replaces `tests/run.sh`.
+
 ## [0.4.0] - 2026-10-27
 
 ### Added

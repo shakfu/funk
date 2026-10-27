@@ -1,5 +1,5 @@
 -- sqlite3 through foreign imports (ffi.md, phase 2): an in-memory database,
--- created, filled and queried, and the error paths. tests/run.sh runs it
+-- created, filled and queried, and the error paths. tests/CMakeLists.txt runs it
 -- when sqlite3.h is installed.
 foreign library "sqlite3"
 

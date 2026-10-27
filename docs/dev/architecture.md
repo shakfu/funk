@@ -224,4 +224,4 @@ Each input is a chunk. `is_decl_text` classifies it: `data`, a signature, or `=`
 
 ## Build and tests
 
-The CMake build compiles `tools/embed` first. It inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/embedded.c`. The behaviour of `tests/run.sh` is documented at the top of the script.
+The CMake build compiles `tools/embed` first. It inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/embedded.c`. `tests/CMakeLists.txt` registers one ctest test per check; `tests/check.sh` runs each and documents what it checks.

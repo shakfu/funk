@@ -1,4 +1,4 @@
--- Callbacks (ffi.md, phase 3), with tests/ffi/fkt.h. tests/run.sh passes
+-- Callbacks (ffi.md, phase 3), with tests/ffi/fkt.h. tests/CMakeLists.txt passes
 -- -I, -L and -lfkt.
 foreign import ccall "fkt.h fkt_each" each :: CInt -> Ptr () -> FunPtr (Ptr () -> CInt ->> ()) ->> ()
 foreign import ccall "fkt.h fkt_fold" fold :: CInt -> Ptr () -> FunPtr (Ptr () -> CInt -> CInt ->> CInt) ->> CInt

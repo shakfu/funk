@@ -1,4 +1,4 @@
--- Imports from tests/ffi/fkt.h; tests/run.sh passes -I, -L and -lfkt.
+-- Imports from tests/ffi/fkt.h; tests/CMakeLists.txt passes -I, -L and -lfkt.
 foreign import ccall "fkt.h fkt_scale" scale :: CInt -> CFloat -> CInt
 foreign import ccall "fkt.h fkt_twice" twice :: CSize -> CSize
 foreign import ccall "fkt.h fkt_wrap" wrap :: CUInt -> CUInt

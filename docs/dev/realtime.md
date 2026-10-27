@@ -112,7 +112,7 @@ What remains is marking and the stack, which R2 addresses. A sweep step costs at
 
 Throughput: the same emitted C, with lazy sweeping and with every chunk swept eagerly at the collection, 15 interleaved runs each, minimum wall time: `bst` 293.0 against 298.1 ms, `trees` 100.1 against 103.6, `sort` 63.6 against 69.1, `lists` 53.3 against 55.0. Lazy sweeping is 2-8% faster; the hypothesis was no change. A likely reason, not measured: an object is swept just before its reuse, so it is still in cache. The eager variant keeps the per-chunk mark count, so it is close to the old collector, not identical to it. The benchmark suite (`bench/results.jsonl`, runs of 2026-10-26 13:29 and 13:43) shows no change beyond noise.
 
-Tests: `tests/run/gc.fk` collects several times while a 200,000-cell list stays live, in both backends, and `tests/run.sh` checks the format of `FUNK_GCSTATS`'s output.
+Tests: `tests/run/gc.fk` collects several times while a 200,000-cell list stays live, in both backends, and the `gcstats` test checks the format of `FUNK_GCSTATS`'s output.
 
 ## Implementation: R2
 
@@ -154,7 +154,7 @@ Tests:
 - **`FUNK_GCSTRESS=1`** starts a cycle 64 KiB after the last one ends, marks 4,096 objects a step, never finishes a cycle early, and at each cycle's end re-traces everything reachable and stops the program if any of it is unmarked. Short, frequent cycles start inside the windows where a missing barrier loses an object; long, constant marking did not, since nearly every object was then allocated already marked.
 - **`tests/run/gcbarrier.fk`** exercises the three sites. With the thunk barrier removed, the check stopped it in 3 runs of 3 and its output was wrong; likewise with the head barrier removed. With the `*dst` barrier removed it still passed: today's reuse copies overwrite only tails whose contents are garbage (`filter`'s dropped cells, `take`'s rest), so the barrier guards a shape no current function produces. It costs one test per cell in reuse copies only.
 - **The check itself** was tested by marking one constructor in seven without tracing it: it stopped the program at the first cycle's end.
-- `tests/run.sh` runs `gc.fk` and `gcbarrier.fk` under `FUNK_GCSTRESS=1` in both backends. Every run test and example also passed under it, by hand.
+- The `stress` tests run `gc.fk` and `gcbarrier.fk` under `FUNK_GCSTRESS=1` in both backends. Every run test and example also passed under it, by hand.
 
 ## Implementation: R3
 

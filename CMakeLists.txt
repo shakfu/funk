@@ -46,5 +46,4 @@ endif()
 install(TARGETS funk RUNTIME DESTINATION bin)
 
 enable_testing()
-add_test(NAME funk-suite COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tests/run.sh)
-set_tests_properties(funk-suite PROPERTIES ENVIRONMENT "FUNK=$<TARGET_FILE:funk>")
+add_subdirectory(tests)
