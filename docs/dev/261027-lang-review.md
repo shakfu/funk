@@ -41,3 +41,61 @@ Consequences for planning (to be decided against the friction log below):
 ## Next step
 
 Write two or three real programs in the niche, such as a MIDI sequencer or a DSP chain, and log each friction point. Choose between language features and domain work from that log rather than by taste.
+
+## Addendum: target users and hosts
+
+Target users: people who live-code in Haskell (Tidal) or in Tidal's style (Strudel). funk would be a small, fast, embeddable engine for them. Target hosts: [midi-langs](https://github.com/shakfu/midi-langs), [psnd](https://github.com/shakfu/psnd), Max/MSP, Pure Data, VST3/AU/CLAP plugins, and Eurorack ([ssp](https://github.com/shakfu/ssp)).
+
+### Syntax
+
+Keep Haskell syntax. A move to ML syntax was considered and rejected:
+
+- Tidal users already write Haskell, and Strudel users write its idioms.
+- A syntax change addresses only weakness 1. It costs a rewrite of `parse.c`, the tests and the examples.
+- PureScript and Elm are strict, with Haskell-like syntax, and are not read as Haskell ports.
+- `midi-langs` already has `mhs-midi` on MicroHs, which is compatible Haskell. funk's distinction is speed and real time, not compatibility.
+
+Weakness 1 comes from the compatibility promise, so the fix is positioning:
+
+1. Demote the 0.6.0 base-import shims. They invite ports that then fail.
+2. Present funk as "Haskell-family syntax, strict semantics". Turn [haskell-compat.md](haskell-compat.md) into a user-facing page.
+3. Give targeted errors for known mismatches, e.g. "String is packed; use `unpack`" for `map C.ord "ab"`.
+
+### Correction: higher-kinded classes serve the niche
+
+A Tidal `Pattern` is a function from a time span to events, not a lazy stream, so strictness costs Tidal-style code little. Its combinators rest on `Functor` and `Applicative` (`fmap`, `|+|`, `#`) and on user-defined operators. The 0.7 higher-kinded classes are niche work, not compatibility work. This is a reading of Tidal's design, not a measurement.
+
+### Constraints the hosts expose
+
+From [libfunk.h](../../src/libfunk.h) and [architecture.md](architecture.md):
+
+| Constraint today | Hosts it blocks |
+|-|-|
+| One session per process, one thread; compiler tables and heap are global | Plugins load many instances per process; Max and Pd create many objects per patch |
+| All calls run inside `funk_main`, on a stack the runtime owns | Plugins and externals run on threads the host owns |
+| Fast code needs `$CC` at run time (`funk_build`, foreign-import glue) | Plugins and Eurorack ship without a compiler; iOS forbids run-time code generation |
+| The interpreter is the only path without `$CC`, and it is slow | Live coding needs sub-second reload |
+| Errors go to stderr | Max, Pd and plugin hosts have their own consoles, or none |
+| No WASM target | Strudel users work in the browser |
+
+This answers the roadmap's question about keeping the interpreter. Live coding needs reload without `$CC`; plugins need speed without `$CC`. Options:
+
+1. **Keep the interpreter, fast enough for control rate** (patterns, MIDI). Audio-rate DSP is compiled ahead of time. This matches Tidal's split between patterns and SuperDirt. Cheapest.
+2. **Embed libtcc as the only compiler.** One backend, millisecond compiles, no external `$CC`. Not allowed on iOS. Code is likely 2-5x slower than `-O2` (unmeasured).
+3. **Replace the interpreter with a bytecode VM.** Portable and WASM-friendly, with no JIT restrictions. Most new work.
+
+### Open questions
+
+- Is funk the pattern language, the DSP language, or both? Both doubles the reload problem.
+- Which host first? A Pd or Max external is the cheapest test of multiple instances; CLAP is the strictest test; `psnd` is the closest to live coding.
+- Does the SSP fit? `$CC` may exist if it runs ARM Linux. The 128 MiB heap floor recorded in [memory.md](memory.md) may not fit; current value unchecked.
+
+### Revised next step
+
+Write one friction-log program per constraint:
+
+1. A Tidal-style pattern engine in `psnd`: reload speed.
+2. A Pd external with two instances: global state.
+3. A CLAP note effect: host-owned thread, no `$CC`.
+
+The multi-session refactor is scoped in [embedding.md](embedding.md): embedding basics and instances in one runtime first, separate sessions deferred.
