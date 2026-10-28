@@ -16,8 +16,11 @@ Writable file-scope symbols, counted with `nm` on `build/CMakeFiles/libfunk.dir/
 Process-wide resources outside those globals:
 
 - `task_main` installs `SIGSEGV` and `SIGBUS` handlers (`src/rt.c`), used by the stack snapshot's write barrier and the stack guard.
+
 - `fk_run` reserves a 4 GiB stack and starts its own thread. `heap_reserve` claims 64 GiB of address space; `gc_min` is 128 MiB.
+
 - 17 calls to `exit()`: 13 in `rt.c`, 4 in `util.c`. Stack overflow calls `_exit(1)`.
+
 - `funk_build` writes executables only. `-shared` is used only for foreign-import glue (`src/ffi.c`).
 
 Real-time exports already support many instances: they do not touch the heap, and state arrives through a `Ptr` argument ([realtime.md](realtime.md), R4). The blocked part is funk's own thread: patterns, reload, control.
@@ -27,12 +30,18 @@ Real-time exports already support many instances: they do not touch the heap, an
 Needed by every host, whatever follows.
 
 1. **Chain signal handlers.** Done, 2026-10-28: `pass_on` in `rt.c`; test `embed/signals`. A host's handler installed before funk's gets the faults that are not funk's; one installed after funk's must pass funk's on, or the stack snapshot's write barrier breaks. When `funk_main` returns, the replaced handlers are installed again.
+
 2. **Never end the host process.** Partly done, 2026-10-28: a full heap is the runtime error "out of memory", after a full collection, so a host recovers (test `embed/memory`). Two exits stay, by decision:
    - **`malloc` returning NULL**, in the compiler, the runtime's tables and the collector's mark stack and stack copy. It runs `funk_on_fatal`'s hook, then exits. On macOS, and on Linux with its default overcommit, `malloc` of these sizes does not fail: the system swaps or kills the process first (from the platforms' documented behaviour, not measured). Making the collector's buffers unable to fail means reserving them up front, the mark stack as large as the heap's limit; not worth it for a failure that does not occur.
+
    - **Stack overflow in compiled code**, which exits from the signal handler. No host runs compiled code yet. A recovery would leave the handler by `siglongjmp`, which is unsafe when the overflow is inside libc, such as `malloc` holding its lock, or inside the collector. Decide with item 5, when a host first runs compiled code. Interpreted code reports overflow as an error already.
+
 3. **Output and error callbacks.** Done, 2026-10-28: `funk_output` in `libfunk.h`; test `embed/output`. The C compiler's output for foreign-import glue still goes to stderr.
+
 4. **Memory sizes.** Done, 2026-10-28: `funk_memory(heap, threshold, stack)` before `funk_main`; test `embed/memory`. The threshold stays at most a quarter of the heap's limit. Empty chunks are reusable by any size class; those beyond the threshold go back to the system, and after "out of memory" a full collection runs at once, so the heap falls back. In the CLAP plugin, a 512 MiB limit reached left the host at 217 MiB, against 589 MiB before.
+
 5. **Shared-library output** (`funk build --shared`), with runtime symbols hidden. Otherwise two funk-built plugins may resolve each other's `fk_cons` and `fk_true`. Inferred from the `extern` declarations in `rt.h`; untested.
+
 6. **Interrupts.** Done, 2026-10-28: `funk_interrupt`; test `embed/interrupt`. Needed for a host's Stop; not in the first list.
 
 ## Phase 1: instances in one runtime
@@ -40,8 +49,11 @@ Needed by every host, whatever follows.
 One runtime per process: one heap, one funk thread, one compiler. An instance is a namespace in it. Pd runs all objects on one thread; Max's calls can be queued onto funk's thread; real-time exports stay off it.
 
 1. **Instance = module prefix.** `qualify.c` already prefixes a module's names. Add `funk_instance_new` and `funk_instance_free`; freeing drops the instance's global values and stables for the collector.
+
 2. **Reload = redefine within an instance.** Check whether the undo log (`undo_mark`, `undo_to`) can roll back one instance's definitions alone.
+
 3. **Queue host calls onto funk's thread.** The ring carries exports to funk's thread; hosts need the reverse direction, with results by callback. Today `fk_ffi_enter` aborts off funk's thread. `funk_call` (2026-10-28, [patterns.md](patterns.md)) is the synchronous form, for a host already on funk's thread; the queue would carry its calls.
+
 4. **Serialize compiles with a mutex.** The compiler's globals then stay.
 
 Acceptance test: a Pd external with two instances running different code, one reloaded while the other plays.
@@ -51,11 +63,15 @@ Acceptance test: a Pd external with two instances running different code, one re
 Move the runtime's globals into a `Runtime` struct and the compiler's into a `Compiler` struct.
 
 - **Cost.** The compiler half is mechanical, mostly in `check.c`. The runtime half reaches generated code, which uses `fk_cons`, `fk_true`, `fk_nil`, the bump allocator and `fk_marking` directly. Each allocation then needs a context pointer or a thread-local lookup. Thread-local access in a macOS dynamic library calls `__tlv_get_addr` (from memory, not measured), which risks the 1.18x-of-C result. Needs interleaved A/B timing first.
+
 - **Needed when** instances need independent collector pauses, or a host runs funk on several threads in parallel.
+
 - **Partly covered by phase 0 item 5:** each funk-built `.so` has its own private runtime, which covers two different funk plugins in one DAW.
 
 ## Unchecked
 
 - Whether the undo log can be split by instance (phase 1 item 2): the main unknown in phase 1.
+
 - Whether `interp.c`'s `gvals` can be split by namespace, or needs one table per instance.
+
 - How much of `driver.c`'s module state (`mods`, `mod_chunks`) assumes one root program.
