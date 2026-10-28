@@ -1,0 +1,40 @@
+-- lib/pattern.fk (docs/dev/patterns.md): combinators, a 3:5:7 polyrhythm
+-- exact over 1000 cycles, and onsets queried in blocks equal, as a set, to one query;
+-- in ticks, and in samples at 12345 samples per cycle, which rounds.
+import pattern as p
+
+t = p.cycleTicks
+
+brief :: p.Event a -> (Int, Int, a)
+brief e = (e.whole.start, e.whole.stop, e.value)
+
+starts :: p.Pattern a -> Int -> Int -> [(Int, Int, a)]
+starts pat a b = map brief (p.onsets pat (p.Span a b))
+
+-- the onsets of [a, b) queried in blocks of n ticks
+blocked :: p.Pattern a -> Int -> Int -> Int -> [(Int, Int, a)]
+blocked pat n a b = if a >= b then [] else starts pat a (min b (a + n)) ++ blocked pat n (a + n) b
+
+poly = p.stack [p.fastcat (replicate 3 (p.atom 3)), p.fastcat (replicate 5 (p.atom 5)), p.fastcat (replicate 7 (p.atom 7))]
+
+-- a step of 720720 / 17 ticks rounds; the others are exact
+mixed = p.stack [p.fast 17 (p.atom 'r'), p.slow 3 (p.fastcat (map p.atom (unpack "abcde"))), p.shift 1000 (p.euclid 3 8 'e')]
+
+-- the sample onsets of [a, b) in blocks of n samples
+sblocked :: p.Pattern a -> Int -> Int -> Int -> [(Int, a)]
+sblocked pat n a b = if a >= b then [] else p.sampleOnsets pat 12345 a (min b (a + n)) ++ sblocked pat n (a + n) b
+
+main = do
+  print (starts (p.fastcat (map p.atom (unpack "abc"))) 0 t)
+  print (starts (p.euclid 3 8 'x') 0 t)
+  print (starts (p.cat [p.atom 'a', p.slow 2 (p.atom 'b')]) 0 (4 * t))
+  print (map brief (p.query (p.slow 2 (p.atom 'b')) (p.Span (div t 2) (t + div t 2))))
+  print (starts (p.mapP (* 2) (p.shift (-10) (p.fast 2 (p.atom 1)))) 0 t)
+  print (starts (p.fastcat [p.atom 'a', p.silence]) t (2 * t))
+  let es = starts poly 0 (1000 * t)
+  print (length es, all (\(s, e, n) -> mod s (div t n) == 0 && e - s == div t n) es)
+  let whole = starts mixed 0 (20 * t)
+  print (length whole, sort (blocked mixed 7919 0 (20 * t)) == sort whole)
+  let ss = p.sampleOnsets poly 12345 0 (20 * 12345)
+  print (length ss, sblocked poly 64 0 (20 * 12345) == ss, take 4 ss)
+  print (map (\x -> (p.eventSample x, p.eventValue x)) [p.encodeEvent 0 7, p.encodeEvent 123456789 65535])

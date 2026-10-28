@@ -38,7 +38,7 @@ One runtime per process: one heap, one funk thread, one compiler. An instance is
 
 1. **Instance = module prefix.** `qualify.c` already prefixes a module's names. Add `funk_instance_new` and `funk_instance_free`; freeing drops the instance's global values and stables for the collector.
 2. **Reload = redefine within an instance.** Check whether the undo log (`undo_mark`, `undo_to`) can roll back one instance's definitions alone.
-3. **Queue host calls onto funk's thread.** The ring carries exports to funk's thread; hosts need the reverse direction, with results by callback. Today `fk_ffi_enter` aborts off funk's thread.
+3. **Queue host calls onto funk's thread.** The ring carries exports to funk's thread; hosts need the reverse direction, with results by callback. Today `fk_ffi_enter` aborts off funk's thread. `funk_call` (2026-10-28, [patterns.md](patterns.md)) is the synchronous form, for a host already on funk's thread; the queue would carry its calls.
 4. **Serialize compiles with a mutex.** The compiler's globals then stay.
 
 Acceptance test: a Pd external with two instances running different code, one reloaded while the other plays.

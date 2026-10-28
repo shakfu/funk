@@ -36,6 +36,9 @@ void fkt_join(void);
    with a buffer of frames floats, and sums every sample written. */
 int fkt_audio_start(void (*cb)(void *ctx, float *buf, int frames), void *ctx, int frames, int blocks);
 double fkt_audio_join(void);
+/* Sleep usec microseconds after each block from the next start on, as a
+   device does; 0, the default, runs the blocks back to back. */
+void fkt_audio_pace(int usec);
 
 /* Reads n bytes of /dev/zero into a buffer on its own stack: the kernel
    writes there, as read() and stat() do. The bytes read, or -1. */

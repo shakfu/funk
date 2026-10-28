@@ -46,11 +46,18 @@ add_executable(funk cli/main.c)
 target_compile_options(funk PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(funk PRIVATE libfunk)
 set_target_properties(funk PROPERTIES ENABLE_EXPORTS ON) # the interpreter's foreign glue calls the runtime
+
+# the reload threshold of docs/dev/patterns.md, over libfunk.h; a test runs it
+add_executable(reload bench/reload.c)
+target_compile_options(reload PRIVATE -Wall -Wextra)
+target_link_libraries(reload PRIVATE libfunk)
+
 if(FUNK_SANITIZE)
-  foreach(t libfunk funk)
+  foreach(t libfunk funk reload)
     target_compile_options(${t} PRIVATE -fsanitize=${FUNK_SANITIZE} -fno-sanitize-recover=all)
   endforeach()
   target_link_options(funk PRIVATE -fsanitize=${FUNK_SANITIZE})
+  target_link_options(reload PRIVATE -fsanitize=${FUNK_SANITIZE})
 endif()
 
 install(TARGETS funk RUNTIME DESTINATION bin)

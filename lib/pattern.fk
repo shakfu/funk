@@ -1,0 +1,145 @@
+-- pattern.fk -- events over musical time (docs/dev/patterns.md). A pattern
+-- is a query: given a span of time, the events that overlap it.
+module pattern where
+
+-- Time is in ticks. A cycle is lcm 1..16 ticks, so it divides exactly into
+-- 2 to 16 steps, and into their products while the factors last.
+cycleTicks :: Int
+cycleTicks = 720720
+
+-- [start, stop)
+data Span = Span { start, stop :: Int } deriving (Eq, Show)
+
+-- whole is the event's extent; part is the fragment inside the query.
+data Event a = Event { whole :: Span, part :: Span, value :: a } deriving (Eq, Show)
+
+-- The event starts in this query: the scheduler triggers it here.
+Event.onset :: Event a -> Bool
+Event.onset e = e.whole.start == e.part.start
+
+data Pattern a = Pattern (Span -> [Event a])
+
+query :: Pattern a -> Span -> [Event a]
+query (Pattern f) q = f q
+
+-- the events that start in q
+onsets :: Pattern a -> Span -> [Event a]
+onsets p q = filter (.onset) (query p q)
+
+silence :: Pattern a
+silence = Pattern (\_ -> [])
+
+-- v once per cycle
+atom :: a -> Pattern a
+atom v = Pattern (\q -> map (\s -> Event (cycleOf s.start) s v) (cycleSpans q))
+
+-- No signature: `(a -> b) -> ...` cannot say f is pure, which Pattern's
+-- field needs (typed-effects.md, "A pure argument, regardless").
+mapP f p = Pattern (\q -> map (\e -> Event e.whole e.part (f e.value)) (query p q))
+
+-- all at once
+stack :: [Pattern a] -> Pattern a
+stack ps = Pattern (\q -> concatMap (\p -> query p q) ps)
+
+-- one per cycle, in turn; each pattern sees its own cycles in order
+cat :: [Pattern a] -> Pattern a
+cat [] = silence
+cat ps = Pattern (\q -> concatMap one (cycleSpans q))
+  where
+    n = length ps
+    one s = case div s.start cycleTicks of
+      c -> case (c - div c n) * cycleTicks of
+        off -> map (withSpans (move off)) (query (ps !! mod c n) (move (negate off) s))
+
+-- all in one cycle, in equal steps
+fastcat :: [Pattern a] -> Pattern a
+fastcat ps = fast (length ps) (cat ps)
+
+-- k times as fast. Times that do not divide by k round down. A part cut
+-- at q's start is at q.start * k and rounds to q.start, above its whole's
+-- start, so each event is still an onset in exactly one query.
+fast :: Int -> Pattern a -> Pattern a
+fast k p
+  | k <= 0 = error "pattern.fast: factor must be positive"
+  | otherwise = Pattern (\q -> map (withSpans (\s -> Span (div s.start k) (div s.stop k))) (query p (Span (q.start * k) (q.stop * k))))
+
+-- k times as slow; exact
+slow :: Int -> Pattern a -> Pattern a
+slow k p
+  | k <= 0 = error "pattern.slow: factor must be positive"
+  | otherwise = Pattern (\q -> concatMap (clip q . withSpans (\s -> Span (s.start * k) (s.stop * k))) (query p (Span (div q.start k) (ceilDiv q.stop k))))
+
+-- later by t ticks
+shift :: Int -> Pattern a -> Pattern a
+shift t p = Pattern (\q -> map (withSpans (move t)) (query p (move (negate t) q)))
+
+-- k onsets spread as evenly as possible over n steps, the first on step 0
+euclid :: Int -> Int -> a -> Pattern a
+euclid k n v = fastcat (map (\i -> if mod (i * k) n < k then atom v else silence) (enumFromTo 0 (n - 1)))
+
+-- scheduling: tempo is cs samples per cycle, an Int, so tick t sounds at
+-- sample div (t * cs) cycleTicks; adjacent sample spans then partition the
+-- onsets exactly.
+
+-- the onsets that sound in samples [a, b), as (sample, value), in time order
+sampleOnsets :: Pattern a -> Int -> Int -> Int -> [(Int, a)]
+sampleOnsets p cs a b =
+  sortBy (\x y -> compare (fst x) (fst y))
+    (map (\e -> (div (e.whole.start * cs) cycleTicks, e.value))
+      (onsets p (Span (ceilDiv (a * cycleTicks) cs) (ceilDiv (b * cycleTicks) cs))))
+
+-- One Int per event on a ring, so a push cannot tear it: sample * 65536 + value.
+encodeEvent :: Int -> Int -> Int
+encodeEvent s v = shiftL s 16 + v
+
+eventSample :: Int -> Int
+eventSample x = shiftR x 16
+
+eventValue :: Int -> Int
+eventValue x = x .&. 65535
+
+-- pushes sampleOnsets onto r, encoded; the number that did not fit
+pushOnsets :: Ring Int -> Pattern Int -> Int -> Int -> Int ->> Int
+pushOnsets r p cs a b = length (filter (\(s, v) -> not (ringPush r (encodeEvent s (checkValue v)))) (sampleOnsets p cs a b))
+
+-- For a host that owns the memory and calls through funk_call (libfunk.h):
+-- writes the first cap sampleOnsets, encoded, to the Ints at buf; returns
+-- how many there were, so a result above cap means some were lost.
+writeOnsets :: Ptr Int -> Int -> Pattern Int -> Int -> Int -> Int ->> Int
+writeOnsets buf cap p cs a b = writeEach buf cap 0 (sampleOnsets p cs a b)
+
+writeEach :: Ptr Int -> Int -> Int -> [(Int, Int)] ->> Int
+writeEach buf cap i es = case es of
+  [] -> i
+  (s, v) : rest -> do
+    if i < cap then poke (plusPtr buf (i * 8)) (encodeEvent s (checkValue v)) else ()
+    writeEach buf cap (i + 1) rest
+
+checkValue :: Int -> Int
+checkValue v = if v < 0 || v > 65535 then error ("pattern.pushOnsets: value " ++ show v ++ " outside 0..65535") else v
+
+-- helpers
+
+cycleOf :: Int -> Span
+cycleOf t = case div t cycleTicks * cycleTicks of
+  c -> Span c (c + cycleTicks)
+
+-- q cut at cycle boundaries
+cycleSpans :: Span -> [Span]
+cycleSpans (Span s e) = if s >= e then [] else
+  case (div s cycleTicks + 1) * cycleTicks of
+    next -> Span s (min e next) : cycleSpans (Span next e)
+
+move :: Int -> Span -> Span
+move t (Span s e) = Span (s + t) (e + t)
+
+withSpans :: (Span -> Span) -> Event a -> Event a
+withSpans f e = Event (f e.whole) (f e.part) e.value
+
+-- e's part inside q, if any
+clip :: Span -> Event a -> [Event a]
+clip q e = case (max e.part.start q.start, min e.part.stop q.stop) of
+  (s, t) -> if s < t then [Event e.whole (Span s t) e.value] else []
+
+ceilDiv :: Int -> Int -> Int
+ceilDiv a k = negate (div (negate a) k)

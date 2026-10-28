@@ -48,6 +48,12 @@ bool funk_load_file(const char *path);
    declaration or `()`; the caller frees it. */
 bool funk_eval(const char *src, const char *name, char **shown);
 
+/* Call the global name, the newest definition of it, with n Int
+   arguments (1 to 8); its type must be Int -> ... -> Int, with `->` or
+   `->>` arrows. Unlike funk_eval, it compiles nothing, so a host may call
+   it at a fixed rate for as long as it runs. */
+bool funk_call(const char *name, int n, const long *args, long *result);
+
 /* The type of the expression src, named name in messages; the caller
    frees it. NULL on error. */
 char *funk_type_of(const char *src, const char *name);

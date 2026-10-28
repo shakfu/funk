@@ -1,6 +1,7 @@
 #include "fkt.h"
 
 #include <pthread.h>
+#include <unistd.h>
 
 int fkt_scale(int x, float f) { return (int)((float)x * f); }
 size_t fkt_twice(size_t n) { return 2 * n; }
@@ -46,7 +47,7 @@ void fkt_join(void) { pthread_join(source, NULL); }
 static struct {
   void (*cb)(void *, float *, int);
   void *ctx;
-  int frames, blocks;
+  int frames, blocks, pace;
   double sum;
   pthread_t thread;
 } audio;
@@ -57,6 +58,7 @@ static void *audio_run(void *arg) {
   for (int b = 0; b < audio.blocks; b++) {
     audio.cb(audio.ctx, buf, audio.frames);
     for (int i = 0; i < audio.frames; i++) audio.sum += buf[i];
+    if (audio.pace) usleep((useconds_t)audio.pace);
   }
   return NULL;
 }
@@ -67,13 +69,14 @@ int fkt_audio_start(void (*cb)(void *ctx, float *buf, int frames), void *ctx, in
   return pthread_create(&audio.thread, NULL, audio_run, NULL);
 }
 
+void fkt_audio_pace(int usec) { audio.pace = usec; }
+
 double fkt_audio_join(void) {
   pthread_join(audio.thread, NULL);
   return audio.sum;
 }
 
 #include <fcntl.h>
-#include <unistd.h>
 
 long fkt_read_stack(long n) {
   char buf[65536];

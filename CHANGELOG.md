@@ -2,6 +2,14 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- `lib/pattern.fk`, a pattern library imported with `-M lib` ([docs/dev/patterns.md](docs/dev/patterns.md)). A pattern is a query from a span of time to the events overlapping it, as in Tidal. Time is in integer ticks, 720720 per cycle, rather than rationals: arithmetic stays in `Int`, and subdivisions up to 16 are exact. `sampleOnsets`, `pushOnsets` and `writeOnsets` turn a block of samples into onsets for an export's ring or a host's buffer.
+
+- `funk_call` in `libfunk.h`: calls a global from `Int`s to `Int` without compiling. A host that called `funk_eval` once per audio window grew by about 16 KB per call, since every REPL input stays compiled; `funk_call` allocates nothing in the compiler.
+
 ## [0.6.0] - 2026-10-27
 
 ### Added

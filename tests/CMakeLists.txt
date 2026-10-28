@@ -1,7 +1,7 @@
 # The test suite, one ctest test per check; tests/check.sh runs each and
 # documents what they check. `make test` runs them in parallel; one by
 # name: ctest --test-dir build -R gcdeep. Labels: run, example, game, error,
-# repl, ffi, stress, cli.
+# repl, ffi, stress, cli, lib.
 
 set(CHECK sh ${PROJECT_SOURCE_DIR}/tests/check.sh)
 
@@ -29,6 +29,19 @@ foreach(f ${runs})
     endif()
   endforeach()
 endforeach()
+
+# modules in lib/, imported through -M lib
+file(GLOB libs RELATIVE ${PROJECT_SOURCE_DIR} CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/tests/lib/*.fk)
+foreach(f ${libs})
+  get_filename_component(n ${f} NAME_WE)
+  foreach(mode interp compiled types wall)
+    funk_test(lib/${n}/${mode} lib run ${f} ${mode} -M lib)
+  endforeach()
+endforeach()
+
+# reload during playback, through funk_call (bench/reload.c); fails on a misplaced onset
+add_test(NAME lib/reload COMMAND reload ${PROJECT_SOURCE_DIR}/lib 4000)
+set_tests_properties(lib/reload PROPERTIES LABELS lib TIMEOUT 300)
 
 # Benchmarks Game programs (bench/game) at their small n, against the
 # Game's output files
@@ -108,6 +121,13 @@ if(HAVE_TSAN)
   funk_test(ffi/export/tsan-compiled "ffi;stress;tsan" run tests/ffi/export.fk tsan-compiled ${LINK})
 else()
   message(STATUS "No -fsanitize=thread: the tsan test is skipped")
+endif()
+# lib/pattern.fk's scheduler: a ring to an export on the paced audio host
+foreach(mode compiled stress-compiled)
+  funk_test(ffi/sched/${mode} "ffi;lib" run tests/ffi/sched.fk ${mode} ${LINK} -M lib)
+endforeach()
+if(HAVE_TSAN)
+  funk_test(ffi/sched/tsan-compiled "ffi;lib;stress;tsan" run tests/ffi/sched.fk tsan-compiled ${LINK} -M lib)
 endif()
 foreach(n cberror cbthread)
   funk_test(ffi/${n} ffi error tests/ffi/${n}.fk ${LINK})

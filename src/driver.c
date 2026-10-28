@@ -489,3 +489,41 @@ char *funk_type_of(const char *src, const char *name) {
   cur_file = file;
   return t ? xsprintf("%s", t) : NULL;
 }
+
+/* The type funk_call accepts for n arguments: every arrow `->` or `->>`. */
+static bool int_function(Type *t, int n) {
+  SB want = {0};
+  sb_puts(&want, "");
+  for (int i = 0; i < n; i++) sb_puts(&want, "Int -> ");
+  sb_puts(&want, "Int");
+  SB got = {0};
+  sb_puts(&got, "");
+  for (const char *s = type_str(t); *s; s++) {
+    sb_printf(&got, "%c", *s);
+    if (s[0] == '-' && s[1] == '>' && s[2] == '>') s++; /* `->>` as `->` */
+  }
+  return strcmp(want.s, got.s) == 0;
+}
+
+bool funk_call(const char *name, int n, const long *args, long *result) {
+  int g = global_lookup(intern(name));
+  if (g < 0) {
+    report("`%s` is not defined", name);
+    return false;
+  }
+  static int checked = -1, checked_n; /* type_str allocates: check a global once */
+  if (g != checked || n != checked_n) {
+    if (n < 1 || n > 8 || !int_function(globals.a[g].type, n)) {
+      report("funk_call needs a function from Int arguments to Int: `%s`", name);
+      return false;
+    }
+    checked = g, checked_n = n;
+  }
+  CATCH_RUNTIME(return false);
+  install_prelude();
+  V a[8];
+  for (int i = 0; i < n; i++) a[i] = FK_MKINT(args[i]);
+  *result = FK_INT(fk_apply(interp_global(g), n, a));
+  fk_error_jmp = NULL;
+  return true;
+}

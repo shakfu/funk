@@ -1,0 +1,97 @@
+-- lib/pattern.fk's scheduler (docs/dev/patterns.md): funk's thread queries
+-- a 3:5:7 polyrhythm a window ahead and pushes the onsets onto a ring; a
+-- foreign export, on tests/ffi/fkt.h's paced audio host, writes each as an
+-- impulse at its sample. Musical time advances only once funk has
+-- scheduled the block, so a late funk thread costs an underrun, not a late
+-- event, and the output does not depend on timing.
+import pattern as p
+
+foreign export ccall "fk_play" play :: Ptr () -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "fkt.h &fk_play" playPtr :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ())
+foreign import ccall "fkt.h fkt_audio_start" audioStart :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CInt -> CInt ->> CInt
+foreign import ccall "fkt.h fkt_audio_pace" audioPace :: CInt ->> ()
+foreign import ccall "fkt.h fkt_audio_join" audioJoin :: () ->> Float
+
+foreign struct Player
+  { events :: Ring Int -- encoded onsets, from funk
+  , ready :: Int       -- samples scheduled, from funk
+  , pos :: Int         -- musical time in samples, to funk
+  , end :: Int
+  , played :: Int
+  , check :: Int       -- sum of sample * value
+  , underruns :: Int
+  }
+
+cs = 12345     -- samples per cycle: does not divide 720720
+frames = 64
+blocks = 600
+end = 300 * 64 -- half the host's blocks: room for underruns
+window = 1024
+
+poly = p.stack [p.fastcat (replicate 3 (p.atom 3)), p.fastcat (replicate 5 (p.atom 5)), p.fastcat (replicate 7 (p.atom 7))]
+
+zero :: Ptr CFloat -> Int -> Int ->> ()
+zero out i n = if i == n then () else do
+  pokeByteOff out (i * 4) (toCFloat 0.0)
+  zero out (i + 1) n
+
+-- the ring's onsets before sample b, written into out, which starts at a
+fire :: Ptr Player -> Ptr CFloat -> Int -> Int ->> ()
+fire st out a b = do
+  r <- readField st Player.events
+  if ringCount r == 0 then () else do
+    x <- ringFront r
+    s <- p.eventSample x
+    if s >= b then () else do
+      ringDrop r
+      v <- p.eventValue x
+      pokeByteOff out ((s - a) * 4) ((peekByteOff out ((s - a) * 4) :: CFloat) + toCFloat (toFloat v)) -- onsets may share a sample
+      writeField st Player.played (readField st Player.played + 1)
+      writeField st Player.check (readField st Player.check + s * v)
+      fire st out a b
+
+play :: Ptr () -> Ptr CFloat -> CInt ->> ()
+play ctx out frames = do
+  st <- (castPtr ctx :: Ptr Player)
+  n <- fromIntegral frames
+  zero out 0 n
+  a <- readField st Player.pos
+  if a >= readField st Player.end then ()
+  else if atomicPeek (fieldPtr st Player.ready) < a + n then writeField st Player.underruns (readField st Player.underruns + 1)
+  else do
+    fire st out a (a + n)
+    atomicPoke (fieldPtr st Player.pos) (a + n)
+
+churn :: Int -> Int -> Int
+churn k acc = if k == 0 then acc else churn (k - 1) (acc + length (reverse (enumFromTo 1 1000)))
+
+-- windows from w until end, each pushed once the player is within a window of it
+schedule :: Ptr Player -> Int ->> Int
+schedule st w = if w >= end then 0 else
+  if atomicPeek (fieldPtr st Player.pos) + window < w then do
+    churn 1 0
+    schedule st w
+  else do
+    lost <- p.pushOnsets (readField st Player.events) poly cs w (w + window)
+    atomicPoke (fieldPtr st Player.ready) (w + window)
+    lost + schedule st (w + window)
+
+main = do
+  st <- (mallocBytes Player.size :: Ptr Player)
+  writeField st Player.events (newRing 256 (0 :: Int))
+  writeField st Player.ready 0
+  writeField st Player.pos 0
+  writeField st Player.end end
+  writeField st Player.played 0
+  writeField st Player.check 0
+  writeField st Player.underruns 0
+  audioPace 500
+  print (audioStart playPtr (castPtr st) (fromIntegral frames) (fromIntegral blocks))
+  lost <- schedule st 0
+  total <- audioJoin ()
+  want <- p.sampleOnsets poly cs 0 end
+  print (lost, readField st Player.pos)
+  print (readField st Player.played, length want)
+  print (total, toFloat (foldl (\acc (_, v) -> acc + v) 0 want))
+  print (readField st Player.check == foldl (\acc (s, v) -> acc + s * v) 0 want)
+  print (readField st Player.underruns >= 0)

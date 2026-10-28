@@ -14,7 +14,8 @@
 #                                   reuse, fuse: the reuse copies (@reuseK, @ownK) emitted without
 #                                     fusion, or the fused loops, equal FILE.reuse or FILE.fuse
 #                                   gcstats: FUNK_GCSTATS=1 reports each cycle and a summary
-#                                   FLAGS (-I, -L, -l) go to funk run and funk build
+#                                   FLAGS (-I, -L, -l, -M) go to funk run and funk build;
+#                                     -M also to funk emit-c
 #   check.sh error FILE [FLAGS]     funk run FILE fails, and its output contains the text
 #                                   after "-- expect: " on FILE's first line
 #   check.sh repl FILE              the REPL's output for FILE equals FILE without .in, .expected
@@ -43,6 +44,12 @@ run)
   in=/dev/null
   [ -f "$base.stdin" ] && in=$base.stdin
   build() { "$FUNK" build "$f" -o "$tmp/exe" "$@" >"$tmp/cc" 2>&1 || fail "funk build" "$tmp/cc"; }
+  mods= prev= # FLAGS' -M DIR, for emit-c
+  for a in "$@"; do
+    case $prev in -M) mods="$mods -M $a" ;; esac
+    case $a in -M?*) mods="$mods $a" ;; esac
+    prev=$a
+  done
   case $mode in
   interp) "$FUNK" run "$f" "$@" <"$in" >"$tmp/out" 2>&1 ;;
   stress-interp) FUNK_GCSTRESS=1 "$FUNK" run "$f" "$@" <"$in" >"$tmp/out" 2>&1 ;;
@@ -56,11 +63,13 @@ run)
     FUNK_GCSTRESS=1 TSAN_OPTIONS="halt_on_error=1 exitcode=66 log_path=$tmp/tsan" $norand "$tmp/exe" <"$in" >"$tmp/out" 2>&1
     if ls "$tmp"/tsan.* >/dev/null 2>&1; then cat "$tmp"/tsan.* >"$tmp/report"; fail "ThreadSanitizer report" "$tmp/report"; fi ;;
   types)
-    FK_CHECK_TYPES=1 "$FUNK" emit-c "$f" -o /dev/null 2>"$tmp/types" || fail "funk emit-c" "$tmp/types"
+    # shellcheck disable=SC2086
+    FK_CHECK_TYPES=1 "$FUNK" emit-c "$f" $mods -o /dev/null 2>"$tmp/types" || fail "funk emit-c" "$tmp/types"
     if grep -q untyped "$tmp/types"; then fail "expressions without a type" "$tmp/types"; fi
     exit 0 ;;
   wall)
-    "$FUNK" emit-c "$f" -o "$tmp/w.c" || fail "funk emit-c"
+    # shellcheck disable=SC2086
+    "$FUNK" emit-c "$f" $mods -o "$tmp/w.c" || fail "funk emit-c"
     inc= # FLAGS' -I DIR only: -L is unused with -c, which -Werror would fail
     while [ $# -gt 0 ]; do
       case $1 in -I) inc="$inc -I $2"; shift ;; -I*) inc="$inc $1" ;; esac
