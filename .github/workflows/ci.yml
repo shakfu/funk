@@ -25,6 +25,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ninja-build libsqlite3-dev libgmp-dev libpcre2-dev
 
+      # where a crash's core goes: a pipe dumps untouched reserved pages as zeros
+      - name: Show core dump settings (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cat /proc/sys/kernel/core_pattern
+          ulimit -c
+
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install ninja gmp pcre2

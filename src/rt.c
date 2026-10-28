@@ -63,6 +63,16 @@ static void *rt_realloc(void *p, size_t n) {
   return p;
 }
 
+/* Linux writes a core's untouched reserved pages as zeros when core_pattern
+   is a pipe, which took minutes for the heap's and stack's reservations. */
+static void core_dump(void *p, size_t n, bool on) {
+#ifdef MADV_DONTDUMP
+  madvise(p, n, on ? MADV_DODUMP : MADV_DONTDUMP);
+#else
+  (void)p, (void)n, (void)on;
+#endif
+}
+
 /* -------------------------------------------------------------------- GC */
 
 #define CHUNK_SIZE ((size_t)1 << 20)
@@ -183,11 +193,13 @@ static void new_chunk(size_t words) {
       r = mmap(NULL, heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (r == MAP_FAILED) { fputs("funk: cannot reserve heap\n", stderr); exit(1); }
     heap_reserve *= 2; /* undo the last halving */
+    core_dump(r, heap_reserve + CHUNK_SIZE, false); /* chunks in use are added below */
     heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
     heap_lo = (uintptr_t)heap_base;
   }
   if ((nchunks + 1) * CHUNK_SIZE > heap_reserve) { fputs("funk: out of memory\n", stderr); exit(1); }
   char *base = heap_base + nchunks * CHUNK_SIZE; /* fresh pages are zero */
+  core_dump(base, CHUNK_SIZE, true);
   Chunk *c = (Chunk *)base;
   size_t hdr = sizeof(Chunk), objbytes = words * sizeof(V);
   size_t nobj = (CHUNK_SIZE - hdr - 16) / (objbytes + 1);
@@ -341,6 +353,7 @@ static __attribute__((noinline)) void snapshot_stack(void) {
       fputs("funk: cannot clear the stack for FUNK_GCSTRESS\n", stderr);
       exit(1);
     }
+    if (dead > guard_hi) core_dump(guard_hi, (size_t)(dead - guard_hi), false); /* the new mapping dropped fk_run's advice */
     memset(dead, 0, (size_t)((char *)sp - 1024 - dead));
   }
   char *lo = (char *)(((uintptr_t)sp + page_size - 1) & ~(uintptr_t)(page_size - 1)),
@@ -1930,6 +1943,7 @@ int fk_run(void (*fn)(void *), void *arg) {
   }
   if (mem == MAP_FAILED) { perror("funk: mmap stack"); return 1; }
   mprotect(mem, guard, PROT_NONE);
+  if (size > ((size_t)64 << 20)) core_dump(mem, size - ((size_t)64 << 20), false); /* a core keeps the top 64 MiB of stack */
   guard_lo = mem;
   guard_hi = mem + guard;
   fk_stack_base = mem + size;
