@@ -11,8 +11,22 @@
 #define LIBFUNK_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
 const char *funk_version(void);
+
+/* Before funk_main: the heap's limit, beyond which allocation is the
+   runtime error "out of memory" after a full collection; the allocation
+   after which the first collection starts, kept at most a quarter of the
+   limit; and the stack's size, beyond which recursion is the runtime error
+   "stack overflow". In bytes; 0 keeps a default: 64 GiB of address space,
+   128 MiB, 4 GiB. The heap is at least 4 MiB, the stack 32 MiB. */
+void funk_memory(size_t heap, size_t threshold, size_t stack);
+
+/* fn runs on an error funk cannot recover from, such as malloc failing;
+   then the process exits. It may save the host's work; it must not call
+   funk. */
+void funk_on_fatal(void (*fn)(void *ctx, const char *msg), void *ctx);
 
 /* Run fn(arg) on the runtime's stack; returns what fn returns, or 1 if
    the stack cannot be made. */
@@ -47,6 +61,18 @@ bool funk_load_file(const char *path);
    in messages. *shown is the expression's value shown, or NULL for a
    declaration or `()`; the caller frees it. */
 bool funk_eval(const char *src, const char *name, char **shown);
+
+/* From any thread: the running funk_run_file, funk_load_file, funk_eval or
+   funk_call stops with the runtime error "interrupted". Interpreted code
+   checks at each call, so a loop stops; a long primitive, such as sorting,
+   finishes first. A call that starts afterwards clears it. */
+void funk_interrupt(void);
+
+/* Send what funk writes to out instead of stdout and stderr: stream 1 is
+   the program's output (putStr, print), 2 its messages (compile and runtime
+   errors, warnings, trace), one call per message. NULL restores them.
+   Output of the C compiler that builds foreign-import glue is not included. */
+void funk_output(void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx);
 
 /* Call the global name, the newest definition of it, with n Int
    arguments (1 to 8); its type must be Int -> ... -> Int, with `->` or

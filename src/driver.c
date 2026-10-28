@@ -43,12 +43,7 @@ static void adopt_imports(void) {
   }
 }
 
-static void report(const char *fmt, const char *arg) {
-  fflush(stdout);
-  fprintf(stderr, "funk: ");
-  fprintf(stderr, fmt, arg);
-  fputc('\n', stderr);
-}
+static void report(const char *fmt, const char *arg) { fk_message("funk: ", fmt, arg); }
 
 const char *funk_version(void) { return FUNK_VERSION; }
 
@@ -317,6 +312,7 @@ bool funk_check_file(const char *path) {
   }
 
 bool funk_run_file(const char *path) {
+  atomic_store(&fk_interrupt, 0);
   Chunk c;
   if (!compile_program(path, &c)) return false;
   CATCH_RUNTIME(return false);
@@ -376,6 +372,7 @@ int funk_build(const char *path, const char *exe, const char *opt) {
 }
 
 bool funk_load_file(const char *path) {
+  atomic_store(&fk_interrupt, 0);
   Chunk c;
   int mark = undo_mark(); /* fixities installed by the parser */
   const char *file = cur_file;
@@ -424,6 +421,7 @@ static char *show_result(Bind *it) {
 }
 
 bool funk_eval(const char *src, const char *name, char **shown) {
+  atomic_store(&fk_interrupt, 0);
   size_t len = strlen(src);
   const char *file = cur_file;
   *shown = NULL;
@@ -505,6 +503,20 @@ static bool int_function(Type *t, int n) {
   return strcmp(want.s, got.s) == 0;
 }
 
+void funk_memory(size_t heap, size_t threshold, size_t stack) { fk_set_memory(heap, threshold, stack); }
+
+void funk_on_fatal(void (*fn)(void *ctx, const char *msg), void *ctx) {
+  fk_fatal_hook = fn;
+  fk_fatal_ctx = ctx;
+}
+
+void funk_interrupt(void) { atomic_store(&fk_interrupt, 1); }
+
+void funk_output(void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx) {
+  fk_out = out;
+  fk_out_ctx = ctx;
+}
+
 bool funk_call(const char *name, int n, const long *args, long *result) {
   int g = global_lookup(intern(name));
   if (g < 0) {
@@ -519,6 +531,7 @@ bool funk_call(const char *name, int n, const long *args, long *result) {
     }
     checked = g, checked_n = n;
   }
+  atomic_store(&fk_interrupt, 0);
   CATCH_RUNTIME(return false);
   install_prelude();
   V a[8];

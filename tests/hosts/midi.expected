@@ -1,0 +1,43 @@
+    0.000 on  ch1 60 100
+ 1000.000 off ch1 60 0
+ 1000.000 on  ch1 64 100
+ 2000.000 off ch1 64 0
+ 2000.000 on  ch1 60 100
+ 3000.000 off ch1 60 0
+<input>:1:63: error: type mismatch: expected `pattern.Pattern Int`, found `pattern.Pattern Char`
+  (cannot match `Int` with `Char`)
+funk-midi: pat is not playing: it must be a Pattern Int
+ 4000.000 on  ch2 67 80
+ 5000.000 off ch2 67 0
+ 6000.000 on  ch2 67 80
+ 7000.000 off ch2 67 0
+ 7025.000 on  ch2 67 80
+ 7525.000 off ch2 67 0
+ 8000.000 off ch2 67 0
+ 9400.000 on  ch1 72 100
+ 9525.000 off ch1 72 0
+ 9775.000 on  ch1 72 100
+ 9900.000 off ch1 72 0
+10025.000 on  ch1 48 100
+10025.000 on  ch1 72 100
+10150.000 off ch1 72 0
+10400.000 on  ch1 72 100
+10525.000 off ch1 72 0
+10775.000 on  ch1 72 100
+10900.000 off ch1 72 0
+runtime error: pattern.fast: factor must be positive
+11025.000 off ch1 48 0
+11025.000 on  ch1 48 100
+11025.000 on  ch1 72 100
+11150.000 off ch1 72 0
+11400.000 on  ch1 72 100
+11525.000 off ch1 72 0
+11775.000 on  ch1 72 100
+11900.000 off ch1 72 0
+runtime error: divide by zero
+funk-midi: pat failed; stopped until it is defined again
+12025.000 off ch1 48 0
+12025.000 on  ch1 48 100
+12025.000 on  ch1 72 100
+12150.000 off ch1 72 0
+13000.000 off ch1 48 0

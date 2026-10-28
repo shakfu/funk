@@ -1,0 +1,21 @@
+-- funk-midi --no-sleep --script (tests/CMakeLists.txt): playback, redefinition,
+-- velocity and channel, tempo, stop and play, a loaded file; a pattern of the
+-- wrong type and one that fails as it is defined, which leave the old one
+-- playing, and one that fails as it plays, which stops it
+pat = p.fastcat [p.atom 60, p.atom 64]
+:wait 2000
+pat = m.chan 2 (m.vel 80 (p.fastcat [p.atom 67, p.silence]))
+:wait 2000
+pat = p.atom 'x'
+:wait 2000
+:cycle 1000
+:wait 2000
+:stop
+:wait 1000
+:play
+:l tests/hosts/midiload.fk
+:wait 2000
+pat = p.fast 0 (p.atom 1)
+:wait 1000
+pat = p.mapP (\x -> div x 0) (p.atom 60)
+:wait 1000

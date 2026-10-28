@@ -8,6 +8,7 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -320,6 +321,20 @@ int fk_num_eq_int(V v, long long i);
 
 extern jmp_buf *fk_error_jmp;
 _Noreturn void fk_error(const char *fmt, ...);
+/* An error funk cannot recover from: fk_fatal_hook (libfunk.h, funk_on_fatal) runs, then the process exits. */
+extern void (*fk_fatal_hook)(void *ctx, const char *msg);
+extern void *fk_fatal_ctx;
+_Noreturn void fk_fatal(const char *msg);
+void fk_set_memory(size_t heap, size_t threshold, size_t stack);
+/* Set from any thread (libfunk.h, funk_interrupt); the interpreter checks it at each call. */
+extern atomic_int fk_interrupt;
+/* Output: stream 1 the program's, 2 messages. To fk_out if set (libfunk.h,
+   funk_output), else stdout and stderr. A message is one write, newline included. */
+extern void (*fk_out)(void *ctx, int stream, const char *s, size_t n);
+extern void *fk_out_ctx;
+void fk_write(int stream, const char *s, size_t n);
+void fk_message(const char *prefix, const char *fmt, ...);
+void fk_vmessage(const char *prefix, const char *fmt, va_list ap);
 _Noreturn void fk_match_fail(const char *where);
 _Noreturn void fk_stack_overflow(void);
 extern char *fk_stack_limit;

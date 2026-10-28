@@ -10,19 +10,19 @@ extern char **environ;
 
 void *xmalloc(size_t n) {
   void *p = malloc(n ? n : 1);
-  if (!p) { fputs("funk: out of memory\n", stderr); exit(1); }
+  if (!p) fk_fatal("out of memory");
   return p;
 }
 
 void *xcalloc(size_t n, size_t size) {
   void *p = calloc(n ? n : 1, size ? size : 1);
-  if (!p) { fputs("funk: out of memory\n", stderr); exit(1); }
+  if (!p) fk_fatal("out of memory");
   return p;
 }
 
 void *xrealloc(void *p, size_t n) {
   p = realloc(p, n ? n : 1);
-  if (!p) { fputs("funk: out of memory\n", stderr); exit(1); }
+  if (!p) fk_fatal("out of memory");
   return p;
 }
 
@@ -187,24 +187,22 @@ bool cerr_quiet;
 _Noreturn void cerror(int line, int col, const char *fmt, ...) {
   va_list ap;
   if (cerr_quiet && cerr_jmp) longjmp(*cerr_jmp, 1);
-  fflush(stdout);
-  fprintf(stderr, "%s:%d:%d: error: ", cur_file, line, col);
+  char *prefix = xsprintf("%s:%d:%d: error: ", cur_file, line, col);
   va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
+  fk_vmessage(prefix, fmt, ap);
   va_end(ap);
-  fputc('\n', stderr);
+  free(prefix);
   if (cerr_jmp) longjmp(*cerr_jmp, 1);
   exit(1);
 }
 
 void cwarning(int line, int col, const char *fmt, ...) {
   va_list ap;
-  fflush(stdout);
-  fprintf(stderr, "%s:%d:%d: warning: ", cur_file, line, col);
+  char *prefix = xsprintf("%s:%d:%d: warning: ", cur_file, line, col);
   va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
+  fk_vmessage(prefix, fmt, ap);
   va_end(ap);
-  fputc('\n', stderr);
+  free(prefix);
 }
 
 Argv cc_argv(void) {

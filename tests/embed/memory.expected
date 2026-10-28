@@ -1,0 +1,10 @@
+hook: test, ctx set
+funk: test
+child exit 1
+runtime error: out of memory: the heap's limit is 64 MiB
+fail -
+ok   5014997
+peak under 100 MiB: yes
+runtime error: stack overflow
+fail -
+ok   2

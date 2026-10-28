@@ -1,6 +1,6 @@
 # Patterns: design note
 
-Status: implemented, 2026-10-28: `lib/pattern.fk`, tested by `tests/lib/patterns.fk`, `tests/ffi/sched.fk` and `bench/reload.c`. All three thresholds pass outside `psnd`; `psnd` integration not started. Context: [261027-lang-review.md](261027-lang-review.md).
+Status: implemented, 2026-10-28: `lib/pattern.fk`, tested by `tests/lib/patterns.fk`, `tests/ffi/sched.fk` and `bench/reload.c`. All three thresholds pass outside `psnd`. `funk-midi` (`hosts/midi/main.c`) plays patterns to a MIDI port, live. The CLAP plugin is in `midi-langs` (`projects/funk-midi`); `psnd` not started. Context: [261027-lang-review.md](261027-lang-review.md).
 
 funk gets its own pattern engine. Tidal ([Tidal](https://github.com/tidalcycles/Tidal)) and Strudel are reference designs, not specifications. A pattern here means a description of events over musical time, such as notes or control changes, that a program can combine and transform.
 
@@ -64,8 +64,31 @@ Status:
 - `euclid k n` puts an onset on step `i` where `mod (i * k) n < k`: maximally even, starting on step 0. Its rotations can differ from Bjorklund's algorithm, which Tidal uses.
 - **Scheduling.** Tempo is an `Int`, samples per cycle, so a tick maps to a sample by an exact floor, and adjacent sample blocks partition the onsets. `sampleOnsets` returns a block's onsets in time order. `pushOnsets` puts them on a `Ring Int`, one `Int` per event (sample * 65536 + value), so a push cannot tear an event. Tempo changes are not handled.
 - **The test transport stalls on underrun.** In `tests/ffi/sched.fk`, musical time advances only once funk has scheduled the block. A slow funk thread then costs silence, not a late event, and the output does not depend on timing. A live player may prefer to keep time and drop late events; that is the player's choice, not the library's.
-- **Reload.** A definition binds the names it uses when it is compiled, so a `step` defined before a reload keeps the old `pat`. The host redefines `step` after each load: one compiled chunk per reload. Per window it calls `step buf w` through `funk_call`, which compiles nothing, and `writeOnsets` fills `buf`, a C array the host owns. The new pattern takes over at the next window, not at a cycle boundary: queries use absolute time, so the switch cannot shift the beat.
+- **Reload.** A definition binds the names it uses when it is compiled, so a `step` defined before a reload keeps the old `pat`. The host redefines `step` after each load: one compiled chunk per reload. Per window it calls `step buf w` through `funk_call`, which compiles nothing, and `writeEvents` fills `buf`, a C array the host owns. The new pattern takes over at the next window, not at a cycle boundary: queries use absolute time, so the switch cannot shift the beat.
 - Names avoid `pure`, `fmap` and `seq`, which a prelude with `Functor` and `Applicative` would reserve.
+
+## funk-midi
+
+`hosts/midi/main.c`, the first host, in the funk repo while `libfunk.h` changes; it moves to `midi-langs` once the API settles. A REPL over `libfunk.h` with `pattern as p` and `midi as m` imported. Input that defines `pat`, a `Pattern Int`, or `:l FILE`, recompiles `step`, and `pat` plays from the next window. `:cycle MS` changes the tempo, `:stop` and `:play` silence and resume, `:wait MS` plays for a time in a script.
+
+- **Values.** `lib/midi.fk`: note + 128 * velocity + 16384 * (channel - 1). A plain note number plays at velocity 100 on channel 1. `m.vel` and `m.chan` clamp their arguments, so a typo cannot stop playback.
+- **Note-offs** come from each event's whole: `sampleEvents` returns its duration. At one time, note-offs go before note-ons, so a note that ends where the next starts is released first.
+- **Threads.** funk's thread schedules 10 ms windows 50 ms ahead and handles input. A sender thread sends each message at its time from a heap, so input and reloads never delay a message. A new `pat` misses the onsets already inside the lookahead: a redefinition at a cycle's start sounds from the next cycle.
+- **One clock** from start-up, so patterns keep one cycle grid across redefinitions, `:stop` and `:play`. A tempo change takes effect at the next unscheduled window, from the tick reached there.
+- **Errors.** A definition with a type or runtime error leaves the playing pattern; a pattern that fails when queried stops until `pat` is defined again.
+- **Timing, macOS, M1.** As a default-policy thread, the sender woke from a timed wait up to 8 ms late (median 2 ms). Waking 2 ms early and sleeping the rest did not help, nor did the user-interactive QoS class. As a time-constraint thread (`THREAD_TIME_CONSTRAINT_POLICY`): median 0.06 ms, max 0.32 ms over 600 messages. Through CoreMIDI to a second process, notes a cycle apart arrived within 0.03 ms of each other. Linux is unmeasured.
+- **Build.** Without libremidi, `funk-midi` can only print (`--print`, `--no-sleep`), which `tests/hosts/midi.txt` uses. `-DFUNK_LIBREMIDI_DIR=` a libremidi source tree, such as `midi-langs/thirdparty/libremidi`, adds MIDI output.
+
+## CLAP plugin
+
+`midi-langs/projects/funk-midi/funk_clap.cpp`, an adapter for `midi-langs`' CLAP framework (`projects/clap/language.hpp`), built from a funk checkout at `FUNK_DIR`. One instance per process, which the framework already enforces.
+
+- **Threads.** libfunk's calls run on funk's thread; the adapter starts one session with the first instance, keeps it until the plugin is unloaded, and queues each call to it from the framework's evaluator thread. While a call waits, a Stop calls `funk_interrupt`.
+- **Modes.** In Live mode `pat` loops in 10 ms windows; an expression of type `Pattern Int` plays once, one cycle, queued at once, and the evaluation returns when its notes are sent, as an imperative language's does. A clip must end, so as a clip either renders one cycle; `Language::setLive` was added for this. An expression is tried first as `once = (...) :: p.Pattern Int`, quietly.
+- **Order.** The framework's live queue plays in the order sent and waits at a future event, so the adapter keeps every message in one heap and sends only what precedes `pat`'s next window.
+- **Limits.** A 512 MiB heap and a 256 MiB stack (`funk_memory`): a runaway evaluation replies "out of memory" or "stack overflow" and the host goes on. The heap is not returned to the system afterwards.
+- **The lib modules** are compiled into the plugin and written to a temporary directory at start-up: a bundle cannot rely on a funk checkout.
+- **Tests.** `midi-langs`' `test_clap_host` with `projects/funk-midi/clap_test_cases.txt`: evaluation, clips, Stop of a busy loop, state, Live, real time. funk has no clip that never ends, so its `forever` case exceeds the clip's event limit instead. All pass on macOS; Linux not run.
 
 ## Friction log
 

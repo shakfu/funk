@@ -1,7 +1,7 @@
 # The test suite, one ctest test per check; tests/check.sh runs each and
 # documents what they check. `make test` runs them in parallel; one by
 # name: ctest --test-dir build -R gcdeep. Labels: run, example, game, error,
-# repl, ffi, stress, cli, lib.
+# repl, ffi, stress, cli, lib, hosts, embed.
 
 set(CHECK sh ${PROJECT_SOURCE_DIR}/tests/check.sh)
 
@@ -42,6 +42,44 @@ endforeach()
 # reload during playback, through funk_call (bench/reload.c); fails on a misplaced onset
 add_test(NAME lib/reload COMMAND reload ${PROJECT_SOURCE_DIR}/lib 4000)
 set_tests_properties(lib/reload PROPERTIES LABELS lib TIMEOUT 300)
+
+# funk-midi on a virtual clock, printing its messages (hosts/midi/main.c)
+add_test(NAME hosts/midi
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/midi PROPERTIES LABELS hosts TIMEOUT 300)
+
+# libfunk.h from a host's C (docs/dev/embedding.md)
+foreach(n signals output interrupt memory)
+  add_executable(embed_${n} embed/${n}.c)
+  target_link_libraries(embed_${n} PRIVATE libfunk)
+  if(FUNK_SANITIZE)
+    target_compile_options(embed_${n} PRIVATE -fsanitize=${FUNK_SANITIZE} -fno-sanitize-recover=all)
+    target_link_options(embed_${n} PRIVATE -fsanitize=${FUNK_SANITIZE})
+  endif()
+endforeach()
+add_test(NAME embed/signals COMMAND embed_signals)
+add_test(NAME embed/signals/stress COMMAND embed_signals)
+set_tests_properties(embed/signals embed/signals/stress PROPERTIES LABELS embed TIMEOUT 300
+  PASS_REGULAR_EXPRESSION "host handler: 3 faults, page 3\nafter funk_main: host handler")
+set_tests_properties(embed/signals/stress PROPERTIES ENVIRONMENT FUNK_GCSTRESS=1)
+# stdout only: anything funk_output should have collected would show here
+add_test(NAME embed/output
+  COMMAND sh -c "\"$<TARGET_FILE:embed_output>\" 2>/dev/null | diff tests/embed/output.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/output PROPERTIES LABELS embed TIMEOUT 300)
+add_test(NAME embed/interrupt
+  COMMAND sh -c "\"$<TARGET_FILE:embed_interrupt>\" 2>/dev/null | diff tests/embed/interrupt.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/interrupt PROPERTIES LABELS embed TIMEOUT 300)
+add_test(NAME embed/memory
+  COMMAND sh -c "\"$<TARGET_FILE:embed_memory>\" 2>&1 | diff tests/embed/memory.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+add_test(NAME embed/memory/stress
+  COMMAND sh -c "\"$<TARGET_FILE:embed_memory>\" 2>&1 | diff tests/embed/memory.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/memory embed/memory/stress PROPERTIES LABELS embed TIMEOUT 300)
+set_tests_properties(embed/memory/stress PROPERTIES ENVIRONMENT FUNK_GCSTRESS=1)
 
 # Benchmarks Game programs (bench/game) at their small n, against the
 # Game's output files

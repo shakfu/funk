@@ -26,11 +26,12 @@ Real-time exports already support many instances: they do not touch the heap, an
 
 Needed by every host, whatever follows.
 
-1. **Chain signal handlers.** Save the previous `sigaction` and forward faults outside funk's ranges. Today such a fault resets to `SIG_DFL`, and a second runtime replaces the first's handler, so the first's snapshot writes crash. DAWs often install their own crash handlers.
-2. **Never end the host process.** Turn the `exit()` calls and the stack-overflow `_exit` into errors at the `libfunk.h` boundary.
-3. **Output and error callbacks** in `libfunk.h`, in place of stdout and stderr, so `putStrLn` reaches the Max or Pd console.
-4. **Memory sizes as `funk_init` parameters:** heap reserve, `gc_min`, stack size. A 128 MiB floor before the first collection is too large for Eurorack, and likely for plugins.
+1. **Chain signal handlers.** Done, 2026-10-28: `pass_on` in `rt.c`; test `embed/signals`. A host's handler installed before funk's gets the faults that are not funk's; one installed after funk's must pass funk's on, or the stack snapshot's write barrier breaks. When `funk_main` returns, the replaced handlers are installed again.
+2. **Never end the host process.** Partly done, 2026-10-28: a full heap is the runtime error "out of memory", after a full collection, so a host recovers (test `embed/memory`). What cannot be recovered, `malloc` failing or a fault in the collector, still exits, after `funk_on_fatal`'s hook. Stack overflow in compiled code still exits from the signal handler; interpreted code reports it as an error.
+3. **Output and error callbacks.** Done, 2026-10-28: `funk_output` in `libfunk.h`; test `embed/output`. The C compiler's output for foreign-import glue still goes to stderr.
+4. **Memory sizes.** Done, 2026-10-28: `funk_memory(heap, threshold, stack)` before `funk_main`; test `embed/memory`. The threshold stays at most a quarter of the heap's limit. Freed chunks are not returned to the system: after a runaway program meets the limit, the heap stays at it.
 5. **Shared-library output** (`funk build --shared`), with runtime symbols hidden. Otherwise two funk-built plugins may resolve each other's `fk_cons` and `fk_true`. Inferred from the `extern` declarations in `rt.h`; untested.
+6. **Interrupts.** Done, 2026-10-28: `funk_interrupt`; test `embed/interrupt`. Needed for a host's Stop; not in the first list.
 
 ## Phase 1: instances in one runtime
 

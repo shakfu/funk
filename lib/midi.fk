@@ -1,0 +1,16 @@
+-- midi.fk -- MIDI values for the Pattern Int that hosts/midi plays
+-- (docs/dev/patterns.md): note + 128 * velocity + 16384 * (channel - 1).
+-- A plain note number has velocity 0, which the host plays as 100, on
+-- channel 1. Out-of-range arguments are clamped, so a typo cannot stop
+-- playback with a runtime error.
+module midi where
+import pattern as p
+
+vel :: Int -> p.Pattern Int -> p.Pattern Int
+vel v pat = p.mapP (\x -> x - (x .&. 16256) + 128 * within 1 127 v) pat
+
+chan :: Int -> p.Pattern Int -> p.Pattern Int
+chan c pat = p.mapP (\x -> (x .&. 16383) + 16384 * (within 1 16 c - 1)) pat
+
+within :: Int -> Int -> Int -> Int
+within lo hi x = max lo (min hi x)

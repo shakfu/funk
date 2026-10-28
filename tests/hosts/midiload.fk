@@ -1,0 +1,4 @@
+-- loaded by midi.txt
+import pattern as p
+
+pat = p.stack [p.atom 48, p.euclid 3 8 72]

@@ -135,8 +135,16 @@ static V eval(Expr *e, V *fr, V self, Tail *tc) {
   }
 }
 
+static void check_interrupt(void) {
+  if (atomic_load_explicit(&fk_interrupt, memory_order_relaxed)) {
+    atomic_store(&fk_interrupt, 0);
+    fk_error("interrupted");
+  }
+}
+
 static V run(Lambda *L, V self, V *args) {
   FK_STACK_CHECK();
+  check_interrupt();
   int cap = L->nslots > 8 ? L->nslots : 8;
   V fr[cap];
   if (L->n) memcpy(fr, args, (size_t)L->n * sizeof(V));
@@ -144,6 +152,7 @@ static V run(Lambda *L, V self, V *args) {
   for (;;) {
     V r = eval(L->body, fr, self, &tc);
     if (r) return r;
+    check_interrupt(); /* a tail call: loops run here */
     self = tc.f;
     L = FK_INFO(self);
   }

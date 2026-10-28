@@ -6,9 +6,21 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- `lib/pattern.fk`, a pattern library imported with `-M lib` ([docs/dev/patterns.md](docs/dev/patterns.md)). A pattern is a query from a span of time to the events overlapping it, as in Tidal. Time is in integer ticks, 720720 per cycle, rather than rationals: arithmetic stays in `Int`, and subdivisions up to 16 are exact. `sampleOnsets`, `pushOnsets` and `writeOnsets` turn a block of samples into onsets for an export's ring or a host's buffer.
+- `lib/pattern.fk`, a pattern library imported with `-M lib` ([docs/dev/patterns.md](docs/dev/patterns.md)). A pattern is a query from a span of time to the events overlapping it, as in Tidal. Time is in integer ticks, 720720 per cycle, rather than rationals: arithmetic stays in `Int`, and subdivisions up to 16 are exact. `sampleEvents`, `pushOnsets` and `writeEvents` turn a block of samples into events for an export's ring or a host's buffer.
 
 - `funk_call` in `libfunk.h`: calls a global from `Int`s to `Int` without compiling. A host that called `funk_eval` once per audio window grew by about 16 KB per call, since every REPL input stays compiled; `funk_call` allocates nothing in the compiler.
+
+- `funk-midi` (`hosts/midi/main.c`): a REPL that plays `pat`, a `Pattern Int`, to a MIDI port, and replaces it live when it is redefined ([docs/dev/patterns.md](docs/dev/patterns.md#funk-midi)). MIDI output needs `-DFUNK_LIBREMIDI_DIR`; without it, it prints. `lib/midi.fk` gives velocity and channel. On macOS its sender is a time-constraint thread: as a default thread, messages went out up to 8 ms late.
+
+- `funk_output` in `libfunk.h`: program output and messages (compile and runtime errors, warnings, `trace`) go to a host's function, one call per message, instead of stdout and stderr. A host with its own console, such as a terminal editor or a plugin, needs it.
+
+- `funk_interrupt` in `libfunk.h`: from any thread, stops the running evaluation with the runtime error "interrupted". The interpreter checks a flag at each call, so a loop stops; a long primitive finishes first. A host's Stop needs it: an endless loop typed in a plugin's editor otherwise holds the evaluator for good.
+
+- `funk_memory` and `funk_on_fatal` in `libfunk.h`. `funk_memory` sets the heap's limit, the first collection's threshold and the stack's size; at the limit, allocation runs a full collection, then raises the runtime error "out of memory", which a host recovers from. Before, the heap's only limit was its 64 GiB address-space reservation, so a runaway program took the host's memory, and running out ended the process. `funk_on_fatal` gives a host the message of an error funk cannot recover from, such as `malloc` failing, before the process exits.
+
+### Fixed
+
+- funk's `SIGSEGV` and `SIGBUS` handler passes faults that are not its own to the handler installed before it. It reset them to the default action, so in an embedding host a fault the host would have handled, such as on its own guard page, ended the process. When `funk_main` returns, the handlers it replaced are installed again, so a plugin that is then unloaded leaves none pointing into it.
 
 ## [0.6.0] - 2026-10-27
 

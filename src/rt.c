@@ -38,14 +38,61 @@ static char *fk_stack_base;
 
 bool fk_on_funk_thread(void);
 
+atomic_int fk_interrupt;
+
+void (*fk_out)(void *ctx, int stream, const char *s, size_t n);
+void *fk_out_ctx;
+
+void fk_message(const char *prefix, const char *fmt, ...);
+
+void fk_write(int stream, const char *s, size_t n) {
+  if (fk_out) {
+    fk_out(fk_out_ctx, stream, s, n);
+    return;
+  }
+  if (stream == 2) fflush(stdout); /* a message follows the output before it */
+  fwrite(s, 1, n, stream == 2 ? stderr : stdout);
+}
+
+/* One message, prefix and fmt's text and a newline, in one fk_write. */
+void fk_vmessage(const char *prefix, const char *fmt, va_list ap) {
+  char small[512], *s = small;
+  va_list ap2;
+  va_copy(ap2, ap);
+  size_t p = strlen(prefix);
+  int n = vsnprintf(NULL, 0, fmt, ap);
+  if (n < 0) n = 0;
+  size_t len = p + (size_t)n + 1;
+  if (len > sizeof small && !(s = malloc(len + 1))) {
+    s = small;
+    len = sizeof small - 1;
+  }
+  memcpy(s, prefix, p < len ? p : len);
+  if (p < len) vsnprintf(s + p, len - p, fmt, ap2); /* writes the text and a NUL in place of the newline */
+  va_end(ap2);
+  s[len - 1] = '\n';
+  fk_write(2, s, len);
+  if (s != small) free(s);
+}
+
+void fk_message(const char *prefix, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  fk_vmessage(prefix, fmt, ap);
+  va_end(ap);
+}
+
 _Noreturn void fk_error(const char *fmt, ...) {
   va_list ap;
-  fflush(stdout);
-  fputs("runtime error: ", stderr);
   va_start(ap, fmt);
-  vfprintf(stderr, fmt, ap);
+  if (fk_on_funk_thread()) {
+    fk_vmessage("runtime error: ", fmt, ap);
+  } else { /* a foreign export on another thread: straight to stderr, as the process ends */
+    fputs("runtime error: ", stderr);
+    vfprintf(stderr, fmt, ap);
+    fputc('\n', stderr);
+  }
   va_end(ap);
-  fputc('\n', stderr);
   if (!fk_on_funk_thread()) abort(); /* a foreign export on another thread: funk's handlers are not on this stack */
   if (fk_error_jmp) longjmp(*fk_error_jmp, 1);
   exit(1);
@@ -57,9 +104,19 @@ _Noreturn void fk_match_fail(const char *where) {
 
 _Noreturn void fk_stack_overflow(void) { fk_error("stack overflow"); }
 
+void (*fk_fatal_hook)(void *ctx, const char *msg);
+void *fk_fatal_ctx;
+
+_Noreturn void fk_fatal(const char *msg) {
+  if (fk_fatal_hook) fk_fatal_hook(fk_fatal_ctx, msg);
+  fflush(stdout);
+  fprintf(stderr, "funk: %s\n", msg);
+  exit(1);
+}
+
 static void *rt_realloc(void *p, size_t n) {
   p = realloc(p, n);
-  if (!p) { fputs("funk: out of memory\n", stderr); exit(1); }
+  if (!p) fk_fatal("out of memory");
   return p;
 }
 
@@ -186,18 +243,21 @@ static void push_free(size_t words, V *o) {
    regions; their unallocated objects then go on the free lists. */
 static V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
 
-static void new_chunk(size_t words) {
-  if (!heap_base) { /* reserve, halving on failure, then align to CHUNK_SIZE */
-    char *r = MAP_FAILED;
-    for (; r == MAP_FAILED && heap_reserve >= ((size_t)256 << 20); heap_reserve /= 2)
-      r = mmap(NULL, heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (r == MAP_FAILED) { fputs("funk: cannot reserve heap\n", stderr); exit(1); }
-    heap_reserve *= 2; /* undo the last halving */
+static size_t large_bytes; /* in large objects: they count toward the heap's limit, heap_reserve */
+
+/* A fresh chunk for objects of words words; false at the heap's limit. */
+static bool new_chunk(size_t words) {
+  if (!heap_base) { /* reserve, halving on failure down to 256 MiB, then align to CHUNK_SIZE */
+    char *r;
+    while ((r = mmap(NULL, heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0)) == MAP_FAILED &&
+           heap_reserve / 2 >= ((size_t)256 << 20))
+      heap_reserve /= 2;
+    if (r == MAP_FAILED) fk_fatal("cannot reserve address space for the heap");
     core_dump(r, heap_reserve + CHUNK_SIZE, false); /* chunks in use are added below */
     heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
     heap_lo = (uintptr_t)heap_base;
   }
-  if ((nchunks + 1) * CHUNK_SIZE > heap_reserve) { fputs("funk: out of memory\n", stderr); exit(1); }
+  if ((nchunks + 1) * CHUNK_SIZE + large_bytes > heap_reserve) return false;
   char *base = heap_base + nchunks * CHUNK_SIZE; /* fresh pages are zero */
   core_dump(base, CHUNK_SIZE, true);
   Chunk *c = (Chunk *)base;
@@ -212,6 +272,7 @@ static void new_chunk(size_t words) {
   heap_hi = (uintptr_t)base + CHUNK_SIZE;
   bump[words] = (V *)c->objs; /* allocated in address order, each word written once */
   bump_end[words] = (V *)(c->objs + nobj * objbytes);
+  return true;
 }
 
 /* Map a candidate word to the object containing it, or NULL. */
@@ -318,7 +379,7 @@ static void copy_words(V *from, size_t n) {
     free(stack_copy);
     stack_cap = n + n / 4;
     stack_copy = malloc(stack_cap * sizeof(V));
-    if (!stack_copy) { fputs("funk: out of memory\n", stderr); exit(1); }
+    if (!stack_copy) fk_fatal("out of memory");
   }
   memcpy(stack_copy, from, n * sizeof(V));
   stack_words = n;
@@ -335,7 +396,7 @@ static void copy_more(V *from, size_t n) { /* appended to the copy */
   if (at + n > stack_cap) {
     stack_cap = (at + n) + (at + n) / 4;
     stack_copy = realloc(stack_copy, stack_cap * sizeof(V));
-    if (!stack_copy) { fputs("funk: out of memory\n", stderr); exit(1); }
+    if (!stack_copy) fk_fatal("out of memory");
   }
   memcpy(stack_copy + at, from, n * sizeof(V));
   stack_words = at + n;
@@ -368,7 +429,7 @@ static __attribute__((noinline)) void snapshot_stack(void) {
     snap_area = mmap(NULL, pages * page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     free(snap_copied);
     snap_copied = malloc(pages);
-    if (snap_area == MAP_FAILED || !snap_copied) { fputs("funk: out of memory\n", stderr); exit(1); }
+    if (snap_area == MAP_FAILED || !snap_copied) fk_fatal("out of memory");
     snap_pages = pages;
   }
   memset(snap_copied, 0, pages);
@@ -495,7 +556,11 @@ static void sweep(void) {
   large_lo = UINTPTR_MAX;
   large_hi = 0;
   for (size_t i = 0; i < nlarge; i++) {
-    if (!larges[i].mark) { free(larges[i].p); continue; }
+    if (!larges[i].mark) {
+      large_bytes -= larges[i].words * sizeof(V);
+      free(larges[i].p);
+      continue;
+    }
     larges[i].mark = 0;
     larges[j++] = larges[i];
     if ((uintptr_t)larges[i].p < large_lo) large_lo = (uintptr_t)larges[i].p;
@@ -504,6 +569,7 @@ static void sweep(void) {
   }
   nlarge = j;
   gc_threshold = 2 * live > gc_min && !gcstress ? 2 * live : gc_min;
+  if (gc_threshold > heap_reserve / 4) gc_threshold = heap_reserve / 4; /* room for a cycle's garbage below the limit */
 }
 
 /* The cycle's first pause: the snapshot of the stack and the roots. */
@@ -694,9 +760,36 @@ static void gc_due(void) {
   }
 }
 
+/* At the heap's limit: the cycle under way finished in one pause, then a
+   whole new one, each swept. The cycle under way keeps what was allocated
+   during it, so a second cycle frees more. */
+static void collect_now(void) {
+  if (fk_marking) {
+    drain(INFINITY);
+    gc_finish(true);
+  }
+  while (!sweep_step()) {}
+  gc_start();
+  drain(INFINITY);
+  gc_finish(true);
+  while (!sweep_step()) {}
+}
+
+/* A runtime error, which a host recovers from (libfunk.h); no state is half-built. */
+static _Noreturn void heap_full(void) {
+  fk_error("out of memory: the heap's limit is %zu MiB", heap_reserve >> 20);
+}
+
+static bool large_fits(size_t words) { return nchunks * CHUNK_SIZE + large_bytes + words * sizeof(V) <= heap_reserve; }
+
 static V alloc_large(size_t words) {
+  if (!large_fits(words)) {
+    collect_now();
+    if (!large_fits(words)) heap_full();
+  }
   V *p = calloc(words, sizeof(V));
-  if (!p) { fputs("funk: out of memory\n", stderr); exit(1); }
+  if (!p) fk_fatal("out of memory");
+  large_bytes += words * sizeof(V);
   if (nlarge == caplarge) {
     caplarge = caplarge ? 2 * caplarge : 16;
     larges = rt_realloc(larges, caplarge * sizeof *larges);
@@ -712,21 +805,30 @@ static V alloc_large(size_t words) {
 #ifndef __clang__
 __attribute__((noclone)) /* verify_marks finds it by name */
 #endif
+/* From a free list or a bump region; NULL at the heap's limit. */
+static V *alloc_small(size_t words) {
+  V *o;
+  if (!freelist[words] && unswept[words] && !fk_marking) sweep_lazily(words); /* marks are partial while marking */
+  if ((o = freelist[words])) {
+    freelist[words] = (V *)o[1];
+  } else {
+    if (bump[words] >= bump_end[words] && !new_chunk(words)) return NULL;
+    o = bump[words];
+    bump[words] += words;
+  }
+  o[1] = 0; /* the free-list link, or a reused chunk's dead word */
+  return o;
+}
+
 static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uint32_t aux) {
   V *o;
   if (fk_marking ? alloc_since_gc > next_step : alloc_since_gc > gc_threshold) gc_due();
   if (words > MAX_SMALL) {
     o = (V *)alloc_large(words);
   } else {
-    if (!freelist[words] && unswept[words] && !fk_marking) sweep_lazily(words); /* marks are partial while marking */
-    if ((o = freelist[words])) {
-      freelist[words] = (V *)o[1];
-      o[1] = 0;
-    } else {
-      if (bump[words] >= bump_end[words]) new_chunk(words);
-      o = bump[words];
-      bump[words] += words;
-      o[1] = 0; /* a reused chunk's dead word, as on a free-list pop */
+    if (!(o = alloc_small(words))) {
+      collect_now();
+      if (!(o = alloc_small(words))) heap_full();
     }
   }
   FkHdr *h = (FkHdr *)o;
@@ -772,7 +874,7 @@ V fk_true, fk_false, fk_unit, fk_nil;
 
 static V static_obj(size_t words, int kind, int n, uint32_t aux) {
   V *o = calloc(words < 2 ? 2 : words, sizeof(V));
-  if (!o) { fputs("funk: out of memory\n", stderr); exit(1); }
+  if (!o) fk_fatal("out of memory");
   FkHdr *h = (FkHdr *)o;
   h->kind = (uint8_t)kind;
   h->n = (uint16_t)n;
@@ -1329,7 +1431,9 @@ V fk_p_show(V self, V *a) {
 
 V fk_p_print(V self, V *a) {
   char *s = fk_show_cstr(a[0]);
-  puts(s);
+  size_t n = strlen(s);
+  s[n] = '\n'; /* in place of the NUL: one write */
+  fk_write(1, s, n + 1);
   free(s);
   return fk_unit;
 }
@@ -1425,7 +1529,7 @@ V fk_p_awritestr(V self, V *a) { return fk_s_awritestr(FK_PTRV(a[0]), FK_INT(a[1
 static inline V fk_s_aput(void *a, int64_t i, int64_t n) {
   int64_t len = fk_s_alen(a);
   if (i < 0 || n < 0 || i > len || n > len - i) fk_error("putArray: %lld elements at index %lld of an array of %lld", (long long)n, (long long)i, (long long)len);
-  fwrite((char *)fk_s_aptr(a) + i * fk_s_asize(a), (size_t)fk_s_asize(a), (size_t)n, stdout);
+  fk_write(1, (char *)fk_s_aptr(a) + i * fk_s_asize(a), (size_t)(fk_s_asize(a) * n));
   return fk_unit;
 }
 V fk_p_aput(V self, V *a) { return fk_s_aput(FK_PTRV(a[0]), FK_INT(a[1]), FK_INT(a[2])); }
@@ -1763,13 +1867,13 @@ V fk_p_contag(V self, V *a) {
 }
 
 V fk_p_putstr(V self, V *a) {
-  fwrite(FK_STRBYTES(a[0]), 1, FK_STRLEN(a[0]), stdout);
+  fk_write(1, FK_STRBYTES(a[0]), FK_STRLEN(a[0]));
   return fk_unit;
 }
 
 V fk_p_putstrln(V self, V *a) {
   fk_p_putstr(self, a);
-  putchar('\n');
+  fk_write(1, "\n", 1);
   return fk_unit;
 }
 
@@ -1828,9 +1932,7 @@ V fk_p_readfloat(V self, V *a) {
    that is pure in its type (typed-effects.md). Standard output is flushed
    first, so the two streams stay in program order. */
 V fk_p_trace(V self, V *a) {
-  fflush(stdout);
-  fwrite(FK_STRBYTES(a[0]), 1, FK_STRLEN(a[0]), stderr);
-  fputc('\n', stderr);
+  fk_message("", "%.*s", (int)FK_STRLEN(a[0]), FK_STRBYTES(a[0]));
   return a[1];
 }
 
@@ -1888,6 +1990,24 @@ typedef struct { void (*fn)(void *); void *arg; } Task;
    region below the stack and faults. The handler runs on its own stack. */
 
 
+/* The handlers funk's replaced. A fault that is not funk's goes to them, so
+   a host's handler still runs: a crash reporter, or its own guard pages. */
+static struct sigaction prev_segv, prev_bus;
+static bool handlers_installed; /* once: a second install would record funk's own handler as the previous one */
+
+static void pass_on(int sig, siginfo_t *si, void *ctx) {
+  struct sigaction *p = sig == SIGBUS ? &prev_bus : &prev_segv;
+  if (p->sa_flags & SA_SIGINFO) {
+    p->sa_sigaction(sig, si, ctx);
+    return;
+  }
+  if (p->sa_handler != SIG_DFL && p->sa_handler != SIG_IGN) {
+    p->sa_handler(sig);
+    return;
+  }
+  signal(sig, SIG_DFL); /* a real fault: the faulting instruction runs again and the process ends */
+}
+
 static void on_fault(int sig, siginfo_t *si, void *ctx) {
   char *a = si->si_addr, *lo = __atomic_load_n(&fk_snap_lo, __ATOMIC_RELAXED); /* the fault may be another thread's */
   if (lo && a >= lo && a < snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
@@ -1906,7 +2026,7 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
     if (write(2, msg, sizeof msg - 1) < 0) {}
     _exit(1);
   }
-  signal(sig, SIG_DFL); /* a real fault: let it crash */
+  pass_on(sig, si, ctx);
 }
 
 static void *task_main(void *p) {
@@ -1918,9 +2038,10 @@ static void *task_main(void *p) {
   sa.sa_sigaction = on_fault;
   sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
   sigemptyset(&sa.sa_mask);
-  if (ss.ss_sp && sigaltstack(&ss, NULL) == 0) {
-    sigaction(SIGSEGV, &sa, NULL);
-    sigaction(SIGBUS, &sa, NULL);
+  if (ss.ss_sp && sigaltstack(&ss, NULL) == 0 && !handlers_installed) {
+    sigaction(SIGSEGV, &sa, &prev_segv);
+    sigaction(SIGBUS, &sa, &prev_bus);
+    handlers_installed = true;
   }
   t->fn(t->arg);
   fflush(stdout);
@@ -1932,11 +2053,23 @@ static void *task_main(void *p) {
    pages only as the stack grows; the size halves if the mapping fails.
    The interpreter and the runtime check the stack and report overflow as
    an error the REPL recovers from; compiled code relies on the guard. */
+static size_t stack_size = (size_t)4 << 30;
+
+/* libfunk.h, funk_memory; 0 keeps a default. The threshold stays at most a
+   quarter of the heap, and the stack above its guard and check margin. */
+void fk_set_memory(size_t heap, size_t threshold, size_t stack) {
+  if (heap) heap_reserve = heap < 4 * CHUNK_SIZE ? 4 * CHUNK_SIZE : (heap + CHUNK_SIZE - 1) & ~(CHUNK_SIZE - 1);
+  if (threshold) gc_min = threshold;
+  if (gc_min > heap_reserve / 4) gc_min = heap_reserve / 4;
+  gc_threshold = gc_min;
+  if (stack) stack_size = stack < ((size_t)32 << 20) ? (size_t)32 << 20 : stack;
+}
+
 int fk_run(void (*fn)(void *), void *arg) {
-  size_t size = (size_t)4 << 30, guard = (size_t)16 << 20; /* larger than any frame */
+  size_t size = stack_size, guard = (size_t)16 << 20; /* larger than any frame */
   fk_init();
   char *mem = MAP_FAILED;
-  while (size >= ((size_t)8 << 20)) {
+  while (size >= ((size_t)32 << 20)) { /* above the guard and the check margin */
     mem = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (mem != MAP_FAILED) break;
     size /= 2;
@@ -1955,5 +2088,10 @@ int fk_run(void (*fn)(void *), void *arg) {
   pthread_attr_setstack(&attr, mem, size);
   if (pthread_create(&th, &attr, task_main, &t)) { perror("funk: pthread_create"); return 1; }
   pthread_join(th, NULL);
+  if (handlers_installed) { /* a plugin may be unloaded next: no handler may point into it */
+    sigaction(SIGSEGV, &prev_segv, NULL);
+    sigaction(SIGBUS, &prev_bus, NULL);
+    handlers_installed = false;
+  }
   return 0;
 }

@@ -20,7 +20,7 @@
 #include "libfunk.h"
 
 enum { WINDOW = 1024, CAP = 256 };
-#define STEP "step buf w = p.writeOnsets (plusPtr nullPtr buf) 256 pat 96000 w (w + 1024)"
+#define STEP "step buf w = p.writeEvents (plusPtr nullPtr buf) 256 pat 96000 w (w + 1024)"
 
 static double now_ms(void) {
   struct timespec t;
@@ -75,7 +75,7 @@ static int run(void *arg) {
   /* the first pattern's values are 60 and up, the reloaded one's below */
   if (!eval("import pattern as p") || !eval("pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]") || !eval(STEP)) return 1;
 
-  static long buf[CAP];
+  static long buf[3 * CAP]; /* start, duration, value */
   double worst = 0, reload = 0, rejected = 0;
   long rss0 = 0, events = 0, errors = 0, last = -1;
   int half = a->windows / 2, first_new = -1;
@@ -96,7 +96,7 @@ static int run(void *arg) {
     if (w == 10) rss0 = rss_kib();
     if (n > CAP) errors++;
     for (long i = 0; i < n && i < CAP; i++) {
-      long s = buf[i] >> 16, v = buf[i] & 65535;
+      long s = buf[3 * i], v = buf[3 * i + 2];
       if (s < (long)w * WINDOW || s >= (long)(w + 1) * WINDOW || s < last) errors++;
       if ((w < half) != (v >= 60)) errors++;
       if (w >= half && first_new < 0) first_new = w;

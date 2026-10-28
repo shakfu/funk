@@ -1,0 +1,15 @@
+ok   print (1 + 2) -> -
+ok   putStr "a" >> putStrLn "b" -> -
+fail f x = x + True -> -
+ok   trace "traced" 5 -> 5
+fail head ([] :: [Int]) -> -
+ok   g x = x * 2 -> -
+stream 1, 4 calls:
+  | 3
+  | ab
+stream 2, 3 calls:
+  | <test>:1:11: error: no instance `Num Bool`
+  | traced
+  | runtime error: head: empty list
+7
+ok   print 7 -> -
