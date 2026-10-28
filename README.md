@@ -283,6 +283,7 @@ The prelude defines:
 
 | File | Contents |
 |-|-|
+| [docs/music.md](docs/music.md) | patterns and MIDI: the music library, `funk-midi` and the CLAP plugin |
 | [docs/dev/design.md](docs/dev/design.md) | language decisions and the alternatives rejected |
 | [docs/dev/architecture.md](docs/dev/architecture.md) | compiler passes, runtime, GC, backends |
 | [docs/dev/roadmap.md](docs/dev/roadmap.md) | planned releases |
