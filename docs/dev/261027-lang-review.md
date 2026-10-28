@@ -145,3 +145,7 @@ The open question "pattern language, DSP language, or both" has a fourth answer.
 ### Next step
 
 Give each friction-log program a pass/fail threshold, e.g. reload under 100 ms, or two instances with no shared mutable state. Without one, the log cannot decide between language features and domain work.
+
+## Addendum: own pattern engine, 2026-10-28
+
+funk gets its own pattern engine; Tidal is a reference, not a specification. This supersedes "Tidal requirements the Correction omits" and "Alternative framing" above. Design questions and the friction program's thresholds are in [patterns.md](patterns.md).
