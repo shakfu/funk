@@ -1,6 +1,6 @@
 # Audio: design sketch
 
-Status: sketch, 2026-10-28. No code in the repo. funk's music library plays MIDI only ([../music.md](../music.md)); the sound comes from a synth outside funk. This note sketches three ways to make sound: A, a compiled synth driven by live patterns; B, A with the synth recompiled on edit; C, MIDI to external synths, as today.
+Status: sketch, 2026-10-28. No code in the repo. funk's music library plays MIDI only ([../music.md](../music.md)); the sound comes from a synth outside funk. This note sketches four ways to make sound: A, a compiled synth driven by live patterns; B, A with the synth recompiled on edit; C, MIDI to external synths, as today; D, a graph of compiled unit generators built at run time, as sapf does. D is recommended (2026-10-29).
 
 ## What exists
 
@@ -34,7 +34,7 @@ So audio-rate code is not built from values the way patterns are:
 
 - **A unit generator** is a function from that state and its inputs to a sample.
 
-- **A signal graph** is the code of the render loop. It cannot be a data structure assembled at run time.
+- **A signal graph** is the code of the render loop, within one export. A graph assembled at run time must live in C memory and be walked by C code (D).
 
 This voice compiles under that check and runs on `tests/ffi/fkt.c`'s audio host. It has a saw oscillator, a linear envelope and a one-pole low-pass, and takes note-on and note-off from a ring. Note 57 set 220 Hz, and the envelope returned to 0 after the note-off.
 
@@ -187,34 +187,77 @@ What it needs beyond A:
 
 - Every edit costs a compile, so B suits instrument design more than per-beat live coding.
 
+## D: a graph of compiled unit generators, built at run time
+
+sapf's model, which is also SuperCollider's server's. In sapf, evaluating `800 0 sinosc .3 * play` builds C++ generator objects wrapped in lazy lists. `play` gives them to a new player, whose render callback pulls them one block at a time (sapf's `src/engine/backends/CoreAudioBackend.cpp`; upstream [lfnoise/sapf](https://github.com/lfnoise/sapf)). `ZRef` changes a parameter, and `Plug` swaps a running input under a spinlock (sapf's `include/Object.hpp`). Interpretation happens once per expression; per-sample loops are compiled C++.
+
+```text
+funk's thread (interpreted, live)               audio thread
+  graph value --play--> node table in C memory  --> C runner: per block,
+  (kernels loaded on demand or ahead of time)        for each node: kernel(state, ins, out, n)
+```
+
+- **Unit generators** are funk exports with one C signature, such as `void k(void *state, const float **in, float *out, int n)`, plus their state's size. They are compiled ahead of time, or on demand while playing. The interpreter cannot run exports, so they are always compiled.
+
+- **The graph** is built in funk on funk's thread, interpreted: a pure value, such as `sinosc 800 |> mul 0.3`, that `play` writes into a table in C memory. A row holds a kernel's address, its input rows, its state and its output buffer. Buffers and state are allocated then, so the audio thread allocates nothing; sapf allocates each block (inferred from `Gen::produce` and `List`'s allocation paths, not traced).
+
+- **The runner** is C in the host, about 100 lines (an estimate). Each block it calls every row's kernel in order. A new graph replaces the old one through an atomic pointer at a block boundary; funk's thread frees the old table once the audio thread has passed an epoch it advances per block.
+
+- **Live:** patterns, rewiring and parameters at once; a new kernel after a compile.
+
+Why the graph is in C memory, not funk's heap: exports may not use heap values, and the collector could free a graph the audio thread still reads unless it is pinned. `Array`, `poke` and foreign structs already write C memory from interpreted code.
+
+What it needs:
+
+1. **Kernels without the runtime.** `funk emit-c` pastes the runtime, so a kernel loaded into an interpreting host brings a second copy. Code in the export subset uses little of it: `fk_ffi_enter` and `fk_snap_lo` around C imports (by code reading; unverified as a full list). Without the runtime's 6,000 lines, a kernel should compile near the glue's 87 ms (an estimate), not 1.03 s.
+
+2. **A C runner**, since funk cannot call through a `FunPtr`: it has `&cname` imports but no `"dynamic"` import. The alternative is a `"dynamic"` import that R4 allows.
+
+3. **A kernel library**, `lib/dsp.fk`: A's oscillators, envelope and filters, in the kernel signature.
+
+4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring.
+
+Limits:
+
+- **Feedback within a sample** across nodes is impossible; a node reads its input's previous block. A filter with such feedback is one kernel.
+
+- **Node outputs go through memory.** Code compiled per sample, as Faust's, keeps them in registers. The cost per node is unmeasured.
+
+- **Graph changes come at pattern rate**, from funk's thread, not at audio rate: enough for voices driven by MIDI or patterns.
+
+LLVM, as Faust uses it, stays a later option for kernels: only if compiling a kernel without the runtime through `$CC` proves too slow.
+
 ## Comparison
 
-| | C | A | B |
-|-|-|-|-|
-| Patterns live | yes | yes | yes |
-| Synth live | outside funk | no | yes, about 0.1-1 s per edit |
-| Sound designed in funk | no | yes | yes |
-| `$CC` at run time | no | no | yes |
-| New funk work | none | DSP library, shared-library output, audio in `funk-midi`, wider events | A, plus compile-and-swap |
-| Runs in a plugin | yes (note effect) | needs audio ports in the framework | needs `$CC` in the plugin's process |
+| | C | A | B | D |
+|-|-|-|-|-|
+| Patterns live | yes | yes | yes | yes |
+| Synth live | outside funk | no | yes, about 0.1-1 s per edit | rewiring at once; a new kernel after a compile |
+| Sound designed in funk | no | yes | yes | yes |
+| `$CC` at run time | no | no | yes | only for new kernels |
+| Feedback within a sample | in the synth | yes | yes | inside one kernel |
+| New funk work | none | DSP library, shared-library output, audio in `funk-midi`, wider events | A, plus compile-and-swap | kernels without the runtime, kernel library, C runner, graph builder, wider events |
+| Runs in a plugin | yes (note effect) | needs audio ports in the framework | needs `$CC` in the plugin's process | with kernels built ahead of time; needs audio ports |
 
 ## Recommendation
 
-A first. B extends A, so A's work is not wasted. A tests the open question, whether DSP in the export subset is pleasant enough to write, at the least cost.
+D. It gives live DSP edits without a compiler in the loop for rewiring, runs in a plugin with kernels built ahead of time, and needs no new dependency. A is D with one fixed graph; B is D's on-demand kernels applied to the whole synth.
 
 Order:
 
-1. Shared-library output, `embedding.md` phase 0 item 5. A needs it, and so do plugins with compiled code.
+1. Kernel output without the runtime, and shared-library output with hidden symbols for plugins (`embedding.md` phase 0 item 5).
 
-2. `lib/dsp.fk` with one voice type, and the wider event encoding.
+2. `lib/dsp.fk` in the kernel signature, and the wider event encoding.
 
-3. `funk-midi --audio`.
+3. The C runner with the graph swap, then the graph builder in funk.
 
-4. Measurements: the cost per voice, and how many voices fit in 1.33 ms. Log the friction of writing the voice.
+4. `funk-midi --audio`.
 
-5. Then decide on B, by how often the synth's code changes while playing.
+5. Measurements: the cost per node and per voice, how many voices fit in 1.33 ms, and a kernel's compile time. Log the friction of writing kernels.
 
 ## Open questions
+
+- The kernel signature: several outputs, inputs at control rate, and a kernel's parameter count.
 
 - Polyphony: a fixed number of voices with stealing, or one voice per pattern layer?
 

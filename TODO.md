@@ -2,9 +2,9 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). They can include subsections as required for organization.
 
-The next milestone is a plugin with compiled DSP: patterns run live in the interpreter, and a compiled synth renders on the audio thread ([docs/dev/audio.md](docs/dev/audio.md), option A). Direction: [docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md).
+The next milestone is a plugin with compiled DSP: patterns run live in the interpreter, and a graph of compiled unit generators, built and rewired at run time, renders on the audio thread ([docs/dev/audio.md](docs/dev/audio.md), option D). Direction: [docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md).
 
-Generated C speed reached its target: geometric mean 1.18x C on the core suite, 1.16x on the Benchmarks Game (2026-10-27). Keep it: check each change with `bench.py ab` ([docs/dev/performance-first.md](docs/dev/performance-first.md)). Compilation speed is now a target as well.
+Generated C speed reached its target: geometric mean 1.18x C on the core suite, 1.16x on the Benchmarks Game (2026-10-27). Keep it: check each change with `bench.py ab` ([docs/dev/performance-first.md](docs/dev/performance-first.md)). Generated code speed comes before compilation speed. Compilation speed matters for compiling unit generators while playing, in desktop live coding.
 
 ## Critical
 
@@ -16,21 +16,25 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## High
 
-### Compiled DSP ([docs/dev/audio.md](docs/dev/audio.md#recommendation))
+### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 
-- [ ] `lib/dsp.fk` in the export subset, with one voice type: saw, square and sine-table oscillators, ADSR, one-pole and state-variable filters, a fixed number of voices.
+- [ ] **Kernels without the runtime.** Unit generators are exports; output them without the pasted runtime, so an interpreting host can load them and a kernel compiles near the glue's 87 ms rather than 1.03 s (estimate). List what export-subset code uses from the runtime (`fk_ffi_enter`, `fk_snap_lo` by code reading).
+
+- [ ] **The kernel signature**, such as `void k(void *state, const float **in, float *out, int n)`, plus the state's size. Open: several outputs, control-rate inputs.
+
+- [ ] `lib/dsp.fk` in the kernel signature: saw, square and sine-table oscillators, ADSR, one-pole and state-variable filters.
+
+- [ ] **The C runner** in the host: per block, call each row's kernel; swap graphs through an atomic pointer at a block boundary; free the old table on funk's thread after an epoch. C, since funk cannot call through a `FunPtr`.
+
+- [ ] **The graph builder** in funk: a pure graph value that `play` writes into a node table in C memory, with buffers and state allocated there; voices added from note events.
 
 - [ ] Wider ring events. A value has 16 bits; note, velocity and channel need 18, and parameters such as cutoff more. Options are listed in `audio.md`.
 
-- [ ] `funk-midi --audio`, with PortAudio or miniaudio, calling the compiled `fk_voice`.
+- [ ] `funk-midi --audio`, with PortAudio or miniaudio, driving the runner.
 
-- [ ] Measure the cost per voice and how many fit in 1.33 ms (64 frames at 48 kHz). Log the friction of writing a voice in the export style.
+- [ ] Measure the cost per node and per voice, how many voices fit in 1.33 ms (64 frames at 48 kHz), and a kernel's compile time. Log the friction of writing kernels in the export style.
 
 - [ ] `foreign struct`: C arrays inside structs (voice blocks; Core Audio's `AudioBufferList`), and several fields per line, as `data` records accept.
-
-### Compilation speed
-
-- [ ] Set a target, from a baseline. `tests/ffi/sched.fk` builds in 1.03 s at `-O2`, 0.18 s at `-O0`, mostly the pasted runtime's 6,000 lines; foreign-import glue alone takes 87 ms ([docs/dev/audio.md](docs/dev/audio.md#b-a-with-the-synth-recompiled-on-edit)). Measure funk's passes and the C compiler separately over the benchmark suites. Linking a prebuilt runtime, which shared-library output needs anyway, removes the runtime from every compile.
 
 ### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 
@@ -88,6 +92,16 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
   - `revcomp` is 2.1x C (through `bench.py`'s pipe; 2.8x from a file): finding newlines and complementing go byte by byte through bounds-checked accesses, and the output is a second buffer, where C works in place in one (288 MB resident against 105).
 
 ## Low
+
+### Kernels compiled while playing (desktop live coding)
+
+Rewiring a graph needs no compiler; a new kernel does. Desktop only for now: plugins use kernels built ahead of time.
+
+- [ ] **Compile and load a kernel on demand** with `$CC` and `dlopen`, as foreign-import glue does (`ffi.c`). A kernel that fails the allocation check or the C compiler leaves the old graph playing. Set an edit-latency target from the measured compile time; the optimization level trades it against the cost per node.
+
+- [ ] **LLVM, as Faust uses it**, only if `$CC` proves too slow for kernels without the runtime. An IR emitter for the export subset alone would be much smaller than `cgen.c`, since that subset has no allocation, closures or constructors. libtcc compiles faster but does not optimize, and its support for the runtime's `__atomic_*` builtins is unverified.
+
+### Other
 
 - [ ] **Per-instance context** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 2, deferred). File-scope state allows one session per process. Needed only when instances need independent collector pauses or run on several threads. The runtime's globals are shared with generated C: a context pointer costs every allocation, so measure first.
 
