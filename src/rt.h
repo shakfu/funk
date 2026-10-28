@@ -81,8 +81,9 @@ extern int fk_callback_depth; /* direct callbacks running, for the collector's s
 extern char *fk_snap_lo;
 void fk_snapshot_release(char *sp);
 /* Before a foreign call: no read-only snapshot page below this frame (realtime.md). */
-static inline __attribute__((unused)) void fk_ffi_enter(void) {
-  if (fk_snap_lo && (char *)__builtin_frame_address(0) > fk_snap_lo) fk_snapshot_release((char *)__builtin_frame_address(0));
+static inline __attribute__((unused)) void fk_ffi_enter(void) { /* also on an export's thread, while funk's collects */
+  char *lo = __atomic_load_n(&fk_snap_lo, __ATOMIC_RELAXED);
+  if (lo && (char *)__builtin_frame_address(0) > lo) fk_snapshot_release((char *)__builtin_frame_address(0));
 }
 _Noreturn void fk_cb_rethrow(void);
 bool fk_on_funk_thread(void);

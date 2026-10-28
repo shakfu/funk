@@ -99,7 +99,7 @@ static size_t msp, mcap;
 static V *stack_copy; /* the stack when the cycle started: see snapshot_stack */
 static size_t stack_words, stack_cap, stack_scanned;
 static size_t page_size;
-char *fk_snap_lo; /* the lowest read-only page of a cycle's stack snapshot, or NULL */
+char *fk_snap_lo; /* the lowest read-only page of a cycle's stack snapshot, or NULL; atomic, as exports' threads read it */
 static char *snap_hi, *snap_next; /* above the read-only pages; the next to scan */
 static char *snap_area;                     /* reserved: copies of the pages written while read-only */
 static uint8_t *snap_copied;                /* by page */
@@ -365,7 +365,8 @@ static __attribute__((noinline)) void snapshot_stack(void) {
     copy_words(sp, (size_t)((V *)fk_stack_base - sp));
     return;
   }
-  fk_snap_lo = snap_next = lo;
+  snap_next = lo;
+  __atomic_store_n(&fk_snap_lo, lo, __ATOMIC_RELAXED);
   snap_hi = hi;
 }
 
@@ -374,7 +375,7 @@ static __attribute__((noinline)) void snapshot_stack(void) {
    cannot write into a read-only one, so the pages from the scan cursor to
    here are kept and made writable now. */
 void fk_snapshot_release(char *sp) {
-  if (!fk_snap_lo || !fk_on_funk_thread()) return;
+  if (!fk_on_funk_thread() || !fk_snap_lo) return; /* another thread's frame is not in the snapshot */
   char *top = (char *)(((uintptr_t)sp & ~(uintptr_t)(page_size - 1)) + page_size);
   if (top > snap_hi) top = snap_hi;
   if (top <= snap_next) return;
@@ -386,6 +387,12 @@ void fk_snapshot_release(char *sp) {
     }
   }
   mprotect(snap_next, (size_t)(top - snap_next), PROT_READ | PROT_WRITE);
+}
+
+/* Out of line: an atomic store inlined into drain makes GCC reload globals in its mark loop. */
+static __attribute__((noinline)) void snap_done(void) {
+  __atomic_store_n(&fk_snap_lo, NULL, __ATOMIC_RELAXED);
+  snap_hi = snap_next = NULL;
 }
 
 /* Scans the snapshot's pages for up to the step's budget; true when done. */
@@ -401,7 +408,7 @@ static bool scan_snapshot(double end, bool timed) {
     if (timed && (gcstress || now_ms() > end)) break;
   }
   if (snap_next < snap_hi) return false;
-  fk_snap_lo = snap_hi = snap_next = NULL;
+  snap_done();
   return true;
 }
 
@@ -509,6 +516,7 @@ static void gc_start(void) {
 /* FUNK_GCSTRESS: every object reachable now must be marked. The check
    marks what it visits 2, which the sweep reads as marked. */
 static V *verify_from, *verify_slot; /* the object, or the root, being scanned: for the report */
+static bool verify_reg; /* the root is a register the program held when it called alloc_slow */
 
 static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   uint8_t *m;
@@ -517,7 +525,9 @@ static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   if (!o || *m == 2) return;
   if (!*m) {
     fprintf(stderr, "funk: gc check: reachable object %p (kind %d) is unmarked at the end of a cycle\n", (void *)o, ((FkHdr *)o)->kind);
-    if (verify_from) {
+    if (verify_reg) {
+      fprintf(stderr, "  in a register at the call of alloc_slow\n");
+    } else if (verify_from) {
       uint8_t *pm;
       size_t pw;
       find_obj((uintptr_t)verify_from, &pm, &pw);
@@ -539,15 +549,61 @@ static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   (*stack)[(*n)++] = (V *)(uintptr_t)words;
 }
 
+/* The program's roots start at alloc_slow's caller: alloc_slow's own frame
+   holds the collector's scratch words, and a byte store into one can leave
+   a stale pointer to garbage. Unwinding finds the caller's stack pointer
+   and its callee-saved registers, which alloc_slow saved on entry. */
+#if defined(__x86_64__) || defined(__aarch64__)
+#define VERIFY_UNWIND 1
+#include <unwind.h>
+/* alloc_slow's code, by its assembler name: taking its address in C would add an endbr64 to every call */
+#define VERIFY_STR2(x) #x
+#define VERIFY_STR(x) VERIFY_STR2(x)
+extern const char alloc_slow_code[] __asm__(VERIFY_STR(__USER_LABEL_PREFIX__) "alloc_slow");
+#ifdef __x86_64__
+static const int callee_saved[] = {3, 6, 12, 13, 14, 15}; /* DWARF numbers: rbx, rbp, r12-r15 */
+#else
+static const int callee_saved[] = {19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29}; /* x19-x29 */
+#endif
+#define NSAVED (sizeof callee_saved / sizeof *callee_saved)
+typedef struct { uintptr_t sp, regs[NSAVED]; int state; } Caller; /* state: 0 searching, 1 at alloc_slow, 2 found */
+
+static _Unwind_Reason_Code find_caller(struct _Unwind_Context *ctx, void *arg) {
+  Caller *c = arg;
+  if (c->state == 1) { /* the caller: _Unwind_GetCFA is its stack pointer, in libgcc and in LLVM's libunwind */
+    c->sp = _Unwind_GetCFA(ctx);
+    for (size_t i = 0; i < NSAVED; i++) c->regs[i] = _Unwind_GetGR(ctx, callee_saved[i]);
+    c->state = 2;
+    return _URC_END_OF_STACK;
+  }
+  if (_Unwind_GetRegionStart(ctx) == (uintptr_t)alloc_slow_code) c->state = 1;
+  return _URC_NO_REASON;
+}
+#endif
+
 static __attribute__((noinline)) void verify_marks(void) {
-  jmp_buf regs;
-  setjmp(regs);
-  __asm__ volatile("" : : "r"(&regs) : "memory");
   static V **st;
   static size_t cap;
   size_t n = 0;
   verify_from = NULL;
-  for (V *p = (V *)__builtin_frame_address(0); p < (V *)fk_stack_base; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
+#ifdef VERIFY_UNWIND
+  Caller c = {0};
+  _Unwind_Backtrace(find_caller, &c);
+  if (c.state != 2) {
+    fputs("funk: gc check: cannot find alloc_slow's caller by unwinding\n", stderr);
+    abort();
+  }
+  verify_reg = true;
+  for (size_t i = 0; i < NSAVED; i++) verify_word(c.regs[i], &st, &n, &cap);
+  verify_reg = false;
+  V *sp = (V *)c.sp;
+#else
+  jmp_buf regs;
+  setjmp(regs);
+  __asm__ volatile("" : : "r"(&regs) : "memory");
+  V *sp = (V *)__builtin_frame_address(0);
+#endif
+  for (V *p = sp; p < (V *)fk_stack_base; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
   for (size_t i = 0; i < nroots; i++)
     for (V *p = *roots[i].base; p < *roots[i].base + *roots[i].count; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
   while (n) {
@@ -640,6 +696,9 @@ static V alloc_large(size_t words) {
   return (V)p;
 }
 
+#ifndef __clang__
+__attribute__((noclone)) /* verify_marks finds it by name */
+#endif
 static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uint32_t aux) {
   V *o;
   if (fk_marking ? alloc_since_gc > next_step : alloc_since_gc > gc_threshold) gc_due();
@@ -1817,10 +1876,10 @@ typedef struct { void (*fn)(void *); void *arg; } Task;
 
 
 static void on_fault(int sig, siginfo_t *si, void *ctx) {
-  char *a = si->si_addr;
-  if (a >= fk_snap_lo && a < snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
+  char *a = si->si_addr, *lo = __atomic_load_n(&fk_snap_lo, __ATOMIC_RELAXED); /* the fault may be another thread's */
+  if (lo && a >= lo && a < snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
     char *pg = (char *)((uintptr_t)a & ~(uintptr_t)(page_size - 1));
-    size_t i = (size_t)(pg - fk_snap_lo) / page_size;
+    size_t i = (size_t)(pg - lo) / page_size;
     if (!snap_copied[i]) {
       memcpy(snap_area + i * page_size, pg, page_size);
       snap_copied[i] = 1;

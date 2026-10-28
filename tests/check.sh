@@ -7,6 +7,8 @@
 #                                   must equal FILE.expected. MODE is one of
 #                                   interp, compiled: the backend
 #                                   stress-interp, stress-compiled: the same under FUNK_GCSTRESS=1
+#                                   tsan-compiled: stress-compiled, built with -fsanitize=thread;
+#                                     any ThreadSanitizer report fails
 #                                   types: every expression has a type (FK_CHECK_TYPES)
 #                                   wall: the C compiles without warnings under -Wall -Wextra
 #                                   reuse, fuse: the reuse copies (@reuseK, @ownK) emitted without
@@ -46,6 +48,13 @@ run)
   stress-interp) FUNK_GCSTRESS=1 "$FUNK" run "$f" "$@" <"$in" >"$tmp/out" 2>&1 ;;
   compiled) build "$@" && "$tmp/exe" <"$in" >"$tmp/out" 2>&1 ;;
   stress-compiled) build "$@" && FUNK_GCSTRESS=1 "$tmp/exe" <"$in" >"$tmp/out" 2>&1 ;;
+  tsan-compiled)
+    CC="${CC:-cc} -g -fsanitize=thread" build "$@"
+    # TSan rejects the address layout of Linux kernels with high mmap randomization
+    norand=
+    if command -v setarch >/dev/null 2>&1; then norand="setarch $(uname -m) -R"; fi
+    FUNK_GCSTRESS=1 TSAN_OPTIONS="halt_on_error=1 exitcode=66 log_path=$tmp/tsan" $norand "$tmp/exe" <"$in" >"$tmp/out" 2>&1
+    if ls "$tmp"/tsan.* >/dev/null 2>&1; then cat "$tmp"/tsan.* >"$tmp/report"; fail "ThreadSanitizer report" "$tmp/report"; fi ;;
   types)
     FK_CHECK_TYPES=1 "$FUNK" emit-c "$f" -o /dev/null 2>"$tmp/types" || fail "funk emit-c" "$tmp/types"
     if grep -q untyped "$tmp/types"; then fail "expressions without a type" "$tmp/types"; fi

@@ -2,14 +2,17 @@
 -- thread, an audio host, while funk's thread collects garbage. `process`
 -- must compile to code that does not allocate; its state is a counter in C
 -- memory, at the context pointer. Both threads also add to a shared counter
--- at the context plus 8, with atomicAdd: no update may be lost.
+-- at the context plus 8, with atomicAdd: no update may be lost. `sample`
+-- calls C, whose wrapper reads the collector's snapshot state on the
+-- export's thread; tsan-compiled checks that read for races.
 foreign export ccall "fk_process" process :: Ptr () -> Ptr CFloat -> CInt ->> ()
 foreign import ccall "fkt.h &fk_process" processPtr :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ())
 foreign import ccall "fkt.h fkt_audio_start" audioStart :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CInt -> CInt ->> CInt
 foreign import ccall "fkt.h fkt_audio_join" audioJoin :: () ->> Float
+foreign import ccall "stdlib.h abs" cabs :: CInt -> CInt
 
 sample :: CInt -> CFloat
-sample k = toCFloat (toFloat (mod (fromIntegral k) 100) * 0.5)
+sample k = toCFloat (toFloat (mod (fromIntegral (cabs k)) 100) * 0.5)
 
 fill :: Ptr () -> Ptr CFloat -> CInt -> CInt -> CInt ->> ()
 fill ctx buf start i n =

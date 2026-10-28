@@ -99,3 +99,49 @@ Write one friction-log program per constraint:
 3. A CLAP note effect: host-owned thread, no `$CC`.
 
 The multi-session refactor is scoped in [embedding.md](embedding.md): embedding basics and instances in one runtime first, separate sessions deferred.
+
+## Addendum: review comments, 2026-10-28
+
+### Inconsistencies in this note
+
+- The first bullet of "Consequences for planning" says the 0.7 higher-kinded classes serve compatibility. "Correction" reverses it. Read the first bullet as superseded.
+- The domain library and the per-function optimization report are absent from "Revised next step". Their status is open: deferred or dropped.
+
+### Tidal requirements the Correction omits
+
+From Tidal's design ([Tidal](https://github.com/tidalcycles/Tidal)); not rechecked against its source this session.
+
+- **Rational time.** Tidal's `Time` is `Rational`. funk has `Num` only, and `Int` as its only integer type ([haskell-compat.md](haskell-compat.md)). This may block a pattern engine before higher-kinded classes do.
+- **String literals as patterns.** `sound "bd sn"` relies on `IsString` and `OverloadedStrings`. With packed `String` and no overloaded literals, each pattern literal needs an explicit parse call. Friction program 1 will meet this first.
+- **Monad.** Tidal's joins (`innerJoin`, `squeezeJoin`) are monadic. The 0.7 class work must cover `Monad`, not only `Functor` and `Applicative`.
+
+### Constraints the table understates
+
+- **The 128 MiB figure is a collection threshold, not a floor.** [memory.md](memory.md) records 64 MiB as tying 128 MiB on speed. For the SSP it is tunable. For plugins, N instances with a heap each multiply it; one shared runtime, as [embedding.md](embedding.md) plans, does not.
+- **libtcc and macOS hosts.** A plugin runs under its host's code-signing entitlements. A hardened-runtime host without the JIT entitlement may refuse writable-then-executable memory. Option 2 may then fail on some macOS hosts, not only iOS. Unverified.
+- **The runtime installs process-wide `SIGSEGV` and `SIGBUS` handlers** (`task_main`, `src/rt.c`). In a plugin or external, they replace the host's handlers. On a fault outside funk's ranges, `on_fault` resets to `SIG_DFL`, so the host's crash reporter never runs. The table lacks this row.
+
+### Can the collector run on an export's thread?
+
+No. Checked by code reading and ThreadSanitizer, 2026-10-28, Linux x86-64, GCC.
+
+- A collection starts only in `alloc_slow` (`gc_due`, `src/rt.c`). The R4 check (`cgen_alloc_free`, `src/cgen.c`) rejects every allocating expression in an export and its callees.
+- Strict top-level constants are evaluated in `program` before `main`. An export reads them unboxed from `G[]` (`FK_FLOATV(G[i])`). The collector does not move or free them, and marks live in a side array per chunk, so these reads do not race with marking.
+- `tests/ffi/export.fk` under TSan: no reports, with or without `FUNK_GCSTRESS=1`.
+
+One race remains. A C import called inside an export is wrapped in `fk_ffi_enter` and `fk_cb_check`. These read `fk_snap_lo` and `fk_cb_failed`, plain globals written on funk's thread. A copy of `export.fk` whose `sample` calls `sinf` reports a data race on `fk_snap_lo` under `FUNK_GCSTRESS=1`: `scan_snapshot` writes it, `fk_ffi_enter` on the audio thread reads it.
+
+- `fk_cb_failed` has the same pattern, but is written only when a callback fails. TSan did not observe that write, so it is untested, not shown race-free.
+- Effect today: none observed. Both TSan runs printed the expected output: the export's counter ended at 1,280,000 and the shared counter at 2,560,000. If the audio thread's frame lies above `fk_snap_lo`, it calls `fk_snapshot_release`, which returns after `fk_on_funk_thread`. Under C11 it is undefined behavior.
+- Fixed (2026-10-28): `fk_snap_lo` is read and written with relaxed atomics. On x86-64 the export path compiles to the same instructions. The store that ends a snapshot is out of line (`snap_done`): inlined into `drain`, it made GCC reload `gcstress` once per marked object.
+- Test: `export.fk`'s export now calls `abs`. `ffi/export/tsan-compiled` runs it under ThreadSanitizer and `FUNK_GCSTRESS=1`, where the compiler has `-fsanitize=thread`; under `setarch -R` on Linux, since TSan rejects some kernels' ASLR layouts.
+
+Fixed (2026-10-28): the `FUNK_GCSTRESS` verifier (`verify_marks`) scanned the stack from its own frame, so it read the collector's frames in `alloc_slow` too. In a TSan build, `gc_step` stored its `gcstats` flag as one byte into an 8-byte slot whose other 7 bytes held an old pointer; the slot read as a pointer into an unreachable object, and the verifier aborted. The collector was unaffected: such a word only retains garbage. The verifier now unwinds to `alloc_slow`'s caller and starts there, with the callee-saved registers `alloc_slow` saved. It changes only stress-mode code; `alloc_slow` is found by its assembler name, since taking its address in C added an `endbr64` to it. With the failing layout forced, aborts fell from 11/30 runs to 0/30. A removed write barrier and a stack snapshot missing its newest frames are caught as before.
+
+### Alternative framing
+
+The open question "pattern language, DSP language, or both" has a fourth answer. funk is the compiled DSP and voice layer, driven by an existing pattern engine (Tidal, Strudel, `mhs-midi`) through the C ABI or OSC. It uses what funk already does well: ahead-of-time compilation and allocation-free exports. It defers the interpreter decision. It weakens the claim that Tidal users are the target.
+
+### Next step
+
+Give each friction-log program a pass/fail threshold, e.g. reload under 100 ms, or two instances with no shared mutable state. Without one, the log cannot decide between language features and domain work.
