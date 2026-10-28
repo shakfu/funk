@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE /* usleep, under -std=c11 on glibc */
 #include "fkt.h"
 
 #include <pthread.h>
