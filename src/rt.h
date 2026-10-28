@@ -326,6 +326,7 @@ extern void (*fk_fatal_hook)(void *ctx, const char *msg);
 extern void *fk_fatal_ctx;
 _Noreturn void fk_fatal(const char *msg);
 void fk_set_memory(size_t heap, size_t threshold, size_t stack);
+void fk_recover(void); /* after a runtime error has unwound: a full heap's memory collected */
 /* Set from any thread (libfunk.h, funk_interrupt); the interpreter checks it at each call. */
 extern atomic_int fk_interrupt;
 /* Output: stream 1 the program's, 2 messages. To fk_out if set (libfunk.h,

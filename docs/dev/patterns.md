@@ -86,7 +86,7 @@ Status:
 - **Threads.** libfunk's calls run on funk's thread; the adapter starts one session with the first instance, keeps it until the plugin is unloaded, and queues each call to it from the framework's evaluator thread. While a call waits, a Stop calls `funk_interrupt`.
 - **Modes.** In Live mode `pat` loops in 10 ms windows; an expression of type `Pattern Int` plays once, one cycle, queued at once, and the evaluation returns when its notes are sent, as an imperative language's does. A clip must end, so as a clip either renders one cycle; `Language::setLive` was added for this. An expression is tried first as `once = (...) :: p.Pattern Int`, quietly.
 - **Order.** The framework's live queue plays in the order sent and waits at a future event, so the adapter keeps every message in one heap and sends only what precedes `pat`'s next window.
-- **Limits.** A 512 MiB heap and a 256 MiB stack (`funk_memory`): a runaway evaluation replies "out of memory" or "stack overflow" and the host goes on. The heap is not returned to the system afterwards.
+- **Limits.** A 512 MiB heap and a 256 MiB stack (`funk_memory`): a runaway evaluation replies "out of memory" or "stack overflow" and the host goes on. Afterwards the host keeps 217 MiB resident, against 89 MiB before the evaluation: the empty chunks within the 128 MiB threshold stay.
 - **The lib modules** are compiled into the plugin and written to a temporary directory at start-up: a bundle cannot rely on a funk checkout.
 - **Tests.** `midi-langs`' `test_clap_host` with `projects/funk-midi/clap_test_cases.txt`: evaluation, clips, Stop of a busy loop, state, Live, real time. funk has no clip that never ends, so its `forever` case exceeds the clip's event limit instead. All pass on macOS; Linux not run.
 

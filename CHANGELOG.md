@@ -18,6 +18,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `funk_memory` and `funk_on_fatal` in `libfunk.h`. `funk_memory` sets the heap's limit, the first collection's threshold and the stack's size; at the limit, allocation runs a full collection, then raises the runtime error "out of memory", which a host recovers from. Before, the heap's only limit was its 64 GiB address-space reservation, so a runaway program took the host's memory, and running out ended the process. `funk_on_fatal` gives a host the message of an error funk cannot recover from, such as `malloc` failing, before the process exits.
 
+- The heap returns memory to the system. A chunk sweeping finds all dead becomes its size class's bump region, as before, if that has none; otherwise it now serves any size class, where before its objects went onto its own free list. Empty chunks beyond the collection threshold are replaced by fresh pages, and after "out of memory" a full collection runs at once. A host that met a 512 MiB limit kept 589 MiB resident; it now keeps 217 MiB. Sending every all-dead chunk through the empty list cost `lists` and `wordfreq` 1-2% (interleaved A/B, 21 runs); with the bump-region route kept, the core suite's geometric mean against HEAD is -0.0%.
+
 ### Fixed
 
 - funk's `SIGSEGV` and `SIGBUS` handler passes faults that are not its own to the handler installed before it. It reset them to the default action, so in an embedding host a fault the host would have handled, such as on its own guard page, ended the process. When `funk_main` returns, the handlers it replaced are installed again, so a plugin that is then unloaded leaves none pointing into it.

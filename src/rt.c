@@ -140,7 +140,7 @@ typedef struct {
   char *objs;
   uint8_t *marks;
   uint64_t recip;
-  size_t next_unswept; /* the next unswept chunk of this size class, plus one; 0 ends the list */
+  size_t next_unswept; /* the next unswept chunk of this size class, or the next empty one, plus one; 0 ends the list */
   size_t nmarked;      /* objects marked this collection */
 } Chunk;
 typedef struct { V *p; size_t words; uint8_t mark; } Large;
@@ -244,22 +244,65 @@ static void push_free(size_t words, V *o) {
 static V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
 
 static size_t large_bytes; /* in large objects: they count toward the heap's limit, heap_reserve */
+static bool was_full, no_verify; /* fk_recover */
 
-/* A fresh chunk for objects of words words; false at the heap's limit. */
-static bool new_chunk(size_t words) {
-  if (!heap_base) { /* reserve, halving on failure down to 256 MiB, then align to CHUNK_SIZE */
-    char *r;
-    while ((r = mmap(NULL, heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0)) == MAP_FAILED &&
-           heap_reserve / 2 >= ((size_t)256 << 20))
-      heap_reserve /= 2;
-    if (r == MAP_FAILED) fk_fatal("cannot reserve address space for the heap");
-    core_dump(r, heap_reserve + CHUNK_SIZE, false); /* chunks in use are added below */
-    heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
-    heap_lo = (uintptr_t)heap_base;
+/* Chunks that sweeping found all dead, reusable by any size class. nobj 0
+   marks one: find_obj sees no objects in it, and sweep skips it. Empty
+   chunks up to the cycle's threshold stay warm, since the next cycle
+   allocates about that much; the rest go back to the system, cold. */
+static size_t warm, cold, nwarm; /* list heads, a chunk index plus one */
+static size_t warm_limit;         /* bytes: the threshold sweep() set */
+
+/* Fresh zero pages in place of [lo, lo + n): the old ones go back to the system. */
+static void release_pages(char *lo, size_t n) {
+  if (mmap(lo, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0) == MAP_FAILED) return;
+  core_dump(lo, n, false);
+}
+
+static Chunk *chunk_at(size_t i);
+
+static void chunk_empty(Chunk *c) {
+  size_t i = (size_t)((char *)c - heap_base) / CHUNK_SIZE + 1;
+  c->nobj = 0;
+  if ((nwarm + 1) * CHUNK_SIZE <= warm_limit) {
+    c->next_unswept = warm;
+    warm = i;
+    nwarm++;
+    return;
   }
-  if ((nchunks + 1) * CHUNK_SIZE + large_bytes > heap_reserve) return false;
-  char *base = heap_base + nchunks * CHUNK_SIZE; /* fresh pages are zero */
-  core_dump(base, CHUNK_SIZE, true);
+  if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
+  release_pages((char *)c + page_size, CHUNK_SIZE - page_size); /* the header's page stays */
+  c->next_unswept = cold;
+  cold = i;
+}
+
+/* A chunk for objects of words words, an empty one if any; false at the heap's limit. */
+static bool new_chunk(size_t words) {
+  char *base;
+  bool reused = warm || cold;
+  if (reused) {
+    size_t *list = warm ? &warm : &cold;
+    base = (char *)chunk_at(*list - 1);
+    *list = ((Chunk *)base)->next_unswept;
+    if (list == &warm) nwarm--;
+    else core_dump(base, CHUNK_SIZE, true);
+  } else {
+    if (!heap_base) { /* reserve, halving on failure down to 256 MiB, then align to CHUNK_SIZE */
+      char *r;
+      while ((r = mmap(NULL, heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0)) == MAP_FAILED &&
+             heap_reserve / 2 >= ((size_t)256 << 20))
+        heap_reserve /= 2;
+      if (r == MAP_FAILED) fk_fatal("cannot reserve address space for the heap");
+      core_dump(r, heap_reserve + CHUNK_SIZE, false); /* chunks in use are added below */
+      heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
+      heap_lo = (uintptr_t)heap_base;
+    }
+    if ((nchunks + 1) * CHUNK_SIZE + large_bytes > heap_reserve) return false;
+    base = heap_base + nchunks * CHUNK_SIZE; /* fresh pages are zero */
+    core_dump(base, CHUNK_SIZE, true);
+    nchunks++;
+    heap_hi = (uintptr_t)base + CHUNK_SIZE;
+  }
   Chunk *c = (Chunk *)base;
   size_t hdr = sizeof(Chunk), objbytes = words * sizeof(V);
   size_t nobj = (CHUNK_SIZE - hdr - 16) / (objbytes + 1);
@@ -268,8 +311,8 @@ static bool new_chunk(size_t words) {
   c->recip = ((uint64_t)1 << 32) / objbytes + 1; /* offset * recip >> 32 == offset / objbytes below 1 MiB */
   c->marks = (uint8_t *)(base + hdr);
   c->objs = base + ((hdr + nobj + 15) & ~(size_t)15);
-  nchunks++;
-  heap_hi = (uintptr_t)base + CHUNK_SIZE;
+  c->nmarked = c->next_unswept = 0;
+  if (reused) memset(c->marks, 0, nobj); /* an empty chunk's are another size class's objects; fresh pages are zero */
   bump[words] = (V *)c->objs; /* allocated in address order, each word written once */
   bump_end[words] = (V *)(c->objs + nobj * objbytes);
   return true;
@@ -497,6 +540,10 @@ static void sweep_chunk(Chunk *c) {
     bump_end[c->words] = (V *)(c->objs + c->nobj * bytes);
     return;
   }
+  if (c->nmarked == 0) { /* all dead, and its size class has a bump region: for any size class */
+    chunk_empty(c);
+    return;
+  }
   bool full = c->nmarked == c->nobj; /* nothing to free: only the marks to clear */
   c->nmarked = 0;
   if (full) {
@@ -549,6 +596,7 @@ static void sweep(void) {
   fk_marking = 0;
   for (size_t ci = nchunks; ci-- > 0;) { /* pushed in reverse: each list is in address order */
     Chunk *c = chunk_at(ci);
+    if (!c->nobj) continue; /* empty: on the warm or cold list */
     c->next_unswept = unswept[c->words];
     unswept[c->words] = ci + 1;
   }
@@ -570,6 +618,7 @@ static void sweep(void) {
   nlarge = j;
   gc_threshold = 2 * live > gc_min && !gcstress ? 2 * live : gc_min;
   if (gc_threshold > heap_reserve / 4) gc_threshold = heap_reserve / 4; /* room for a cycle's garbage below the limit */
+  warm_limit = gc_threshold;
 }
 
 /* The cycle's first pause: the snapshot of the stack and the roots. */
@@ -696,7 +745,7 @@ static __attribute__((noinline)) void verify_marks(void) {
 /* The last pause: unswept lists for every chunk, and large objects swept. */
 static void gc_finish(bool was_forced) {
   double t0 = gcstats ? now_ms() : 0;
-  if (gcstress) verify_marks();
+  if (gcstress && !no_verify) verify_marks();
   sweep();
   alloc_since_gc = 0;
   forced += was_forced;
@@ -777,7 +826,20 @@ static void collect_now(void) {
 
 /* A runtime error, which a host recovers from (libfunk.h); no state is half-built. */
 static _Noreturn void heap_full(void) {
+  was_full = true;
   fk_error("out of memory: the heap's limit is %zu MiB", heap_reserve >> 20);
+}
+
+/* After the error a full heap raised has unwound (libfunk.h's calls): what
+   the failed evaluation held is collected, and the empty chunks beyond the
+   threshold go back to the system. The check of marks finds its roots from
+   alloc_slow, so it is skipped. */
+void fk_recover(void) {
+  if (!was_full) return;
+  was_full = false;
+  no_verify = true;
+  collect_now();
+  no_verify = false;
 }
 
 static bool large_fits(size_t words) { return nchunks * CHUNK_SIZE + large_bytes + words * sizeof(V) <= heap_reserve; }

@@ -308,6 +308,7 @@ bool funk_check_file(const char *path) {
   fk_error_jmp = &rt;            \
   if (setjmp(rt)) {              \
     fk_error_jmp = NULL;         \
+    fk_recover();                \
     failed;                      \
   }
 
