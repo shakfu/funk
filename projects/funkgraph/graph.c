@@ -55,6 +55,8 @@ struct funk_player {
   _Atomic int64_t frames;
   _Atomic uint64_t head, tail; /* events sent, and taken by the audio thread */
   Event events[EVENTS];
+  uint64_t ahead, atail; /* the audio thread's own queue */
+  Event audio[EVENTS];
 };
 
 funk_graph *funk_graph_new(int max_block, double rate) {
@@ -231,10 +233,18 @@ bool funk_player_send(funk_player *p, int64_t frame, const char *name, float val
   return true;
 }
 
+bool funk_player_send_audio(funk_player *p, int64_t frame, const char *name, float value) {
+  if (p->ahead - p->atail == EVENTS) return false;
+  p->audio[p->ahead++ & (EVENTS - 1)] = (Event){frame, hash(name), value};
+  return true;
+}
+
 int64_t funk_player_frames(funk_player *p) { return atomic_load_explicit(&p->frames, memory_order_acquire); }
 
 /* g's controls for the m frames from start: each holds its value until
-   an event, which takes effect from its frame. Events after start + m wait. */
+   an event, which takes effect from its frame. Events after start + m wait.
+   The two queues merge by frame: an event sets its control to the end of
+   the block, so a later frame applied first would be overwritten. */
 static void controls(funk_player *p, funk_graph *g, int64_t start, int m) {
   if (g)
     for (int i = 0; i < g->n; i++) {
@@ -244,9 +254,13 @@ static void controls(funk_player *p, funk_graph *g, int64_t start, int m) {
       for (int j = 0; j < m; j++) x->out[j] = v;
     }
   uint64_t tail = atomic_load_explicit(&p->tail, memory_order_relaxed), head = atomic_load_explicit(&p->head, memory_order_acquire);
-  for (; tail != head; tail++) {
-    const Event *e = &p->events[tail & (EVENTS - 1)];
-    if (e->frame >= start + m) break;
+  for (;;) {
+    const Event *h = tail != head ? &p->events[tail & (EVENTS - 1)] : NULL;
+    const Event *a = p->atail != p->ahead ? &p->audio[p->atail & (EVENTS - 1)] : NULL;
+    const Event *e = h && (!a || h->frame <= a->frame) ? h : a;
+    if (!e || e->frame >= start + m) break;
+    if (e == h) tail++;
+    else p->atail++;
     if (!g) continue;
     int at = lower(g, e->key);
     if (at == g->nnames || g->names[at].key != e->key) continue;

@@ -3,7 +3,8 @@
    must equal host.c's clip rows. Then an audio thread renders while this
    thread plays and reclaims 2000 graphs; run under ThreadSanitizer too.
    Between, named nodes' states carry across swaps, and controls take
-   events at their frames. */
+   events at their frames, from the host's queue and the audio thread's,
+   and notes reach voices' controls. */
 #include <dlfcn.h>
 #include <math.h>
 #include <pthread.h>
@@ -98,7 +99,8 @@ static const char *same(const float *a, const float *b) {
 static void *audio(void *arg) {
   (void)arg;
   float l[64], r[64], *out[2] = {l, r};
-  while (!atomic_load(&stop)) {
+  for (int i = 0; !atomic_load(&stop); i++) {
+    funk_player_send_audio(player, funk_player_frames(player) + i % 64, "gain", i % 3 ? 0.75f : 1.0f);
     funk_player_render_channels(player, out, 2, 64);
     for (int i = 0; i < 64; i++) bad += !(fabsf(l[i]) <= 1.0f) + !(fabsf(r[i]) <= 1.0f);
     atomic_fetch_add(&blocks, 1);
@@ -180,7 +182,41 @@ int main(int argc, char **argv) {
   funk_player_play(c, gated(0.125f));
   show(c, "reset");
   printf("frames %lld\n", (long long)funk_player_frames(c));
+  /* the audio thread's events merge with the host's by frame */
+  int64_t f = funk_player_frames(c);
+  funk_player_send(c, f + 5, "gate", 1.0f);
+  funk_player_send_audio(c, f + 2, "gate", 0.5f);
+  funk_player_send_audio(c, f + 7, "gate", 0.25f);
+  show(c, "merged");
   funk_player_free(c);
+
+  /* voices from the audio thread, with offs as MIDI sends them: a note
+     takes a free voice, a held one is stolen, its gate dropping a frame */
+  funk_player *vp = funk_player_new();
+  g = funk_graph_new(8, 8000.0);
+  funk_graph_output(g, funk_graph_control(g, 0.0f));
+  funk_graph_name(g, 0, "v1.gate");
+  funk_graph_output(g, funk_graph_control(g, 0.0f));
+  funk_graph_name(g, 1, "v2.gate");
+  funk_player_play(vp, g);
+  printf("voices out of range rejected: %s\n", funk_voices_new(vp, 0, true) || funk_voices_new(vp, 65, true) ? "no" : "yes");
+  funk_voices *vs = funk_voices_new(vp, 2, true);
+  funk_voices_on(vs, 1, INT64_MAX, 60, 127);
+  funk_voices_on(vs, 3, INT64_MAX, 64, 127);
+  funk_voices_off(vs, 5, 60);
+  funk_voices_off(vs, 5, 61); /* not playing: nothing */
+  funk_voices_on(vs, 6, INT64_MAX, 67, 127);
+  funk_voices_on(vs, 7, INT64_MAX, 72, 127);
+  float vl[N], vr[N], *vo[2] = {vl, vr};
+  for (int b = 0; b < 2; b++) {
+    if (b) funk_voices_hush(vs, 12);
+    funk_player_render_channels(vp, vo, 2, N);
+    printf("voices ");
+    for (int i = 0; i < N; i++) printf(" %g/%g", vl[i], vr[i]);
+    printf("\n");
+  }
+  funk_voices_free(vs);
+  funk_player_free(vp);
 
   /* channels: two outputs on three channels wrap; a mono graph plays on both */
   funk_player *st = funk_player_new();

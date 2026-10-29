@@ -355,13 +355,10 @@ static void render_until(int64_t t) {
 
 /* ------------------------------------------------------------- voices */
 
-/* pat's notes, sent as events to the controls of d.poly's voices: "vK.freq"
-   and "vK.gate", velocity / 127 while held. A note takes the free voice
-   released longest ago, else the voice of the oldest note. */
+/* pat's notes on d.poly's voices (funk_voices, projects/funkgraph). */
 enum { MAX_VOICES = 64 };
 static int nvoices = 8;
-static struct { int64_t on, off; bool held; } voice[MAX_VOICES]; /* frames; held: the off is not yet sent */
-static int64_t sent = INT64_MIN; /* the last event's frame: sends stay in time order */
+static funk_voices *voices;
 static double frame_off; /* real time: audio frames ahead of the clock, smoothed */
 
 static int64_t frame_at(int64_t t) {
@@ -378,46 +375,11 @@ static void voice_sync(void) {
   synced = true;
 }
 
-static void voice_send(int64_t frame, int v, const char *what, float x) {
-  char name[16];
-  snprintf(name, sizeof name, "v%d.%s", v + 1, what);
-  if (!funk_player_send(player, frame, name, x)) fputs("funk-midi: audio event queue full\n", stderr);
-  sent = frame;
+static void voice_check(bool ok) {
+  if (!ok) fputs("funk-midi: audio event queue full\n", stderr);
 }
 
-/* the held voices' offs before frame f, earliest first */
-static void release_before(int64_t f) {
-  for (;;) {
-    int v = -1;
-    for (int i = 0; i < nvoices; i++)
-      if (voice[i].held && voice[i].off < f && (v < 0 || voice[i].off < voice[v].off)) v = i;
-    if (v < 0) return;
-    voice_send(voice[v].off > sent ? voice[v].off : sent, v, "gate", 0);
-    voice[v].held = false;
-  }
-}
-
-static void voice_release_until(int64_t t) { release_before(frame_at(t)); }
-
-static void voice_on(int64_t s, int64_t e, int note, int vel) {
-  release_before(s + 1);
-  if (s < sent) s = sent;
-  int v = 0;
-  for (int i = 1; i < nvoices; i++) {
-    bool fi = !voice[i].held, fv = !voice[v].held;
-    if (fi != fv ? fi : fi ? voice[i].off < voice[v].off : voice[i].on < voice[v].on) v = i;
-  }
-  int64_t at = s;
-  if (voice[v].held || voice[v].off >= s) { /* a gate must rise to restart an envelope */
-    voice_send(s, v, "gate", 0);
-    at = s + 1;
-  }
-  voice_send(s, v, "freq", (float)(440 * pow(2, (note - 69) / 12.0)));
-  voice_send(at, v, "gate", vel / 127.0f);
-  voice[v].on = s;
-  voice[v].off = e > at ? e : at + 1;
-  voice[v].held = true;
-}
+static void voice_release_until(int64_t t) { voice_check(funk_voices_until(voices, frame_at(t))); }
 
 static int by_start(const void *a, const void *b) {
   long x = *(const long *)a, y = *(const long *)b;
@@ -431,19 +393,12 @@ static void voice_notes(long n) {
   for (long i = 0; i < n; i++) {
     int64_t at = origin_us + buf[3 * i], dur = buf[3 * i + 1] > 0 ? buf[3 * i + 1] : 1;
     long v = buf[3 * i + 2], vel = (v >> 7) & 127;
-    voice_on(frame_at(at), frame_at(at + dur), (int)(v & 127), vel ? (int)vel : 100);
+    voice_check(funk_voices_on(voices, frame_at(at), frame_at(at + dur), (int)(v & 127), vel ? (int)vel : 100));
   }
 }
 
 /* :stop: every held voice's gate falls now */
-static void voice_hush(void) {
-  int64_t f = frame_at(now_us());
-  for (int i = 0; i < nvoices; i++)
-    if (voice[i].held) {
-      voice_send(f > sent ? f : sent, i, "gate", 0);
-      voice[i].held = false;
-    }
-}
+static void voice_hush(void) { voice_check(funk_voices_hush(voices, frame_at(now_us()))); }
 
 #ifdef HAVE_MINIAUDIO
 static ma_device device;
@@ -496,8 +451,7 @@ static bool start_audio(const char *kernels_path) {
   if (!ok || asprintf(&src, "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f", nvoices) < 0) return false;
   ok = eval(src);
   free(src);
-  for (int i = 0; i < nvoices; i++) voice[i].off = INT64_MIN;
-  if (!ok) return false;
+  if (!ok || !(voices = funk_voices_new(player, nvoices, false))) return false;
   playsig_src = "playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }";
 #ifdef HAVE_MINIAUDIO
   if (!virtual_time && ma_device_start(&device) != MA_SUCCESS) {
@@ -512,6 +466,7 @@ static void stop_audio(void) {
 #ifdef HAVE_MINIAUDIO
   if (!virtual_time) ma_device_uninit(&device);
 #endif
+  funk_voices_free(voices);
   funk_player_free(player);
 }
 

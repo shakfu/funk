@@ -58,6 +58,18 @@ add_test(NAME hosts/voices
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --script tests/hosts/voices.txt 2>&1 | diff tests/hosts/voices.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/voices PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+# the CLAP plugin in a headless host: evaluation, clips, Stop, state, Live
+# (projects/clap/test_clap_host.cpp; cases in tests/hosts/clap.txt)
+if(TARGET funk_midi_clap)
+  add_test(NAME hosts/clap_units COMMAND test_clap_units)
+  add_test(NAME hosts/clap COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap>
+    ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt 57291)
+  set_tests_properties(hosts/clap_units PROPERTIES LABELS "hosts;clap")
+  # serial: its real-time check needs a live evaluation compiled within the 50 ms
+  # lookahead, which a loaded machine misses (1 to 2 runs in 6 under ctest -j 10)
+  set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
+    ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+endif()
 
 # libfunk.h from a host's C (docs/dev/embedding.md)
 # two plugins, each with libfunk inside and only plugin_run exported, loaded RTLD_LOCAL
@@ -203,7 +215,7 @@ endif()
 # exports without the runtime, loaded by a C host (docs/dev/audio.md, D)
 funk_test(kernels/chain "ffi;kernels" kernels tests/kernels/chain.fk tests/kernels/host.c)
 # ... run as a graph by projects/funkgraph, swapped while an audio thread renders
-set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c projects/funkgraph/graph.c -Iprojects/funkgraph -lpthread -lm)
+set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c projects/funkgraph/graph.c projects/funkgraph/voices.c -Iprojects/funkgraph -lpthread -lm)
 funk_test(kernels/graph "ffi;kernels" ${GRAPH})
 # ... built from funk by lib/graph.fk
 set(FUNKGRAPH -M lib -I projects/funkgraph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)

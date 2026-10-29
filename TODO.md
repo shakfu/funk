@@ -8,9 +8,15 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
-- [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Decide with the item above: recovery by `siglongjmp` is unsafe inside libc or the collector. gh:2
+- [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Recovery by `siglongjmp` is unsafe inside libc or the collector. Not due for the plugin: it runs interpreted code and kernels, which cannot recurse but by a tail call of themselves ([docs/dev/plugin.md](docs/dev/plugin.md)). gh:2
 
-- [ ] **Audio ports for the plugin.** `midi-langs`' CLAP framework handles note effects only. Decide whether it grows audio ports or funk gets a plugin of its own ([docs/dev/audio.md](docs/dev/audio.md#open-questions)). gh:3
+- [x] **Audio ports for the plugin.** funk's own plugin, on a copy of `midi-langs`' framework (`projects/clap`, `projects/funk-clap`), with a stereo output: `sig` plays there, and `pat`'s notes go out as MIDI and play its voices ([docs/dev/plugin.md](docs/dev/plugin.md#the-plugins-audio)). gh:3
+
+- [ ] Run the plugin in a DAW, and listen to it; only the test host has run it.
+
+- [ ] The plugin compiles graph.fk's imports with `$CC` at load. A DAW's process may lack a compiler or be sandboxed; then the output is silent. Compile the glue into the plugin when it is built.
+
+- [ ] A live evaluation compiled in more than the 50 ms lookahead starts its first note late, at a block's start: `tests/hosts/clap`'s real-time check failed 3 runs in 12 under `ctest -j 10`, and now runs serially.
 
 ## High
 
@@ -88,7 +94,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] `fk_cb_failed` is a plain global written on funk's thread and read on an export's; TSan never observed the write, so it is untested, not shown race-free ([docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md)).
 
-- [ ] The CLAP tests (`midi-langs`' `test_clap_host`) have not run on Linux.
+- [ ] The CLAP tests (`tests/hosts/clap`, `-DFUNK_CLAP=ON`) have not run on Linux, and CI does not build the plugin.
 
 ### Real time ([docs/dev/realtime.md](docs/dev/realtime.md))
 

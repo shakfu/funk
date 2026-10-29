@@ -80,7 +80,7 @@ Status:
 
 ## funk-midi
 
-`projects/funk-midi/main.c`, the first host, in the funk repo while `libfunk.h` changes; it moves to `midi-langs` once the API settles. A REPL over `libfunk.h` with `pattern as p` and `midi as m` imported. Input that defines `pat`, a `Pattern Int`, or `:l FILE`, recompiles `step`, and `pat` plays from the next window. `:cycle MS` changes the tempo, `:stop` and `:play` silence and resume, `:wait MS` plays for a time in a script.
+`projects/funk-midi/main.c`, the first host. A REPL over `libfunk.h` with `pattern as p` and `midi as m` imported. Input that defines `pat`, a `Pattern Int`, or `:l FILE`, recompiles `step`, and `pat` plays from the next window. `:cycle MS` changes the tempo, `:stop` and `:play` silence and resume, `:wait MS` plays for a time in a script.
 
 - **Values.** `lib/midi.fk`: note + 128 * velocity + 16384 * (channel - 1). A plain note number plays at velocity 100 on channel 1. `m.vel` and `m.chan` clamp their arguments, so a typo cannot stop playback.
 
@@ -98,7 +98,7 @@ Status:
 
 ## CLAP plugin
 
-`midi-langs/projects/funk-midi/funk_clap.cpp`, an adapter for `midi-langs`' CLAP framework (`projects/clap/language.hpp`), built from a funk checkout at `FUNK_DIR`. One instance per process, which the framework already enforces.
+`projects/funk-clap/funk_clap.cpp`, an adapter for `projects/clap`, a copy of `midi-langs`' CLAP framework ([plugin.md](plugin.md#decision)). One instance per process, which the framework already enforces.
 
 - **Threads.** libfunk's calls run on funk's thread; the adapter starts one session with the first instance, keeps it until the plugin is unloaded, and queues each call to it from the framework's evaluator thread. While a call waits, a Stop calls `funk_interrupt`.
 
@@ -110,7 +110,7 @@ Status:
 
 - **The lib modules** are compiled into the plugin and written to a temporary directory at start-up: a bundle cannot rely on a funk checkout.
 
-- **Tests.** `midi-langs`' `test_clap_host` with `projects/funk-midi/clap_test_cases.txt`: evaluation, clips, Stop of a busy loop, state, Live, real time. funk has no clip that never ends, so its `forever` case exceeds the clip's event limit instead. All pass on macOS; Linux not run.
+- **Tests.** `tests/hosts/clap`: `test_clap_host` with `tests/hosts/clap.txt`: evaluation, clips, Stop of a busy loop, state, Live, real time. funk has no clip that never ends, so its `forever` case exceeds the clip's event limit instead. All pass on macOS; Linux not run.
 
 ## Friction log
 

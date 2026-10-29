@@ -5,7 +5,7 @@ A guide to funk's music library: `lib/pattern.fk`, `lib/midi.fk`, and the two pr
 - **`pattern`** describes events over musical time. A pattern is a query: given a span of time, it returns the events in it. Patterns combine into larger ones.
 - **`midi`** sets velocity and channel on a pattern of MIDI notes.
 - **`funk-midi`** is a REPL that plays a pattern to a MIDI port and replaces it live when you redefine it.
-- **The CLAP plugin**, in [midi-langs](https://github.com/shakfu/midi-langs) (`projects/funk-midi`), does the same inside a DAW, or in `midi-langs`' standalone host.
+- **The CLAP plugin** (`projects/funk-clap`) does the same inside a DAW, or in a standalone host.
 
 The patterns drive an external synth over MIDI. `funk-midi --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
 
@@ -234,7 +234,7 @@ Errors leave the music playing:
 
 ### The CLAP plugin
 
-Build it in `midi-langs` with `make clap`. It needs a funk checkout at `FUNK_DIR`, by default `../funk`. `make clap-dev CLAP=funk-midi` runs it without a DAW, sending MIDI to the first port or to a virtual port named `midi-langs-dev`.
+`make clap` builds `build/clap/funk-midi.clap`. `make clap-dev` runs it without a DAW, sending MIDI to the first port or to a virtual port named `midi-langs-dev`.
 
 In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. stops.
 
@@ -243,6 +243,14 @@ In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. 
 | `pat = ...` | loops | becomes a one-cycle clip, which loops with the host |
 | an expression of type `Pattern Int` | plays once, one cycle | becomes a one-cycle clip |
 | anything else | evaluated; its value is printed | the same |
+
+`sig = ...` plays a graph on the plugin's stereo output, as `funk-midi --audio` does, and every note the plugin sends also plays `voices f`, 8 voices of `f gate freq`:
+
+```haskell
+sig = voices (\gate freq -> d.adsr (d.dc 0.01) (d.dc 0.2) (d.dc 0.5) (d.dc 0.3) gate * d.saw freq)
+```
+
+The notes still go out as MIDI; route that output nowhere if the plugin's voices are the only synth. The graph needs a C compiler when the plugin loads; without one, MIDI still plays and the output is silent.
 
 A cycle is 4 beats, one bar of 4/4, at the host's tempo. Stop interrupts a running evaluation. The heap is limited to 512 MiB and the stack to 256 MiB; past either, the evaluation fails with "out of memory" or "stack overflow", and the host goes on.
 

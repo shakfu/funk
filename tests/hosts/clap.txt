@@ -1,0 +1,21 @@
+[expr]
+2 + 3
+[expr_out]
+5
+[error]
+nosuch 1
+[note]
+p.fastcat [p.atom 60, p.silence, p.silence, p.silence]
+[voices]
+p.stack [p.fastcat [p.atom 60, p.silence, p.silence, p.silence], p.fastcat [p.atom 64, p.silence]]
+[forever]
+-- A pattern has no end, so a clip renders one cycle. This one exceeds the clip's
+-- event limit instead, which stops it the same way.
+p.fast 120000 (p.atom 60)
+[busy]
+let loop n = loop (n + 1) in loop 0
+[live_voice]
+pat = p.fast 4 (p.fastcat [p.atom 72, p.silence])
+[audio]
+-- every voice's gate, so a note sounds exactly while it is held
+sig = voices (\gate freq -> gate)

@@ -140,7 +140,7 @@ What it needs:
 
 - The export style may prove too clumsy beyond one voice. The cost per voice is unmeasured; the sine example's 4-6 us per 64-frame block is the only figure.
 
-- A CLAP instrument needs audio ports, which `midi-langs`' framework does not have: it handles note effects only.
+- A CLAP instrument needs audio ports: done, `projects/clap`'s `AudioOutput` ([plugin.md](plugin.md#the-plugins-audio)).
 
 ## B: A, with the synth recompiled on edit
 
@@ -308,4 +308,4 @@ Order:
 
 - Where the synth is defined: one file built ahead of time, or a section of the live file that B recompiles?
 
-- In a CLAP instrument, does `midi-langs` grow audio ports, or does funk get a plugin of its own?
+- In a CLAP instrument, does `midi-langs` grow audio ports, or does funk get a plugin of its own? Decided: funk's own ([plugin.md](plugin.md#decision)).

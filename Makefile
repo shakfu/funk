@@ -8,6 +8,9 @@
 #   make SANITIZE=undefined test   the same with funk built under UBSan
 #   make bench | bench-report      time funk against C; see bench/README.md
 #   make install PREFIX=DIR        install funk into DIR/bin
+#   make clap                      build build/clap/funk-midi.clap (FUNK_CLAP)
+#   make clap-dev                  run the plugin's editor in a minimal host,
+#                                  MIDI to the first port
 #   make clean                     remove build/ and ./funk
 
 CMAKE ?= cmake
@@ -38,10 +41,23 @@ bench: funk
 bench-report:
 	python3 bench/bench.py report
 
+clap: $(BUILD)/CMakeCache.txt
+	$(CMAKE) -S . -B $(BUILD) -DFUNK_CLAP=ON >/dev/null
+	$(CMAKE) --build $(BUILD)
+
+# On macOS a .clap is a bundle; dlopen needs the binary inside it
+ifeq ($(shell uname),Darwin)
+CLAP_BIN = $(BUILD)/clap/funk-midi.clap/Contents/MacOS/funk-midi
+else
+CLAP_BIN = $(BUILD)/clap/funk-midi.clap
+endif
+clap-dev: clap
+	./$(BUILD)/clap_dev_host $(CLAP_BIN)
+
 install: funk
 	$(CMAKE) --install $(BUILD) --prefix $(PREFIX)
 
 clean:
 	rm -rf build funk
 
-.PHONY: all funk test bench bench-report install clean
+.PHONY: all funk test bench bench-report clap clap-dev install clean

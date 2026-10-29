@@ -79,6 +79,11 @@ void funk_player_reclaim(funk_player *p);
    if the queue, 4096 events, is full. */
 bool funk_player_send(funk_player *p, int64_t frame, const char *name, float value);
 
+/* The audio thread, between renders, in time order: funk_player_send
+   without the host's queue, for events made on the audio thread, such as
+   a plugin's notes. Both queues' events take effect in frame order. */
+bool funk_player_send_audio(funk_player *p, int64_t frame, const char *name, float value);
+
 /* Any thread: the frames rendered so far, the next event's earliest frame. */
 int64_t funk_player_frames(funk_player *p);
 
@@ -92,5 +97,33 @@ void funk_player_render(funk_player *p, float *out, int n);
 
 /* Once the audio thread has stopped calling funk_player_render. */
 void funk_player_free(funk_player *p);
+
+/* Notes on the voices of lib/dsp.fk's d.poly: events to the controls
+   "vK.freq" and "vK.gate", velocity / 127 while held. A note takes the
+   free voice released longest ago, else the voice of the oldest note; a
+   held or just-released voice's gate drops for a frame, so its envelope
+   restarts. Events go out in time order, an earlier frame moved up to the
+   last one sent. One thread uses a pool: the host's, or, made with
+   audio_thread, the audio thread's. Calls but _new and _free allocate
+   nothing; each returns false if the player's queue was full. */
+typedef struct funk_voices funk_voices;
+
+/* n voices, at most 64; NULL if n is out of range or memory runs out. */
+funk_voices *funk_voices_new(funk_player *p, int n, bool audio_thread);
+void funk_voices_free(funk_voices *v);
+
+/* A note from frame on, velocity 1 to 127. It ends at frame off, or at
+   funk_voices_off if off is INT64_MAX. Earlier notes' offs before on go
+   out first. */
+bool funk_voices_on(funk_voices *v, int64_t on, int64_t off, int note, int vel);
+
+/* The oldest held voice of note ends at frame. */
+bool funk_voices_off(funk_voices *v, int64_t frame, int note);
+
+/* The offs before frame, earliest first. */
+bool funk_voices_until(funk_voices *v, int64_t frame);
+
+/* Every held voice ends at frame. */
+bool funk_voices_hush(funk_voices *v, int64_t frame);
 
 #endif

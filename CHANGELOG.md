@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The `funk-midi` CLAP plugin moved here from `midi-langs`, with a copy of `midi-langs`' plugin framework (`projects/clap`, `projects/funk-clap`). `-DFUNK_CLAP=ON`, or `make clap`, builds it from the vendored `thirdparty/{clap,pugl,imgui,libremidi}`; `tests/hosts/clap` tests it. The plugin will gain audio ports (gh:3), which `midi-langs`' note effects do not need; the copy keeps that change out of their framework ([docs/dev/plugin.md](docs/dev/plugin.md#decision)).
+
 - `funk_provide(name, addr)` in `libfunk.h`: foreign imports of the C name `name` use the host's function or variable at `addr`. They found a host's functions as symbols of the process, which a plugin does not export. `funk-midi` provides `funkgraph`'s functions this way, and no longer exports its symbols.
 
 - `make install` installs `libfunk.a`, `libfunk.h` and a CMake package: `find_package(funk)` gives `funk::libfunk`. The version must match exactly, since `libfunk.h` has no stability promise between releases.
@@ -33,6 +35,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `lib/dsp.fk`: oscillators (sine, saw, square, pulse), one-pole and state-variable filters, an ADSR envelope and arithmetic, as signals for `lib/graph.fk`; `Sig` is a `Num`, so `lowpass 2000 (dc 0.7) (saw 220) * adsr ...` is a graph. The kernels are `lib/kernels.fk`, compiled with `funk emit-c --kernels`; a separate module, since an interpreted program cannot import a file with exports.
 
 - `funk-midi --audio`: input that defines `sig`, a signal of `lib/dsp.fk`, plays it from the next audio block, beside `pat`'s MIDI. The host owns the player; funk only builds graphs, so its collector and compiler never run on the audio thread. The device is miniaudio's, vendored in `thirdparty/miniaudio` (0.11.25) and on by default; with `-DFUNK_MINIAUDIO=OFF`, `--audio` runs only on the virtual clock (`--no-sleep`), printing the output's peak. CMake compiles `lib/kernels.fk` into `funkdsp.so` with the new `tools/kernels.sh`.
+
+- The CLAP plugin has a stereo output: `sig` plays there, and every note it sends also plays its voices (`voices f`, 8 of them), at the note's frame. Notes are taken where the plugin emits them, so clips, the host's transport, offline render and Stop reach the voices as they reach the MIDI output. Without a C compiler for graph.fk's imports, MIDI still plays and the output is silent ([docs/dev/plugin.md](docs/dev/plugin.md#the-plugins-audio)).
+
+- `funk_voices` in `projects/funkgraph/graph.h`: notes on `d.poly`'s voices, moved from `funk-midi` so that the plugin shares it. A note's off is given with it or by a later note-off, as MIDI sends it.
+
+- `funk_player_send_audio` in `projects/funkgraph/graph.h`: events made on the audio thread, such as a plugin's notes, in a queue of their own. `funk_player_send`'s queue allows one producer, and `g.send` already uses it from the host's thread. Rendering merges the two queues by frame, since an event sets its control to the end of the block.
 
 - Controls in `projects/funkgraph` and `lib/graph.fk`: a node without a kernel whose value events change at a given frame (`funk_player_send`, `g.send`), so a note's gate or frequency changes at its sample rather than at a block's start. Events go through a queue of C structs in the player, a 64-bit frame, a name and a `float` each, rather than funk's `Ring Int`, whose values have 16 bits: the runner, not a funk export, reads them.
 

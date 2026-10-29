@@ -5,6 +5,8 @@ project(funk VERSION 0.6.0 LANGUAGES C)
 #   funk       the language: libfunk and the command line
 #   funkgraph  the graph player for compiled kernels, and funkdsp.so
 #   funk-midi  plays patterns to MIDI, and graphs to audio, live
+#   clap       a CLAP plugin framework, from midi-langs (FUNK_CLAP)
+#   funk-clap  funk-midi as a CLAP plugin, on clap (FUNK_CLAP)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
@@ -20,11 +22,41 @@ option(FUNK_LIBREMIDI "funk-midi's MIDI output, with thirdparty/libremidi" OFF)
 option(FUNK_MINIAUDIO "funk-midi's audio output, with thirdparty/miniaudio" ON)
 set(FUNK_DSP_LIB ${PROJECT_BINARY_DIR}/funkdsp.so) # lib/kernels.fk, compiled
 
+option(FUNK_CLAP "the funk-midi CLAP plugin, with thirdparty/{clap,pugl,imgui,libremidi}" OFF)
+if(FUNK_CLAP AND UNIX AND NOT APPLE)
+  find_package(X11)
+  find_package(OpenGL COMPONENTS OpenGL GLX)
+  if(NOT X11_FOUND OR NOT OpenGL_OpenGL_FOUND OR NOT OpenGL_GLX_FOUND)
+    message(WARNING "FUNK_CLAP off: the plugin needs X11 and OpenGL headers (libx11-dev libgl-dev)")
+    set(FUNK_CLAP OFF)
+  endif()
+endif()
+if(FUNK_CLAP)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON) # static libraries in the plugin
+endif()
+
 find_package(Threads REQUIRED)
+
+if(FUNK_LIBREMIDI OR FUNK_CLAP)
+  enable_language(CXX)
+  set(LIBREMIDI_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(LIBREMIDI_TESTS OFF CACHE BOOL "" FORCE)
+  set(LIBREMIDI_NO_PIPEWIRE ON CACHE BOOL "" FORCE)
+  set(LIBREMIDI_NO_WINMIDI ON CACHE BOOL "" FORCE)
+  add_subdirectory(thirdparty/libremidi ${PROJECT_BINARY_DIR}/libremidi EXCLUDE_FROM_ALL)
+endif()
 
 add_subdirectory(projects/funk)
 add_subdirectory(projects/funkgraph)
 add_subdirectory(projects/funk-midi)
+if(FUNK_CLAP)
+  set(CMAKE_CXX_STANDARD 17)
+  if(APPLE)
+    enable_language(OBJC) # thirdparty/pugl
+  endif()
+  add_subdirectory(projects/clap)
+  add_subdirectory(projects/funk-clap)
+endif()
 
 # the reload threshold of docs/dev/patterns.md, over libfunk.h; a test runs it
 add_executable(reload bench/reload.c)
@@ -46,8 +78,8 @@ if(FUNK_SANITIZE)
   target_link_options(libfunk INTERFACE -fsanitize=${FUNK_SANITIZE}) # for hosts, the installed package's too
 endif()
 
-# Included by another project (midi-langs' funk-midi plugin), funk adds its
-# targets only: not its install rules (projects/funk) or its tests.
+# Included by another project, funk adds its targets only: not its install
+# rules (projects/funk) or its tests.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   enable_testing()
   add_subdirectory(tests)
