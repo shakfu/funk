@@ -114,7 +114,7 @@ kernels)
   "$FUNK" emit-c --kernels "$f" -o "$tmp/k.c" 2>"$tmp/cc" || fail "funk emit-c --kernels" "$tmp/cc"
   undef=-Wl,--no-undefined dl=-ldl # a runtime symbol left in a kernel fails the link
   [ "$(uname)" = Darwin ] && undef= dl= # its linker rejects undefined symbols by default
-  ${CC:-cc} -O2 -fPIC -shared -Wall -Wextra -Wno-unused-parameter -Werror $undef -o "$tmp/k.so" "$tmp/k.c" >"$tmp/cc" 2>&1 ||
+  ${CC:-cc} -O2 -fPIC -shared -Wall -Wextra -Wno-unused-parameter -Werror $undef -o "$tmp/k.so" "$tmp/k.c" -lm >"$tmp/cc" 2>&1 ||
     fail "the kernels' C" "$tmp/cc"
   # an address added through integers loses provenance, and clang stops vectorizing
   sed -n '/---- generated kernels ----/,$p' "$tmp/k.c" | grep -n 'uintptr_t)' >"$tmp/casts" && fail "an address computed through uintptr_t" "$tmp/casts"
