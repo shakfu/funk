@@ -21,7 +21,8 @@
 #                                   uintptr_t, and compiles under -Wall -Wextra into a shared
 #                                   library with no undefined symbols and no exported fk_ name;
 #                                   HOST.c, built with ARGS and $HOST_CFLAGS (a sanitizer) and
-#                                   given its path, prints HOST.expected
+#                                   given its path, prints HOST.expected; a HOST.fk runs
+#                                   with ARGS, interpreted and compiled, with $KERNELS the path
 #   check.sh error FILE [FLAGS]     funk run FILE fails, and its output contains the text
 #                                   after "-- expect: " on FILE's first line
 #   check.sh repl FILE              the REPL's output for FILE equals FILE without .in, .expected
@@ -118,6 +119,17 @@ kernels)
   # an address added through integers loses provenance, and clang stops vectorizing
   sed -n '/---- generated kernels ----/,$p' "$tmp/k.c" | grep -n 'uintptr_t)' >"$tmp/casts" && fail "an address computed through uintptr_t" "$tmp/casts"
   nm -g "$tmp/k.so" | awk '$2 ~ /^[TDBSR]$/ {print $3}' | sed 's/^_//' | grep '^fk_' >"$tmp/syms" && fail "runtime names exported" "$tmp/syms"
+  case $host in
+  *.fk) # with ARGS, interpreted and compiled; $KERNELS names the library
+    # shellcheck disable=SC2086
+    KERNELS=$tmp/k.so "$FUNK" run "$host" "$@" $dl >"$tmp/out" 2>&1
+    same "${host%.fk}.expected" "$tmp/out"
+    # shellcheck disable=SC2086
+    "$FUNK" build "$host" -o "$tmp/exe" "$@" $dl >"$tmp/cc" 2>&1 || fail "funk build" "$tmp/cc"
+    KERNELS=$tmp/k.so "$tmp/exe" >"$tmp/out" 2>&1
+    same "${host%.fk}.expected" "$tmp/out"
+    exit 0 ;;
+  esac
   # shellcheck disable=SC2086
   ${CC:-cc} -O2 -g ${HOST_CFLAGS:-} -Wall -Wextra -o "$tmp/host" "$host" "$@" $dl >"$tmp/cc" 2>&1 || fail "$host" "$tmp/cc"
   norand= # as tsan-compiled: TSan rejects some Linux kernels' address layout

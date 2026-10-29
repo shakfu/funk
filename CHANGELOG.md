@@ -24,6 +24,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `hosts/graph/graph.h`, a runner for graphs of kernels ([docs/dev/audio.md](docs/dev/audio.md), D). The host's thread builds a graph from kernels, their initial states and earlier nodes' outputs, and plays it; the audio thread renders the current one and allocates nothing. A replaced graph is freed by the host's thread once the audio thread has finished a block after the swap, since the block running at the swap may still read it.
 
+- `lib/graph.fk`: builds and plays such graphs from funk, interpreted or compiled. A `Sig` is a tree of nodes, each a kernel found with `dlsym`, its initial state as `Float`s and its inputs; `play` writes it into a new C graph and swaps it in. `hosts/graph` is now the CMake library `funkgraph`, which the import glue links.
+
 ### Changed
 
 - `peekByteOff` and `pokeByteOff`, and so `readArray`, `readField` and their kin, compute the address as `char *` arithmetic rather than through `plusPtr`'s integers. The cast lost the pointer's provenance, and clang did not vectorize: a kernel multiplying two buffers ran 3.9x hand-written C, a state-variable filter 1.34x; both now equal it. `fieldPtr` does the same unless its pointer is null, where it still gives the offset: a kernel whose state is a struct of two structs went from 2.6x C to 1.0x. `plusPtr` keeps the integers, since `plusPtr nullPtr 16` must stay defined. The Benchmarks Game is unchanged (+0.1%, interleaved A/B).

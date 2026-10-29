@@ -1,0 +1,35 @@
+-- lib/graph.fk over the kernels of dsp.fk, in the interpreter: host.c's
+-- chain as a Sig, played and rendered in two blocks of 8 frames, must equal
+-- host.c's clip rows. $KERNELS names the kernel library.
+import graph as g
+
+foreign import ccall "stdlib.h getenv" getenv :: String ->> Ptr CChar
+
+showBlock :: Ptr CFloat -> Int -> Int ->> ()
+showBlock out i n = if i == n then () else do
+  x <- (peekByteOff out (4 * i) :: CFloat)
+  print (fromCFloat x)
+  showBlock out (i + 1) n
+
+main = do
+  lib <- g.library (peekCString (getenv "KERNELS"))
+  k <- g.kernel lib
+  saw <- g.Node (k "k_saw") [0.0, 1000.0] []
+  pole <- g.Node (k "k_onepole") [0.0, 0.5] [saw]
+  sine <- g.Node (k "k_sine") [0.25, 500.0] []
+  chain <- g.Node (k "k_clip") [] [g.Node (k "k_mul") [] [pole, sine]]
+  p <- g.playerNew ()
+  out <- mallocBytes 32
+  g.render p out 8
+  print "silent"
+  showBlock out 0 1
+  g.play p 5 chain
+  g.render p out 8
+  showBlock out 0 8
+  g.render p out 8
+  showBlock out 0 8
+  g.play p 5 g.Silence
+  g.render p out 8
+  showBlock out 0 1
+  free out
+  g.playerFree p

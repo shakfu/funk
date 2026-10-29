@@ -1,0 +1,76 @@
+-- graph.fk -- builds graphs of kernels for hosts/graph's player
+-- (docs/dev/audio.md, D). A Sig is a tree of nodes: a kernel, its initial
+-- state as Floats (a foreign struct of Float fields), and its inputs. play
+-- writes it into a new C graph, inputs first, and gives the graph to the
+-- player, which renders it from the audio thread's next block. Link with
+-- -I hosts/graph and the funkgraph library.
+module graph where
+
+foreign import ccall "graph.h funk_graph_new" graphNew :: CInt ->> Ptr ()
+foreign import ccall "graph.h funk_graph_add" graphAdd :: Ptr () -> FunPtr (Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CSize -> Ptr CInt -> CInt ->> CInt
+foreign import ccall "graph.h funk_graph_free" graphFree :: Ptr () ->> ()
+foreign import ccall "graph.h funk_player_new" playerNew :: () ->> Ptr ()
+foreign import ccall "graph.h funk_player_play" playerPlay :: Ptr () -> Ptr () ->> ()
+foreign import ccall "graph.h funk_player_reclaim" reclaim :: Ptr () ->> ()
+foreign import ccall "graph.h funk_player_render" render :: Ptr () -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "graph.h funk_player_free" playerFree :: Ptr () ->> ()
+foreign import ccall "dlfcn.h dlopen" dlopen :: String -> CInt ->> Ptr ()
+foreign import ccall "dlfcn.h dlsym" dlsym :: Ptr () -> String ->> Ptr ()
+foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
+
+data Sig = Silence | Node (FunPtr (Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ())) [Float] [Sig]
+
+-- a library of kernels, such as one from `funk emit-c --kernels`
+library :: String ->> Ptr ()
+library path = do
+  h <- dlopen path rtldNow
+  if h == nullPtr then error ("graph.library: cannot load " ++ path) else h
+
+kernel :: Ptr () -> String ->> FunPtr (Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ())
+kernel lib name = do
+  k <- dlsym lib name
+  if k == nullPtr then error ("graph.kernel: no " ++ name) else castPtrToFunPtr k
+
+pokeFloats :: Ptr () -> Int -> [Float] ->> ()
+pokeFloats p i [] = ()
+pokeFloats p i (x:xs) = do
+  pokeByteOff p (8 * i) x
+  pokeFloats p (i + 1) xs
+
+pokeInputs :: Ptr CInt -> Int -> [Int] ->> ()
+pokeInputs p i [] = ()
+pokeInputs p i (x:xs) = do
+  pokeByteOff p (4 * i) (fromIntegral x :: CInt)
+  pokeInputs p (i + 1) xs
+
+-- s's nodes after those in g; s's index, or -1 for silence
+add :: Ptr () -> Sig ->> Int
+add g Silence = -1
+add g (Node k st ins) = do
+  is <- addAll g ins
+  i <- allocaBytes (8 * length st + 4 * length is) (\p -> do
+    pokeFloats p 0 st
+    q <- plusPtr p (8 * length st)
+    pokeInputs q 0 is
+    graphAdd g k p (fromIntegral (8 * length st)) q (fromIntegral (length is)))
+  if i < 0 then error "graph.add: out of memory" else fromIntegral i
+
+addAll :: Ptr () -> [Sig] ->> [Int]
+addAll g [] = []
+addAll g (s:ss) = do
+  i <- add g s
+  is <- addAll g ss
+  i : is
+
+-- a C graph of s, rendering at most maxBlock frames per kernel call
+build :: Int -> Sig ->> Ptr ()
+build maxBlock s = do
+  g <- graphNew (fromIntegral maxBlock)
+  if g == nullPtr then error "graph.build: out of memory" else do
+    add g s
+    g
+
+-- s plays from the player's next block; Silence stops it
+play :: Ptr () -> Int -> Sig ->> ()
+play player maxBlock Silence = playerPlay player nullPtr
+play player maxBlock s = playerPlay player (build maxBlock s)

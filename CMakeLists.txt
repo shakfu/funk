@@ -52,6 +52,13 @@ add_executable(reload bench/reload.c)
 target_compile_options(reload PRIVATE -Wall -Wextra)
 target_link_libraries(reload PRIVATE libfunk)
 
+# The graph player for compiled kernels (hosts/graph, docs/dev/audio.md, D);
+# static and position-independent, so foreign-import glue can link it.
+add_library(funkgraph STATIC hosts/graph/graph.c)
+set_target_properties(funkgraph PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_options(funkgraph PRIVATE -Wall -Wextra)
+target_include_directories(funkgraph PUBLIC hosts/graph)
+
 # funk-midi: plays a pattern to MIDI, live (hosts/midi/main.c). Without
 # libremidi it can only print, which the tests use. FUNK_LIBREMIDI_DIR is a
 # libremidi source tree, e.g. midi-langs/thirdparty/libremidi.

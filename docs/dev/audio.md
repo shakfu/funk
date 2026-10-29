@@ -228,7 +228,11 @@ What it needs:
 
 3. **A kernel library**, `lib/dsp.fk`: A's oscillators, envelope and filters, in the kernel signature.
 
-4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring.
+4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring. The builder is done, 2026-10-29: `lib/graph.fk`, test `kernels/build`, interpreted and compiled. A `Sig` is a tree of nodes; `play` writes it into a new C graph, inputs first, and swaps it in. Limits:
+   - A subgraph used twice is two copies; shared nodes need names, such as a `let` the builder can see.
+   - State is a list of `Float`s, so a struct with other field types cannot be given.
+   - Each `play` copies the initial states again, so oscillators restart and a swap can click. Carrying state across swaps needs node identities.
+   - Voices are not done.
 
 Limits:
 

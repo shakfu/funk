@@ -30,7 +30,11 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] **The C runner**, `hosts/graph/graph.h`: graphs swapped at a block boundary and freed on the host's thread after an epoch. Not yet a CMake library: `funk-midi --audio` will be its first user.
 
-- [ ] **The graph builder** in funk: a pure graph value that `play` writes into a node table in C memory, with buffers and state allocated there; voices added from note events.
+- [x] **The graph builder** in funk: `lib/graph.fk`, a tree of nodes that `play` writes into a C graph.
+
+- [ ] Graph limits ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4): shared subgraphs, state other than `Float`s, state carried across swaps so oscillators do not restart.
+
+- [ ] Voices: a note-on adds nodes, or enables them from a pool, through the event ring.
 
 - [ ] Wider ring events. A value has 16 bits; note, velocity and channel need 18, and parameters such as cutoff more. Options are listed in `audio.md`.
 

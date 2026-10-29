@@ -172,6 +172,9 @@ funk_test(kernels/dsp "ffi;kernels" kernels tests/kernels/dsp.fk tests/kernels/h
 # ... run as a graph by hosts/graph, swapped while an audio thread renders
 set(GRAPH kernels tests/kernels/dsp.fk tests/kernels/graph.c hosts/graph/graph.c -Ihosts/graph -lpthread -lm)
 funk_test(kernels/graph "ffi;kernels" ${GRAPH})
+# ... built from funk by lib/graph.fk
+funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/dsp.fk tests/kernels/build.fk
+          -M lib -I hosts/graph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
 set(CMAKE_REQUIRED_FLAGS -fsanitize=address)
 set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=address)
 check_c_source_compiles("int main(void) { return 0; }" HAVE_ASAN)
