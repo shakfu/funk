@@ -1,0 +1,8 @@
+-- expect: graph: dsp_add's inputs have [2,3] channels
+-- Inputs of 2 and 3 channels: an error before the C graph is allocated.
+import graph as g
+import dsp
+
+main = do
+  p <- g.player [] 8000.0 64
+  g.play p (dsp.stereo 1 2 + g.Channels [1, 2, 3])

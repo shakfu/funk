@@ -12,4 +12,7 @@ late     0.750  0.750  0.750  0.750  0.750  0.750  0.750  0.750
 swap     0.750  0.750  0.750  0.750  0.750  0.750  0.750  0.750
 reset    0.125  0.125  0.125  0.125  0.125  0.125  0.125  0.125
 frames 40
+output past the last node rejected: yes
+channels 1 2 1
+mono on both: yes
 2000 swaps, samples outside [-1, 1]: 0, blocks rendered: at least 400

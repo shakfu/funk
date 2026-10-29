@@ -65,6 +65,11 @@ add_custom_command(OUTPUT ${FUNK_DSP_LIB}
   COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tools/kernels.sh $<TARGET_FILE:funk> ${CMAKE_CURRENT_SOURCE_DIR}/lib/kernels.fk ${FUNK_DSP_LIB}
   DEPENDS funk lib/kernels.fk tools/kernels.sh)
 add_custom_target(funkdsp ALL DEPENDS ${FUNK_DSP_LIB})
+# the cost of graphs, kernels and voices (docs/dev/audio.md, D, item 5):
+#   build/dspbench build/funkdsp.so [BLOCK]
+add_executable(dspbench bench/dsp.c)
+target_compile_options(dspbench PRIVATE -Wall -Wextra)
+target_link_libraries(dspbench PRIVATE funkgraph ${CMAKE_DL_LIBS} m)
 
 # funk-midi: plays a pattern to MIDI, live (hosts/midi/main.c). Without
 # libremidi it can only print, which the tests use. FUNK_LIBREMIDI_DIR is a

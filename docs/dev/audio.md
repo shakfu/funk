@@ -240,7 +240,7 @@ What it needs:
    - **Parameters are inputs**, buffers of `n` frames like any signal, and a constant is a `dsp_const` node. Over parameters in the state, which was the first design: a parameter can be modulated, and changing one restarts only its constant, while a named oscillator keeps its phase. A separate parameter block per kernel would keep the second property but not the first.
    - **Control rate is the kernel's choice:** a kernel may read an input's first frame once per call, as the filters read their cutoff to compute `tan` once. SuperCollider's rates per input were the alternative; the runner would then track rates, and reads would need a stride.
    - **The context** holds the sample rate, and later what every kernel may need, such as time or tempo, without changing the signature. The rate cannot be in the state, since a modulator's frequency in Hz needs it at run time.
-   - **One output.** A filter's three responses are three exports sharing one loop. Several outputs, and stereo, wait for the plugin; no kernels have shipped, so the change would be mechanical.
+   - **One output.** A filter's three responses are three exports sharing one loop. Stereo needs no more: see channels, item 4. Several outputs per kernel wait for a kernel whose channels share state, such as a stereo reverb.
 
 4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring. The builder is done, 2026-10-29: `lib/graph.fk`, test `kernels/build`, interpreted and compiled. A `Sig` is a tree of nodes; `play` writes it into a new C graph, inputs first, and swaps it in.
 
@@ -251,19 +251,24 @@ What it needs:
    Limits:
    - State is a list of `Float`s, so a struct with other field types cannot be given.
    - Unnamed nodes restart at every `play`.
-   - Voices are not done.
 
    **Controls and events**, 2026-10-29: a control is a node without a kernel, whose output the runner writes: a value that an event changes from its frame. A host sends `(frame, name, value)` on the player's queue, 4,096 events, single producer; each block the runner applies those before its end to the current graph's controls of that name, and leaves later ones queued. A late event takes the block's first frame. The block is not split: a control writes a stepped buffer, so every kernel downstream sees the change at its frame. A control's value carries across swaps as a named node's state does. In funk, `g.control "gate" 0.0`, `g.send` and `g.frames`; test `kernels/ugens` starts an envelope at frame 5 and releases it at frame 10.
 
    These replace widening funk's `Ring Int` (A's item 4) for graphs: the consumer is the C runner, not a funk export, so the queue holds C structs, and funk pushes through a foreign call. A frame is 64 bits, the target a name's hash, the value a `float`.
 
-5. **`funk-midi --audio`.** Done, 2026-10-29: input that defines `sig`, a `g.Sig`, plays it from the next block, beside `pat`'s MIDI; test `hosts/audio`, on the virtual clock, which prints the output's peak every 250 ms. The host owns the player and the kernel library, `lib/kernels.fk` compiled by CMake (`tools/kernels.sh`); funk only builds graphs, so the audio thread runs C alone. Through miniaudio with `-DFUNK_MINIAUDIO_DIR`, a header-only library, rather than PortAudio, which would be an installed dependency. Checked on macOS: the device rendered 144,207 frames in 3 s at 48 kHz. Not yet listened to, nor run on Linux. Mono, the same on every channel. A `sig` that fails, by type or by naming no kernel, leaves the last graph playing.
+   **Voices**, 2026-10-29: a fixed pool, as controls. `d.poly n f` sums `n` copies of `f gate freq`, voice `k` reading the controls `vk.gate` and `vk.freq`; `funk-midi --audio` defines `voices f` as `d.poly N f`, N from `--voices` (default 8), and sends `pat`'s notes to it. A note takes the free voice released longest ago, else steals the voice of the oldest note; its gate is velocity / 127. A voice reused within a frame of its release, or stolen, gets a gate of 0 for one frame, so its envelope restarts. One graph for all notes, over adding nodes per note: no swap per note, and every voice's state stays put. One voice per pattern layer was the other option; it cannot play a chord. Test `hosts/voices`, on the virtual clock; with the restart frame removed, its last envelope stays at 0.
+
+   Notes are scheduled in the player's frames. On the virtual clock a frame is exact; in real time the host keeps an offset from its clock to the player's frame count, moved by 1/64 of the error each 10 ms window, since the count advances a callback's block at a time. Measured on macOS at 48 kHz, the error stayed within 300 frames over 8 s, against a lookahead of 2,400. MIDI channels are ignored: every note shares one pool.
+
+   **Channels**, 2026-10-29: `g.Channels [Sig]`, or `d.stereo l r`, is a signal of several channels. A node with such an input becomes one node per channel, each reading its inputs' matching channel, or the only one, as in SuperCollider's multichannel expansion; a named node of two channels becomes `n.1` and `n.2`. So `d.pan pos x` is `x` times a stereo gain, and panned voices sum into a stereo graph, from mono kernels. Expansion happens as the graph is written, so a mono input is one node shared by its channels; expanding the tree first would copy it, and a panned voice would cost twice. Inputs of 2 and 3 channels are an error, before the C graph is allocated; SuperCollider wraps the shorter instead. In C, `funk_graph_output` sets a channel's node and `funk_player_render_channels` renders them; channel c plays output c modulo their number, so a mono graph plays on every channel. Tests `kernels/graph` and `kernels/ugens`.
+
+5. **`funk-midi --audio`.** Done, 2026-10-29: input that defines `sig`, a `g.Sig`, plays it from the next block, beside `pat`'s MIDI; test `hosts/audio`, on the virtual clock, which prints the output's peak every 250 ms. The host owns the player and the kernel library, `lib/kernels.fk` compiled by CMake (`tools/kernels.sh`); funk only builds graphs, so the audio thread runs C alone. Through miniaudio with `-DFUNK_MINIAUDIO_DIR`, a header-only library, rather than PortAudio, which would be an installed dependency. Checked on macOS: the device rendered 144,207 frames in 3 s at 48 kHz. Listened to on macOS; not run on Linux. A graph of channels plays one per device channel, a mono graph on all. A `sig` that fails, by type or by naming no kernel, leaves the last graph playing.
 
 Limits:
 
 - **Feedback within a sample** across nodes is impossible; a node reads its input's previous block. A filter with such feedback is one kernel.
 
-- **Node outputs go through memory.** Code compiled per sample, as Faust's, keeps them in registers. The cost per node is unmeasured.
+- **Node outputs go through memory.** Code compiled per sample, as Faust's, keeps them in registers. The runner adds about 5 ns per node per 64-frame block; a voice of separate kernels costs 2.7x a fused loop, mostly because their dependency chains no longer overlap ([261029-dsp-measurements.md](261029-dsp-measurements.md)).
 
 - **Graph changes come at pattern rate**, from funk's thread, not at audio rate: enough for voices driven by MIDI or patterns.
 
@@ -295,13 +300,11 @@ Order:
 
 4. `funk-midi --audio`. Done (item 5 above).
 
-5. Measurements: the cost per node and per voice, how many voices fit in 1.33 ms, and a kernel's compile time. Log the friction of writing kernels.
+5. Measurements. Done, 2026-10-29 ([261029-dsp-measurements.md](261029-dsp-measurements.md)): a `d.poly` voice costs 792 ns per 64-frame block, so about 1,600 fit in 1.33 ms on one M1 core; funk's kernels cost what C's do; a kernel compiles in about 120 ms, mostly fixed.
 
 ## Open questions
 
-- Several outputs per kernel, and a stereo graph, for the plugin.
-
-- Polyphony: a fixed number of voices with stealing, or one voice per pattern layer? Either way, notes are scheduled against the player's frame count, which drifts from the host's clock.
+- Several outputs per kernel, for kernels whose channels share state.
 
 - Where the synth is defined: one file built ahead of time, or a section of the live file that B recompiles?
 

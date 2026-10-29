@@ -33,6 +33,8 @@ struct funk_graph {
   float *silence;
   Name *names; /* sorted by key */
   int nnames;
+  int *outs; /* the channels' nodes */
+  int nouts;
   funk_graph *next; /* in the player's retired list */
   uint64_t retired; /* the epoch when it was replaced */
 };
@@ -163,6 +165,15 @@ int funk_graph_control(funk_graph *g, float value) {
   return g->n++;
 }
 
+int funk_graph_output(funk_graph *g, int node) {
+  if (node < 0 || node >= g->n) return -1;
+  int *a = realloc(g->outs, (size_t)(g->nouts + 1) * sizeof *a);
+  if (!a) return -1;
+  g->outs = a;
+  a[g->nouts] = node;
+  return g->nouts++;
+}
+
 void funk_graph_free(funk_graph *g) {
   if (!g) return;
   for (int i = 0; i < g->n; i++) {
@@ -173,6 +184,7 @@ void funk_graph_free(funk_graph *g) {
   }
   free(g->nodes);
   free(g->names);
+  free(g->outs);
   free(g->silence);
   free(g);
 }
@@ -246,7 +258,7 @@ static void controls(funk_player *p, funk_graph *g, int64_t start, int m) {
   atomic_store_explicit(&p->tail, tail, memory_order_release);
 }
 
-void funk_player_render(funk_player *p, float *out, int n) {
+void funk_player_render_channels(funk_player *p, float *const *out, int channels, int n) {
   funk_graph *g = atomic_load(&p->current);
   if (g != p->last) {
     if (g && p->last) carry(g, p->last);
@@ -257,19 +269,22 @@ void funk_player_render(funk_player *p, float *out, int n) {
     int m = g ? (n - done < g->max_block ? n - done : g->max_block) : n - done;
     controls(p, g, start + done, m);
     if (!g || !g->n) {
-      memset(out + done, 0, (size_t)m * sizeof *out);
+      for (int c = 0; c < channels; c++) memset(out[c] + done, 0, (size_t)m * sizeof **out);
     } else {
       for (int i = 0; i < g->n; i++) {
         Node *x = &g->nodes[i];
         if (x->k) x->k(x->state, x->in, x->out, m, &g->cx);
       }
-      memcpy(out + done, g->nodes[g->n - 1].out, (size_t)m * sizeof *out);
+      for (int c = 0; c < channels; c++)
+        memcpy(out[c] + done, g->nodes[g->nouts ? g->outs[c % g->nouts] : g->n - 1].out, (size_t)m * sizeof **out);
     }
     done += m;
   }
   atomic_store_explicit(&p->frames, start + n, memory_order_release);
   atomic_fetch_add(&p->epoch, 1); /* after the last use of g */
 }
+
+void funk_player_render(funk_player *p, float *out, int n) { funk_player_render_channels(p, &out, 1, n); }
 
 void funk_player_free(funk_player *p) {
   if (!p) return;

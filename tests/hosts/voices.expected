@@ -1,0 +1,51 @@
+    0.000 on  ch1 60 100
+  250.000 audio peak 7874
+  500.000 audio peak 7874
+  500.000 off ch1 60 0
+  500.000 on  ch1 64 100
+  750.000 audio peak 7874
+ 1000.000 audio peak 7874
+ 1000.000 off ch1 64 0
+ 1000.000 on  ch1 67 100
+ 1250.000 audio peak 7874
+ 1500.000 audio peak 7874
+ 1500.000 off ch1 67 0
+ 1750.000 audio peak 0
+ 2000.000 audio peak 0
+ 2000.000 on  ch1 60 100
+ 2000.000 on  ch1 64 100
+ 2000.000 on  ch1 67 100
+ 2250.000 audio peak 15748
+ 2500.000 audio peak 15748
+ 2750.000 audio peak 15748
+ 3000.000 audio peak 15748
+ 3000.000 off ch1 60 0
+ 3000.000 off ch1 64 0
+ 3000.000 off ch1 67 0
+ 3250.000 audio peak 0
+ 3500.000 audio peak 0
+ 3750.000 audio peak 0
+ 4000.000 audio peak 0
+ 4000.000 on  ch1 69 100
+ 4250.000 audio peak 3465
+ 4500.000 audio peak 3465
+ 4750.000 audio peak 3465
+ 5000.000 audio peak 3465
+ 5250.000 audio peak 3465
+ 5500.000 audio peak 3465
+ 5750.000 audio peak 3465
+ 6000.000 audio peak 10000
+ 6000.000 off ch1 69 0
+ 6000.000 on  ch1 60 100
+ 6000.000 on  ch1 64 100
+ 6250.000 audio peak 19999
+ 6500.000 audio peak 0
+ 6750.000 audio peak 0
+ 7000.000 audio peak 0
+ 7000.000 off ch1 60 0
+ 7000.000 off ch1 64 0
+ 7000.000 on  ch1 67 100
+ 7250.000 audio peak 10000
+ 7400.000 off ch1 67 0
+ 7500.000 audio peak 0
+ 7750.000 audio peak 0

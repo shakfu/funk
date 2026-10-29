@@ -1,0 +1,22 @@
+-- funk-midi --audio --voices 2 --no-sleep --script (tests/CMakeLists.txt):
+-- pat's notes on two voices. pat changes from the first window not yet
+-- scheduled, 50 ms ahead, so it is redefined 100 ms before a cycle.
+-- The sum of the gates, 100 / 127 a note: one note at a time, then a gap;
+-- a chord of three, which two voices play.
+sig = voices (\gate freq -> gate)
+pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67, p.silence]
+:wait 1900
+pat = p.fastcat [p.stack [p.atom 60, p.atom 64, p.atom 67], p.silence]
+:wait 2000
+-- a voice's frequency, 440 Hz for note 69, times its gate and 1/1000
+sig = voices (\gate freq -> gate * freq * d.dc 0.001)
+pat = p.atom 69
+:wait 2000
+-- envelopes that fall to 0 in 0.2 s, new under note 69's held gate, which
+-- starts them; then two notes, and a third on a voice released at its
+-- onset, which must restart its envelope
+sig = voices (\gate freq -> d.adsr 0 (d.dc 0.2) 0 0 gate)
+pat = p.fastcat [p.stack [p.atom 60, p.atom 64], p.atom 67]
+:wait 1500
+:stop
+:wait 500

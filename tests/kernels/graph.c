@@ -97,10 +97,10 @@ static const char *same(const float *a, const float *b) {
 
 static void *audio(void *arg) {
   (void)arg;
-  float out[64];
+  float l[64], r[64], *out[2] = {l, r};
   while (!atomic_load(&stop)) {
-    funk_player_render(player, out, 64);
-    for (int i = 0; i < 64; i++) bad += !(fabsf(out[i]) <= 1.0f);
+    funk_player_render_channels(player, out, 2, 64);
+    for (int i = 0; i < 64; i++) bad += !(fabsf(l[i]) <= 1.0f) + !(fabsf(r[i]) <= 1.0f);
     atomic_fetch_add(&blocks, 1);
   }
   return NULL;
@@ -182,6 +182,22 @@ int main(int argc, char **argv) {
   printf("frames %lld\n", (long long)funk_player_frames(c));
   funk_player_free(c);
 
+  /* channels: two outputs on three channels wrap; a mono graph plays on both */
+  funk_player *st = funk_player_new();
+  g = funk_graph_new(8, 8000.0);
+  int l = funk_graph_control(g, 1.0f), r = funk_graph_control(g, 2.0f);
+  printf("output past the last node rejected: %s\n", funk_graph_output(g, 2) < 0 ? "yes" : "no");
+  funk_graph_output(g, l);
+  funk_graph_output(g, r);
+  float ch[3][N], *chs[3] = {ch[0], ch[1], ch[2]};
+  funk_player_play(st, g);
+  funk_player_render_channels(st, chs, 3, N);
+  printf("channels %g %g %g\n", ch[0][N - 1], ch[1][N - 1], ch[2][N - 1]);
+  funk_player_play(st, gated(0.5f));
+  funk_player_render_channels(st, chs, 2, N);
+  printf("mono on both: %s\n", same(ch[0], ch[1]));
+  funk_player_free(st);
+
   pthread_t t;
   pthread_create(&t, NULL, audio, NULL);
   for (int i = 0; i < SWAPS; i++) {
@@ -196,7 +212,11 @@ int main(int argc, char **argv) {
         funk_graph_name(h, ab[0] = funk_graph_add(h, voice, v, sizeof v, NULL, 0), name);
       }
       funk_graph_name(h, ab[1] = funk_graph_control(h, 1.0f), "gain"); /* which events change as it plays */
-      funk_graph_add(h, mul, NULL, 0, ab, 2);
+      int m = funk_graph_add(h, mul, NULL, 0, ab, 2);
+      if (i % 2) { /* stereo: the product and the gain */
+        funk_graph_output(h, m);
+        funk_graph_output(h, ab[1]);
+      }
     } else {
       funk_player_play(player, NULL); /* silence between, too */
       h = chain(64, 1, 1000.0);

@@ -6,7 +6,8 @@
    kernel may read one input's first frame only, once per call. A graph is
    built on the host's thread: each node is a kernel, a copy of its initial
    state, and inputs from earlier nodes, so a graph has no cycles. The last
-   node added is the output. Everything a node needs is allocated when it
+   node added is the output, unless outputs are given, one per channel.
+   Everything a node needs is allocated when it
    is added; rendering allocates nothing.
 
    A control is a node without a kernel: its output is a value, which
@@ -55,6 +56,11 @@ int funk_graph_control(funk_graph *g, float value);
    parameters changed starts again. Not after the graph is played. */
 int funk_graph_name(funk_graph *g, int node, const char *name);
 
+/* Makes node the output of the graph's next channel; the channel, or -1
+   if node is not in g or memory runs out. A graph without outputs has one:
+   its last node. Not after the graph is played. */
+int funk_graph_output(funk_graph *g, int node);
+
 /* A graph that was never played. */
 void funk_graph_free(funk_graph *g);
 
@@ -76,7 +82,12 @@ bool funk_player_send(funk_player *p, int64_t frame, const char *name, float val
 /* Any thread: the frames rendered so far, the next event's earliest frame. */
 int64_t funk_player_frames(funk_player *p);
 
-/* The audio thread, only one: n frames of the current graph's output. */
+/* The audio thread, only one: n frames of the current graph's channels
+   into out[0] to out[channels - 1]. Channel c plays the graph's output
+   c modulo its outputs, so a mono graph plays on every channel. */
+void funk_player_render_channels(funk_player *p, float *const *out, int channels, int n);
+
+/* funk_player_render_channels with one channel: the graph's first output. */
 void funk_player_render(funk_player *p, float *out, int n);
 
 /* Once the audio thread has stopped calling funk_player_render. */

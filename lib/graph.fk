@@ -6,8 +6,11 @@
 -- from the audio thread's next block. A named node is one node however
 -- often the tree uses it, and keeps its state across plays while its
 -- kernel and initial state stay the same. A control's output is a value
--- that send changes from a given frame, such as a note's gate. Link with
--- -I hosts/graph and the funkgraph library.
+-- that send changes from a given frame, such as a note's gate. Channels
+-- is a signal of several channels: a node with such an input becomes one
+-- node per channel, so stereo builds from mono kernels, as SuperCollider's
+-- multichannel expansion does; a mono input is shared, not copied. Link with -I hosts/graph and the funkgraph
+-- library.
 module graph where
 
 foreign import ccall "graph.h funk_graph_new" graphNew :: CInt -> Float ->> Ptr ()
@@ -18,13 +21,14 @@ foreign import ccall "graph.h funk_player_frames" playerFrames :: Ptr () ->> CLL
 foreign import ccall "graph.h funk_graph_name" graphName :: Ptr () -> CInt -> String ->> CInt
 foreign import ccall "graph.h funk_player_new" playerNew :: () ->> Ptr ()
 foreign import ccall "graph.h funk_player_play" playerPlay :: Ptr () -> Ptr () ->> ()
-foreign import ccall "graph.h funk_player_render" playerRender :: Ptr () -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "graph.h funk_graph_output" graphOutput :: Ptr () -> CInt ->> CInt
+foreign import ccall "graph.h funk_player_render_channels" playerRender :: Ptr () -> Ptr (Ptr CFloat) -> CInt -> CInt ->> ()
 foreign import ccall "graph.h funk_player_free" playerFree :: Ptr () ->> ()
 foreign import ccall "dlfcn.h dlopen" dlopen :: String -> CInt ->> Ptr ()
 foreign import ccall "dlfcn.h dlsym" dlsym :: Ptr () -> String ->> Ptr ()
 foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
 
-data Sig = Silence | Node String [Float] [Sig] | Named String Sig | Control Float
+data Sig = Silence | Node String [Float] [Sig] | Named String Sig | Control Float | Channels [Sig]
 
 -- a C player, its kernel libraries, frames per second, and the most
 -- frames per kernel call
@@ -42,7 +46,18 @@ same Silence Silence = True
 same (Node k st ins) (Node k2 st2 ins2) = k == k2 && st == st2 && length ins == length ins2 && and (zipWith same ins ins2)
 same (Named n s) (Named n2 s2) = n == n2 && same s s2
 same (Control v) (Control v2) = v == v2
+same (Channels ss) (Channels ss2) = length ss == length ss2 && and (zipWith same ss ss2)
 same _ _ = False
+
+-- s's channels; an error if a node's inputs have different numbers of
+-- channels, other than 1. Checked before a C graph is allocated.
+width :: Sig -> Int
+width (Channels ss) = sum (map width ss)
+width (Named n s) = width s
+width (Node k st ins) = case map width ins of
+  ws -> case maximum (1 : ws) of
+    w -> if any (\x -> x /= 1 && x /= w) ws then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else w
+width s = 1
 
 -- libraries of kernels, such as `funk emit-c --kernels` output compiled
 player :: [String] -> Float -> Int ->> Player
@@ -80,40 +95,64 @@ names ns (Named n s) = case lookup n ns of
   Nothing -> names ((n, s) : ns) s
 names ns (Node k st ins) = foldl names ns ins
 names ns (Control v) = ns
+names ns (Channels ss) = foldl names ns ss
 
 kernels :: [Ptr ()] -> Sig ->> ()
 kernels libs Silence = ()
 kernels libs (Named n s) = kernels libs s
 kernels libs (Control v) = ()
+kernels libs (Channels ss) = mapM_ (kernels libs) ss
 kernels libs (Node k st ins) = do
   kernel libs k
   mapM_ (kernels libs) ins
 
 -- s's nodes after those in g, and those named, with the names added
--- before; s's index, or -1 for silence
-add :: Ptr () -> [Ptr ()] -> [(String, (Int, Sig))] -> Sig ->> (Int, [(String, (Int, Sig))])
-add g libs ns Silence = (-1, ns)
+-- before; s's indices, one per channel, -1 for silence. A node whose
+-- inputs have w channels becomes w nodes, the kth reading each input's
+-- kth channel, or its only one: an input is added once and shared. A
+-- named node of several channels is named n.1, n.2 and so on.
+add :: Ptr () -> [Ptr ()] -> [(String, ([Int], Sig))] -> Sig ->> ([Int], [(String, ([Int], Sig))])
+add g libs ns Silence = ([-1], ns)
+add g libs ns (Channels ss) = do
+  (iss, ns2) <- addAll g libs ns ss
+  (concat iss, ns2)
 add g libs ns (Named n s) = case lookup n ns of
-  Just (i, s2) -> (i, ns)
+  Just (is, s2) -> (is, ns)
   Nothing -> do
-    (i, ns2) <- add g libs ns s
-    if i < 0 then (i, ns2)
-    else if graphName g (fromIntegral i) n < 0 then error ("graph: cannot name a named node " ++ n)
-    else (i, (n, (i, s)) : ns2)
+    (is, ns2) <- add g libs ns s
+    nameAll g (if length is == 1 then [n] else map (\k -> n ++ "." ++ show k) (enumFromTo 1 (length is))) is
+    (is, (n, (is, s)) : ns2)
 add g libs ns (Control v) = do
   i <- graphControl g (toCFloat v)
-  if i < 0 then error "graph: out of memory" else (fromIntegral i, ns)
+  if i < 0 then error "graph: out of memory" else ([fromIntegral i], ns)
 add g libs ns (Node k st ins) = do
-  (is, ns2) <- addAll g libs ns ins
+  (iss, ns2) <- addAll g libs ns ins
   kp <- kernel libs k
+  (nodes g kp st iss 0 (maximum (1 : map length iss)), ns2)
+
+-- channels c to w - 1 of a node: each reads its inputs' channel c, or their only one
+nodes :: Ptr () -> Ptr () -> [Float] -> [[Int]] -> Int -> Int ->> [Int]
+nodes g kp st iss c w = if c == w then [] else do
+  i <- node g kp st (map (\is -> if length is == 1 then head is else is !! c) iss)
+  i : nodes g kp st iss (c + 1) w
+
+-- a node of kernel kp, initial state st and inputs is; its index
+node :: Ptr () -> Ptr () -> [Float] -> [Int] ->> Int
+node g kp st is = do
   i <- allocaBytes (8 * length st + 4 * length is) (\p -> do
     pokeFloats p 0 st
     q <- plusPtr p (8 * length st)
     pokeInputs q 0 is
     graphAdd g kp p (fromIntegral (8 * length st)) q (fromIntegral (length is)))
-  if i < 0 then error "graph: out of memory" else (fromIntegral i, ns2)
+  if i < 0 then error "graph: out of memory" else fromIntegral i
 
-addAll :: Ptr () -> [Ptr ()] -> [(String, (Int, Sig))] -> [Sig] ->> ([Int], [(String, (Int, Sig))])
+nameAll :: Ptr () -> [String] -> [Int] ->> ()
+nameAll g (n:ns) (i:is) = do
+  if i >= 0 && graphName g (fromIntegral i) n < 0 then error ("graph: cannot name a named node " ++ n) else ()
+  nameAll g ns is
+nameAll g _ _ = ()
+
+addAll :: Ptr () -> [Ptr ()] -> [(String, ([Int], Sig))] -> [Sig] ->> ([[Int]], [(String, ([Int], Sig))])
 addAll g libs ns [] = ([], ns)
 addAll g libs ns (s:ss) = do
   (i, ns2) <- add g libs ns s
@@ -125,11 +164,19 @@ play :: Player -> Sig ->> ()
 play (Player p libs rate maxBlock) Silence = playerPlay p nullPtr
 play (Player p libs rate maxBlock) s = do
   names [] s
+  w <- width s
   kernels libs s
   g <- graphNew (fromIntegral maxBlock) rate
   if g == nullPtr then error "graph: out of memory" else do
-    add g libs [] s
+    (is, ns) <- add g libs [] s
+    if w > 1 then mapM_ (output g) is else ()
     playerPlay p g
+
+-- i as the next channel's output; a silent channel gets a control at 0
+output :: Ptr () -> Int ->> ()
+output g i = do
+  j <- if i < 0 then fromIntegral (graphControl g (toCFloat 0.0)) else i
+  if j < 0 || graphOutput g (fromIntegral j) < 0 then error "graph: out of memory" else ()
 
 -- from frame on, the control named n outputs v; False if the queue is
 -- full. Frames already rendered count as the next block's first; sends
@@ -141,9 +188,21 @@ send (Player p libs rate maxBlock) frame n v = playerSend p (fromIntegral frame)
 frames :: Player ->> Int
 frames (Player p libs rate maxBlock) = fromIntegral (playerFrames p)
 
--- the audio thread's call: n frames of output
+-- the audio thread's call: n frames of the first channel
 render :: Player -> Ptr CFloat -> Int ->> ()
-render (Player p libs rate maxBlock) out n = playerRender p out (fromIntegral n)
+render pl out n = renderChannels pl [out] n
+
+-- n frames of each channel, one buffer each; a mono graph plays on all
+renderChannels :: Player -> [Ptr CFloat] -> Int ->> ()
+renderChannels (Player p libs rate maxBlock) outs n = allocaBytes (8 * length outs) (\a -> do
+  pokeAll a 0 outs
+  playerRender p a (fromIntegral (length outs)) (fromIntegral n))
+
+pokeAll :: Ptr (Ptr CFloat) -> Int -> [Ptr CFloat] ->> ()
+pokeAll a i [] = ()
+pokeAll a i (x:xs) = do
+  pokeByteOff a (8 * i) x
+  pokeAll a (i + 1) xs
 
 -- once render is no longer called; the libraries stay loaded
 close :: Player ->> ()

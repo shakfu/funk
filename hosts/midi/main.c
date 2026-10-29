@@ -15,8 +15,9 @@
    that defines `sig`, a g.Sig, plays it from the next audio block
    (docs/dev/audio.md, D). The host owns the player and the kernel
    library; funk builds each graph through `playsig`. The audio thread
-   renders through hosts/graph alone, never funk. On the virtual clock,
-   the output's peak is printed every 250 ms instead. */
+   renders through hosts/graph alone, never funk. A graph of g.Channels
+   plays one channel per output channel, a mono one on all. On the virtual
+   clock, the peak over both channels is printed every 250 ms instead. */
 #define _DEFAULT_SOURCE
 #include <pthread.h>
 #ifdef __APPLE__
@@ -215,6 +216,10 @@ static void enqueue(int64_t t, unsigned char status, unsigned char d1, unsigned 
 static void hush(void) {
   pthread_mutex_lock(&mu);
   size_t n = nheap;
+  if (!n) { /* memcpy from a NULL heap is undefined even for 0 bytes, and malloc(0) may return NULL */
+    pthread_mutex_unlock(&mu);
+    return;
+  }
   Msg *all = malloc(n * sizeof *all);
   if (!all) { fputs("funk-midi: out of memory\n", stderr); exit(1); }
   memcpy(all, heap, n * sizeof *all);
@@ -279,6 +284,9 @@ static bool playing = true, have_step;
 static int64_t cs = 2000000; /* microseconds per cycle */
 static int64_t origin_us, origin_tick, win; /* tick origin_tick sounds at origin_us; win: the next window */
 
+static void voice_notes(long n);
+static void voice_release_until(int64_t t);
+
 /* Calls `step` for every window that starts within the lookahead. */
 static void schedule(void) {
   while (win <= now_us() + LOOKAHEAD_US) {
@@ -296,9 +304,11 @@ static void schedule(void) {
           enqueue(at, (unsigned char)(0x90 | ch), note, vel ? vel : 100);
           enqueue(at + dur, (unsigned char)(0x80 | ch), note, 0);
         }
+        if (audio) voice_notes(n < CAP ? n : CAP);
       }
     }
     win += WINDOW_US;
+    if (audio) voice_release_until(win);
   }
 }
 
@@ -325,15 +335,16 @@ static void play_sig(void) {
   }
 }
 
-/* The virtual clock's audio, up to time t, with its peak every REPORT frames. */
+/* The virtual clock's audio, up to time t, with its peak over both
+   channels every REPORT frames. */
 static void render_until(int64_t t) {
-  float out[MAX_BLOCK];
+  float l[MAX_BLOCK], r[MAX_BLOCK], *out[2] = {l, r};
   for (int64_t want = t * (int64_t)rate / 1000000; rendered < want;) {
     int64_t n = want - rendered, edge = (rendered / REPORT + 1) * REPORT;
     if (n > MAX_BLOCK) n = MAX_BLOCK;
     if (rendered + n > edge) n = edge - rendered;
-    funk_player_render(player, out, (int)n);
-    for (int64_t i = 0; i < n; i++) peak = fmaxf(peak, fabsf(out[i]));
+    funk_player_render_channels(player, out, 2, (int)n);
+    for (int64_t i = 0; i < n; i++) peak = fmaxf(peak, fmaxf(fabsf(l[i]), fabsf(r[i])));
     rendered += n;
     if (rendered % REPORT == 0) {
       printf("%9.3f audio peak %ld\n", (double)rendered * 1000 / rate, lroundf(peak * 10000));
@@ -342,18 +353,113 @@ static void render_until(int64_t t) {
   }
 }
 
+/* ------------------------------------------------------------- voices */
+
+/* pat's notes, sent as events to the controls of d.poly's voices: "vK.freq"
+   and "vK.gate", velocity / 127 while held. A note takes the free voice
+   released longest ago, else the voice of the oldest note. */
+enum { MAX_VOICES = 64 };
+static int nvoices = 8;
+static struct { int64_t on, off; bool held; } voice[MAX_VOICES]; /* frames; held: the off is not yet sent */
+static int64_t sent = INT64_MIN; /* the last event's frame: sends stay in time order */
+static double frame_off; /* real time: audio frames ahead of the clock, smoothed */
+
+static int64_t frame_at(int64_t t) {
+  return virtual_time ? t * (int64_t)rate / 1000000 : (int64_t)floor((double)t * rate / 1e6 + frame_off);
+}
+
+/* The audio thread renders by its own clock: frame_off follows it, by
+   1/64 of the error each window, so block-sized jumps in the count average out. */
+static void voice_sync(void) {
+  static bool synced;
+  if (virtual_time) return;
+  double e = (double)funk_player_frames(player) - ((double)now_us() * rate / 1e6 + frame_off);
+  frame_off += synced ? e / 64 : e;
+  synced = true;
+}
+
+static void voice_send(int64_t frame, int v, const char *what, float x) {
+  char name[16];
+  snprintf(name, sizeof name, "v%d.%s", v + 1, what);
+  if (!funk_player_send(player, frame, name, x)) fputs("funk-midi: audio event queue full\n", stderr);
+  sent = frame;
+}
+
+/* the held voices' offs before frame f, earliest first */
+static void release_before(int64_t f) {
+  for (;;) {
+    int v = -1;
+    for (int i = 0; i < nvoices; i++)
+      if (voice[i].held && voice[i].off < f && (v < 0 || voice[i].off < voice[v].off)) v = i;
+    if (v < 0) return;
+    voice_send(voice[v].off > sent ? voice[v].off : sent, v, "gate", 0);
+    voice[v].held = false;
+  }
+}
+
+static void voice_release_until(int64_t t) { release_before(frame_at(t)); }
+
+static void voice_on(int64_t s, int64_t e, int note, int vel) {
+  release_before(s + 1);
+  if (s < sent) s = sent;
+  int v = 0;
+  for (int i = 1; i < nvoices; i++) {
+    bool fi = !voice[i].held, fv = !voice[v].held;
+    if (fi != fv ? fi : fi ? voice[i].off < voice[v].off : voice[i].on < voice[v].on) v = i;
+  }
+  int64_t at = s;
+  if (voice[v].held || voice[v].off >= s) { /* a gate must rise to restart an envelope */
+    voice_send(s, v, "gate", 0);
+    at = s + 1;
+  }
+  voice_send(s, v, "freq", (float)(440 * pow(2, (note - 69) / 12.0)));
+  voice_send(at, v, "gate", vel / 127.0f);
+  voice[v].on = s;
+  voice[v].off = e > at ? e : at + 1;
+  voice[v].held = true;
+}
+
+static int by_start(const void *a, const void *b) {
+  long x = *(const long *)a, y = *(const long *)b;
+  return (x > y) - (x < y);
+}
+
+/* the window's n events in buf */
+static void voice_notes(long n) {
+  voice_sync();
+  qsort(buf, (size_t)n, 3 * sizeof *buf, by_start);
+  for (long i = 0; i < n; i++) {
+    int64_t at = origin_us + buf[3 * i], dur = buf[3 * i + 1] > 0 ? buf[3 * i + 1] : 1;
+    long v = buf[3 * i + 2], vel = (v >> 7) & 127;
+    voice_on(frame_at(at), frame_at(at + dur), (int)(v & 127), vel ? (int)vel : 100);
+  }
+}
+
+/* :stop: every held voice's gate falls now */
+static void voice_hush(void) {
+  int64_t f = frame_at(now_us());
+  for (int i = 0; i < nvoices; i++)
+    if (voice[i].held) {
+      voice_send(f > sent ? f : sent, i, "gate", 0);
+      voice[i].held = false;
+    }
+}
+
 #ifdef HAVE_MINIAUDIO
 static ma_device device;
 
 static void on_audio(ma_device *d, void *out, const void *in, ma_uint32 n) {
   (void)in;
-  float mono[MAX_BLOCK], *o = out;
-  ma_uint32 ch = d->playback.channels;
+  enum { CH = 8 };
+  static float buf[CH][MAX_BLOCK];
+  float *chans[CH], *o = out;
+  ma_uint32 ch = d->playback.channels < CH ? d->playback.channels : CH;
+  for (ma_uint32 c = 0; c < ch; c++) chans[c] = buf[c];
   for (ma_uint32 done = 0; done < n;) {
     ma_uint32 m = n - done < MAX_BLOCK ? n - done : MAX_BLOCK;
-    funk_player_render(player, mono, (int)m);
+    funk_player_render_channels(player, chans, (int)ch, (int)m);
     for (ma_uint32 i = 0; i < m; i++)
-      for (ma_uint32 c = 0; c < ch; c++) o[(done + i) * ch + c] = mono[i];
+      for (ma_uint32 c = 0; c < d->playback.channels; c++) o[(done + i) * d->playback.channels + c] = c < ch ? buf[c][i] : 0;
     done += m;
   }
 }
@@ -387,6 +493,10 @@ static bool start_audio(const char *kernels_path) {
     return false;
   bool ok = eval(src) && eval("hushsig :: Int ->> Int\nhushsig u = do { g.play audioPlayer g.Silence ; 0 }");
   free(src);
+  if (!ok || asprintf(&src, "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f", nvoices) < 0) return false;
+  ok = eval(src);
+  free(src);
+  for (int i = 0; i < nvoices; i++) voice[i].off = INT64_MIN;
   if (!ok) return false;
   playsig_src = "playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }";
 #ifdef HAVE_MINIAUDIO
@@ -483,7 +593,12 @@ static bool handle(char *line) {
     }
     return true;
   case 'w': advance_until(now_us() + (int64_t)(atof(arg) * 1000)); return true;
-  case 's': playing = false; hush(); play_sig(); return true;
+  case 's':
+    playing = false;
+    hush();
+    if (audio) voice_hush();
+    play_sig();
+    return true;
   case 'p': playing = true; play_sig(); return true;
   case 'c':
     if (atof(arg) >= 1) set_cycle((int64_t)(atof(arg) * 1000));
@@ -596,7 +711,7 @@ static int run(void *arg) {
 
 static void usage(FILE *f) {
   fputs("usage: funk-midi [FILE] [--script FILE] [--port N | --virtual NAME] [--list]\n"
-        "                 [--cycle MS] [--print] [--no-sleep] [-M DIR] [--audio [--kernels LIB]]\n"
+        "                 [--cycle MS] [--print] [--no-sleep] [-M DIR] [--audio [--kernels LIB] [--voices N]]\n"
         "Plays `pat`, a Pattern Int, to a MIDI output; FILE is loaded first.\n"
         "  --script FILE  run FILE's lines as input, then exit; `:wait MS` plays for MS\n"
         "  --port N       output port N; --list shows them. Default: a virtual port\n"
@@ -607,6 +722,7 @@ static void usage(FILE *f) {
         "  -M DIR         search DIR for modules (default " FUNK_LIB_DIR ")\n"
         "  --audio        also play `sig`, a g.Sig of dsp.fk's signals, to the audio output\n"
         "  --kernels LIB  the kernels' library (default " FUNK_DSP_LIB ")\n"
+        "  --voices N     voices for pat's notes: `voices f` sums N of f gate freq (default 8)\n"
         "Input is funk REPL input, with `pattern as p` and `midi as m` imported (and\n"
         "`graph as g` and `dsp as d` with --audio), or\n"
         ":l FILE, :cycle MS, :wait MS, :stop, :play, :q\n",
@@ -631,10 +747,12 @@ int main(int argc, char **argv) {
     else if (next && !strcmp(a, "-M")) o.lib = argv[++i];
     else if (!strcmp(a, "--audio")) audio = true;
     else if (next && !strcmp(a, "--kernels")) o.kernels = argv[++i];
+    else if (next && !strcmp(a, "--voices")) nvoices = atoi(argv[++i]);
     else if (a[0] != '-' && !o.file) o.file = a;
     else { usage(stderr); return 2; }
   }
   if (cs < 1000) { fputs("funk-midi: --cycle needs at least 1 ms\n", stderr); return 2; }
+  if (nvoices < 1 || nvoices > MAX_VOICES) { fprintf(stderr, "funk-midi: --voices needs 1 to %d\n", MAX_VOICES); return 2; }
 #ifdef HAVE_LIBREMIDI
   if (list) { list_ports(); return 0; }
   if (!print_sink && !open_out(port, vname)) return 1;

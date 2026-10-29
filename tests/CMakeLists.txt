@@ -53,6 +53,11 @@ add_test(NAME hosts/audio
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --script tests/hosts/audio.txt 2>&1 | diff tests/hosts/audio.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/audio PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+# ... pat's notes on voices of the graph
+add_test(NAME hosts/voices
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --script tests/hosts/voices.txt 2>&1 | diff tests/hosts/voices.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/voices PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 
 # libfunk.h from a host's C (docs/dev/embedding.md)
 foreach(n signals output interrupt memory)
@@ -181,6 +186,7 @@ funk_test(kernels/graph "ffi;kernels" ${GRAPH})
 set(FUNKGRAPH -M lib -I hosts/graph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
 funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/chain.fk tests/kernels/build.fk ${FUNKGRAPH})
 funk_test(kernels/dupname "ffi;kernels;lib" error tests/kernels/dupname.fk ${FUNKGRAPH})
+funk_test(kernels/widths "ffi;kernels;lib" error tests/kernels/widths.fk ${FUNKGRAPH})
 # lib/dsp.fk over lib/kernels.fk
 funk_test(kernels/ugens "ffi;kernels;lib" kernels lib/kernels.fk tests/kernels/ugens.fk ${FUNKGRAPH})
 set(CMAKE_REQUIRED_FLAGS -fsanitize=address)

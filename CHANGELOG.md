@@ -32,6 +32,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Controls in `hosts/graph` and `lib/graph.fk`: a node without a kernel whose value events change at a given frame (`funk_player_send`, `g.send`), so a note's gate or frequency changes at its sample rather than at a block's start. Events go through a queue of C structs in the player, a 64-bit frame, a name and a `float` each, rather than funk's `Ring Int`, whose values have 16 bits: the runner, not a funk export, reads them.
 
+- Voices: `d.poly n f` sums `n` voices of `f gate freq`, each reading its own controls, and `funk-midi --audio` sends `pat`'s notes to them (`voices f`, sized by `--voices N`, default 8). A note takes the free voice released longest ago, else steals the oldest; a reused voice's gate drops for one frame so its envelope restarts. A fixed pool in one graph, rather than nodes added per note, so a note never swaps the graph. Notes are timed in the player's frames, which the host tracks against its clock in real time.
+
+- `bench/dsp.c` (`build/dspbench`): the cost of each kernel, of the graph per node, and of a voice in funk kernels, the same kernels in C, and one fused C loop ([docs/dev/261029-dsp-measurements.md](docs/dev/261029-dsp-measurements.md)). On an M1 at 64 frames, a voice costs 792 ns in funk, 816 in C kernels and 292 fused.
+
+- Channels in `lib/graph.fk`: `g.Channels [Sig]`, or `d.stereo l r`, is a signal of several channels, and a node with such an input becomes one node per channel, as in SuperCollider. A mono input is added once and shared by the channels' nodes, rather than copied per channel, so `d.pan pos voice` does not build the voice twice. `funk_graph_output` and `funk_player_render_channels` in `hosts/graph`; a mono graph plays on every channel. `funk-midi --audio` plays stereo.
+
+
 ### Changed
 
 - `peekByteOff` and `pokeByteOff`, and so `readArray`, `readField` and their kin, compute the address as `char *` arithmetic rather than through `plusPtr`'s integers. The cast lost the pointer's provenance, and clang did not vectorize: a kernel multiplying two buffers ran 3.9x hand-written C, a state-variable filter 1.34x; both now equal it. `fieldPtr` does the same unless its pointer is null, where it still gives the offset: a kernel whose state is a struct of two structs went from 2.6x C to 1.0x. `plusPtr` keeps the integers, since `plusPtr nullPtr 16` must stay defined. The Benchmarks Game is unchanged (+0.1%, interleaved A/B).

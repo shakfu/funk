@@ -28,7 +28,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] `lib/dsp.fk` and `lib/kernels.fk`: sine, saw, square, pulse, one-pole and state-variable filters, ADSR, arithmetic.
 
-- [ ] Several outputs per kernel and a stereo graph, for the plugin.
+- [x] A stereo graph: `g.Channels`, expanded per node as SuperCollider does; `d.stereo`, `d.pan`.
+
+- [ ] Several outputs per kernel, for kernels whose channels share state, such as a stereo reverb.
 
 - [ ] Unnamed nodes restart at every `play`, so a graph without names clicks on each edit. Name nodes by default, such as by their path in the tree.
 
@@ -40,7 +42,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Node state other than `Float`s ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).
 
-- [ ] Voices: a note-on adds nodes, or enables them from a pool, through the event ring.
+- [x] Voices: a pool of controls per voice (`d.poly`), filled from `pat`'s notes by `funk-midi --audio --voices N`.
+
+- [ ] Voices per MIDI channel; every note now shares one pool.
 
 - [x] Wider events, for graphs: controls, set at a frame by events on the player's own queue (`funk_player_send`), a 64-bit frame, a name and a `float` each.
 

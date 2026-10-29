@@ -12,6 +12,18 @@ frames p n = allocaBytes 256 (\out -> do
   g.render p out n
   map (\i -> round (10000.0 * fromCFloat (peekByteOff out (4 * i) :: CFloat))) (enumFromTo 0 (n - 1)))
 
+-- the first n frames of s's channels, at most 64 each
+channels :: g.Player -> Int -> Int -> g.Sig ->> [[Int]]
+channels p k n s = do
+  g.play p s
+  allocaBytes (256 * k) (\out -> do
+    bufs <- map (\c -> plusPtr out (256 * c)) (enumFromTo 0 (k - 1))
+    g.renderChannels p bufs n
+    map (\b -> map (\i -> round (10000.0 * fromCFloat (peekByteOff b (4 * i) :: CFloat))) (enumFromTo 0 (n - 1))) bufs)
+
+both :: g.Player -> Int -> g.Sig ->> [[Int]]
+both p n s = channels p 2 n s
+
 -- skips n frames
 skip :: g.Player -> Int ->> ()
 skip p n = if n <= 0 then () else do
@@ -74,6 +86,16 @@ main = do
   g.send r 10 "gate" 0.0
   print (frames r 14)
   print (g.frames r)
+  -- channels: a node of a stereo input becomes two; a mono graph plays on
+  -- both; pan; a named node of two channels keeps each one's phase (1/8
+  -- and 1/4 of a cycle a frame, after 3 frames); a third channel wraps
+  print (both p 4 (dsp.dc 0.5 * dsp.stereo 1 (dsp.dc 0.25)))
+  print (both p 2 (dsp.dc 0.5))
+  print (both p 2 (dsp.pan (dsp.dc 0.5) 1))
+  oscs <- \f -> g.named "osc" (dsp.saw (dsp.stereo 1000 2000 * f))
+  first p 3 (oscs 1)
+  print (both p 2 (oscs (dsp.dc 1.0)))
+  print (channels p 3 1 (dsp.stereo 1 2))
   g.close p
   g.close q
   g.close r

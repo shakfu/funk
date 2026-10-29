@@ -123,3 +123,7 @@ Status:
 | 5 | A definition keeps the names it was compiled with: after `:l`, an earlier `step` still plays the old `pat` | redefine `step` after each load | none needed; document for live use |
 | 6 | Every `funk_eval` input stays compiled: about 16 KB each, and the slowest call grew from 0.12 to 0.62 ms over 40,000 calls. A host cannot evaluate per window | `funk_call` | rolling back an expression's chunk after it runs |
 | 7 | `chain k named = ... g.Node (k "k_saw") ...`, with `k :: String ->> FunPtr ...`, is rejected under the signature `(String ->> FunPtr ...) -> Bool ->> g.Sig`: "functions whose effects differ: a signature fixes one, and another is required" (met in an earlier `tests/kernels/build.fk`). Without the signature it compiles. Possibly #1 again | no signature | as #1 |
+| 8 | A function an export calls cannot return a tuple: it is a heap value. `envStep` computes a stage and a level | write both through the state pointer | unboxed multiple returns in exported code |
+| 9 | A loop is a self-recursive function taking every loop invariant as a parameter: `svfLoop` takes 10 | none | a local loop closing over the invariants, compiled without a closure |
+| 10 | `d.sine 0.25` is a type error: `Num g.Sig` takes `Int` literals, and funk has no `Fractional` | `d.dc 0.25` | `Fractional`, or `fromFloat` in `Num` |
+| 11 | `tests/kernels/dsp.fk` shadowed `lib/dsp.fk` for the tests beside it: the importer's directory is searched first. As #4 | rename | warn when a module shadows one on the `-M` path |
