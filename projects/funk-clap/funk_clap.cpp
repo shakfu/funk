@@ -38,8 +38,10 @@
 #include <thread>
 #include <vector>
 
+#include <cerrno>
 #include <dlfcn.h>
 #include <libgen.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 extern "C" {
@@ -110,15 +112,19 @@ public:
 private:
 	Session()
 	{
-		char dir[] = "/tmp/funk-midi-XXXXXX";
-		if (!mkdtemp(dir)) return;
-		dir_ = dir;
+		dir_ = LibDir();
+		if (dir_.empty()) return;
 		for (const auto& m : kFunkLib) {
 			const std::string path = dir_ + "/" + m.name;
-			FILE* f = fopen(path.c_str(), "w");
+			if (access(path.c_str(), F_OK) == 0) continue; // same content: the directory is named by it
+			const std::string tmp = path + "." + std::to_string(getpid());
+			FILE* f = fopen(tmp.c_str(), "w");
 			if (!f) return;
-			fputs(m.source, f);
-			fclose(f);
+			const bool written = fputs(m.source, f) >= 0;
+			if (fclose(f) != 0 || !written || rename(tmp.c_str(), path.c_str()) != 0) {
+				unlink(tmp.c_str());
+				return;
+			}
 		}
 		// A runaway pattern meets a limit, as a runtime error, before it takes the host's memory.
 		funk_memory(kHeapLimit, 0, kStackSize);
@@ -136,8 +142,28 @@ private:
 		}
 		cv_.notify_one();
 		if (thread_.joinable()) thread_.join(); // funk_main restores the signal handlers it replaced
-		for (const auto& m : kFunkLib) unlink((dir_ + "/" + m.name).c_str());
-		if (!dir_.empty()) rmdir(dir_.c_str());
+	}
+
+	// kFunkLib's directory, named by a hash of its files and kept across loads: graph.fk's
+	// glue is cached by its compiler arguments, which name this directory, so a fresh
+	// directory per load compiled the glue again on every load. "" if it cannot be made.
+	static std::string LibDir()
+	{
+		uint64_t h = 14695981039346656037u; // FNV-1a
+		for (const auto& m : kFunkLib)
+			for (const char* p : {m.name, "", m.source, ""})
+				for (const char* c = p;; c++) {
+					h = (h ^ (unsigned char)*c) * 1099511628211u;
+					if (!*c) break;
+				}
+		const char *x = getenv("XDG_CACHE_HOME"), *home = getenv("HOME");
+		const std::string base = x && *x ? x : std::string(home && *home ? home : "/tmp") + "/.cache";
+		char name[32];
+		snprintf(name, sizeof name, "%016llx", (unsigned long long)h);
+		const std::string dir = base + "/funk/plugin/" + name + std::to_string(getpid());
+		for (const std::string& d : {base, base + "/funk", base + "/funk/plugin", dir})
+			if (mkdir(d.c_str(), 0755) != 0 && errno != EEXIST) return "";
+		return dir;
 	}
 
 	struct Start {

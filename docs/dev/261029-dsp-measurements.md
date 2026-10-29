@@ -32,11 +32,13 @@
 Voices: how many fit in the block's duration (1.33 ms at 64 frames) on one core at 100%. A plugin gets a fraction of that.
 
 - **funk's kernels cost what C's do** at 64 and 512 frames. At 16, funk's are 34% slower; the cause is unexamined.
+
 - **The graph costs 2.7x a fused loop.** Only about 60 ns of the 500 ns gap is the runner (12 nodes at 5 ns). The rest is inferred to be latency: each kernel's loop waits on its own frame-to-frame dependency, so the SVF runs at about 16 cycles a frame, and separate kernels run their chains one after another. A fused loop overlaps them: it costs 292 ns, less than saw (211), SVF (336) and ADSR (204) summed, and about the SVF alone. Two other suspects were measured and ruled out in a C copy of the SVF: state through a pointer instead of locals costs 5% (337 against 320 ns); dividing by the rate per frame instead of multiplying costs 3% (204 against 199).
 
 Implications:
 
 - Fusing kernels, as Faust compiles per sample, would gain about 2.7x per voice. So would a kernel that steps several voices in one loop, since the voices' chains are independent; that needs no fusion compiler, but a kernel per voice count.
+
 - At 1,600 voices per core, neither is needed for the plugin.
 
 ## Compile time

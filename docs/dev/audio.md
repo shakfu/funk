@@ -238,8 +238,11 @@ What it needs:
    ```
 
    - **Parameters are inputs**, buffers of `n` frames like any signal, and a constant is a `dsp_const` node. Over parameters in the state, which was the first design: a parameter can be modulated, and changing one restarts only its constant, while a named oscillator keeps its phase. A separate parameter block per kernel would keep the second property but not the first.
+
    - **Control rate is the kernel's choice:** a kernel may read an input's first frame once per call, as the filters read their cutoff to compute `tan` once. SuperCollider's rates per input were the alternative; the runner would then track rates, and reads would need a stride.
+
    - **The context** holds the sample rate, and later what every kernel may need, such as time or tempo, without changing the signature. The rate cannot be in the state, since a modulator's frequency in Hz needs it at run time.
+
    - **One output.** A filter's three responses are three exports sharing one loop. Stereo needs no more: see channels, item 4. Several outputs per kernel wait for a kernel whose channels share state, such as a stereo reverb.
 
 4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring. The builder is done, 2026-10-29: `lib/graph.fk`, test `kernels/build`, interpreted and compiled. A `Sig` is a tree of nodes; `play` writes it into a new C graph, inputs first, and swaps it in.
@@ -250,6 +253,7 @@ What it needs:
 
    Limits:
    - State is a list of `Float`s, so a struct with other field types cannot be given.
+
    - Unnamed nodes restart at every `play`.
 
    **Controls and events**, 2026-10-29: a control is a node without a kernel, whose output the runner writes: a value that an event changes from its frame. A host sends `(frame, name, value)` on the player's queue, 4,096 events, single producer; each block the runner applies those before its end to the current graph's controls of that name, and leaves later ones queued. A late event takes the block's first frame. The block is not split: a control writes a stepped buffer, so every kernel downstream sees the change at its frame. A control's value carries across swaps as a named node's state does. In funk, `g.control "gate" 0.0`, `g.send` and `g.frames`; test `kernels/ugens` starts an envelope at frame 5 and releases it at frame 10.

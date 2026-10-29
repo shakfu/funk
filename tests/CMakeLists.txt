@@ -69,6 +69,12 @@ if(TARGET funk_midi_clap)
   # lookahead, which a loaded machine misses (1 to 2 runs in 6 under ctest -j 10)
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  # a second load compiles no glue: the plugin's cache key is the same on every load
+  set(CACHE_DIR ${CMAKE_CURRENT_BINARY_DIR}/clap-cache)
+  add_test(NAME hosts/clap/cache COMMAND sh -c "rm -rf \"$0\" && for i in 1 2; do XDG_CACHE_HOME=\"$0\" \"$1\" \"$2\" \"$3\" 57292 >/dev/null 2>&1 || exit 1; ls \"$0\"/funk/ffi/*.so | wc -l; done"
+    ${CACHE_DIR} $<TARGET_FILE:test_clap_host> $<TARGET_FILE:funk_midi_clap> ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt)
+  set_tests_properties(hosts/clap/cache PROPERTIES LABELS "hosts;clap" TIMEOUT 240 RUN_SERIAL TRUE
+    ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57292" PASS_REGULAR_EXPRESSION "^ *1\n *1\n$")
 endif()
 
 # libfunk.h from a host's C (docs/dev/embedding.md)

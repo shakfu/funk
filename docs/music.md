@@ -3,8 +3,11 @@
 A guide to funk's music library: `lib/pattern.fk`, `lib/midi.fk`, and the two programs that play them. Design and measurements are in [dev/patterns.md](dev/patterns.md).
 
 - **`pattern`** describes events over musical time. A pattern is a query: given a span of time, it returns the events in it. Patterns combine into larger ones.
+
 - **`midi`** sets velocity and channel on a pattern of MIDI notes.
+
 - **`funk-midi`** is a REPL that plays a pattern to a MIDI port and replaces it live when you redefine it.
+
 - **The CLAP plugin** (`projects/funk-clap`) does the same inside a DAW, or in a standalone host.
 
 The patterns drive an external synth over MIDI. `funk-midi --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
@@ -38,7 +41,9 @@ pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
 ## Time
 
 - **A cycle** is the unit of musical time. A host gives it a length: 2000 ms in `funk-midi` by default, 4 beats in the CLAP plugin.
+
 - **A tick** is 1/720720 of a cycle (`p.cycleTicks`). 720720 is the least common multiple of 1 to 16, so a cycle divides exactly into 2 to 16 steps, and into products of those while the prime factors last. A step of 1/17, or triplets nested three deep (1/27), rounds to the tick below.
+
 - **Time is absolute.** Every pattern is aligned to cycle 0, which starts when the host starts. Redefining `pat` does not restart it: the new pattern plays where the old one would have been.
 
 ## Building patterns
@@ -230,6 +235,7 @@ Input is funk REPL input: declarations, expressions, and these commands:
 Errors leave the music playing:
 
 - **A definition that fails to compile, or fails as it is evaluated,** leaves the playing `pat`.
+
 - **A `pat` that fails as it plays,** such as one that divides by zero, stops. It stays silent until `pat` is defined again.
 
 ### The CLAP plugin
@@ -292,7 +298,10 @@ Below the combinators, `pattern` gives the pieces a scheduler needs.
 | `p.sampleOnsets pat cs a b` | `Pattern a -> Int -> Int -> Int -> [(Int, a)]` | the same without durations |
 
 - **Events.** An `Event` has a `whole`, its full extent, and a `part`, the piece inside the query. `e.onset` is true where the two start together.
+
 - **Units.** The time unit is up to the caller: samples, microseconds. A tick maps to `div (t * cs) p.cycleTicks`. Adjacent blocks `[a, b)`, `[b, c)` then split the onsets exactly: none lost, none repeated.
+
 - **Values from C.**
   - **`p.writeEvents buf cap pat cs a b`** writes `sampleEvents` to a C array of `Int`s, three per event, and returns their number. A host calls it through `funk_call` in `libfunk.h`; see `bench/reload.c` and `projects/funk-midi/main.c`.
+
   - **`p.pushOnsets ring pat cs a b`** puts `sampleOnsets` on a `Ring Int`, for an audio-thread export ([dev/realtime.md](dev/realtime.md)). Each entry is one `Int`, `sample * 65536 + value`, so a push cannot tear. `p.eventSample` and `p.eventValue` decode it, without allocating, in the export. Values must be in 0..65535. `tests/ffi/sched.fk` is a complete example.

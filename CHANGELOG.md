@@ -50,7 +50,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Channels in `lib/graph.fk`: `g.Channels [Sig]`, or `d.stereo l r`, is a signal of several channels, and a node with such an input becomes one node per channel, as in SuperCollider. A mono input is added once and shared by the channels' nodes, rather than copied per channel, so `d.pan pos voice` does not build the voice twice. `funk_graph_output` and `funk_player_render_channels` in `projects/funkgraph`; a mono graph plays on every channel. `funk-midi --audio` plays stereo.
 
-
 ### Changed
 
 - `libfunk` exports only `funk_*`; it is built with `-fvisibility=hidden` and position-independent. It exported its compiler's and runtime's internals too (`repr`, `lex`, `globals`, `fk_cons`), which a plugin host or a second plugin in the same process could bind to.
