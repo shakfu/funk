@@ -20,7 +20,7 @@
 #include "graph.h"
 
 enum { RUNS = 7, MAX_BLOCK = 4096 };
-static const double RATE = 48000;
+static const double RATE = 48000, PI = 3.141592653589793; /* M_PI is POSIX, not C */
 static int block = 64;
 static void *lib;
 
@@ -89,7 +89,7 @@ static void c_saw(void *st, float **in, float *out, int n, const funk_context *c
 
 static void c_lowpass(void *st, float **in, float *out, int n, const funk_context *cx) {
   Svf *s = st;
-  double fc = fmin(in[1][0], 0.49 * cx->rate), g = tan(M_PI * fmax(fc, 0) / cx->rate), k = 1 / fmax(in[2][0], 0.01);
+  double fc = fmin(in[1][0], 0.49 * cx->rate), g = tan(PI * fmax(fc, 0) / cx->rate), k = 1 / fmax(in[2][0], 0.01);
   double a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
   for (int i = 0; i < n; i++) {
     double v3 = in[0][i] - s->ic2, v1 = a1 * s->ic1 + a2 * v3, v2 = s->ic2 + a2 * s->ic1 + a3 * v3;
@@ -225,7 +225,7 @@ typedef struct { Phase osc; Svf lp; Env env; float out[MAX_BLOCK]; } Fused;
 
 static void fused(void *arg) {
   Fused *v = arg;
-  double fc = 2000, g = tan(M_PI * fc / RATE), k = 1 / 0.7, a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
+  double fc = 2000, g = tan(PI * fc / RATE), k = 1 / 0.7, a1 = 1 / (1 + g * (g + k)), a2 = g * a1, a3 = g * a2;
   double sus = 0.5, up = per_frame(1, 0.01, RATE), down = per_frame(1 - sus, 0.2, RATE), rel = per_frame(1, 0.3, RATE);
   for (int i = 0; i < block; i++) {
     double dt = 220 / RATE, ph = v->osc.phase;
