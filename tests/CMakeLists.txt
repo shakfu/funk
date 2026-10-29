@@ -69,15 +69,29 @@ if(TARGET funk_midi_clap)
   # lookahead, which a loaded machine misses (1 to 2 runs in 6 under ctest -j 10)
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
-  # a second load compiles no glue: the plugin's cache key is the same on every load
+  # graph.fk's glue is linked in: with no C compiler, audio still plays and no glue is compiled
   set(CACHE_DIR ${CMAKE_CURRENT_BINARY_DIR}/clap-cache)
-  add_test(NAME hosts/clap/cache COMMAND sh -c "rm -rf \"$0\" && for i in 1 2; do XDG_CACHE_HOME=\"$0\" \"$1\" \"$2\" \"$3\" 57292 >/dev/null 2>&1 || exit 1; ls \"$0\"/funk/ffi/*.so | wc -l; done"
+  add_test(NAME hosts/clap/nocc COMMAND sh -c "rm -rf \"$0\" && \"$1\" \"$2\" \"$3\" 57292 >/dev/null 2>&1 && ls \"$0\"/funk/ffi 2>/dev/null | wc -l"
     ${CACHE_DIR} $<TARGET_FILE:test_clap_host> $<TARGET_FILE:funk_midi_clap> ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt)
-  set_tests_properties(hosts/clap/cache PROPERTIES LABELS "hosts;clap" TIMEOUT 240 RUN_SERIAL TRUE
-    ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57292" PASS_REGULAR_EXPRESSION "^ *1\n *1\n$")
+  set_tests_properties(hosts/clap/nocc PROPERTIES LABELS "hosts;clap" TIMEOUT 240 RUN_SERIAL TRUE
+    ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57292;CC=/nonexistent/cc;XDG_CACHE_HOME=${CACHE_DIR}" PASS_REGULAR_EXPRESSION "^ *0\n$")
 endif()
 
 # libfunk.h from a host's C (docs/dev/embedding.md)
+# funk_glue: an import's glue linked in, so no C compiler is run; without it, $CC is
+set(LINKED_GLUE ${CMAKE_CURRENT_BINARY_DIR}/embed_glue.c)
+add_custom_command(OUTPUT ${LINKED_GLUE}
+  COMMAND funk emit-c --glue ${CMAKE_CURRENT_SOURCE_DIR}/embed/linked.fk -o ${LINKED_GLUE}
+  DEPENDS funk ${CMAKE_CURRENT_SOURCE_DIR}/embed/linked.fk)
+add_executable(embed_glue embed/glue.c ${LINKED_GLUE})
+target_include_directories(embed_glue PRIVATE embed)
+target_link_libraries(embed_glue PRIVATE libfunk)
+add_test(NAME embed/glue COMMAND embed_glue ${CMAKE_CURRENT_SOURCE_DIR}/embed)
+add_test(NAME embed/glue/none COMMAND embed_glue ${CMAKE_CURRENT_SOURCE_DIR}/embed --no-glue)
+set_tests_properties(embed/glue PROPERTIES LABELS "embed;ffi" PASS_REGULAR_EXPRESSION "^42\n$"
+  ENVIRONMENT "CC=/nonexistent/cc;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/glue-cache")
+set_tests_properties(embed/glue/none PROPERTIES LABELS "embed;ffi" PASS_REGULAR_EXPRESSION "failed to compile with /nonexistent/cc"
+  ENVIRONMENT "CC=/nonexistent/cc;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/glue-cache")
 # two plugins, each with libfunk inside and only plugin_run exported, loaded RTLD_LOCAL
 foreach(p a b)
   add_library(embed_plugin_${p} MODULE embed/plugin.c)

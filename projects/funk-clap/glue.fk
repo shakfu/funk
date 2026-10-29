@@ -1,0 +1,6 @@
+-- The modules funk_clap.cpp's session imports, for `funk emit-c --glue`:
+-- their foreign imports' wrappers are linked into the plugin.
+import pattern as p
+import midi as m
+import graph as g
+import dsp as d

@@ -26,6 +26,14 @@ midi_langs_add_clap(funk_midi_clap
 )
 target_include_directories(funk_midi_clap PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 add_dependencies(funk_midi_clap funkdsp)
+
+# glue.fk's foreign imports, linked in (funk_glue): the plugin needs no C compiler
+set(GLUE_C ${CMAKE_CURRENT_BINARY_DIR}/glue.c)
+add_custom_command(OUTPUT ${GLUE_C}
+    COMMAND funk emit-c --glue ${CMAKE_CURRENT_SOURCE_DIR}/glue.fk -M ${funk_SOURCE_DIR}/lib -o ${GLUE_C}
+    DEPENDS funk ${CMAKE_CURRENT_SOURCE_DIR}/glue.fk ${funk_SOURCE_DIR}/lib/pattern.fk ${funk_SOURCE_DIR}/lib/midi.fk
+        ${funk_SOURCE_DIR}/lib/graph.fk ${funk_SOURCE_DIR}/lib/dsp.fk)
+target_sources(funk_midi_clap PRIVATE ${GLUE_C})
 if(APPLE)
     set(KERNELS_DIR $<TARGET_BUNDLE_CONTENT_DIR:funk_midi_clap>/Resources)
 else()

@@ -11,7 +11,7 @@
 // funk-midi --audio; `voices f` is d.poly of kVoices voices, which every note the plugin
 // sends plays too (funk_voices, on the audio thread). The kernels are lib/kernels.fk,
 // compiled into funkdsp.so, which the build puts in the bundle's Resources (beside the
-// .clap on Linux). graph.fk's imports are compiled with $CC, as foreign imports are.
+// .clap on Linux). graph.fk's imports use glue.c, linked in (funk_glue), so no C compiler runs.
 //
 // libfunk.h allows one session per process, on funk's own thread: the Session starts it
 // with the first instance and keeps it until the plugin is unloaded. Every funk call is
@@ -48,6 +48,8 @@ extern "C" {
 #include "graph.h"
 #include "libfunk.h"
 #include "midi_clock.h"
+extern const funk_glue_entry funk_glue_table[]; // glue.c, from glue.fk by funk emit-c --glue
+extern const int funk_glue_count;
 }
 
 namespace {
@@ -183,13 +185,15 @@ private:
 		PROVIDE(funk_graph_output) PROVIDE(funk_player_new) PROVIDE(funk_player_send) PROVIDE(funk_player_frames)
 		PROVIDE(funk_player_play) PROVIDE(funk_player_render_channels) PROVIDE(funk_player_free)
 #undef PROVIDE
-		const char* cc_args[] = {"-I", s.dir_.c_str()}; // graph.h, written there with the modules
+		funk_glue(funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed
+		const char* cc_args[] = {"-I", s.dir_.c_str()}; // graph.h, for glue compiled if the linked glue does not match
 		bool ok = funk_init(cc_args, 2);
 		if (ok) {
 			funk_module_dir(s.dir_.c_str());
 			funk_output(&Session::Output, &s);
 			ok = funk_eval("import pattern as p", "<setup>", &shown) && funk_eval("import midi as m", "<setup>", &shown);
-			// Without a C compiler graph.fk's imports fail: MIDI still plays, the output is silent.
+			// If the linked glue does not match and no C compiler runs, graph.fk's imports fail:
+			// MIDI still plays, the output is silent.
 			s.graphs_ = ok && funk_eval("import graph as g", "<setup>", &shown) && funk_eval("import dsp as d", "<setup>", &shown);
 			if (ok && !s.graphs_) fputs("funk-midi: no audio: graph.fk's foreign imports did not compile\n", stderr);
 		}

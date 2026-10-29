@@ -256,7 +256,7 @@ In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. 
 sig = voices (\gate freq -> d.adsr (d.dc 0.01) (d.dc 0.2) (d.dc 0.5) (d.dc 0.3) gate * d.saw freq)
 ```
 
-The notes still go out as MIDI; route that output nowhere if the plugin's voices are the only synth. The graph needs a C compiler when the plugin loads; without one, MIDI still plays and the output is silent.
+The notes still go out as MIDI; route that output nowhere if the plugin's voices are the only synth. The plugin needs no C compiler: its foreign imports' glue is linked in.
 
 A cycle is 4 beats, one bar of 4/4, at the host's tempo. Stop interrupts a running evaluation. The heap is limited to 512 MiB and the stack to 256 MiB; past either, the evaluation fails with "out of memory" or "stack overflow", and the host goes on.
 

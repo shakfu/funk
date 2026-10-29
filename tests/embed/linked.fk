@@ -1,0 +1,2 @@
+-- An import whose glue tests/embed/glue.c links in (funk_glue).
+foreign import ccall "linked.h linked_twice" twice :: Int -> Int

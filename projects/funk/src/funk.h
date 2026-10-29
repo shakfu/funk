@@ -466,7 +466,9 @@ const char *cgen_alloc_free(Lambda *L);                 /* NULL, or why compiled
 typedef struct { const char *name, *ctype; char kind; int width; } FfiType; /* width: bytes, negative if unsigned */
 extern const FfiType ffi_types[];
 extern const int ffi_ntypes;
-void ffi_load(ForeignDecl **fs, int n);                 /* interpreter: compile, cache, load; sets each code */
+void ffi_load(ForeignDecl **fs, int n);                 /* interpreter: linked glue, else compile, cache, load; sets each code; reorders fs */
+void ffi_link(uint64_t key, FkCode code);               /* funk_glue */
+char *ffi_linked_glue(ForeignDecl **fs, int n);         /* funk_emit_glue */
 extern const char fk_prelude_src[];
 
 #endif

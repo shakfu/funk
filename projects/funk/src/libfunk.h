@@ -12,6 +12,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #pragma GCC visibility push(default) /* libfunk hides everything else */
 
@@ -50,6 +51,17 @@ void funk_module_dir(const char *dir);
    identifier or addr is NULL. */
 bool funk_provide(const char *name, void *addr);
 
+/* Glue linked into the host, from `funk emit-c --glue`: a foreign import
+   whose key is in glue[0..n) uses the wrapper given there, and needs no C
+   compiler. An import without a matching key, or whose type, C name or
+   header has changed since, is compiled as before. Before the code that
+   imports it loads. */
+typedef struct {
+  uint64_t key;
+  void *code;
+} funk_glue_entry;
+void funk_glue(const funk_glue_entry *glue, int n);
+
 /* Parse and type-check path, running nothing; it need not define `main`. */
 bool funk_check_file(const char *path);
 
@@ -62,6 +74,11 @@ char *funk_emit_c(const char *path);
 /* path's foreign exports alone, as C without the runtime, for a host to
    load (docs/dev/audio.md, D); path need not define `main`. NULL on error. */
 char *funk_emit_kernels(const char *path);
+
+/* The glue of the foreign imports of path and what it imports, as C to link
+   with libfunk, defining funk_glue_table and funk_glue_count for funk_glue;
+   path need not define `main`. NULL on an error, reported. */
+char *funk_emit_glue(const char *path);
 
 /* Compile path to the executable exe with $CC at C optimization level opt
    ("0" to "3", "s", "z"); the compiler's exit status, or -1 before it runs. */

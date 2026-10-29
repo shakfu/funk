@@ -137,6 +137,10 @@ bool funk_provide(const char *name, void *addr) {
   return true;
 }
 
+void funk_glue(const funk_glue_entry *glue, int n) {
+  for (int i = 0; i < n; i++) ffi_link(glue[i].key, (FkCode)glue[i].code);
+}
+
 static Exports *prepare(Module *m, const char *file, const char *prefix);
 
 /* The file for module path a.b, looked for as a/b.fk beside from, then
@@ -357,6 +361,15 @@ char *funk_emit_kernels(const char *path) {
   char *src = cgen_kernels(all, n, &err);
   if (!src) report("%s", xsprintf("%s: %s", path, err));
   return src;
+}
+
+char *funk_emit_glue(const char *path) {
+  Chunk c;
+  if (!compile_file(path, &c)) return NULL;
+  VEC(ForeignDecl *) fs = {0};
+  for (int i = 0; i < globals.n; i++)
+    if (globals.a[i].ffi) VPUSH(fs, globals.a[i].ffi);
+  return ffi_linked_glue(fs.a, fs.n);
 }
 
 static int run_cc(const char *csrc, const char *exe, const char *opt) {

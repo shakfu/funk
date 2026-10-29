@@ -1,0 +1,36 @@
+/* glue.c -- funk_glue: linked.fk's import, its glue linked in by
+   `funk emit-c --glue` (tests/CMakeLists.txt), runs with no C compiler.
+   With --no-glue it is compiled with $CC, as before. */
+#include <stdio.h>
+#include <string.h>
+
+#include "libfunk.h"
+#include "linked.h"
+
+extern const funk_glue_entry funk_glue_table[];
+extern const int funk_glue_count;
+
+int64_t linked_twice(int64_t x) { return 2 * x; }
+
+static const char *dir;
+static int use_glue;
+
+static int body(void *arg) {
+  (void)arg;
+  if (use_glue) funk_glue(funk_glue_table, funk_glue_count);
+  if (!funk_init(NULL, 0)) return 1;
+  funk_module_dir(dir);
+  char *shown = NULL;
+  /* a global first, so the import's slot differs from emit-c's */
+  if (!funk_eval("x = 1", "<glue>", &shown) || !funk_eval("import linked as l", "<glue>", &shown) ||
+      !funk_eval("l.twice 21", "<glue>", &shown))
+    return 1;
+  printf("%s\n", shown);
+  return 0;
+}
+
+int main(int argc, char **argv) {
+  dir = argv[1];
+  use_glue = !(argc > 2 && !strcmp(argv[2], "--no-glue"));
+  return funk_main(body, NULL);
+}

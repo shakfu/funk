@@ -100,11 +100,11 @@ static const char *box(Type *t, const char *x) {
    runtime error stops here and is raised again when the foreign call
    returns, so it never unwinds C frames. A queued one copies its arguments
    into an event, which waitEvent runs. */
-static void trampoline(SB *b, ForeignDecl *f, bool exported) {
+static void trampoline(SB *b, ForeignDecl *f, int id, bool exported) {
   Type *t = repr(repr(globals.a[f->gidx].type)->args[0]), *r;
   SB params = {0}, fields = {0}, fill = {0}, frees = {0}, args = {0}, nulls = {0};
   bool q = f->cb == 'q';
-  int n = 0, id = f->gidx;
+  int n = 0;
   sb_puts(&params, "void *ctx");
   for (r = repr(t->args[1]); r->k == TY_CON && !strcmp(r->name, "->"); r = repr(r->args[1]), n++) {
     Type *a = r->args[0];
@@ -157,11 +157,6 @@ static void trampoline(SB *b, ForeignDecl *f, bool exported) {
   sb_printf(b, "%sV fk_ffi_%d(V self, V *a) { (void)self; (void)a; return fk_ptr((void *)fk_cb_%d); }\n", exported ? FFI_EXPORTED : "static ", id, id);
 }
 
-/* One wrapper per import. Arguments are locals of their declared C types,
-   so passing them converts implicitly, and the pragmas make every
-   conversion that can change a value an error: a type that differs from
-   the C declaration in width, sign or kind does not compile. Widening is
-   allowed, and a Ptr converts to any object pointer, as in Haskell. */
 /* The headers and foreign struct definitions that fs need. */
 char *ffi_headers(ForeignDecl **fs, int n) {
   SB b = {0};
@@ -184,42 +179,50 @@ char *ffi_headers(ForeignDecl **fs, int n) {
   return b.s;
 }
 
+/* f's wrapper, fk_ffi_ID. Arguments are locals of their declared C types,
+   so passing them converts implicitly, and conversion_checks make every
+   conversion that can change a value an error: a type that differs from
+   the C declaration in width, sign or kind does not compile. Widening is
+   allowed, and a Ptr converts to any object pointer, as in Haskell. */
+static void wrapper(SB *b, ForeignDecl *f, int id, bool exported) {
+  if (f->cb) {
+    trampoline(b, f, id, exported);
+    return;
+  }
+  SB body = {0}, call = {0};
+  Type *t = repr(globals.a[f->gidx].type);
+  sb_printf(&call, "%s%s", f->cname, f->arity ? "(" : "");
+  for (int k = 0; k < f->arity; k++, t = repr(t->args[1])) {
+    if (ffi_kind(t->args[0]) == 'v') continue; /* f () */
+    sb_printf(&body, "  %s x%d = %s;\n", ffi_param_type(t->args[0]), k, unbox(t->args[0], xsprintf("a[%d]", k)));
+    sb_printf(&call, "%sx%d", k ? ", " : "", k);
+  }
+  if (f->arity) sb_puts(&call, ")");
+  const char *what = xsprintf("/* %s :: %s, from %s */", f->name, type_str(globals.a[f->gidx].type), f->header);
+  /* fk_cb_check: a direct callback that failed during the call */
+  switch (ffi_kind(t)) {
+  case 'v': sb_printf(&body, "  %s; %s\n  fk_cb_check();\n  return fk_unit;\n", call.s, what); break;
+  case 's': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_cstr_result(r, \"%s\");\n", call.s, what, f->cname); break;
+  case 'p': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_ptr((void *)r);\n", call.s, what); break;
+  default: sb_printf(&body, "  %s r = %s; %s\n  fk_cb_check();\n  return %s;\n", ffi_param_type(t), call.s, what, box(t, "r"));
+  }
+  sb_printf(b, "%sV fk_ffi_%d(V self, V *a) {\n  (void)self; (void)a;\n%s%s}\n", exported ? FFI_EXPORTED : "static ", id,
+            f->arity ? "  fk_ffi_enter();\n" : "", body.s);
+}
+
+static const char *const conversion_checks = "#pragma GCC diagnostic push\n"
+                                              "#pragma GCC diagnostic error \"-Wconversion\"\n"
+                                              "#pragma GCC diagnostic error \"-Wsign-conversion\"\n"
+                                              "#pragma GCC diagnostic error \"-Wint-conversion\"\n"
+                                              "#pragma GCC diagnostic error \"-Wincompatible-pointer-types\"\n"
+                                              "#ifdef __clang__\n#pragma GCC diagnostic error \"-Wincompatible-pointer-types-discards-qualifiers\"\n"
+                                              "#else\n#pragma GCC diagnostic error \"-Wdiscarded-qualifiers\"\n#endif\n";
+
 char *ffi_glue(ForeignDecl **fs, int n, bool exported) {
   SB b = {0};
   sb_puts(&b, ffi_headers(fs, n));
-  sb_puts(&b, "#pragma GCC diagnostic push\n"
-              "#pragma GCC diagnostic error \"-Wconversion\"\n"
-              "#pragma GCC diagnostic error \"-Wsign-conversion\"\n"
-              "#pragma GCC diagnostic error \"-Wint-conversion\"\n"
-              "#pragma GCC diagnostic error \"-Wincompatible-pointer-types\"\n"
-              "#ifdef __clang__\n#pragma GCC diagnostic error \"-Wincompatible-pointer-types-discards-qualifiers\"\n"
-              "#else\n#pragma GCC diagnostic error \"-Wdiscarded-qualifiers\"\n#endif\n");
-  for (int i = 0; i < n; i++) {
-    ForeignDecl *f = fs[i];
-    if (f->cb) {
-      trampoline(&b, f, exported);
-      continue;
-    }
-    SB body = {0}, call = {0};
-    Type *t = repr(globals.a[f->gidx].type);
-    sb_printf(&call, "%s%s", f->cname, f->arity ? "(" : "");
-    for (int k = 0; k < f->arity; k++, t = repr(t->args[1])) {
-      if (ffi_kind(t->args[0]) == 'v') continue; /* f () */
-      sb_printf(&body, "  %s x%d = %s;\n", ffi_param_type(t->args[0]), k, unbox(t->args[0], xsprintf("a[%d]", k)));
-      sb_printf(&call, "%sx%d", k ? ", " : "", k);
-    }
-    if (f->arity) sb_puts(&call, ")");
-    const char *what = xsprintf("/* %s :: %s, from %s */", f->name, type_str(globals.a[f->gidx].type), f->header);
-    /* fk_cb_check: a direct callback that failed during the call */
-    switch (ffi_kind(t)) {
-    case 'v': sb_printf(&body, "  %s; %s\n  fk_cb_check();\n  return fk_unit;\n", call.s, what); break;
-    case 's': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_cstr_result(r, \"%s\");\n", call.s, what, f->cname); break;
-    case 'p': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_ptr((void *)r);\n", call.s, what); break;
-    default: sb_printf(&body, "  %s r = %s; %s\n  fk_cb_check();\n  return %s;\n", ffi_param_type(t), call.s, what, box(t, "r"));
-    }
-    sb_printf(&b, "%sV fk_ffi_%d(V self, V *a) {\n  (void)self; (void)a;\n%s%s}\n", exported ? FFI_EXPORTED : "static ", f->gidx,
-              f->arity ? "  fk_ffi_enter();\n" : "", body.s);
-  }
+  sb_puts(&b, conversion_checks);
+  for (int i = 0; i < n; i++) wrapper(&b, fs[i], fs[i]->gidx, exported);
   sb_puts(&b, "#pragma GCC diagnostic pop\n");
   return b.s;
 }
@@ -345,7 +348,65 @@ static char *loaded_glue(ForeignDecl **fs, int n, void ***addrs) {
   return b.s;
 }
 
+/* An import's key: a hash of its wrapper, with a fixed id and without its
+   funk name, and of what its headers and structs emit. It is the same in
+   every program that imports it, whatever was loaded before and however the
+   module is reached; a change to its type, C name or header changes it. */
+static uint64_t ffi_key(ForeignDecl *f) {
+  SB b = {0};
+  const char *name = f->name; /* in comments and messages only */
+  f->name = "";
+  sb_puts(&b, ffi_headers(&f, 1));
+  wrapper(&b, f, 0, false);
+  f->name = name;
+  return hash(14695981039346656037ULL, b.s);
+}
+
+/* Glue linked into the host (funk_glue), by key. */
+static VEC(struct { uint64_t key; FkCode code; }) linked;
+
+void ffi_link(uint64_t key, FkCode code) {
+  for (int i = 0; i < linked.n; i++)
+    if (linked.a[i].key == key) {
+      linked.a[i].code = code;
+      return;
+    }
+  VPUSH(linked, ((__typeof__(*linked.a)){key, code}));
+}
+
+/* For `funk emit-c --glue`: fs's wrappers as one C file for a host to link
+   with libfunk, and funk_glue_table, the keys and wrappers to give funk_glue.
+   The runtime's names bind at link time, so neither fk_glue_bind nor
+   funk_provide is needed. */
+char *ffi_linked_glue(ForeignDecl **fs, int n) {
+  SB b = {0};
+  sb_puts(&b, "/* funk emit-c --glue: foreign import wrappers, for funk_glue (libfunk.h) */\n"
+              "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers */\n");
+  sb_puts(&b, fk_rth_src);
+  sb_puts(&b, ffi_headers(fs, n));
+  sb_puts(&b, conversion_checks);
+  for (int i = 0; i < n; i++) wrapper(&b, fs[i], i, false);
+  sb_puts(&b, "#pragma GCC diagnostic pop\n\n#include \"libfunk.h\"\n");
+  sb_printf(&b, "const funk_glue_entry funk_glue_table[] = {\n");
+  for (int i = 0; i < n; i++) sb_printf(&b, "    {0x%016llxULL, (void *)fk_ffi_%d}, /* %s */\n", (unsigned long long)ffi_key(fs[i]), i, fs[i]->name);
+  sb_printf(&b, "    {0, 0},\n};\nconst int funk_glue_count = %d;\n", n);
+  return b.s;
+}
+
 void ffi_load(ForeignDecl **fs, int n) {
+  int missing = 0; /* the imports without linked glue, moved to the front */
+  for (int i = 0; i < n; i++) {
+    uint64_t key = linked.n ? ffi_key(fs[i]) : 0;
+    fs[i]->code = NULL;
+    for (int j = 0; j < linked.n && !fs[i]->code; j++)
+      if (linked.a[j].key == key) fs[i]->code = linked.a[j].code;
+    if (!fs[i]->code) {
+      ForeignDecl *t = fs[missing];
+      fs[missing++] = fs[i];
+      fs[i] = t;
+    }
+  }
+  n = missing;
   if (!n) return;
   Argv argv = cc_argv();
   void **addrs;
