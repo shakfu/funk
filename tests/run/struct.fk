@@ -22,5 +22,6 @@ main = do
   writeField (fieldPtr t Timed.voice) Voice.count 3
   print (readField (fieldPtr t Timed.stop) Timespec.nsec, readField (fieldPtr t Timed.voice) Voice.count)
   print (Itimerval.size, primFieldOffset Itimerval.value)
+  print (primPtrToInt (fieldPtr nullPtr Itimerval.value)) -- the offset, as plusPtr nullPtr gives
   free v
   free t

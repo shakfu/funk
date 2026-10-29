@@ -18,7 +18,11 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 
-- [ ] **Kernels without the runtime.** Unit generators are exports; output them without the pasted runtime, so an interpreting host can load them and a kernel compiles near the glue's 87 ms rather than 1.03 s (estimate). List what export-subset code uses from the runtime (`fk_ffi_enter`, `fk_snap_lo` by code reading).
+- [x] **Kernels without the runtime.** `funk emit-c --kernels`: 10 ms in funk and 70 ms in `cc -O2` for four kernels ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time)).
+
+- [x] **Byte-offset access without integer casts.** `peekByteOff`, `pokeByteOff` (`primByteAddr`) and `fieldPtr` (`primFieldAddr`, null-safe) add through `char *`; the test kernels now equal hand-written C without FMA contraction.
+
+- [ ] Decide on fused multiply-add: an explicit `fma`, or contraction in kernels only. Clang's default contraction makes the C one-pole and filter 1.4x faster, but changes results against the interpreter.
 
 - [ ] **The kernel signature**, such as `void k(void *state, const float **in, float *out, int n)`, plus the state's size. Open: several outputs, control-rate inputs.
 
@@ -99,7 +103,7 @@ Rewiring a graph needs no compiler; a new kernel does. Desktop only for now: plu
 
 - [ ] **Compile and load a kernel on demand** with `$CC` and `dlopen`, as foreign-import glue does (`ffi.c`). A kernel that fails the allocation check or the C compiler leaves the old graph playing. Set an edit-latency target from the measured compile time; the optimization level trades it against the cost per node.
 
-- [ ] **LLVM, as Faust uses it**, only if `$CC` proves too slow for kernels without the runtime. An IR emitter for the export subset alone would be much smaller than `cgen.c`, since that subset has no allocation, closures or constructors. libtcc compiles faster but does not optimize, and its support for the runtime's `__atomic_*` builtins is unverified.
+- [ ] **LLVM, as Faust uses it**, only if `$CC` proves too slow for kernels without the runtime: about 60 ms per edit at `-O2`, of which 22 ms is clang's start-up and about 20 ms linking. An IR emitter for the export subset alone would be much smaller than `cgen.c`, since that subset has no allocation, closures or constructors. libtcc compiles faster but does not optimize, and its support for the runtime's `__atomic_*` builtins is unverified.
 
 ### Other
 

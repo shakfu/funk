@@ -12,6 +12,7 @@ typedef struct {
   int mode;
   const char *file, *out, *expr;
   const char *opt; /* C optimization level for build */
+  bool kernels;    /* emit-c --kernels */
   const char **cc_args; /* -I, -l and -L: for build, and for the interpreter's foreign-import glue */
   int ncc_args;
   const char **mod_dirs; /* -M */
@@ -48,8 +49,9 @@ static const Command commands[] = {
      "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
      "  -l LIB    link with LIB; repeatable\n"
      "  -L DIR    search DIR for libraries; repeatable\n"},
-    {"emit-c", "emit-c FILE [-o OUT] [-M DIR]", "Write the C program that build compiles, to OUT or standard output.\n"
-                                               "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"},
+    {"emit-c", "emit-c FILE [-o OUT] [-M DIR] [--kernels]", "Write the C program that build compiles, to OUT or standard output.\n"
+                                               "  -M DIR     search DIR for imported modules, after FILE's directory; repeatable\n"
+                                               "  --kernels  only FILE's foreign exports, without the runtime, for a host to load; FILE need not define `main`\n"},
     {"check", "check FILE [-M DIR]", "Parse and type-check FILE, report errors and warnings, and run nothing.\n"
                             "Exits 0 if FILE compiles. FILE need not define `main`.\n"
                             "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"},
@@ -188,7 +190,7 @@ static int task(void *arg) {
     return rc < 0 ? 1 : rc; /* the C compiler's status */
   }
   case M_EMITC: {
-    char *c = funk_emit_c(o->file);
+    char *c = o->kernels ? funk_emit_kernels(o->file) : funk_emit_c(o->file);
     if (!c) return 1;
     write_text(o->out, c);
     return 0;
@@ -263,6 +265,8 @@ int main(int argc, char **argv) {
       return 0;
     } else if (o.mode == M_EVAL && !o.expr) {
       o.expr = a;
+    } else if (o.mode == M_EMITC && strcmp(a, "--kernels") == 0) {
+      o.kernels = true;
     } else if (out && strcmp(a, "-o") == 0) {
       if (!more) usage_error(cmd, "`-o` needs a file name", NULL);
       o.out = argv[++i];

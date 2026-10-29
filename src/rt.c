@@ -1550,6 +1550,8 @@ V fk_p_nullptr(V self, V *a) { return fk_ptr(NULL); }
 V fk_p_eqptr(V self, V *a) { return FK_BOOL(FK_PTRV(a[0]) == FK_PTRV(a[1])); }
 V fk_p_castptr(V self, V *a) { return a[0]; }
 V fk_p_plusptr(V self, V *a) { return fk_ptr((void *)((uintptr_t)FK_PTRV(a[0]) + (uintptr_t)FK_INT(a[1]))); } /* as integers: plusPtr nullPtr n is defined */
+V fk_p_byteaddr(V self, V *a) { return fk_p_plusptr(self, a); }
+V fk_p_fieldaddr(V self, V *a) { return fk_p_plusptr(self, a); }
 V fk_p_ptrint(V self, V *a) { return FK_MKINT((int64_t)(uintptr_t)FK_PTRV(a[0])); }
 
 V fk_p_mallocbytes(V self, V *a) {

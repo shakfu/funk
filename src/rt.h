@@ -138,6 +138,9 @@ static inline int64_t fk_s_peeki(int64_t w, void *p) {
   default: return *(int64_t *)p;
   }
 }
+/* fieldPtr's address: in p's struct, as char * so clang keeps its provenance; from
+   NULL, the offset as an address, which plusPtr nullPtr also gives */
+static inline __attribute__((unused)) void *fk_s_fieldaddr(void *p, int64_t off) { return p ? (void *)((char *)p + off) : (void *)(uintptr_t)off; }
 static inline double fk_s_peekf(int64_t w, void *p) { return w == 4 ? (double)*(float *)p : *(double *)p; }
 static inline V fk_s_pokei(int64_t w, void *p, int64_t x) {
   switch (w) {

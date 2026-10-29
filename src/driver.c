@@ -336,6 +336,20 @@ char *funk_emit_c(const char *path) {
   return cgen_program(all, n);
 }
 
+char *funk_emit_kernels(const char *path) {
+  Chunk c;
+  if (!compile_file(path, &c)) return NULL;
+  int n = mod_chunks.n + 2;
+  Chunk *all = xmalloc((size_t)n * sizeof *all);
+  all[0] = prelude;
+  copy_n(all + 1, mod_chunks.a, (size_t)mod_chunks.n * sizeof *all);
+  all[n - 1] = c;
+  const char *err = NULL;
+  char *src = cgen_kernels(all, n, &err);
+  if (!src) report("%s", xsprintf("%s: %s", path, err));
+  return src;
+}
+
 static int run_cc(const char *csrc, const char *exe, const char *opt) {
   Argv argv = cc_argv();
   char *fixed[] = {xsprintf("-O%s", opt), "-o", (char *)exe, (char *)csrc, NULL};

@@ -323,9 +323,9 @@ instance Storable (FunPtr a) where
 -- a field of a C struct, at an offset from a foreign import such as
 -- "stddef.h offsetof(struct s, f)"
 peekByteOff :: Storable a => Ptr b -> Int ->> a
-peekByteOff p off = peek (plusPtr p off)
+peekByteOff p off = peek (primByteAddr p off)
 pokeByteOff :: Storable a => Ptr b -> Int -> a ->> ()
-pokeByteOff p off x = poke (plusPtr p off) x
+pokeByteOff p off x = poke (primByteAddr p off) x
 
 -- Array a: a fixed number of Storable values in C memory, freed with
 -- freeArray; never moved or collected, so another thread may use one. In
@@ -396,7 +396,7 @@ writeField :: Storable b => Ptr s -> Field s b -> b ->> ()
 writeField p f x = pokeByteOff p (primFieldOffset f) x
 
 fieldPtr :: Ptr s -> Field s b -> Ptr b
-fieldPtr p f = castPtr (plusPtr p (primFieldOffset f))
+fieldPtr p f = primFieldAddr p (primFieldOffset f)
 
 -- an Array or a Ring stored in C memory, such as a callback's context, is its address
 instance Storable (Array a) where

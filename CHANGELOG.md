@@ -20,6 +20,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The heap returns memory to the system. A chunk sweeping finds all dead becomes its size class's bump region, as before, if that has none; otherwise it now serves any size class, where before its objects went onto its own free list. Empty chunks beyond the collection threshold are replaced by fresh pages, and after "out of memory" a full collection runs at once. A host that met a 512 MiB limit kept 589 MiB resident; it now keeps 217 MiB. Sending every all-dead chunk through the empty list cost `lists` and `wordfreq` 1-2% (interleaved A/B, 21 runs); with the bump-region route kept, the core suite's geometric mean against HEAD is -0.0%.
 
+- `funk emit-c --kernels FILE`: FILE's foreign exports and what they call, as C without the runtime, for a host to load as unit generators ([docs/dev/audio.md](docs/dev/audio.md), D). An export's code read field offsets and other top-level values from the runtime's global table, filled at startup, so it could not run outside a funk program. In a kernel they are C expressions and inlined initializers; a top-level value an export reads must therefore pass the export check too. Four kernels compile in 70 ms at `-O2`, against 425 ms with the runtime pasted.
+
+### Changed
+
+- `peekByteOff` and `pokeByteOff`, and so `readArray`, `readField` and their kin, compute the address as `char *` arithmetic rather than through `plusPtr`'s integers. The cast lost the pointer's provenance, and clang did not vectorize: a kernel multiplying two buffers ran 3.9x hand-written C, a state-variable filter 1.34x; both now equal it. `fieldPtr` does the same unless its pointer is null, where it still gives the offset: a kernel whose state is a struct of two structs went from 2.6x C to 1.0x. `plusPtr` keeps the integers, since `plusPtr nullPtr 16` must stay defined. The Benchmarks Game is unchanged (+0.1%, interleaved A/B).
+
 ### Fixed
 
 - funk's `SIGSEGV` and `SIGBUS` handler passes faults that are not its own to the handler installed before it. It reset them to the default action, so in an embedding host a fault the host would have handled, such as on its own guard page, ended the process. When `funk_main` returns, the handlers it replaced are installed again, so a plugin that is then unloaded leaves none pointing into it.

@@ -50,6 +50,10 @@ bool funk_run_file(const char *path);
 /* The C program for path, which must define `main`; NULL on error. */
 char *funk_emit_c(const char *path);
 
+/* path's foreign exports alone, as C without the runtime, for a host to
+   load (docs/dev/audio.md, D); path need not define `main`. NULL on error. */
+char *funk_emit_kernels(const char *path);
+
 /* Compile path to the executable exe with $CC at C optimization level opt
    ("0" to "3", "s", "z"); the compiler's exit status, or -1 before it runs. */
 int funk_build(const char *path, const char *exe, const char *opt);

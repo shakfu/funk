@@ -1,0 +1,9 @@
+-- An export may read a top-level value, but a kernel has no startup to
+-- compute it, so the value must pass the export check too.
+foreign export ccall "k_len" len :: CInt -> CInt
+
+digits :: Int
+digits = length (show 12345)
+
+len :: CInt -> CInt
+len k = k + fromIntegral digits

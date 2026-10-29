@@ -160,7 +160,8 @@ static void trampoline(SB *b, ForeignDecl *f, bool exported) {
    conversion that can change a value an error: a type that differs from
    the C declaration in width, sign or kind does not compile. Widening is
    allowed, and a Ptr converts to any object pointer, as in Haskell. */
-char *ffi_glue(ForeignDecl **fs, int n, bool exported) {
+/* The headers and foreign struct definitions that fs need. */
+char *ffi_headers(ForeignDecl **fs, int n) {
   SB b = {0};
   sb_puts(&b, "\n/* ---- foreign imports ---- */\n#include <stdlib.h>\n");
   Strs hs = {0}; /* each header once: some have no include guard */
@@ -178,6 +179,12 @@ char *ffi_glue(ForeignDecl **fs, int n, bool exported) {
     for (int j = 0; j < i; j++) seen |= fs[j]->cdef == fs[i]->cdef;
     if (fs[i]->cdef && !seen) sb_puts(&b, fs[i]->cdef);
   }
+  return b.s;
+}
+
+char *ffi_glue(ForeignDecl **fs, int n, bool exported) {
+  SB b = {0};
+  sb_puts(&b, ffi_headers(fs, n));
   sb_puts(&b, "#pragma GCC diagnostic push\n"
               "#pragma GCC diagnostic error \"-Wconversion\"\n"
               "#pragma GCC diagnostic error \"-Wsign-conversion\"\n"

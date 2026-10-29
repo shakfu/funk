@@ -1,0 +1,105 @@
+-- Unit generators as kernels (docs/dev/audio.md, D): exports with one C
+-- signature, emitted without the runtime by `funk emit-c --kernels` and
+-- run by host.c. Besides foreign structs, they read a top-level value, call
+-- C, match on Ordering, whose constructors are static objects, and reach
+-- structs inside a struct with fieldPtr.
+foreign export ccall "k_saw" saw :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+foreign export ccall "k_mul" mul :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+foreign export ccall "k_onepole" onepole :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+foreign export ccall "k_sine" sine :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+foreign export ccall "k_clip" clip :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+foreign export ccall "k_voice" voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "math.h sin" csin :: Float -> Float
+
+foreign struct Osc { phase :: Float, freq :: Float }
+foreign struct Pole { y :: Float, coef :: Float }
+foreign struct Voice { osc :: Osc, lp :: Pole }
+
+sampleRate :: Float
+sampleRate = 8000.0
+
+wrap :: Float -> Float
+wrap x = if x >= 1.0 then x - 1.0 else x
+
+advance :: Ptr Osc ->> Float
+advance s = do
+  ph <- readField s Osc.phase
+  writeField s Osc.phase (wrap (ph + readField s Osc.freq / sampleRate))
+  ph
+
+sawLoop :: Ptr Osc -> Ptr CFloat -> Int -> Int ->> ()
+sawLoop s out i n = if i == n then () else do
+  ph <- advance s
+  pokeByteOff out (i * 4) (toCFloat (2.0 * ph - 1.0))
+  sawLoop s out (i + 1) n
+
+saw :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+saw st ins out n = sawLoop (castPtr st) out 0 (fromIntegral n)
+
+sineLoop :: Ptr Osc -> Ptr CFloat -> Int -> Int ->> ()
+sineLoop s out i n = if i == n then () else do
+  ph <- advance s
+  pokeByteOff out (i * 4) (toCFloat (csin (6.283185307179586 * ph)))
+  sineLoop s out (i + 1) n
+
+sine :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+sine st ins out n = sineLoop (castPtr st) out 0 (fromIntegral n)
+
+mulLoop :: Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+mulLoop a b out i n = if i == n then () else do
+  x <- (peekByteOff a (i * 4) :: CFloat)
+  y <- (peekByteOff b (i * 4) :: CFloat)
+  pokeByteOff out (i * 4) (toCFloat (fromCFloat x * fromCFloat y))
+  mulLoop a b out (i + 1) n
+
+mul :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+mul st ins out n = do
+  a <- (peek ins :: Ptr CFloat)
+  b <- (peekByteOff ins 8 :: Ptr CFloat)
+  mulLoop a b out 0 (fromIntegral n)
+
+poleLoop :: Ptr Pole -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+poleLoop s a out i n = if i == n then () else do
+  x <- (peekByteOff a (i * 4) :: CFloat)
+  y <- readField s Pole.y
+  y2 <- y + readField s Pole.coef * (fromCFloat x - y)
+  writeField s Pole.y y2
+  pokeByteOff out (i * 4) (toCFloat y2)
+  poleLoop s a out (i + 1) n
+
+onepole :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+onepole st ins out n = do
+  a <- (peek ins :: Ptr CFloat)
+  poleLoop (castPtr st) a out 0 (fromIntegral n)
+
+limit :: Float -> Float
+limit x = case compare x 0.5 of
+  GT -> 0.5
+  _ -> case compare x (-0.5) of
+    LT -> -0.5
+    _ -> x
+
+clipLoop :: Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+clipLoop a out i n = if i == n then () else do
+  x <- (peekByteOff a (i * 4) :: CFloat)
+  pokeByteOff out (i * 4) (toCFloat (limit (fromCFloat x)))
+  clipLoop a out (i + 1) n
+
+clip :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+clip st ins out n = do
+  a <- (peek ins :: Ptr CFloat)
+  clipLoop a out 0 (fromIntegral n)
+
+-- a saw through a one-pole filter, its state one struct of two
+voiceLoop :: Ptr Voice -> Ptr CFloat -> Int -> Int ->> ()
+voiceLoop v out i n = if i == n then () else do
+  ph <- advance (fieldPtr v Voice.osc)
+  p <- fieldPtr v Voice.lp
+  y <- readField p Pole.y
+  y2 <- y + readField p Pole.coef * (2.0 * ph - 1.0 - y)
+  writeField p Pole.y y2
+  pokeByteOff out (i * 4) (toCFloat y2)
+  voiceLoop v out (i + 1) n
+
+voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+voice st ins out n = voiceLoop (castPtr st) out 0 (fromIntegral n)

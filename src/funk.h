@@ -451,12 +451,14 @@ void interp_install(Chunk *c);
 V interp_global(int gidx);
 
 char *cgen_program(Chunk *chunks, int nchunks);
+char *cgen_kernels(Chunk *chunks, int nchunks, const char **err); /* the exports alone, without the runtime; NULL and *err on error */
 
 extern const char fk_rt_src[];
 extern const char fk_rth_src[]; /* rt.h, for the interpreter's foreign glue */
 
 /* ffi.c: foreign imports */
 char *ffi_glue(ForeignDecl **fs, int n, bool exported); /* the C wrappers fk_ffi_GIDX */
+char *ffi_headers(ForeignDecl **fs, int n);             /* their #includes and foreign struct definitions */
 const char *ffi_param_type(Type *t);                    /* NULL if t cannot be passed to C */
 int ffi_kind(Type *t);                                  /* 'i' held as Int, 'f' as Float, 'c', 'b', 'v' (); 0 */
 const char *cgen_alloc_free(Lambda *L);                 /* NULL, or why compiled L may allocate, with where */

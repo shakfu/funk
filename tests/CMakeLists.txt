@@ -1,7 +1,7 @@
 # The test suite, one ctest test per check; tests/check.sh runs each and
 # documents what they check. `make test` runs them in parallel; one by
 # name: ctest --test-dir build -R gcdeep. Labels: run, example, game, error,
-# repl, ffi, stress, cli, lib, hosts, embed.
+# repl, ffi, stress, cli, lib, hosts, embed, kernels.
 
 set(CHECK sh ${PROJECT_SOURCE_DIR}/tests/check.sh)
 
@@ -167,6 +167,9 @@ endforeach()
 if(HAVE_TSAN)
   funk_test(ffi/sched/tsan-compiled "ffi;lib;stress;tsan" run tests/ffi/sched.fk tsan-compiled ${LINK} -M lib)
 endif()
+# exports without the runtime, loaded by a C host (docs/dev/audio.md, D)
+funk_test(kernels/dsp "ffi;kernels" kernels tests/kernels/dsp.fk tests/kernels/host.c)
+
 foreach(n cberror cbthread)
   funk_test(ffi/${n} ffi error tests/ffi/${n}.fk ${LINK})
 endforeach()
@@ -195,6 +198,9 @@ set(clis
   "2|-|run"
   "2|-|build^tests/run/strings.fk^-Ofast"
   "2|-|emit-c^tests/run/strings.fk^-x"
+  "1|funk: tests/run/strings.fk: no `foreign export` to compile|emit-c^tests/run/strings.fk^--kernels"
+  "1|funk: tests/kernels/alloc.fk: `digits`, a top-level value an export reads, may allocate or fail: the primitive `primShowInt`, at 6:18 in `digits`|emit-c^tests/kernels/alloc.fk^--kernels"
+  "2|-|build^tests/run/strings.fk^--kernels"
   "1|-|run^tests/run/no-such-file.fk")
 set(i 0)
 foreach(c ${clis})

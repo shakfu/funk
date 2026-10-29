@@ -16,6 +16,10 @@
 #                                   gcstats: FUNK_GCSTATS=1 reports each cycle and a summary
 #                                   FLAGS (-I, -L, -l, -M) go to funk run and funk build;
 #                                     -M also to funk emit-c
+#   check.sh kernels FILE HOST      funk emit-c --kernels FILE computes no address through
+#                                   uintptr_t, and compiles under -Wall -Wextra into a shared
+#                                   library with no undefined symbols and no exported fk_ name;
+#                                   HOST.c, given its path, prints FILE.expected
 #   check.sh error FILE [FLAGS]     funk run FILE fails, and its output contains the text
 #                                   after "-- expect: " on FILE's first line
 #   check.sh repl FILE              the REPL's output for FILE equals FILE without .in, .expected
@@ -101,6 +105,20 @@ run)
   *) fail "unknown mode $mode" ;;
   esac
   same "$base.expected" "$tmp/out" ;;
+kernels)
+  f=$1 host=$2
+  "$FUNK" emit-c --kernels "$f" -o "$tmp/k.c" 2>"$tmp/cc" || fail "funk emit-c --kernels" "$tmp/cc"
+  undef=-Wl,--no-undefined dl=-ldl # a runtime symbol left in a kernel fails the link
+  [ "$(uname)" = Darwin ] && undef= dl= # its linker rejects undefined symbols by default
+  ${CC:-cc} -O2 -fPIC -shared -Wall -Wextra -Wno-unused-parameter -Werror $undef -o "$tmp/k.so" "$tmp/k.c" >"$tmp/cc" 2>&1 ||
+    fail "the kernels' C" "$tmp/cc"
+  # an address added through integers loses provenance, and clang stops vectorizing
+  sed -n '/---- generated kernels ----/,$p' "$tmp/k.c" | grep -n 'uintptr_t)' >"$tmp/casts" && fail "an address computed through uintptr_t" "$tmp/casts"
+  nm -g "$tmp/k.so" | awk '$2 ~ /^[TDBSR]$/ {print $3}' | sed 's/^_//' | grep '^fk_' >"$tmp/syms" && fail "runtime names exported" "$tmp/syms"
+  # shellcheck disable=SC2086
+  ${CC:-cc} -O2 -o "$tmp/host" "$host" $dl >"$tmp/cc" 2>&1 || fail "$host" "$tmp/cc"
+  "$tmp/host" "$tmp/k.so" >"$tmp/out" 2>&1
+  same "${f%.fk}.expected" "$tmp/out" ;;
 error)
   f=$1
   shift

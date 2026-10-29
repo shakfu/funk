@@ -209,7 +209,20 @@ Why the graph is in C memory, not funk's heap: exports may not use heap values, 
 
 What it needs:
 
-1. **Kernels without the runtime.** `funk emit-c` pastes the runtime, so a kernel loaded into an interpreting host brings a second copy. Code in the export subset uses little of it: `fk_ffi_enter` and `fk_snap_lo` around C imports (by code reading; unverified as a full list). Without the runtime's 6,000 lines, a kernel should compile near the glue's 87 ms (an estimate), not 1.03 s.
+1. **Kernels without the runtime.** Done, 2026-10-29: `funk emit-c --kernels FILE` writes FILE's exports and what they call, with `rt.h` but not `rt.c`; test `kernels/dsp`. Before, an export's code took a `self` closure from `G[]`, read field offsets from `G[]` entries set at startup, returned `()` as a runtime object, and called `fk_match_fail`. In a kernel, a foreign value such as a field offset is its C expression, a top-level value is its initializer, inlined, and the runtime's few names are hidden definitions. A top-level value an export reads must itself pass the export check, since nothing computes it at startup. The test links with undefined symbols rejected and checks that no `fk_` name is exported.
+
+   Results, four kernels (M1, Apple clang 21, `-O2`): `emit-c --kernels` takes 10 ms, and `cc -fPIC -shared` 70 ms on its 1,103 lines, against 57 ms for the same kernels written in C. The samples equal the hand-written C's bit for bit. Per 64-frame block, all four equal that C built with `-ffp-contract=off`, as does a voice whose state is a struct of two structs. Before `primByteAddr` and `primFieldAddr`, the state-variable filter was 1.34x, multiply 3.9x and the voice 2.6x: `peekByteOff` and `fieldPtr` added through `plusPtr`'s `uintptr_t`, whose lost provenance stops clang vectorizing. The test fails if generated kernels compute an address through `uintptr_t`. `plusPtr` itself keeps the integers, since `char *` arithmetic makes `plusPtr nullPtr 16` undefined behaviour (UBSan, `tests/run/array.fk`). With FP contraction, as clang's default, the C one-pole and filter are 1.4x faster again, from fused multiply-adds funk does not emit; they would change results against the interpreter.
+
+   Compile time, measured 2026-10-29 (M1, Apple clang 21, `cc -fPIC -shared`, median of 10). Four kernels: saw, multiply, one-pole, state-variable filter.
+
+   | Source | Lines | `-O0` | `-O1` | `-O2` |
+   |-|-|-|-|-|
+   | `funk emit-c` output, runtime pasted | 3,619 | 127 ms | 360 ms | 425 ms |
+   | The same without `rt.c`: `rt.h` and the program | 1,302 | 65 ms | 92 ms | 99 ms |
+   | `rt.h` alone | 533 | 53 ms | 53 ms | 53 ms |
+   | The kernels in hand-written C | 20 | 49 ms | 52 ms | 57 ms |
+
+   funk's own passes took 12 ms, and `dlopen` 0.2 ms. Of the hand-written floor, 22 ms is clang starting on an empty file and about 20 ms linking. So a kernel emitter reaches about 60-70 ms per edit through `$CC` at `-O2`; below that needs the compiler in-process, which is where LLVM would pay.
 
 2. **A C runner**, since funk cannot call through a `FunPtr`: it has `&cname` imports but no `"dynamic"` import. The alternative is a `"dynamic"` import that R4 allows.
 
@@ -225,7 +238,7 @@ Limits:
 
 - **Graph changes come at pattern rate**, from funk's thread, not at audio rate: enough for voices driven by MIDI or patterns.
 
-LLVM, as Faust uses it, stays a later option for kernels: only if compiling a kernel without the runtime through `$CC` proves too slow.
+LLVM, as Faust uses it, stays a later option for kernels: only if about 60 ms per kernel through `$CC` proves too slow.
 
 ## Comparison
 
