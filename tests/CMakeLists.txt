@@ -60,6 +60,29 @@ add_test(NAME hosts/voices
 set_tests_properties(hosts/voices PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 
 # libfunk.h from a host's C (docs/dev/embedding.md)
+# two plugins, each with libfunk inside and only plugin_run exported, loaded RTLD_LOCAL
+foreach(p a b)
+  add_library(embed_plugin_${p} MODULE embed/plugin.c)
+  target_link_libraries(embed_plugin_${p} PRIVATE libfunk)
+  if(APPLE)
+    target_link_options(embed_plugin_${p} PRIVATE -Wl,-exported_symbol,_plugin_run)
+  else()
+    target_link_options(embed_plugin_${p} PRIVATE -Wl,--exclude-libs,ALL)
+  endif()
+endforeach()
+# ... and one exporting what libfunk exports
+add_library(embed_exports MODULE embed/plugin.c)
+target_link_libraries(embed_exports PRIVATE libfunk)
+funk_test(embed/exports embed exports $<TARGET_FILE:embed_exports>)
+add_executable(embed_plugins embed/plugins.c)
+target_link_libraries(embed_plugins PRIVATE ${CMAKE_DL_LIBS})
+funk_test(embed/plugin "embed;ffi" plugins $<TARGET_FILE:embed_plugins> $<TARGET_FILE:embed_plugin_a> $<TARGET_FILE:embed_plugin_b>
+  tests/embed/plugin.fk -Itests/ffi -Itests/embed -L$<TARGET_FILE_DIR:fkt> -lfkt)
+# installed, then found by a host's CMake
+set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
+add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
+  ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
+set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
 foreach(n signals output interrupt memory)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)

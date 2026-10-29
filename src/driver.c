@@ -1,6 +1,7 @@
 /* driver.c -- the library's api (libfunk.h): the prelude, files, the
    backends and REPL input, over the passes in funk.h. */
 #define _DEFAULT_SOURCE
+#include <ctype.h>
 #include <unistd.h>
 
 #include "funk.h"
@@ -127,6 +128,14 @@ static void install_prelude(void) {
 }
 
 void funk_module_dir(const char *dir) { VPUSH(mod_dirs, dir); }
+
+bool funk_provide(const char *name, void *addr) {
+  bool ident = name && (isalpha((unsigned char)*name) || *name == '_');
+  for (const char *c = name; ident && *c; c++) ident = isalnum((unsigned char)*c) || *c == '_';
+  if (!ident || !addr) return false;
+  ffi_provide(name, addr);
+  return true;
+}
 
 static Exports *prepare(Module *m, const char *file, const char *prefix);
 

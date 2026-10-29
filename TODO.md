@@ -8,13 +8,13 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
-- [ ] **Shared-library output with hidden runtime symbols** (`funk build --shared`; [docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 5). `funk emit-c` pastes the runtime, so a compiled synth linked into a host that also embeds `libfunk` has two runtimes' symbols in one process, and two funk plugins in one DAW may resolve each other's `fk_cons`. `libfunk` also exports unprefixed names (`repr`, `lex`, `global_add`, `compile_chunk`): export only `funk_*` and the `fk_*` symbols the interpreter's glue needs, with `-fvisibility=hidden`; install the header and a CMake package. gh:1
-
 - [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Decide with the item above: recovery by `siglongjmp` is unsafe inside libc or the collector. gh:2
 
 - [ ] **Audio ports for the plugin.** `midi-langs`' CLAP framework handles note effects only. Decide whether it grows audio ports or funk gets a plugin of its own ([docs/dev/audio.md](docs/dev/audio.md#open-questions)). gh:3
 
 ## High
+
+- [x] **libfunk symbol isolation in plugin hosts** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 5). `libfunk` exports only `funk_*`; glue reaches the runtime, and a host's functions through `funk_provide`, without symbols. `funk build --shared` is deferred there. gh:1
 
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 

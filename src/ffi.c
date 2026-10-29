@@ -3,7 +3,7 @@
    wrappers; the interpreter compiles them with $CC into a shared library,
    cached by the hash of its source, and loads it. Both backends therefore
    run the same conversions. */
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE /* dladdr */
 #include <dirent.h>
 #include <limits.h>
 #include <dlfcn.h>
@@ -91,6 +91,8 @@ static const char *box(Type *t, const char *x) {
   }
 }
 
+#define FFI_EXPORTED "__attribute__((visibility(\"default\"))) " /* found by dlsym in glue built with -fvisibility=hidden */
+
 /* A trampoline: the C function behind a "callback" or "queue" import, and
    the wrapper that gives its address. Its first parameter is the context,
    a StablePtr to the funk closure, which takes the other arguments, or ()
@@ -152,7 +154,7 @@ static void trampoline(SB *b, ForeignDecl *f, bool exported) {
     if (rk == 'v') sb_puts(b, "  (void)r;\n}\n");
     else sb_printf(b, "  return %s;\n}\n", unbox(r, "r"));
   }
-  sb_printf(b, "%sV fk_ffi_%d(V self, V *a) { (void)self; (void)a; return fk_ptr((void *)fk_cb_%d); }\n", exported ? "" : "static ", id, id);
+  sb_printf(b, "%sV fk_ffi_%d(V self, V *a) { (void)self; (void)a; return fk_ptr((void *)fk_cb_%d); }\n", exported ? FFI_EXPORTED : "static ", id, id);
 }
 
 /* One wrapper per import. Arguments are locals of their declared C types,
@@ -215,7 +217,7 @@ char *ffi_glue(ForeignDecl **fs, int n, bool exported) {
     case 'p': sb_printf(&body, "  const void *r = %s; %s\n  fk_cb_check();\n  return fk_ptr((void *)r);\n", call.s, what); break;
     default: sb_printf(&body, "  %s r = %s; %s\n  fk_cb_check();\n  return %s;\n", ffi_param_type(t), call.s, what, box(t, "r"));
     }
-    sb_printf(&b, "%sV fk_ffi_%d(V self, V *a) {\n  (void)self; (void)a;\n%s%s}\n", exported ? "" : "static ", f->gidx,
+    sb_printf(&b, "%sV fk_ffi_%d(V self, V *a) {\n  (void)self; (void)a;\n%s%s}\n", exported ? FFI_EXPORTED : "static ", f->gidx,
               f->arity ? "  fk_ffi_enter();\n" : "", body.s);
   }
   sb_puts(&b, "#pragma GCC diagnostic pop\n");
@@ -282,11 +284,75 @@ static uint64_t hash_libraries(uint64_t h) {
   return h;
 }
 
+/* The runtime's names that loaded glue uses. It reaches them through
+   pointers that fk_glue_bind sets, not through symbols: a plugin that
+   embeds libfunk exports none, and with two such plugins in one process a
+   symbol would bind whichever runtime was loaded first. */
+#define GLUE_NAMES(X)                                                                                           \
+  X(fk_int64_box) X(fk_float) X(fk_ptr) X(fk_str) X(fk_cstr) X(fk_cstr_result) X(fk_apply) X(fk_stable_deref)   \
+  X(fk_error) X(fk_on_funk_thread) X(fk_callback_thread) X(fk_cb_rethrow) X(fk_snapshot_release)                \
+  X(fk_event_claim) X(fk_event_publish) X(fk_event_release) X(fk_event_copy) X(fk_event_uncopy)                 \
+  X(fk_true) X(fk_false) X(fk_unit) X(fk_cb_failed) X(fk_callback_depth) X(fk_snap_lo) X(fk_error_jmp)
+#define GLUE_NAME(n) #n,
+#define GLUE_ADDR(n) (void *)&n,
+static const char *const glue_names[] = {GLUE_NAMES(GLUE_NAME)};
+static void *const glue_addrs[] = {GLUE_NAMES(GLUE_ADDR)};
+enum { NGLUE = sizeof glue_names / sizeof glue_names[0] };
+
+/* The host's functions and variables, from funk_provide; reached as the
+   runtime's are. */
+static Strs host_names;
+static VEC(void *) host_addrs;
+
+void ffi_provide(const char *name, void *addr) {
+  for (int i = 0; i < host_names.n; i++)
+    if (!strcmp(host_names.a[i], name)) {
+      host_addrs.a[i] = addr;
+      return;
+    }
+  VPUSH(host_names, name);
+  VPUSH(host_addrs, addr);
+}
+
+/* Glue for ffi_load: each of glue_names, and each provided name an import
+   uses, is renamed before rt.h and the headers, so its declaration there
+   declares a pointer, set by fk_glue_bind. *addrs are the pointers' values. */
+static char *loaded_glue(ForeignDecl **fs, int n, void ***addrs) {
+  Strs names = {0}, vars = {0};
+  VEC(void *) as = {0};
+  for (int i = 0; i < NGLUE; i++) {
+    VPUSH(names, glue_names[i]);
+    VPUSH(vars, xsprintf("fk_glue_%s", glue_names[i] + 3));
+    VPUSH(as, glue_addrs[i]);
+  }
+  for (int i = 0; i < host_names.n; i++) {
+    bool used = false;
+    for (int j = 0; j < n && !used; j++) used = !strcmp(fs[j]->cname, host_names.a[i]);
+    if (!used) continue; /* its header may not be included */
+    VPUSH(names, host_names.a[i]);
+    VPUSH(vars, xsprintf("fk_host_%s", host_names.a[i]));
+    VPUSH(as, host_addrs.a[i]);
+  }
+  SB b = {0};
+  for (int i = 0; i < names.n; i++) sb_printf(&b, "#define %s (*%s)\n", names.a[i], vars.a[i]);
+  sb_puts(&b, fk_rth_src);
+  sb_puts(&b, ffi_glue(fs, n, true));
+  for (int i = 0; i < names.n; i++) sb_printf(&b, "__typeof__(%s) %s;\n", vars.a[i], vars.a[i]);
+  sb_puts(&b, "__attribute__((visibility(\"default\"))) void fk_glue_bind(void *const *a) {\n");
+  for (int i = 0; i < names.n; i++) sb_printf(&b, "  %s = (__typeof__(%s))a[%d];\n", vars.a[i], vars.a[i], i);
+  sb_puts(&b, "}\n");
+  *addrs = as.a;
+  return b.s;
+}
+
 void ffi_load(ForeignDecl **fs, int n) {
   if (!n) return;
   Argv argv = cc_argv();
-  char *src = xsprintf("%s%s", fk_rth_src, ffi_glue(fs, n, true));
+  void **addrs;
+  char *src = loaded_glue(fs, n, &addrs);
   uint64_t h = hash(14695981039346656037ULL, src); /* the compiler and libraries too, below */
+  Dl_info self; /* two plugins loading one file would share one image, bound to one runtime */
+  if (dladdr((void *)ffi_load, &self) && self.dli_fname) h = hash(h, self.dli_fname);
   for (int i = 0; i < argv.n; i++) h = hash(h, argv.a[i]);
   for (int i = 0; i < ffi_libs.n; i++) h = hash(h, ffi_libs.a[i]);
   for (int i = 0; i < ffi_cc_args.n; i++) h = hash(h, ffi_cc_args.a[i]);
@@ -302,9 +368,9 @@ void ffi_load(ForeignDecl **fs, int n) {
     if (!f) fk_error("cannot write %s", c);
     fputs(src, f);
     fclose(f);
-    const char *fixed[] = {"-O2", "-shared", "-fPIC",
+    const char *fixed[] = {"-O2", "-shared", "-fPIC", "-fvisibility=hidden",
 #ifdef __APPLE__
-                           "-undefined", "dynamic_lookup", /* the runtime's functions come from funk itself */
+                           "-undefined", "dynamic_lookup", /* a host's functions it did not give to funk_provide */
 #endif
                            "-o", tmp, c, "-MD", "-MF", xsprintf("%s.d", so)};
     for (size_t i = 0; i < sizeof fixed / sizeof fixed[0]; i++) VPUSH(argv, (char *)fixed[i]);
@@ -324,6 +390,9 @@ void ffi_load(ForeignDecl **fs, int n) {
   }
   void *lib = dlopen(so, RTLD_NOW | RTLD_LOCAL);
   if (!lib) fk_error("cannot load foreign imports: %s", dlerror());
+  void (*bind)(void *const *) = (void (*)(void *const *))dlsym(lib, "fk_glue_bind");
+  if (!bind) fk_error("cannot load foreign imports: no fk_glue_bind in %s", so);
+  bind(addrs);
   for (int i = 0; i < n; i++) {
     char *sym = xsprintf("fk_ffi_%d", fs[i]->gidx);
     fs[i]->code = (FkCode)dlsym(lib, sym);

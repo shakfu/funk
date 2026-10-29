@@ -29,6 +29,12 @@
 #   check.sh repl FILE              the REPL's output for FILE equals FILE without .in, .expected
 #   check.sh cli STATUS OUTPUT ARGS funk ARGS exits with STATUS, and prints OUTPUT first
 #                                   unless OUTPUT is -
+#   check.sh plugins LOADER A B FILE [ARGS]
+#                                   LOADER runs FILE in the modules A and B, which embed
+#                                   libfunk and export only plugin_run, and prints
+#                                   FILE.expected; each module compiles its own glue
+#   check.sh exports BIN            BIN, a module linking libfunk, exports no name but
+#                                   funk_*, plugin_run and the toolchain's _ names
 cd "$(dirname "$0")/.." || exit 1
 : "${FUNK:?FUNK must name the funk binary}"
 tmp=$(mktemp -d) || exit 1
@@ -59,7 +65,11 @@ run)
     prev=$a
   done
   case $mode in
-  interp) "$FUNK" run "$f" "$@" <"$in" >"$tmp/out" 2>&1 ;;
+  interp)
+    "$FUNK" run "$f" "$@" <"$in" >"$tmp/out" 2>&1
+    # loaded glue reaches the runtime through pointers, not symbols (ffi.c, GLUE_NAMES)
+    for so in "$tmp"/cache/funk/ffi/*.so; do [ -f "$so" ] && nm -u "$so" | grep 'fk_'; done >"$tmp/syms"
+    [ -s "$tmp/syms" ] && fail "foreign-import glue imports runtime symbols" "$tmp/syms" ;;
   stress-interp) FUNK_GCSTRESS=1 "$FUNK" run "$f" "$@" <"$in" >"$tmp/out" 2>&1 ;;
   compiled) build "$@" && "$tmp/exe" <"$in" >"$tmp/out" 2>&1 ;;
   stress-compiled) build "$@" && FUNK_GCSTRESS=1 "$tmp/exe" <"$in" >"$tmp/out" 2>&1 ;;
@@ -156,5 +166,16 @@ cli)
   got=$?
   [ "$got" -eq "$want" ] || { echo "exit $got, wanted $want" >>"$tmp/out"; fail "funk $*" "$tmp/out"; }
   [ "$out" = - ] || [ "$(head -n 1 "$tmp/out")" = "$out" ] || fail "funk $*: first line, wanted $out" "$tmp/out" ;;
+plugins)
+  loader=$1
+  shift
+  "$loader" "$@" >"$tmp/out" 2>&1
+  same "${3%.fk}.expected" "$tmp/out"
+  n=$(ls "$tmp"/cache/funk/ffi/*.so 2>/dev/null | wc -l)
+  [ "$n" -eq 2 ] || fail "$n glue libraries, wanted one per module" ;;
+exports)
+  if nm -g "$1" | awk '$2 ~ /^[TDBSR]$/ {print $3}' | sed 's/^_//' | grep -Ev '^(_|funk_|plugin_run$)' >"$tmp/syms"; then
+    fail "names exported besides funk_*" "$tmp/syms"
+  fi ;;
 *) fail "unknown kind $kind" ;;
 esac

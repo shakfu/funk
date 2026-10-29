@@ -648,9 +648,18 @@ static void on_interrupt(int sig) {
 
 typedef struct { const char *lib, *file, *script, *kernels; } Opts;
 
+/* graph.fk's imports: this program's functions, given to funk rather than
+   exported, as a plugin must */
+#define GRAPH_FUNCTIONS(X)                                                                                     \
+  X(funk_graph_new) X(funk_graph_add) X(funk_graph_control) X(funk_graph_name) X(funk_graph_output)            \
+  X(funk_player_new) X(funk_player_send) X(funk_player_frames) X(funk_player_play)                            \
+  X(funk_player_render_channels) X(funk_player_free)
+#define PROVIDE(f) funk_provide(#f, (void *)f);
+
 static int run(void *arg) {
   Opts *o = arg;
-  const char *cc_args[] = {"-I", FUNK_GRAPH_INCLUDE}; /* graph.fk's imports; their functions are this program's */
+  const char *cc_args[] = {"-I", FUNK_GRAPH_INCLUDE}; /* graph.h, for graph.fk's imports */
+  if (audio) { GRAPH_FUNCTIONS(PROVIDE) }
   if (!funk_init(audio ? cc_args : NULL, audio ? 2 : 0)) return 1;
   funk_module_dir(o->lib);
   if (!eval("import pattern as p") || !eval("import midi as m")) return 1;

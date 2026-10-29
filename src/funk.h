@@ -459,6 +459,7 @@ extern const char fk_rth_src[]; /* rt.h, for the interpreter's foreign glue */
 /* ffi.c: foreign imports */
 char *ffi_glue(ForeignDecl **fs, int n, bool exported); /* the C wrappers fk_ffi_GIDX */
 char *ffi_headers(ForeignDecl **fs, int n);             /* their #includes and foreign struct definitions */
+void ffi_provide(const char *name, void *addr);          /* libfunk.h, funk_provide */
 const char *ffi_param_type(Type *t);                    /* NULL if t cannot be passed to C */
 int ffi_kind(Type *t);                                  /* 'i' held as Int, 'f' as Float, 'c', 'b', 'v' (); 0 */
 const char *cgen_alloc_free(Lambda *L);                 /* NULL, or why compiled L may allocate, with where */

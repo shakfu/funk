@@ -40,7 +40,14 @@ Needed by every host, whatever follows.
 
 4. **Memory sizes.** Done, 2026-10-28: `funk_memory(heap, threshold, stack)` before `funk_main`; test `embed/memory`. The threshold stays at most a quarter of the heap's limit. Empty chunks are reusable by any size class; those beyond the threshold go back to the system, and after "out of memory" a full collection runs at once, so the heap falls back. In the CLAP plugin, a 512 MiB limit reached left the host at 217 MiB, against 589 MiB before.
 
-5. **Shared-library output** (`funk build --shared`), with runtime symbols hidden. Otherwise two funk-built plugins may resolve each other's `fk_cons` and `fk_true`. Inferred from the `extern` declarations in `rt.h`; untested.
+5. **Symbol isolation.** Done, 2026-10-29, but for `funk build --shared`:
+   - `libfunk` is built with `-fvisibility=hidden` and exports only `libfunk.h`'s `funk_*` (test `embed/exports`). `make install` installs `libfunk.a`, `libfunk.h` and a CMake package, `find_package(funk)` giving `funk::libfunk` (test `embed/package`).
+
+   - Foreign-import glue reaches the runtime through pointers that `ffi_load` sets after loading it, not through symbols (`GLUE_NAMES` in `ffi.c`; test `embed/plugin`). Measured on macOS before the change, with two modules each embedding `libfunk`: loaded `RTLD_LOCAL`, or exporting only an entry point as a CLAP plugin does, glue failed to load (`symbol not found in flat namespace`); loaded `RTLD_GLOBAL`, the second module's glue bound the first's runtime. The glue's cache key includes the path of the image that loads it, since two plugins loading one file would share one image and one set of pointers.
+
+   - A host's own functions and variables reach imports the same way, through `funk_provide` (test `embed/plugin`, with a `static` function). `funk-midi` provides `funkgraph`'s functions to `lib/graph.fk`'s imports, and no longer exports its symbols.
+
+   - **`funk build --shared`**, a library with its own private runtime. Deferred: `funk emit-c --kernels` covers a compiled synth inside an interpreting host ([audio.md](audio.md), D) without a second runtime. A full runtime per library needs an entry point that starts its thread, 64 GiB of address space and a 4 GiB stack each, and a decision on item 2.
 
 6. **Interrupts.** Done, 2026-10-28: `funk_interrupt`; test `embed/interrupt`. Needed for a host's Stop; not in the first list.
 
@@ -66,7 +73,7 @@ Move the runtime's globals into a `Runtime` struct and the compiler's into a `Co
 
 - **Needed when** instances need independent collector pauses, or a host runs funk on several threads in parallel.
 
-- **Partly covered by phase 0 item 5:** each funk-built `.so` has its own private runtime, which covers two different funk plugins in one DAW.
+- **Partly covered by `funk build --shared`** (phase 0 item 5, deferred): each funk-built `.so` would have its own private runtime, which covers two different funk plugins in one DAW.
 
 ## Unchecked
 

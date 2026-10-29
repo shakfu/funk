@@ -13,6 +13,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#pragma GCC visibility push(default) /* libfunk hides everything else */
+
 const char *funk_version(void);
 
 /* Before funk_main: the heap's limit, beyond which allocation is the
@@ -40,6 +42,13 @@ bool funk_init(const char *const *cc_args, int ncc_args);
    directory; in the order given (modules.md). The string must outlive
    the session. */
 void funk_module_dir(const char *dir);
+
+/* Foreign imports of the C name `name`, a function or variable, use addr
+   rather than a symbol of the process, which a plugin does not export.
+   The import's header still declares it. Before the code that imports it
+   loads; the string must outlive the session. False if name is not a C
+   identifier or addr is NULL. */
+bool funk_provide(const char *name, void *addr);
 
 /* Parse and type-check path, running nothing; it need not define `main`. */
 bool funk_check_file(const char *path);
@@ -87,5 +96,7 @@ bool funk_call(const char *name, int n, const long *args, long *result);
 /* The type of the expression src, named name in messages; the caller
    frees it. NULL on error. */
 char *funk_type_of(const char *src, const char *name);
+
+#pragma GCC visibility pop
 
 #endif

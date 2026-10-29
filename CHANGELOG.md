@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `funk_provide(name, addr)` in `libfunk.h`: foreign imports of the C name `name` use the host's function or variable at `addr`. They found a host's functions as symbols of the process, which a plugin does not export. `funk-midi` provides `funkgraph`'s functions this way, and no longer exports its symbols.
+
+- `make install` installs `libfunk.a`, `libfunk.h` and a CMake package: `find_package(funk)` gives `funk::libfunk`. The version must match exactly, since `libfunk.h` has no stability promise between releases.
+
 - `lib/pattern.fk`, a pattern library imported with `-M lib` ([docs/dev/patterns.md](docs/dev/patterns.md)). A pattern is a query from a span of time to the events overlapping it, as in Tidal. Time is in integer ticks, 720720 per cycle, rather than rationals: arithmetic stays in `Int`, and subdivisions up to 16 are exact. `sampleEvents`, `pushOnsets` and `writeEvents` turn a block of samples into events for an export's ring or a host's buffer.
 
 - `funk_call` in `libfunk.h`: calls a global from `Int`s to `Int` without compiling. A host that called `funk_eval` once per audio window grew by about 16 KB per call, since every REPL input stays compiled; `funk_call` allocates nothing in the compiler.
@@ -41,9 +45,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `libfunk` exports only `funk_*`; it is built with `-fvisibility=hidden` and position-independent. It exported its compiler's and runtime's internals too (`repr`, `lex`, `globals`, `fk_cons`), which a plugin host or a second plugin in the same process could bind to.
+
 - `peekByteOff` and `pokeByteOff`, and so `readArray`, `readField` and their kin, compute the address as `char *` arithmetic rather than through `plusPtr`'s integers. The cast lost the pointer's provenance, and clang did not vectorize: a kernel multiplying two buffers ran 3.9x hand-written C, a state-variable filter 1.34x; both now equal it. `fieldPtr` does the same unless its pointer is null, where it still gives the offset: a kernel whose state is a struct of two structs went from 2.6x C to 1.0x. `plusPtr` keeps the integers, since `plusPtr nullPtr 16` must stay defined. The Benchmarks Game is unchanged (+0.1%, interleaved A/B).
 
 ### Fixed
+
+- Foreign imports inside a plugin that embeds `libfunk`. The interpreter's glue found the runtime's functions as symbols of the process, so in a module that exports only its entry point, or one loaded `RTLD_LOCAL`, it failed to load; with two such modules loaded `RTLD_GLOBAL`, the second's glue called the first's runtime. Glue now reaches the runtime through pointers set when it is loaded, and each loading image compiles its own glue.
 
 - funk's `SIGSEGV` and `SIGBUS` handler passes faults that are not its own to the handler installed before it. It reset them to the default action, so in an embedding host a fault the host would have handled, such as on its own guard page, ended the process. When `funk_main` returns, the handlers it replaced are installed again, so a plugin that is then unloaded leaves none pointing into it.
 

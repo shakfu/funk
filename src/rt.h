@@ -76,7 +76,7 @@ V fk_cstr_result(const void *p, const char *fn); /* a C string copied into a Str
 /* Callbacks (ffi.md, phase 3) */
 V fk_stable_deref(void *p);
 bool fk_on_funk_thread(void);
-_Noreturn void fk_callback_thread(const char *name);
+__attribute__((noreturn)) void fk_callback_thread(const char *name); /* not _Noreturn: glue renames it to a pointer (ffi.c, GLUE_NAMES) */
 extern int fk_cb_failed; /* a direct callback failed; its message is printed */
 extern int fk_callback_depth; /* direct callbacks running, for the collector's stack snapshot */
 extern char *fk_snap_lo;
@@ -86,7 +86,7 @@ static inline __attribute__((unused)) void fk_ffi_enter(void) { /* also on an ex
   char *lo = __atomic_load_n(&fk_snap_lo, __ATOMIC_RELAXED);
   if (lo && (char *)__builtin_frame_address(0) > lo) fk_snapshot_release((char *)__builtin_frame_address(0));
 }
-_Noreturn void fk_cb_rethrow(void);
+__attribute__((noreturn)) void fk_cb_rethrow(void);
 bool fk_on_funk_thread(void);
 /* the failure is funk's thread's: an export on another thread leaves it */
 static inline __attribute__((unused)) void fk_cb_check(void) { if (fk_cb_failed && fk_on_funk_thread()) fk_cb_rethrow(); }
@@ -323,7 +323,7 @@ int fk_compare(V a, V b);
 int fk_num_eq_int(V v, long long i);
 
 extern jmp_buf *fk_error_jmp;
-_Noreturn void fk_error(const char *fmt, ...);
+__attribute__((noreturn)) void fk_error(const char *fmt, ...);
 /* An error funk cannot recover from: fk_fatal_hook (libfunk.h, funk_on_fatal) runs, then the process exits. */
 extern void (*fk_fatal_hook)(void *ctx, const char *msg);
 extern void *fk_fatal_ctx;

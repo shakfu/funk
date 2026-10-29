@@ -31,13 +31,17 @@ add_custom_command(
   VERBATIM)
 
 # libfunk: the compiler, interpreter, C backend and runtime, with the api
-# in src/libfunk.h. Internal and static; the command line links it.
+# in src/libfunk.h. Static; the command line links it, and so may a host.
+# It exports only libfunk.h's funk_*; position-independent, for hosts that
+# are plugins.
 add_library(libfunk STATIC
   src/driver.c src/util.c src/lex.c src/parse.c src/check.c src/elab.c src/fuse.c
   src/resolve.c src/qualify.c src/interp.c src/cgen.c src/ffi.c src/rt.c
   ${CMAKE_CURRENT_BINARY_DIR}/embedded.c)
-set_target_properties(libfunk PROPERTIES OUTPUT_NAME funk)
-target_include_directories(libfunk INTERFACE src)
+set_target_properties(libfunk PROPERTIES OUTPUT_NAME funk C_VISIBILITY_PRESET hidden
+  POSITION_INDEPENDENT_CODE ON PUBLIC_HEADER src/libfunk.h)
+target_include_directories(libfunk INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<INSTALL_INTERFACE:include>)
 target_compile_definitions(libfunk PRIVATE FUNK_VERSION="${PROJECT_VERSION}")
 target_compile_options(libfunk PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(libfunk PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
@@ -45,7 +49,6 @@ target_link_libraries(libfunk PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
 add_executable(funk cli/main.c)
 target_compile_options(funk PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(funk PRIVATE libfunk)
-set_target_properties(funk PROPERTIES ENABLE_EXPORTS ON) # the interpreter's foreign glue calls the runtime
 
 # the reload threshold of docs/dev/patterns.md, over libfunk.h; a test runs it
 add_executable(reload bench/reload.c)
@@ -83,7 +86,6 @@ target_compile_options(funk-midi PRIVATE -Wall -Wextra)
 target_compile_definitions(funk-midi PRIVATE FUNK_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/lib"
   FUNK_DSP_LIB="${FUNK_DSP_LIB}" FUNK_GRAPH_INCLUDE="${CMAKE_CURRENT_SOURCE_DIR}/hosts/graph")
 target_link_libraries(funk-midi PRIVATE libfunk funkgraph)
-set_target_properties(funk-midi PROPERTIES ENABLE_EXPORTS ON) # graph.fk's glue calls the runtime and funkgraph
 add_dependencies(funk-midi funkdsp)
 if(FUNK_MINIAUDIO_DIR)
   target_sources(funk-midi PRIVATE hosts/midi/miniaudio.c)
@@ -112,12 +114,19 @@ if(FUNK_SANITIZE)
   foreach(t funk reload funk-midi)
     target_link_options(${t} PRIVATE -fsanitize=${FUNK_SANITIZE})
   endforeach()
+  target_link_options(libfunk INTERFACE -fsanitize=${FUNK_SANITIZE}) # for hosts, the installed package's too
 endif()
 
 # Included by another project (midi-langs' funk-midi plugin), funk adds its
 # targets only: not its install rule or its tests.
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   install(TARGETS funk RUNTIME DESTINATION bin)
+  # find_package(funk) gives funk::libfunk
+  install(TARGETS libfunk EXPORT funkTargets ARCHIVE DESTINATION lib PUBLIC_HEADER DESTINATION include)
+  install(EXPORT funkTargets NAMESPACE funk:: DESTINATION lib/cmake/funk)
+  include(CMakePackageConfigHelpers)
+  write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/funkConfigVersion.cmake COMPATIBILITY ExactVersion)
+  install(FILES cmake/funkConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/funkConfigVersion.cmake DESTINATION lib/cmake/funk)
   enable_testing()
   add_subdirectory(tests)
 endif()

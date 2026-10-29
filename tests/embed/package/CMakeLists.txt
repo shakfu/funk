@@ -1,0 +1,6 @@
+# A host built against an installed funk, through find_package (embed/package)
+cmake_minimum_required(VERSION 3.20)
+project(package C)
+find_package(funk ${FUNK_VERSION} EXACT REQUIRED)
+add_executable(host host.c)
+target_link_libraries(host PRIVATE funk::libfunk)

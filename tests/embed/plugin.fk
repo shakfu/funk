@@ -1,0 +1,17 @@
+-- Run in two plugins by tests/embed/plugins.c, with tests/ffi/fkt.h. A large
+-- Int and a String allocate through the glue, and a direct callback checks it
+-- runs on funk's thread: each only in the runtime the glue was bound to.
+-- plugin_twice is a static function of the plugin, given to funk_provide.
+foreign import ccall "stdlib.h getenv" getenv :: String ->> String
+foreign import ccall "stdlib.h llabs" llabs :: CLLong -> CLLong
+foreign import ccall "plugin.h plugin_twice" twice :: CLong -> CLong
+foreign import ccall "fkt.h fkt_each" each :: CInt -> Ptr () -> FunPtr (Ptr () -> CInt ->> ()) ->> ()
+foreign import ccall "callback" eachCb :: FunPtr (Ptr () -> CInt ->> ())
+
+main = do
+  putStrLn (getenv "PLUGIN")
+  print (llabs (0 - 9000000000000000000))
+  print (twice 21)
+  sp <- newStablePtr (\i -> print (i * i))
+  each 3 (castStablePtrToPtr sp) eachCb
+  freeStablePtr sp
