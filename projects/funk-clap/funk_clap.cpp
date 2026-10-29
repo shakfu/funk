@@ -160,7 +160,7 @@ private:
 		const std::string base = x && *x ? x : std::string(home && *home ? home : "/tmp") + "/.cache";
 		char name[32];
 		snprintf(name, sizeof name, "%016llx", (unsigned long long)h);
-		const std::string dir = base + "/funk/plugin/" + name + std::to_string(getpid());
+		const std::string dir = base + "/funk/plugin/" + name;
 		for (const std::string& d : {base, base + "/funk", base + "/funk/plugin", dir})
 			if (mkdir(d.c_str(), 0755) != 0 && errno != EEXIST) return "";
 		return dir;

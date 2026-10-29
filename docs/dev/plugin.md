@@ -172,6 +172,24 @@ Steps, all done:
 
 - **Test**: `tests/hosts/clap`'s `[audio]` case. A clip's note sounds from frame 0 to its note-off at frame 24000, 448 frames into a block.
 
+## Glue without a compiler at load
+
+Glue is the C that `ffi_load` writes for a module's `foreign import`s: one wrapper per import, which unboxes the arguments, calls the C function and boxes its result. It is compiled with `$CC`, loaded with `dlopen`, and cached in `~/.cache/funk/ffi` by a hash of its source, the loading binary's path, the compiler arguments and the libraries. The kernels need none: they are compiled when the plugin is built. graph.fk's 14 imports need it: 782 lines, about 70 ms to compile, 51 KB.
+
+Fixed, 2026-10-30: the plugin wrote its modules to a new `mkdtemp` directory on each load, which its `-I` names, so the cache key changed and every load compiled the glue again. They go to `$XDG_CACHE_HOME/funk/plugin/<hash of the files>`, kept across loads and written only when missing, so `graph.h`'s time never makes cached glue stale. `tests/hosts/clap/cache` loads the plugin twice: one glue library. A first load still needs `$CC`.
+
+Options to need no compiler at all:
+
+1. **Glue compiled when the plugin is built** (recommended). The build emits the glue for the embedded modules and links it in; libfunk looks it up before compiling. Needs in `ffi.c`:
+   - wrapper names independent of load order: they are numbered by the import's slot in the global table (`fk_ffi_%d` of `gidx`), which depends on what was loaded before;
+   - a key without the loading binary's path and the compiler arguments, which differ between the build and the load;
+   - a call to register linked-in glue, such as `funk_glue(key, bind, wrappers)`.
+
+   It serves any module with imports, and graph.fk keeps one path. User code with its own imports still needs `$CC`.
+2. **Graphs without foreign imports.** `g.play` pokes the graph into a host's buffer, as `pattern.writeEvents` writes events (`lib/pattern.fk:122`); the host builds it with `dlsym` and `funk_graph_add`. No glue, no libfunk change; kernel names must be encoded, `g.send` too, and graph.fk gets a second backend.
+3. **Vendored libffi**: calls built at run time, for every host. A second calling path beside the glue, closures for callbacks, a new dependency.
+4. **funkgraph's functions as libfunk primitives.** Rejected: ties the language to one library.
+
 ## Open questions
 
 1. Does the plugin take note input from the DAW, as an instrument? Its notes could reach the same voice pool through `funk_player_send_audio`.

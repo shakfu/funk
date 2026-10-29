@@ -14,7 +14,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Run the plugin in a DAW, and listen to it; only the test host has run it.
 
-- [ ] The plugin compiles graph.fk's imports with `$CC` at load. A DAW's process may lack a compiler or be sandboxed; then the output is silent. Compile the glue into the plugin when it is built.
+- [ ] The plugin compiles graph.fk's imports with `$CC` at its first load. A DAW's process may lack a compiler or be sandboxed; then the output is silent. Compile the glue into the plugin when it is built: option 1 in [docs/dev/plugin.md](docs/dev/plugin.md#glue-without-a-compiler-at-load).
 
 - [ ] A live evaluation compiled in more than the 50 ms lookahead starts its first note late, at a block's start: `tests/hosts/clap`'s real-time check failed 3 runs in 12 under `ctest -j 10`, and now runs serially.
 
