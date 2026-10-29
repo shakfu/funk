@@ -10,7 +10,7 @@ Status: phases 1 (scalars, libm), 2 (strings, pointers, sqlite3) and 3 (callback
 
 ## Today
 
-Primitives are fixed: `src/prims.def` lists them, `rt.c` implements them, and both backends call them. `funk build` runs `$CC` with fixed flags (`-O2 -lm -lpthread`), so a program cannot add a library. The interpreter has no way to load one.
+Primitives are fixed: `projects/funk/src/prims.def` lists them, `rt.c` implements them, and both backends call them. `funk build` runs `$CC` with fixed flags (`-O2 -lm -lpthread`), so a program cannot add a library. The interpreter has no way to load one.
 
 ## Designs
 

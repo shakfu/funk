@@ -56,7 +56,7 @@ pan :: g.Sig -> g.Sig -> g.Sig
 pan pos x = x * stereo ((1 - pos) * dc 0.5) ((1 + pos) * dc 0.5)
 
 -- n voices of f gate freq, summed; voice k reads the controls "vk.gate"
--- and "vk.freq", which hosts/midi sends from pat's notes
+-- and "vk.freq", which projects/funk-midi sends from pat's notes
 poly :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
 poly n f = case map (\k -> f (g.control ("v" ++ show k ++ ".gate") 0.0) (g.control ("v" ++ show k ++ ".freq") 440.0)) (enumFromTo 1 n) of
   [] -> g.Silence

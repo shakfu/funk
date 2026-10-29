@@ -1,4 +1,4 @@
--- prelude.fk -- compiled before every program. Primitives live in src/prims.def.
+-- prelude.fk -- compiled before every program. Primitives live in projects/funk/src/prims.def.
 -- Instances for Bool, () and tuples are generated (builtin_instances_src).
 
 -- classes

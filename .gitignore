@@ -60,7 +60,6 @@ dkms.conf
 
 # funk build outputs
 /build/
-/build-*/
 /funk
 
 # macOS Finder metadata

@@ -6,7 +6,7 @@ Status: scope, 2026-10-27, of funk 0.6.0. Hosts: Max, Pure Data, VST3/AU/CLAP pl
 
 ## What is global today
 
-Writable file-scope symbols, counted with `nm` on `build/CMakeFiles/libfunk.dir/src/*.o`. A vector appears as three symbols, so counts are approximate.
+Writable file-scope symbols, counted with `nm` on `build/projects/funk/CMakeFiles/libfunk.dir/src/*.o`. A vector appears as three symbols, so counts are approximate.
 
 | Layer | Files | Writable globals | Holds |
 |-|-|-|-|
@@ -15,13 +15,13 @@ Writable file-scope symbols, counted with `nm` on `build/CMakeFiles/libfunk.dir/
 
 Process-wide resources outside those globals:
 
-- `task_main` installs `SIGSEGV` and `SIGBUS` handlers (`src/rt.c`), used by the stack snapshot's write barrier and the stack guard.
+- `task_main` installs `SIGSEGV` and `SIGBUS` handlers (`projects/funk/src/rt.c`), used by the stack snapshot's write barrier and the stack guard.
 
 - `fk_run` reserves a 4 GiB stack and starts its own thread. `heap_reserve` claims 64 GiB of address space; `gc_min` is 128 MiB.
 
 - 17 calls to `exit()`: 13 in `rt.c`, 4 in `util.c`. Stack overflow calls `_exit(1)`.
 
-- `funk_build` writes executables only. `-shared` is used only for foreign-import glue (`src/ffi.c`).
+- `funk_build` writes executables only. `-shared` is used only for foreign-import glue (`projects/funk/src/ffi.c`).
 
 Real-time exports already support many instances: they do not touch the heap, and state arrives through a `Ptr` argument ([realtime.md](realtime.md), R4). The blocked part is funk's own thread: patterns, reload, control.
 

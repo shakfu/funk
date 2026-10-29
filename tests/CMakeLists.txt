@@ -43,7 +43,7 @@ endforeach()
 add_test(NAME lib/reload COMMAND reload ${PROJECT_SOURCE_DIR}/lib 4000)
 set_tests_properties(lib/reload PROPERTIES LABELS lib TIMEOUT 300)
 
-# funk-midi on a virtual clock, printing its messages (hosts/midi/main.c)
+# funk-midi on a virtual clock, printing its messages (projects/funk-midi)
 add_test(NAME hosts/midi
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
@@ -202,11 +202,11 @@ if(HAVE_TSAN)
 endif()
 # exports without the runtime, loaded by a C host (docs/dev/audio.md, D)
 funk_test(kernels/chain "ffi;kernels" kernels tests/kernels/chain.fk tests/kernels/host.c)
-# ... run as a graph by hosts/graph, swapped while an audio thread renders
-set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c hosts/graph/graph.c -Ihosts/graph -lpthread -lm)
+# ... run as a graph by projects/funkgraph, swapped while an audio thread renders
+set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c projects/funkgraph/graph.c -Iprojects/funkgraph -lpthread -lm)
 funk_test(kernels/graph "ffi;kernels" ${GRAPH})
 # ... built from funk by lib/graph.fk
-set(FUNKGRAPH -M lib -I hosts/graph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
+set(FUNKGRAPH -M lib -I projects/funkgraph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
 funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/chain.fk tests/kernels/build.fk ${FUNKGRAPH})
 funk_test(kernels/dupname "ffi;kernels;lib" error tests/kernels/dupname.fk ${FUNKGRAPH})
 funk_test(kernels/widths "ffi;kernels;lib" error tests/kernels/widths.fk ${FUNKGRAPH})

@@ -33,7 +33,7 @@ Building needs CMake 3.20 or later, a C11 compiler and pthreads. `make` drives C
 make                          # builds build/funk and links ./funk to it
 make test                     # interpreter, compiled, error, REPL and command-line tests
 make test ARGS="-R gcdeep"     # the tests whose names match; ARGS go to ctest (-L ffi for a label)
-make SANITIZE=undefined test  # the same, with funk built under UBSan in build-undefined/
+make SANITIZE=undefined test  # the same, with funk built under UBSan; build/ is rebuilt
 make bench                    # time funk against C; see bench/README.md
 make install PREFIX=~/.local  # install funk into PREFIX/bin
 ```

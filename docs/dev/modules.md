@@ -164,7 +164,7 @@ About 400 lines: parser 120, driver 100, scope and the name-splitting helper in 
 
 ## Phase 1 result
 
-Files, the search path, qualified imports and `as`, in `src/qualify.c` (234 lines), `parse.c`, `driver.c`, `check.c` and `cli/main.c` (264 lines). Tests: `tests/run/modules.fk` with its modules in `tests/run/modules/`, nine error tests (`tests/errors/mod_*.fk`), and `tests/repl/modules.in`.
+Files, the search path, qualified imports and `as`, in `projects/funk/src/qualify.c` (234 lines), `parse.c`, `driver.c`, `check.c` and `projects/funk/cli/main.c` (264 lines). Tests: `tests/run/modules.fk` with its modules in `tests/run/modules/`, nine error tests (`tests/errors/mod_*.fk`), and `tests/repl/modules.in`.
 
 It departs from the proposal in these points:
 

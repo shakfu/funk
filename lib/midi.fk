@@ -1,4 +1,4 @@
--- midi.fk -- MIDI values for the Pattern Int that hosts/midi plays
+-- midi.fk -- MIDI values for the Pattern Int that projects/funk-midi plays
 -- (docs/dev/patterns.md): note + 128 * velocity + 16384 * (channel - 1).
 -- A plain note number has velocity 0, which the host plays as 100, on
 -- channel 1. Out-of-range arguments are clamped, so a typo cannot stop

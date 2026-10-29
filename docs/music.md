@@ -7,18 +7,18 @@ A guide to funk's music library: `lib/pattern.fk`, `lib/midi.fk`, and the two pr
 - **`funk-midi`** is a REPL that plays a pattern to a MIDI port and replaces it live when you redefine it.
 - **The CLAP plugin**, in [midi-langs](https://github.com/shakfu/midi-langs) (`projects/funk-midi`), does the same inside a DAW, or in `midi-langs`' standalone host.
 
-funk makes no sound itself: the patterns drive an external synth over MIDI. Ways to add audio are sketched in [dev/audio.md](dev/audio.md).
+The patterns drive an external synth over MIDI. `funk-midi --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
 
 Every output below comes from `funk-midi --no-sleep`, at the default cycle of 2000 ms. Note-offs are left out.
 
 ## Quick start
 
-Build `funk-midi` with MIDI output. `FUNK_LIBREMIDI_DIR` is a libremidi source tree, such as `midi-langs/thirdparty/libremidi`:
+Build `funk-midi` with MIDI output, through the vendored `thirdparty/libremidi`:
 
 ```sh
-cmake -B build-midi -DFUNK_LIBREMIDI_DIR=$HOME/projects/personal/midi-langs/thirdparty/libremidi
-cmake --build build-midi --target funk-midi
-build-midi/funk-midi
+cmake -B build -DFUNK_LIBREMIDI=ON
+cmake --build build --target funk-midi
+build/funk-midi
 ```
 
 It opens a virtual MIDI port named `funk-midi`. Point a synth or a DAW track at it, then type:
@@ -286,5 +286,5 @@ Below the combinators, `pattern` gives the pieces a scheduler needs.
 - **Events.** An `Event` has a `whole`, its full extent, and a `part`, the piece inside the query. `e.onset` is true where the two start together.
 - **Units.** The time unit is up to the caller: samples, microseconds. A tick maps to `div (t * cs) p.cycleTicks`. Adjacent blocks `[a, b)`, `[b, c)` then split the onsets exactly: none lost, none repeated.
 - **Values from C.**
-  - **`p.writeEvents buf cap pat cs a b`** writes `sampleEvents` to a C array of `Int`s, three per event, and returns their number. A host calls it through `funk_call` in `libfunk.h`; see `bench/reload.c` and `hosts/midi/main.c`.
+  - **`p.writeEvents buf cap pat cs a b`** writes `sampleEvents` to a C array of `Int`s, three per event, and returns their number. A host calls it through `funk_call` in `libfunk.h`; see `bench/reload.c` and `projects/funk-midi/main.c`.
   - **`p.pushOnsets ring pat cs a b`** puts `sampleOnsets` on a `Ring Int`, for an audio-thread export ([dev/realtime.md](dev/realtime.md)). Each entry is one `Int`, `sample * 65536 + value`, so a push cannot tear. `p.eventSample` and `p.eventValue` decode it, without allocating, in the export. Values must be in 0..65535. `tests/ffi/sched.fk` is a complete example.

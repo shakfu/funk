@@ -20,23 +20,23 @@ Both backends link the same runtime, `rt.c`.
 
 | File | Lines | Role |
 |-|-|-|
-| `src/lex.c` | 353 | tokenizer, layout rule |
-| `src/parse.c` | 1431 | recursive-descent parser, desugaring |
-| `src/check.c` | 1966 | data types, classes, SCC analysis, type inference, chunk driver |
-| `src/elab.c` | 475 | dictionary passing, specialization |
-| `src/fuse.c` | 1148 | fusion of list pipelines into loops |
-| `src/resolve.c` | 158 | closure conversion |
-| `src/qualify.c` | 234 | module scope: a module's names prefixed, imports' qualifiers resolved |
-| `src/interp.c` | 173 | interpreter |
-| `src/cgen.c` | 321 | C generator |
-| `src/ffi.c` | 122 | foreign-import glue; the interpreter's compile, cache and load |
-| `src/rt.c`, `rt.h` | 898 | values, GC, apply, `show`, compare, primitives |
-| `src/prims.def` | 64 | primitive table: C name, funk name, arity, type |
-| `src/driver.c`, `libfunk.h` | 271 | the library's api: prelude, files, backends, REPL input |
-| `cli/main.c` | 287 | command line and REPL loop, over `libfunk.h` only |
-| `src/util.c`, `funk.h` | 549 | allocation, interning, maps with undo, AST types |
+| `projects/funk/src/lex.c` | 353 | tokenizer, layout rule |
+| `projects/funk/src/parse.c` | 1431 | recursive-descent parser, desugaring |
+| `projects/funk/src/check.c` | 1966 | data types, classes, SCC analysis, type inference, chunk driver |
+| `projects/funk/src/elab.c` | 475 | dictionary passing, specialization |
+| `projects/funk/src/fuse.c` | 1148 | fusion of list pipelines into loops |
+| `projects/funk/src/resolve.c` | 158 | closure conversion |
+| `projects/funk/src/qualify.c` | 234 | module scope: a module's names prefixed, imports' qualifiers resolved |
+| `projects/funk/src/interp.c` | 173 | interpreter |
+| `projects/funk/src/cgen.c` | 321 | C generator |
+| `projects/funk/src/ffi.c` | 122 | foreign-import glue; the interpreter's compile, cache and load |
+| `projects/funk/src/rt.c`, `rt.h` | 898 | values, GC, apply, `show`, compare, primitives |
+| `projects/funk/src/prims.def` | 64 | primitive table: C name, funk name, arity, type |
+| `projects/funk/src/driver.c`, `libfunk.h` | 271 | the library's api: prelude, files, backends, REPL input |
+| `projects/funk/cli/main.c` | 287 | command line and REPL loop, over `libfunk.h` only |
+| `projects/funk/src/util.c`, `funk.h` | 549 | allocation, interning, maps with undo, AST types |
 | `lib/prelude.fk` | 274 | standard functions in funk |
-| `tools/embed.c` | 45 | embeds `rt.c`, `rt.h` and the prelude into the binary |
+| `projects/funk/tools/embed.c` | 45 | embeds `rt.c`, `rt.h` and the prelude into the binary |
 | `CMakeLists.txt` | 50 | the build; `Makefile` is a frontend to it |
 
 ## Lexing and layout (`lex.c`)
@@ -227,10 +227,10 @@ Output: the embedded runtime source, a global array `G`, one `static V fn_N(V se
 
 `import a.b` reads `a/b.fk` beside the importing file, then in each `-M` directory. The parser stops after a file's header (`parse_begin`), so that the imports, whose fixities the body needs, are compiled first; `parse_finish` parses the rest. `driver.c` compiles each module once per session, keyed by `realpath`, before the files that import it. Each module is a chunk, and `cgen_program` receives the prelude, the modules in dependency order, then the program. The parser joins `q.x`, `q.X` and `q.op` into one token when `q` is an import's qualifier. `qualify.c` then renames a module's top-level values, types, constructors and classes to `prefix.name`, and `q.name` to the imported module's `prefix.name`. The program's own names and the prelude's stay unqualified. See [modules.md](modules.md).
 
-## REPL (`driver.c`, `cli/main.c`)
+## REPL (`driver.c`, `projects/funk/cli/main.c`)
 
-`cli/main.c` reads lines and `:` commands; `funk_eval` in `driver.c` compiles and runs each. Each input is a chunk. `is_decl_text` classifies it: `data`, a signature, or `=` at bracket depth 0 before any expression keyword means a declaration. An expression is compiled as a binding named `$it`, printed unless it is `()`, then aliased to `it`. Compile errors and runtime errors both return to the prompt through `longjmp`.
+`projects/funk/cli/main.c` reads lines and `:` commands; `funk_eval` in `driver.c` compiles and runs each. Each input is a chunk. `is_decl_text` classifies it: `data`, a signature, or `=` at bracket depth 0 before any expression keyword means a declaration. An expression is compiled as a binding named `$it`, printed unless it is `()`, then aliased to `it`. Compile errors and runtime errors both return to the prompt through `longjmp`.
 
 ## Build and tests
 
-The CMake build compiles `tools/embed` first, then `libfunk.a` from `src/`, then the `funk` executable from `cli/main.c`. `libfunk.h` is internal: it has no stability promise, and the library holds one session per process, since the compiler's tables and the heap are global. `tools/embed` inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/embedded.c`. `tests/CMakeLists.txt` registers one ctest test per check; `tests/check.sh` runs each and documents what it checks.
+The CMake build compiles `projects/funk/tools/embed` first, then `libfunk.a` from `projects/funk/src/`, then the `funk` executable from `projects/funk/cli/main.c`. `libfunk.h` is internal: it has no stability promise, and the library holds one session per process, since the compiler's tables and the heap are global. `projects/funk/tools/embed` inlines the local `#include`s of `rt.c` and embeds the result, plus `lib/prelude.fk`, as C arrays in `build/projects/funk/embedded.c`. `tests/CMakeLists.txt` registers one ctest test per check; `tests/check.sh` runs each and documents what it checks.

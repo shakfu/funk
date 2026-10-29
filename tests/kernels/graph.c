@@ -1,4 +1,4 @@
-/* hosts/graph/graph.c over the kernels of chain.fk. First host.c's chain as
+/* projects/funkgraph/graph.c over the kernels of chain.fk. First host.c's chain as
    a graph, in blocks of 8 split into calls of at most 5 frames: the output
    must equal host.c's clip rows. Then an audio thread renders while this
    thread plays and reclaims 2000 graphs; run under ThreadSanitizer too.

@@ -102,7 +102,7 @@ Rules for the generated code:
 
 ### Placement
 
-The pass runs after elaboration and before `lift_locals`, so the loop is lifted, specialized and compiled like a hand-written one. `reuse_cells` then runs on what remains. It goes in a new file, `src/fuse.c`. The traversal helpers it shares with `elab.c` (`Nm`, `pat_nm`, `copy_expr`) move to `funk.h`.
+The pass runs after elaboration and before `lift_locals`, so the loop is lifted, specialized and compiled like a hand-written one. `reuse_cells` then runs on what remains. It goes in a new file, `projects/funk/src/fuse.c`. The traversal helpers it shares with `elab.c` (`Nm`, `pat_nm`, `copy_expr`) move to `funk.h`.
 
 ## Tests
 
@@ -131,11 +131,11 @@ The pass runs after elaboration and before `lift_locals`, so the loop is lifted,
 
 Geometric mean, from 1.68x: about 1.58x with `lists` unchanged; about 1.48x with `lists` compared against a fused C loop (about 1.3x). Estimates.
 
-Size: about 500 lines in `src/fuse.c`, and tests. An estimate.
+Size: about 500 lines in `projects/funk/src/fuse.c`, and tests. An estimate.
 
 ## Result
 
-Implemented in `src/fuse.c`, about 1,000 lines. Differences from the design:
+Implemented in `projects/funk/src/fuse.c`, about 1,000 lines. Differences from the design:
 
 - **Placement.** The pass runs after `lift_locals`, not before, so local helpers such as `safe`'s `check` are globals the analyses can see. `lift_locals` then runs again on the bindings that got a loop.
 

@@ -1,6 +1,6 @@
 # Patterns: design note
 
-Status: implemented, 2026-10-28: `lib/pattern.fk`, tested by `tests/lib/patterns.fk`, `tests/ffi/sched.fk` and `bench/reload.c`. All three thresholds pass outside `psnd`. `funk-midi` (`hosts/midi/main.c`) plays patterns to a MIDI port, live. The CLAP plugin is in `midi-langs` (`projects/funk-midi`); `psnd` not started. Context: [261027-lang-review.md](261027-lang-review.md).
+Status: implemented, 2026-10-28: `lib/pattern.fk`, tested by `tests/lib/patterns.fk`, `tests/ffi/sched.fk` and `bench/reload.c`. All three thresholds pass outside `psnd`. `funk-midi` (`projects/funk-midi/main.c`) plays patterns to a MIDI port, live. The CLAP plugin is in `midi-langs` (`projects/funk-midi`); `psnd` not started. Context: [261027-lang-review.md](261027-lang-review.md).
 
 funk gets its own pattern engine. Tidal ([Tidal](https://github.com/tidalcycles/Tidal)) and Strudel are reference designs, not specifications. A pattern here means a description of events over musical time, such as notes or control changes, that a program can combine and transform.
 
@@ -80,7 +80,7 @@ Status:
 
 ## funk-midi
 
-`hosts/midi/main.c`, the first host, in the funk repo while `libfunk.h` changes; it moves to `midi-langs` once the API settles. A REPL over `libfunk.h` with `pattern as p` and `midi as m` imported. Input that defines `pat`, a `Pattern Int`, or `:l FILE`, recompiles `step`, and `pat` plays from the next window. `:cycle MS` changes the tempo, `:stop` and `:play` silence and resume, `:wait MS` plays for a time in a script.
+`projects/funk-midi/main.c`, the first host, in the funk repo while `libfunk.h` changes; it moves to `midi-langs` once the API settles. A REPL over `libfunk.h` with `pattern as p` and `midi as m` imported. Input that defines `pat`, a `Pattern Int`, or `:l FILE`, recompiles `step`, and `pat` plays from the next window. `:cycle MS` changes the tempo, `:stop` and `:play` silence and resume, `:wait MS` plays for a time in a script.
 
 - **Values.** `lib/midi.fk`: note + 128 * velocity + 16384 * (channel - 1). A plain note number plays at velocity 100 on channel 1. `m.vel` and `m.chan` clamp their arguments, so a typo cannot stop playback.
 
@@ -94,7 +94,7 @@ Status:
 
 - **Timing, macOS, M1.** As a default-policy thread, the sender woke from a timed wait up to 8 ms late (median 2 ms). Waking 2 ms early and sleeping the rest did not help, nor did the user-interactive QoS class. As a time-constraint thread (`THREAD_TIME_CONSTRAINT_POLICY`): median 0.06 ms, max 0.32 ms over 600 messages. Through CoreMIDI to a second process, notes a cycle apart arrived within 0.03 ms of each other. Linux is unmeasured.
 
-- **Build.** Without libremidi, `funk-midi` can only print (`--print`, `--no-sleep`), which `tests/hosts/midi.txt` uses. `-DFUNK_LIBREMIDI_DIR=` a libremidi source tree, such as `midi-langs/thirdparty/libremidi`, adds MIDI output. `--audio` plays `sig` too ([audio.md](audio.md), item 5); `-DFUNK_MINIAUDIO_DIR=` the directory of `miniaudio.h` adds the audio device.
+- **Build.** Without libremidi, `funk-midi` can only print (`--print`, `--no-sleep`), which `tests/hosts/midi.txt` uses. `-DFUNK_LIBREMIDI=ON` adds MIDI output, with the vendored `thirdparty/libremidi`. `--audio` plays `sig` too ([audio.md](audio.md), item 5); the vendored `thirdparty/miniaudio` gives the audio device, unless `-DFUNK_MINIAUDIO=OFF`.
 
 ## CLAP plugin
 

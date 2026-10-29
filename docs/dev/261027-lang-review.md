@@ -72,7 +72,7 @@ A Tidal `Pattern` is a function from a time span to events, not a lazy stream, s
 
 ### Constraints the hosts expose
 
-From [libfunk.h](../../src/libfunk.h) and [architecture.md](architecture.md):
+From [libfunk.h](../../projects/funk/src/libfunk.h) and [architecture.md](architecture.md):
 
 | Constraint today | Hosts it blocks |
 |-|-|
@@ -135,13 +135,13 @@ From Tidal's design ([Tidal](https://github.com/tidalcycles/Tidal)); not recheck
 
 - **libtcc and macOS hosts.** A plugin runs under its host's code-signing entitlements. A hardened-runtime host without the JIT entitlement may refuse writable-then-executable memory. Option 2 may then fail on some macOS hosts, not only iOS. Unverified.
 
-- **The runtime installs process-wide `SIGSEGV` and `SIGBUS` handlers** (`task_main`, `src/rt.c`). In a plugin or external, they replace the host's handlers. On a fault outside funk's ranges, `on_fault` resets to `SIG_DFL`, so the host's crash reporter never runs. The table lacks this row.
+- **The runtime installs process-wide `SIGSEGV` and `SIGBUS` handlers** (`task_main`, `projects/funk/src/rt.c`). In a plugin or external, they replace the host's handlers. On a fault outside funk's ranges, `on_fault` resets to `SIG_DFL`, so the host's crash reporter never runs. The table lacks this row.
 
 ### Can the collector run on an export's thread?
 
 No. Checked by code reading and ThreadSanitizer, 2026-10-28, Linux x86-64, GCC.
 
-- A collection starts only in `alloc_slow` (`gc_due`, `src/rt.c`). The R4 check (`cgen_alloc_free`, `src/cgen.c`) rejects every allocating expression in an export and its callees.
+- A collection starts only in `alloc_slow` (`gc_due`, `projects/funk/src/rt.c`). The R4 check (`cgen_alloc_free`, `projects/funk/src/cgen.c`) rejects every allocating expression in an export and its callees.
 
 - Strict top-level constants are evaluated in `program` before `main`. An export reads them unboxed from `G[]` (`FK_FLOATV(G[i])`). The collector does not move or free them, and marks live in a side array per chunk, so these reads do not race with marking.
 

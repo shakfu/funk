@@ -34,7 +34,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Unnamed nodes restart at every `play`, so a graph without names clicks on each edit. Name nodes by default, such as by their path in the tree.
 
-- [x] **The C runner**, `hosts/graph/graph.h`, the CMake library `funkgraph`: graphs swapped at a block boundary and freed on the host's thread after an epoch.
+- [x] **The C runner**, `projects/funkgraph/graph.h`, the CMake library `funkgraph`: graphs swapped at a block boundary and freed on the host's thread after an epoch.
 
 - [x] **The graph builder** in funk: `lib/graph.fk`, a tree of nodes that `play` writes into a C graph.
 
@@ -50,7 +50,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] funk's `Ring Int` still carries 16-bit values (`pattern.pushOnsets`); only a hand-written export reading it, option A, needs more.
 
-- [x] `funk-midi --audio`: plays `sig` through miniaudio (`-DFUNK_MINIAUDIO_DIR`); on the virtual clock without it.
+- [x] `funk-midi --audio`: plays `sig` through the vendored miniaudio (`FUNK_MINIAUDIO`, on by default); on the virtual clock without it.
 
 - [ ] Notes from `pat` to the graph: voices, as controls, scheduled against the player's frame count rather than the host's clock.
 

@@ -1,6 +1,6 @@
 -- kernels.fk -- the unit generators behind dsp.fk (docs/dev/audio.md, D),
 -- compiled ahead of time with `funk emit-c --kernels lib/kernels.fk`.
--- Each has hosts/graph's kernel signature: state, inputs, output, frames,
+-- Each has projects/funkgraph's kernel signature: state, inputs, output, frames,
 -- context. Inputs read every frame are audio rate; those read once per
 -- call, from their first frame, are marked "per call".
 foreign export ccall "dsp_const" constK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
@@ -18,7 +18,7 @@ foreign import ccall "math.h sin" csin :: Float -> Float
 foreign import ccall "math.h tan" ctan :: Float -> Float
 foreign import ccall "math.h exp" cexp :: Float -> Float
 
--- hosts/graph's funk_context
+-- projects/funkgraph's funk_context
 foreign struct Context { rate :: Float }
 
 foreign struct Phase { phase :: Float }

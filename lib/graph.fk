@@ -1,4 +1,4 @@
--- graph.fk -- builds graphs of kernels for hosts/graph's player
+-- graph.fk -- builds graphs of kernels for projects/funkgraph's player
 -- (docs/dev/audio.md, D). A Sig is a tree of nodes: a kernel's C name, its
 -- initial state as Floats (a foreign struct of Float fields), and its
 -- inputs, parameters included. play writes it into a new C graph, inputs
@@ -9,7 +9,7 @@
 -- that send changes from a given frame, such as a note's gate. Channels
 -- is a signal of several channels: a node with such an input becomes one
 -- node per channel, so stereo builds from mono kernels, as SuperCollider's
--- multichannel expansion does; a mono input is shared, not copied. Link with -I hosts/graph and the funkgraph
+-- multichannel expansion does; a mono input is shared, not copied. Link with -I projects/funkgraph and the funkgraph
 -- library.
 module graph where
 
