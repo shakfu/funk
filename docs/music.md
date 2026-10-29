@@ -240,7 +240,9 @@ Errors leave the music playing:
 
 ### The CLAP plugin
 
-`make clap` builds `build/clap/funk-midi.clap`. `make clap-dev` runs it without a DAW, sending MIDI to the first port or to a virtual port named `midi-langs-dev`.
+`make clap` builds `build/clap/funk-midi.clap`. `make clap-dev` runs it without a DAW: its audio plays on the default output device, and its MIDI goes to the first port or to a virtual port named `midi-langs-dev`. `build/clap_dev_host --meter PLUGIN` also prints the output's peak every second.
+
+The editor opens with a `sig` and a `pat`: evaluate both paragraphs to hear `pat`'s notes on the plugin's voices.
 
 In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. stops.
 

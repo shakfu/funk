@@ -74,7 +74,13 @@ endfunction()
 midi_langs_add_pugl(clap_dev_host_pugl MidiLangsDevHost)
 add_executable(clap_dev_host dev_host.cpp)
 target_link_libraries(clap_dev_host PRIVATE clap_dev_host_pugl midi_open ${CMAKE_DL_LIBS})
-target_include_directories(clap_dev_host PRIVATE ${THIRDPARTY}/clap/include)
+target_include_directories(clap_dev_host PRIVATE ${THIRDPARTY}/clap/include ${THIRDPARTY}/miniaudio)
+# an instrument's audio output, through the default device
+target_sources(clap_dev_host PRIVATE ${THIRDPARTY}/miniaudio/miniaudio.c)
+set_source_files_properties(${THIRDPARTY}/miniaudio/miniaudio.c TARGET_DIRECTORY clap_dev_host PROPERTIES COMPILE_OPTIONS -w)
+if(APPLE)
+    target_link_libraries(clap_dev_host PRIVATE "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
+endif()
 target_compile_features(clap_dev_host PRIVATE cxx_std_17)
 
 # Headless host for the tests in tests/CMakeLists.txt.

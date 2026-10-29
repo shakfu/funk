@@ -1,13 +1,16 @@
 // Minimal CLAP host for trying a midi-langs plugin: opens its editor in a window, runs its
 // process() in real time with the transport playing at 120 BPM, and sends its MIDI to a port.
-// Adapted from sapf's examples/clap/dev_host.cpp. Close the window to quit.
+// A plugin with an audio output plays through the default device (miniaudio), whose callback
+// then runs process(). Adapted from sapf's examples/clap/dev_host.cpp. Close the window to quit.
 
 #include "midi_open.h"
+#include "miniaudio.h"
 
 #include <clap/clap.h>
 #include <pugl/pugl.h>
 #include <pugl/stub.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -26,7 +29,7 @@
 
 namespace {
 
-const double kRate = 48000.;
+double gRate = 48000.; // the audio device's, when there is one
 const uint32_t kBlock = 256;
 const double kTempo = 120.;
 
@@ -181,34 +184,78 @@ const clap_output_events_t kMidiOutput = {
 	},
 };
 
-void ProcessLoop()
+double gBeat = 0.;
+
+// One block of frames <= kBlock, into out[0..channels) if out is given.
+void Process(uint32_t frames, float* const* out, uint32_t channels)
 {
-	gPlugin->start_processing(gPlugin); // CLAP: on the audio thread
-	const auto period = std::chrono::duration<double>(kBlock / kRate);
-	auto due = std::chrono::steady_clock::now();
-	double beat = 0.;
-	while (gRunning) {
-		clap_event_transport_t tr{};
+	clap_event_transport_t tr{};
 		tr.header.size = sizeof(tr);
 		tr.header.type = CLAP_EVENT_TRANSPORT;
 		tr.flags = CLAP_TRANSPORT_HAS_TEMPO | CLAP_TRANSPORT_HAS_BEATS_TIMELINE | CLAP_TRANSPORT_HAS_TIME_SIGNATURE
 		           | CLAP_TRANSPORT_IS_PLAYING;
-		tr.song_pos_beats = (clap_beattime)std::llround(beat * CLAP_BEATTIME_FACTOR);
-		tr.tempo = kTempo;
-		tr.tsig_num = 4;
-		tr.tsig_denom = 4;
-		clap_process_t process{};
-		process.frames_count = kBlock;
-		process.steady_time = -1;
-		process.transport = &tr;
-		process.in_events = &kNoInput;
-		process.out_events = &kMidiOutput;
-		gPlugin->process(gPlugin, &process);
-		beat += kBlock * kTempo / 60. / kRate;
+	tr.song_pos_beats = (clap_beattime)std::llround(gBeat * CLAP_BEATTIME_FACTOR);
+	tr.tempo = kTempo;
+	tr.tsig_num = 4;
+	tr.tsig_denom = 4;
+	clap_audio_buffer_t port{};
+	port.data32 = const_cast<float**>(out);
+	port.channel_count = channels;
+	clap_process_t process{};
+	process.frames_count = frames;
+	process.steady_time = -1;
+	process.transport = &tr;
+	process.in_events = &kNoInput;
+	process.out_events = &kMidiOutput;
+	if (out) {
+		process.audio_outputs = &port;
+		process.audio_outputs_count = 1;
+	}
+	gPlugin->process(gPlugin, &process);
+	gBeat += frames * kTempo / 60. / gRate;
+}
+
+// Without an audio output: process() on a timer.
+void ProcessLoop()
+{
+	gPlugin->start_processing(gPlugin); // CLAP: on the audio thread
+	const auto period = std::chrono::duration<double>(kBlock / gRate);
+	auto due = std::chrono::steady_clock::now();
+	while (gRunning) {
+		Process(kBlock, nullptr, 0);
 		due += std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
 		std::this_thread::sleep_until(due);
 	}
 	gPlugin->stop_processing(gPlugin);
+}
+
+// With one: process() from the device's callback, in blocks of at most kBlock frames.
+const uint32_t kMaxChannels = 8;
+uint32_t gChannels = 0; // the plugin's output port's
+bool gProcessing = false;
+std::atomic<float> gPeak{0.f}; // since --meter last printed it
+
+void OnAudio(ma_device* device, void* output, const void*, ma_uint32 frames)
+{
+	if (!gProcessing) gProcessing = gPlugin->start_processing(gPlugin); // CLAP: on the audio thread
+	static float buf[kMaxChannels][kBlock];
+	float* chans[kMaxChannels];
+	for (uint32_t c = 0; c < gChannels; ++c) chans[c] = buf[c];
+	float* o = static_cast<float*>(output);
+	const uint32_t devChannels = device->playback.channels;
+	for (ma_uint32 done = 0; done < frames;) {
+		const uint32_t m = std::min<uint32_t>(frames - done, kBlock);
+		Process(m, chans, gChannels);
+		float peak = gPeak.load(std::memory_order_relaxed);
+		for (uint32_t i = 0; i < m; ++i)
+			for (uint32_t c = 0; c < devChannels; ++c) {
+				const float x = buf[c % gChannels][i];
+				o[(done + i) * devChannels + c] = x;
+				peak = std::max(peak, std::fabs(x));
+			}
+		gPeak.store(peak, std::memory_order_relaxed);
+		done += m;
+	}
 }
 
 struct Window {
@@ -237,7 +284,8 @@ void Usage(const char* prog)
 	        "Options:\n"
 	        "  -l, --list          List MIDI output ports\n"
 	        "  -p, --port N        Send to MIDI port N (0-based)\n"
-	        "  --virtual NAME      Send to a new virtual port NAME\n\n"
+	        "  --virtual NAME      Send to a new virtual port NAME\n"
+	        "  --meter             Print the audio output's peak every second\n\n"
 	        "By default it sends to the first MIDI port, or a virtual port\n"
 	        "named midi-langs-dev if there is none.\n",
 	        prog);
@@ -250,6 +298,7 @@ int main(int argc, char** argv)
 	const char* path = nullptr;
 	const char* virtualName = nullptr;
 	int port = -1;
+	bool meter = false;
 	for (int i = 1; i < argc; ++i) {
 		const std::string arg = argv[i];
 		if (arg == "-h" || arg == "--help") {
@@ -265,6 +314,8 @@ int main(int argc, char** argv)
 			return 0;
 		} else if ((arg == "-p" || arg == "--port") && i + 1 < argc) {
 			port = atoi(argv[++i]);
+		} else if (arg == "--meter") {
+			meter = true;
 		} else if (arg == "--virtual" && i + 1 < argc) {
 			virtualName = argv[++i];
 		} else if (!path && arg[0] != '-') {
@@ -291,8 +342,37 @@ int main(int argc, char** argv)
 		fprintf(stderr, "cannot create plugin\n");
 		return 1;
 	}
-	gPlugin->activate(gPlugin, kRate, kBlock, kBlock);
-	std::thread processing(ProcessLoop);
+	// An audio output plays through the default device, which then runs process().
+	auto* ports = (const clap_plugin_audio_ports_t*)gPlugin->get_extension(gPlugin, CLAP_EXT_AUDIO_PORTS);
+	clap_audio_port_info_t info{};
+	ma_device device;
+	bool audio = false;
+	if (ports && ports->count(gPlugin, false) > 0 && ports->get(gPlugin, 0, false, &info) && info.channel_count > 0) {
+		gChannels = std::min(info.channel_count, kMaxChannels);
+		ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+		cfg.playback.format = ma_format_f32;
+		cfg.playback.channels = gChannels;
+		cfg.sampleRate = (ma_uint32)gRate;
+		cfg.dataCallback = OnAudio;
+		audio = ma_device_init(nullptr, &cfg, &device) == MA_SUCCESS;
+		if (audio) {
+			gRate = device.sampleRate;
+			printf("audio out: %s, %u channels at %.0f Hz\n", device.playback.name, device.playback.channels, gRate);
+		} else {
+			fprintf(stderr, "cannot open the audio device: no audio\n");
+		}
+	}
+	if (!gPlugin->activate(gPlugin, gRate, 1, kBlock)) {
+		fprintf(stderr, "cannot activate plugin\n");
+		return 1;
+	}
+	std::thread processing;
+	if (audio && ma_device_start(&device) != MA_SUCCESS) {
+		fprintf(stderr, "cannot start the audio device: no audio\n");
+		ma_device_uninit(&device);
+		audio = false;
+	}
+	if (!audio) processing = std::thread(ProcessLoop);
 
 	auto* gui = (const clap_plugin_gui_t*)gPlugin->get_extension(gPlugin, CLAP_EXT_GUI);
 	uint32_t w = 720, h = 480;
@@ -312,7 +392,8 @@ int main(int argc, char** argv)
 	if (puglRealize(view) != PUGL_SUCCESS) {
 		fprintf(stderr, "cannot open window\n");
 		gRunning = false;
-		processing.join();
+		if (processing.joinable()) processing.join();
+		if (audio) ma_device_uninit(&device);
 		return 1;
 	}
 	const double scale = HostUnitsToPixels(view);
@@ -334,9 +415,15 @@ int main(int argc, char** argv)
 		fprintf(stderr, "plugin editor failed to open\n");
 	}
 
+	auto metered = std::chrono::steady_clock::now();
 	while (win.open) {
 		puglUpdate(world, 0.005);
 		const auto now = std::chrono::steady_clock::now();
+		if (meter && audio && now - metered >= std::chrono::seconds(1)) {
+			metered = now;
+			printf("peak %.4f\n", gPeak.exchange(0.f));
+			fflush(stdout);
+		}
 		auto* timers = (const clap_plugin_timer_support_t*)gPlugin->get_extension(gPlugin, CLAP_EXT_TIMER_SUPPORT);
 		for (size_t i = 0; i < gTimers.size(); ++i) { // on_timer may unregister timers
 			if (now < gTimers[i].due) continue;
@@ -350,7 +437,11 @@ int main(int argc, char** argv)
 	puglFreeView(view);
 	puglFreeWorld(world);
 	gRunning = false;
-	processing.join();
+	if (processing.joinable()) processing.join();
+	if (audio) {
+		ma_device_uninit(&device); // the callback has returned
+		if (gProcessing) gPlugin->stop_processing(gPlugin);
+	}
 	gPlugin->deactivate(gPlugin);
 	gPlugin->destroy(gPlugin);
 	entry->deinit();
