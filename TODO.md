@@ -28,7 +28,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] `lib/dsp.fk` in the kernel signature: saw, square and sine-table oscillators, ADSR, one-pole and state-variable filters.
 
-- [ ] **The C runner** in the host: per block, call each row's kernel; swap graphs through an atomic pointer at a block boundary; free the old table on funk's thread after an epoch. C, since funk cannot call through a `FunPtr`.
+- [x] **The C runner**, `hosts/graph/graph.h`: graphs swapped at a block boundary and freed on the host's thread after an epoch. Not yet a CMake library: `funk-midi --audio` will be its first user.
 
 - [ ] **The graph builder** in funk: a pure graph value that `play` writes into a node table in C memory, with buffers and state allocated there; voices added from note events.
 

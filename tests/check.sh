@@ -16,10 +16,12 @@
 #                                   gcstats: FUNK_GCSTATS=1 reports each cycle and a summary
 #                                   FLAGS (-I, -L, -l, -M) go to funk run and funk build;
 #                                     -M also to funk emit-c
-#   check.sh kernels FILE HOST      funk emit-c --kernels FILE computes no address through
+#   check.sh kernels FILE HOST [ARGS]
+#                                   funk emit-c --kernels FILE computes no address through
 #                                   uintptr_t, and compiles under -Wall -Wextra into a shared
 #                                   library with no undefined symbols and no exported fk_ name;
-#                                   HOST.c, given its path, prints FILE.expected
+#                                   HOST.c, built with ARGS and $HOST_CFLAGS (a sanitizer) and
+#                                   given its path, prints HOST.expected
 #   check.sh error FILE [FLAGS]     funk run FILE fails, and its output contains the text
 #                                   after "-- expect: " on FILE's first line
 #   check.sh repl FILE              the REPL's output for FILE equals FILE without .in, .expected
@@ -107,6 +109,7 @@ run)
   same "$base.expected" "$tmp/out" ;;
 kernels)
   f=$1 host=$2
+  shift 2
   "$FUNK" emit-c --kernels "$f" -o "$tmp/k.c" 2>"$tmp/cc" || fail "funk emit-c --kernels" "$tmp/cc"
   undef=-Wl,--no-undefined dl=-ldl # a runtime symbol left in a kernel fails the link
   [ "$(uname)" = Darwin ] && undef= dl= # its linker rejects undefined symbols by default
@@ -116,9 +119,11 @@ kernels)
   sed -n '/---- generated kernels ----/,$p' "$tmp/k.c" | grep -n 'uintptr_t)' >"$tmp/casts" && fail "an address computed through uintptr_t" "$tmp/casts"
   nm -g "$tmp/k.so" | awk '$2 ~ /^[TDBSR]$/ {print $3}' | sed 's/^_//' | grep '^fk_' >"$tmp/syms" && fail "runtime names exported" "$tmp/syms"
   # shellcheck disable=SC2086
-  ${CC:-cc} -O2 -o "$tmp/host" "$host" $dl >"$tmp/cc" 2>&1 || fail "$host" "$tmp/cc"
-  "$tmp/host" "$tmp/k.so" >"$tmp/out" 2>&1
-  same "${f%.fk}.expected" "$tmp/out" ;;
+  ${CC:-cc} -O2 -g ${HOST_CFLAGS:-} -Wall -Wextra -o "$tmp/host" "$host" "$@" $dl >"$tmp/cc" 2>&1 || fail "$host" "$tmp/cc"
+  norand= # as tsan-compiled: TSan rejects some Linux kernels' address layout
+  if command -v setarch >/dev/null 2>&1; then norand="setarch $(uname -m) -R"; fi
+  TSAN_OPTIONS="halt_on_error=1 exitcode=66" $norand "$tmp/host" "$tmp/k.so" >"$tmp/out" 2>&1
+  same "${host%.c}.expected" "$tmp/out" ;;
 error)
   f=$1
   shift

@@ -224,7 +224,7 @@ What it needs:
 
    funk's own passes took 12 ms, and `dlopen` 0.2 ms. Of the hand-written floor, 22 ms is clang starting on an empty file and about 20 ms linking. So a kernel emitter reaches about 60-70 ms per edit through `$CC` at `-O2`; below that needs the compiler in-process, which is where LLVM would pay.
 
-2. **A C runner**, since funk cannot call through a `FunPtr`: it has `&cname` imports but no `"dynamic"` import. The alternative is a `"dynamic"` import that R4 allows.
+2. **A C runner**, since funk cannot call through a `FunPtr`: it has `&cname` imports but no `"dynamic"` import. The alternative is a `"dynamic"` import that R4 allows. Done, 2026-10-29: `hosts/graph/graph.h`, tests `kernels/graph`, plain and under AddressSanitizer and ThreadSanitizer. A node owns a copy of its state and its buffers, so a graph is freed whole. A replaced graph is freed by the host's thread once the audio thread has finished a block after the swap; the test, which swaps 2,000 graphs while one renders, reports a use-after-free under AddressSanitizer if that rule is off by one block. Calls are split at the graph's block size, so a host's buffer may be larger.
 
 3. **A kernel library**, `lib/dsp.fk`: A's oscillators, envelope and filters, in the kernel signature.
 

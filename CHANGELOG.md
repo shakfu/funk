@@ -22,6 +22,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `funk emit-c --kernels FILE`: FILE's foreign exports and what they call, as C without the runtime, for a host to load as unit generators ([docs/dev/audio.md](docs/dev/audio.md), D). An export's code read field offsets and other top-level values from the runtime's global table, filled at startup, so it could not run outside a funk program. In a kernel they are C expressions and inlined initializers; a top-level value an export reads must therefore pass the export check too. Four kernels compile in 70 ms at `-O2`, against 425 ms with the runtime pasted.
 
+- `hosts/graph/graph.h`, a runner for graphs of kernels ([docs/dev/audio.md](docs/dev/audio.md), D). The host's thread builds a graph from kernels, their initial states and earlier nodes' outputs, and plays it; the audio thread renders the current one and allocates nothing. A replaced graph is freed by the host's thread once the audio thread has finished a block after the swap, since the block running at the swap may still read it.
+
 ### Changed
 
 - `peekByteOff` and `pokeByteOff`, and so `readArray`, `readField` and their kin, compute the address as `char *` arithmetic rather than through `plusPtr`'s integers. The cast lost the pointer's provenance, and clang did not vectorize: a kernel multiplying two buffers ran 3.9x hand-written C, a state-variable filter 1.34x; both now equal it. `fieldPtr` does the same unless its pointer is null, where it still gives the offset: a kernel whose state is a struct of two structs went from 2.6x C to 1.0x. `plusPtr` keeps the integers, since `plusPtr nullPtr 16` must stay defined. The Benchmarks Game is unchanged (+0.1%, interleaved A/B).
