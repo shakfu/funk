@@ -8,11 +8,11 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
-- [ ] **Shared-library output with hidden runtime symbols** (`funk build --shared`; [docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 5). `funk emit-c` pastes the runtime, so a compiled synth linked into a host that also embeds `libfunk` has two runtimes' symbols in one process, and two funk plugins in one DAW may resolve each other's `fk_cons`. `libfunk` also exports unprefixed names (`repr`, `lex`, `global_add`, `compile_chunk`): export only `funk_*` and the `fk_*` symbols the interpreter's glue needs, with `-fvisibility=hidden`; install the header and a CMake package.
+- [ ] **Shared-library output with hidden runtime symbols** (`funk build --shared`; [docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 5). `funk emit-c` pastes the runtime, so a compiled synth linked into a host that also embeds `libfunk` has two runtimes' symbols in one process, and two funk plugins in one DAW may resolve each other's `fk_cons`. `libfunk` also exports unprefixed names (`repr`, `lex`, `global_add`, `compile_chunk`): export only `funk_*` and the `fk_*` symbols the interpreter's glue needs, with `-fvisibility=hidden`; install the header and a CMake package. gh:1
 
-- [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Decide with the item above: recovery by `siglongjmp` is unsafe inside libc or the collector.
+- [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Decide with the item above: recovery by `siglongjmp` is unsafe inside libc or the collector. gh:2
 
-- [ ] **Audio ports for the plugin.** `midi-langs`' CLAP framework handles note effects only. Decide whether it grows audio ports or funk gets a plugin of its own ([docs/dev/audio.md](docs/dev/audio.md#open-questions)).
+- [ ] **Audio ports for the plugin.** `midi-langs`' CLAP framework handles note effects only. Decide whether it grows audio ports or funk gets a plugin of its own ([docs/dev/audio.md](docs/dev/audio.md#open-questions)). gh:3
 
 ## High
 
@@ -24,21 +24,33 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Decide on fused multiply-add: an explicit `fma`, or contraction in kernels only. Clang's default contraction makes the C one-pole and filter 1.4x faster, but changes results against the interpreter.
 
-- [ ] **The kernel signature**, such as `void k(void *state, const float **in, float *out, int n)`, plus the state's size. Open: several outputs, control-rate inputs.
+- [x] **The kernel signature**: parameters as inputs, a context with the sample rate, one output ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 3).
 
-- [ ] `lib/dsp.fk` in the kernel signature: saw, square and sine-table oscillators, ADSR, one-pole and state-variable filters.
+- [x] `lib/dsp.fk` and `lib/kernels.fk`: sine, saw, square, pulse, one-pole and state-variable filters, ADSR, arithmetic.
 
-- [x] **The C runner**, `hosts/graph/graph.h`: graphs swapped at a block boundary and freed on the host's thread after an epoch. Not yet a CMake library: `funk-midi --audio` will be its first user.
+- [ ] Several outputs per kernel and a stereo graph, for the plugin.
+
+- [ ] Unnamed nodes restart at every `play`, so a graph without names clicks on each edit. Name nodes by default, such as by their path in the tree.
+
+- [x] **The C runner**, `hosts/graph/graph.h`, the CMake library `funkgraph`: graphs swapped at a block boundary and freed on the host's thread after an epoch.
 
 - [x] **The graph builder** in funk: `lib/graph.fk`, a tree of nodes that `play` writes into a C graph.
 
-- [ ] Graph limits ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4): shared subgraphs, state other than `Float`s, state carried across swaps so oscillators do not restart.
+- [x] Named nodes: shared by name, and their state kept across swaps while kernel and initial state are unchanged.
+
+- [ ] Node state other than `Float`s ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).
 
 - [ ] Voices: a note-on adds nodes, or enables them from a pool, through the event ring.
 
-- [ ] Wider ring events. A value has 16 bits; note, velocity and channel need 18, and parameters such as cutoff more. Options are listed in `audio.md`.
+- [x] Wider events, for graphs: controls, set at a frame by events on the player's own queue (`funk_player_send`), a 64-bit frame, a name and a `float` each.
 
-- [ ] `funk-midi --audio`, with PortAudio or miniaudio, driving the runner.
+- [ ] funk's `Ring Int` still carries 16-bit values (`pattern.pushOnsets`); only a hand-written export reading it, option A, needs more.
+
+- [x] `funk-midi --audio`: plays `sig` through miniaudio (`-DFUNK_MINIAUDIO_DIR`); on the virtual clock without it.
+
+- [ ] Notes from `pat` to the graph: voices, as controls, scheduled against the player's frame count rather than the host's clock.
+
+- [ ] Run `funk-midi --audio` on Linux, and listen to it.
 
 - [ ] Measure the cost per node and per voice, how many voices fit in 1.33 ms (64 frames at 48 kHz), and a kernel's compile time. Log the friction of writing kernels in the export style.
 
@@ -53,6 +65,8 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 - [ ] #4: a file that imports a module of its own name reports "import cycle: pattern -> pattern"; say "imports itself".
 
 - [ ] #6: every `funk_eval` input stays compiled, about 16 KB each. Roll back an expression's chunk after it runs.
+
+- [ ] #7: a signature on a function that calls an effectful parameter inside a constructor's argument is rejected; see the log.
 
 ### Runtime
 

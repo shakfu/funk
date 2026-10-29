@@ -2,13 +2,14 @@
 -- signature, emitted without the runtime by `funk emit-c --kernels` and
 -- run by host.c. Besides foreign structs, they read a top-level value, call
 -- C, match on Ordering, whose constructors are static objects, and reach
--- structs inside a struct with fieldPtr.
-foreign export ccall "k_saw" saw :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-foreign export ccall "k_mul" mul :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-foreign export ccall "k_onepole" onepole :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-foreign export ccall "k_sine" sine :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-foreign export ccall "k_clip" clip :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-foreign export ccall "k_voice" voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
+-- structs inside a struct with fieldPtr. They ignore the context, using
+-- sampleRate instead.
+foreign export ccall "k_saw" saw :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+foreign export ccall "k_mul" mul :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+foreign export ccall "k_onepole" onepole :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+foreign export ccall "k_sine" sine :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+foreign export ccall "k_clip" clip :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+foreign export ccall "k_voice" voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
 foreign import ccall "math.h sin" csin :: Float -> Float
 
 foreign struct Osc { phase :: Float, freq :: Float }
@@ -33,8 +34,8 @@ sawLoop s out i n = if i == n then () else do
   pokeByteOff out (i * 4) (toCFloat (2.0 * ph - 1.0))
   sawLoop s out (i + 1) n
 
-saw :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-saw st ins out n = sawLoop (castPtr st) out 0 (fromIntegral n)
+saw :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+saw st ins out n cx = sawLoop (castPtr st) out 0 (fromIntegral n)
 
 sineLoop :: Ptr Osc -> Ptr CFloat -> Int -> Int ->> ()
 sineLoop s out i n = if i == n then () else do
@@ -42,8 +43,8 @@ sineLoop s out i n = if i == n then () else do
   pokeByteOff out (i * 4) (toCFloat (csin (6.283185307179586 * ph)))
   sineLoop s out (i + 1) n
 
-sine :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-sine st ins out n = sineLoop (castPtr st) out 0 (fromIntegral n)
+sine :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+sine st ins out n cx = sineLoop (castPtr st) out 0 (fromIntegral n)
 
 mulLoop :: Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
 mulLoop a b out i n = if i == n then () else do
@@ -52,8 +53,8 @@ mulLoop a b out i n = if i == n then () else do
   pokeByteOff out (i * 4) (toCFloat (fromCFloat x * fromCFloat y))
   mulLoop a b out (i + 1) n
 
-mul :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-mul st ins out n = do
+mul :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+mul st ins out n cx = do
   a <- (peek ins :: Ptr CFloat)
   b <- (peekByteOff ins 8 :: Ptr CFloat)
   mulLoop a b out 0 (fromIntegral n)
@@ -67,8 +68,8 @@ poleLoop s a out i n = if i == n then () else do
   pokeByteOff out (i * 4) (toCFloat y2)
   poleLoop s a out (i + 1) n
 
-onepole :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-onepole st ins out n = do
+onepole :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+onepole st ins out n cx = do
   a <- (peek ins :: Ptr CFloat)
   poleLoop (castPtr st) a out 0 (fromIntegral n)
 
@@ -85,8 +86,8 @@ clipLoop a out i n = if i == n then () else do
   pokeByteOff out (i * 4) (toCFloat (limit (fromCFloat x)))
   clipLoop a out (i + 1) n
 
-clip :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-clip st ins out n = do
+clip :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+clip st ins out n cx = do
   a <- (peek ins :: Ptr CFloat)
   clipLoop a out 0 (fromIntegral n)
 
@@ -101,5 +102,5 @@ voiceLoop v out i n = if i == n then () else do
   pokeByteOff out (i * 4) (toCFloat y2)
   voiceLoop v out (i + 1) n
 
-voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()
-voice st ins out n = voiceLoop (castPtr st) out 0 (fromIntegral n)
+voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+voice st ins out n cx = voiceLoop (castPtr st) out 0 (fromIntegral n)

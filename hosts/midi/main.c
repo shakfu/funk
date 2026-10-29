@@ -9,7 +9,14 @@
    `step` through funk_call for the events 50 ms ahead; a sender thread
    sends them at their times, so funk's work never delays a message; an
    input thread reads lines. --no-sleep runs on a virtual clock instead,
-   printing each message: for tests. */
+   printing each message: for tests.
+
+   With --audio, `graph as g` and `dsp as d` are imported too, and input
+   that defines `sig`, a g.Sig, plays it from the next audio block
+   (docs/dev/audio.md, D). The host owns the player and the kernel
+   library; funk builds each graph through `playsig`. The audio thread
+   renders through hosts/graph alone, never funk. On the virtual clock,
+   the output's peak is printed every 250 ms instead. */
 #define _DEFAULT_SOURCE
 #include <pthread.h>
 #ifdef __APPLE__
@@ -17,6 +24,8 @@
 #include <mach/mach_time.h>
 #include <mach/thread_policy.h>
 #endif
+#include <dlfcn.h>
+#include <math.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,20 +35,30 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "graph.h"
 #include "libfunk.h"
 
 #ifdef HAVE_LIBREMIDI
 #include <libremidi/libremidi-c.h>
 #endif
+#ifdef HAVE_MINIAUDIO
+#include "miniaudio.h"
+#endif
 
 #ifndef FUNK_LIB_DIR
 #define FUNK_LIB_DIR "lib"
+#endif
+#ifndef FUNK_DSP_LIB
+#define FUNK_DSP_LIB "funkdsp.so"
+#endif
+#ifndef FUNK_GRAPH_INCLUDE
+#define FUNK_GRAPH_INCLUDE "hosts/graph"
 #endif
 
 enum { WINDOW_US = 10000, LOOKAHEAD_US = 50000, CAP = 512, CYCLE_TICKS = 720720 };
 #define STEP "step buf cs ot a b = p.writeEvents (plusPtr nullPtr buf) 512 (p.shift (negate ot) pat) cs a b"
 
-static bool virtual_time, print_sink;
+static bool virtual_time, print_sink, audio;
 static volatile sig_atomic_t interrupted;
 
 /* ------------------------------------------------------------------ time */
@@ -283,6 +302,109 @@ static void schedule(void) {
   }
 }
 
+/* -------------------------------------------------------------- audio */
+
+enum { MAX_BLOCK = 512, REPORT = 12000 }; /* frames: 250 ms at 48 kHz on the virtual clock */
+static funk_player *player;
+static double rate = 48000;
+static bool have_sig;
+static int64_t rendered; /* frames, on the virtual clock */
+static float peak;
+static const char *playsig_src; /* compiled again after sig changes, so it names the new sig */
+
+static bool eval(const char *src);
+
+/* sig, or silence when stopped, from the next block. A sig that fails,
+   such as one naming an unknown kernel, leaves the last graph playing. */
+static void play_sig(void) {
+  long r, arg = 0;
+  if (!audio || !have_sig) return;
+  if (!funk_call(playing ? "playsig" : "hushsig", 1, &arg, &r)) {
+    have_sig = false;
+    fputs("funk-midi: sig failed; the last graph plays on until sig is defined again\n", stderr);
+  }
+}
+
+/* The virtual clock's audio, up to time t, with its peak every REPORT frames. */
+static void render_until(int64_t t) {
+  float out[MAX_BLOCK];
+  for (int64_t want = t * (int64_t)rate / 1000000; rendered < want;) {
+    int64_t n = want - rendered, edge = (rendered / REPORT + 1) * REPORT;
+    if (n > MAX_BLOCK) n = MAX_BLOCK;
+    if (rendered + n > edge) n = edge - rendered;
+    funk_player_render(player, out, (int)n);
+    for (int64_t i = 0; i < n; i++) peak = fmaxf(peak, fabsf(out[i]));
+    rendered += n;
+    if (rendered % REPORT == 0) {
+      printf("%9.3f audio peak %ld\n", (double)rendered * 1000 / rate, lroundf(peak * 10000));
+      peak = 0;
+    }
+  }
+}
+
+#ifdef HAVE_MINIAUDIO
+static ma_device device;
+
+static void on_audio(ma_device *d, void *out, const void *in, ma_uint32 n) {
+  (void)in;
+  float mono[MAX_BLOCK], *o = out;
+  ma_uint32 ch = d->playback.channels;
+  for (ma_uint32 done = 0; done < n;) {
+    ma_uint32 m = n - done < MAX_BLOCK ? n - done : MAX_BLOCK;
+    funk_player_render(player, mono, (int)m);
+    for (ma_uint32 i = 0; i < m; i++)
+      for (ma_uint32 c = 0; c < ch; c++) o[(done + i) * ch + c] = mono[i];
+    done += m;
+  }
+}
+#endif
+
+/* The player, the kernels and `playsig`; the device starts in real time. */
+static bool start_audio(const char *kernels_path) {
+  void *kernels = dlopen(kernels_path, RTLD_NOW | RTLD_LOCAL);
+  if (!kernels) {
+    fprintf(stderr, "funk-midi: cannot load the kernels: %s\n", dlerror());
+    return false;
+  }
+#ifdef HAVE_MINIAUDIO
+  if (!virtual_time) {
+    ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+    cfg.playback.format = ma_format_f32;
+    cfg.playback.channels = 2;
+    cfg.sampleRate = 48000;
+    cfg.dataCallback = on_audio;
+    if (ma_device_init(NULL, &cfg, &device) != MA_SUCCESS) {
+      fputs("funk-midi: cannot open the audio device\n", stderr);
+      return false;
+    }
+    rate = device.sampleRate;
+  }
+#endif
+  if (!(player = funk_player_new())) return false;
+  char *src;
+  if (asprintf(&src, "audioPlayer = g.Player (plusPtr nullPtr %ld) [plusPtr nullPtr %ld] %.17g %d", (long)player, (long)kernels, rate,
+               MAX_BLOCK) < 0)
+    return false;
+  bool ok = eval(src) && eval("hushsig :: Int ->> Int\nhushsig u = do { g.play audioPlayer g.Silence ; 0 }");
+  free(src);
+  if (!ok) return false;
+  playsig_src = "playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }";
+#ifdef HAVE_MINIAUDIO
+  if (!virtual_time && ma_device_start(&device) != MA_SUCCESS) {
+    fputs("funk-midi: cannot start the audio device\n", stderr);
+    return false;
+  }
+#endif
+  return true;
+}
+
+static void stop_audio(void) {
+#ifdef HAVE_MINIAUDIO
+  if (!virtual_time) ma_device_uninit(&device);
+#endif
+  funk_player_free(player);
+}
+
 /* Plays until time t. */
 static void advance_until(int64_t t) {
   while (now_us() < t && !interrupted) {
@@ -291,6 +413,7 @@ static void advance_until(int64_t t) {
     if (next > t) next = t;
     if (virtual_time) {
       flush_until(next);
+      if (audio) render_until(next);
       vnow = next;
     } else {
       int64_t d = next - now_us();
@@ -321,9 +444,21 @@ static void rebind(void) {
   else fputs("funk-midi: pat is not playing: it must be a Pattern Int\n", stderr);
 }
 
-static bool defines_pat(const char *s) {
+static bool defines(const char *s, const char *name) {
   s += strspn(s, " \t");
-  return strncmp(s, "pat", 3) == 0 && (s[3] == ' ' || s[3] == '=' || s[3] == '\t');
+  size_t n = strlen(name);
+  return strncmp(s, name, n) == 0 && (s[n] == ' ' || s[n] == '=' || s[n] == '\t');
+}
+
+/* After sig may have changed. */
+static void rebind_sig(void) {
+  if (!audio) return;
+  if (!eval(playsig_src)) {
+    fputs("funk-midi: sig is not playing: it must be a g.Sig\n", stderr);
+    return;
+  }
+  have_sig = true;
+  play_sig();
 }
 
 /* One line of input; false to quit. */
@@ -332,7 +467,9 @@ static bool handle(char *line) {
   char *s = line + strspn(line, " \t");
   if (!*s || !strncmp(s, "--", 2)) return true;
   if (*s != ':') {
-    if (eval(s) && defines_pat(s)) rebind();
+    bool ok = eval(s);
+    if (ok && defines(s, "pat")) rebind();
+    if (ok && defines(s, "sig")) rebind_sig();
     return true;
   }
   char *arg = s + strcspn(s, " \t"); /* after the command's name */
@@ -340,11 +477,14 @@ static bool handle(char *line) {
   switch (s[1]) {
   case 'q': return false;
   case 'l':
-    if (funk_load_file(arg)) rebind();
+    if (funk_load_file(arg)) {
+      rebind();
+      rebind_sig();
+    }
     return true;
   case 'w': advance_until(now_us() + (int64_t)(atof(arg) * 1000)); return true;
-  case 's': playing = false; hush(); return true;
-  case 'p': playing = true; return true;
+  case 's': playing = false; hush(); play_sig(); return true;
+  case 'p': playing = true; play_sig(); return true;
   case 'c':
     if (atof(arg) >= 1) set_cycle((int64_t)(atof(arg) * 1000));
     else fputs("funk-midi: :cycle needs a length in ms\n", stderr);
@@ -391,17 +531,22 @@ static void on_interrupt(int sig) {
 
 /* --------------------------------------------------------------- main */
 
-typedef struct { const char *lib, *file, *script; } Opts;
+typedef struct { const char *lib, *file, *script, *kernels; } Opts;
 
 static int run(void *arg) {
   Opts *o = arg;
-  if (!funk_init(NULL, 0)) return 1;
+  const char *cc_args[] = {"-I", FUNK_GRAPH_INCLUDE}; /* graph.fk's imports; their functions are this program's */
+  if (!funk_init(audio ? cc_args : NULL, audio ? 2 : 0)) return 1;
   funk_module_dir(o->lib);
   if (!eval("import pattern as p") || !eval("import midi as m")) return 1;
+  if (audio && (!eval("import graph as g") || !eval("import dsp as d") || !start_audio(o->kernels))) return 1;
   t0 = mono_us();
   pthread_t send_th = 0;
   if (!virtual_time && pthread_create(&send_th, NULL, sender, NULL)) { perror("funk-midi: pthread_create"); return 1; }
-  if (o->file && funk_load_file(o->file)) rebind();
+  if (o->file && funk_load_file(o->file)) {
+    rebind();
+    rebind_sig();
+  }
 
   if (o->script) {
     FILE *f = fopen(o->script, "r");
@@ -436,6 +581,7 @@ static int run(void *arg) {
   }
 
   hush();
+  if (audio) stop_audio();
   if (virtual_time) {
     flush_until(INT64_MAX);
   } else {
@@ -450,7 +596,7 @@ static int run(void *arg) {
 
 static void usage(FILE *f) {
   fputs("usage: funk-midi [FILE] [--script FILE] [--port N | --virtual NAME] [--list]\n"
-        "                 [--cycle MS] [--print] [--no-sleep] [-M DIR]\n"
+        "                 [--cycle MS] [--print] [--no-sleep] [-M DIR] [--audio [--kernels LIB]]\n"
         "Plays `pat`, a Pattern Int, to a MIDI output; FILE is loaded first.\n"
         "  --script FILE  run FILE's lines as input, then exit; `:wait MS` plays for MS\n"
         "  --port N       output port N; --list shows them. Default: a virtual port\n"
@@ -459,13 +605,16 @@ static void usage(FILE *f) {
         "  --print        print the messages instead of sending them\n"
         "  --no-sleep     run on a virtual clock, as fast as possible; implies --print\n"
         "  -M DIR         search DIR for modules (default " FUNK_LIB_DIR ")\n"
-        "Input is funk REPL input, with `pattern as p` and `midi as m` imported, or\n"
+        "  --audio        also play `sig`, a g.Sig of dsp.fk's signals, to the audio output\n"
+        "  --kernels LIB  the kernels' library (default " FUNK_DSP_LIB ")\n"
+        "Input is funk REPL input, with `pattern as p` and `midi as m` imported (and\n"
+        "`graph as g` and `dsp as d` with --audio), or\n"
         ":l FILE, :cycle MS, :wait MS, :stop, :play, :q\n",
         f);
 }
 
 int main(int argc, char **argv) {
-  Opts o = {FUNK_LIB_DIR, NULL, NULL};
+  Opts o = {FUNK_LIB_DIR, NULL, NULL, FUNK_DSP_LIB};
   int port = -1;
   const char *vname = "funk-midi";
   bool list = false;
@@ -480,6 +629,8 @@ int main(int argc, char **argv) {
     else if (next && !strcmp(a, "--virtual")) vname = argv[++i];
     else if (next && !strcmp(a, "--cycle")) cs = (int64_t)(atof(argv[++i]) * 1000);
     else if (next && !strcmp(a, "-M")) o.lib = argv[++i];
+    else if (!strcmp(a, "--audio")) audio = true;
+    else if (next && !strcmp(a, "--kernels")) o.kernels = argv[++i];
     else if (a[0] != '-' && !o.file) o.file = a;
     else { usage(stderr); return 2; }
   }
@@ -491,6 +642,12 @@ int main(int argc, char **argv) {
   (void)port, (void)vname;
   if (list || !print_sink) {
     fputs("funk-midi: built without libremidi: only --print and --no-sleep work\n", stderr);
+    return 1;
+  }
+#endif
+#ifndef HAVE_MINIAUDIO
+  if (audio && !virtual_time) {
+    fputs("funk-midi: built without miniaudio: --audio works only with --no-sleep\n", stderr);
     return 1;
   }
 #endif

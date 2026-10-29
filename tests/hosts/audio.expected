@@ -1,0 +1,12 @@
+  250.000 audio peak 5000
+  500.000 audio peak 5000
+  750.000 audio peak 9958
+ 1000.000 audio peak 2490
+ 1250.000 audio peak 0
+ 1500.000 audio peak 9958
+<input>:2:37: error: type mismatch: expected `graph.Sig`, found `Int`
+funk-midi: sig is not playing: it must be a g.Sig
+ 1750.000 audio peak 2490
+runtime error: graph: no kernel no_such_kernel
+funk-midi: sig failed; the last graph plays on until sig is defined again
+ 2000.000 audio peak 2490

@@ -51,7 +51,8 @@ static const Command commands[] = {
      "  -L DIR    search DIR for libraries; repeatable\n"},
     {"emit-c", "emit-c FILE [-o OUT] [-M DIR] [--kernels]", "Write the C program that build compiles, to OUT or standard output.\n"
                                                "  -M DIR     search DIR for imported modules, after FILE's directory; repeatable\n"
-                                               "  --kernels  only FILE's foreign exports, without the runtime, for a host to load; FILE need not define `main`\n"},
+                                               "  --kernels  only FILE's foreign exports, without the runtime, for a host to load; FILE need not define `main`.\n"
+                                               "             The first line names the libraries to link, as `/* link: -lm */`\n"},
     {"check", "check FILE [-M DIR]", "Parse and type-check FILE, report errors and warnings, and run nothing.\n"
                             "Exits 0 if FILE compiles. FILE need not define `main`.\n"
                             "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"},

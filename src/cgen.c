@@ -1402,8 +1402,15 @@ char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
   kmode = true;
   kbind = r.bind;
   SB out = {0};
-  sb_puts(&out, "/* funk kernels: foreign exports without the runtime */\n"
-                "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers, outside a header */\n");
+  sb_puts(&out, "/* link:");
+  bool m = false; /* as the interpreter's glue: the `foreign library` names, then libm */
+  for (int i = 0; i < ffi_libs.n; i++) {
+    sb_printf(&out, " -l%s", ffi_libs.a[i]);
+    m |= !strcmp(ffi_libs.a[i], "m");
+  }
+  sb_puts(&out, m ? " */\n" : " -lm */\n");
+  sb_puts(&out, "/* funk kernels: foreign exports without the runtime */\n");
+  sb_puts(&out, "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers, outside a header */\n");
   sb_puts(&out, fk_rth_src);
   VEC(ForeignDecl *) fs = {0};
   for (int i = 0; i < globals.n; i++)

@@ -1,0 +1,79 @@
+-- lib/dsp.fk over lib/kernels.fk, in the interpreter and compiled. Samples
+-- print in units of 1e-4, so the C library's last bit cannot change them.
+-- $KERNELS names the kernel library.
+import graph as g
+import dsp
+
+foreign import ccall "stdlib.h getenv" getenv :: String ->> Ptr CChar
+
+-- the next n frames, at most 64
+frames :: g.Player -> Int ->> [Int]
+frames p n = allocaBytes 256 (\out -> do
+  g.render p out n
+  map (\i -> round (10000.0 * fromCFloat (peekByteOff out (4 * i) :: CFloat))) (enumFromTo 0 (n - 1)))
+
+-- skips n frames
+skip :: g.Player -> Int ->> ()
+skip p n = if n <= 0 then () else do
+  frames p (min n 64)
+  skip p (n - 64)
+
+-- s's first n frames on a fresh graph
+first :: g.Player -> Int -> g.Sig ->> [Int]
+first p n s = do
+  g.play p s
+  frames p n
+
+-- the largest magnitude in s's frames from skipped to skipped + n
+peak :: g.Player -> Int -> Int -> g.Sig ->> Int
+peak p skipped n s = do
+  g.play p s
+  skip p skipped
+  maximum (map abs (frames p n))
+
+main = do
+  k <- peekCString (getenv "KERNELS")
+  p <- g.player [k] 8000.0 64
+  -- 1000 Hz at 8000: eight frames a cycle. The saw's and square's jumps
+  -- are smoothed over the frame on each side (polyBLEP); elsewhere exact.
+  print (first p 8 (dsp.sine 1000))
+  print (first p 8 (dsp.saw 1000))
+  print (first p 8 (dsp.square 1000))
+  print (first p 8 (dsp.pulse 1000 (dsp.dc 0.25)))
+  -- arithmetic on signals, an Int literal as a constant
+  print (first p 4 (dsp.dc 0.25 * 2 + 1 - dsp.dc 0.5))
+  -- one-pole low-pass of a step: 1 - exp(-2 pi fc n / rate) at frame n
+  print (first p 4 (dsp.lowpass1 1000 1))
+  -- state-variable filters of a step, settled: gain 1, 0 and 0
+  print (map (peak p 4000 8) [dsp.lowpass 1000 (dsp.dc 0.7) 1, dsp.bandpass 1000 (dsp.dc 0.7) 1, dsp.highpass 1000 (dsp.dc 0.7) 1])
+  -- at the cutoff, a low-pass's gain is q: 0.7071 and 2, sampled within
+  -- cos (pi / 8) of the peak
+  print (map (\q -> peak p 4000 8 (dsp.lowpass 1000 (dsp.dc q) (dsp.sine 1000))) [0.7071, 2.0])
+  -- frequency modulation: within [-1, 1]
+  print (peak p 0 64 (dsp.sine (440 + dsp.sine 5 * 100)))
+  -- an envelope at 1000 frames a second: 10 frames up, 10 down to 0.5,
+  -- released 20 frames later over 5 (0.5 of a full scale in 10). The gate
+  -- changes by playing again; the envelope is named, so it keeps its state.
+  q <- g.player [k] 1000.0 64
+  env <- \gate -> g.named "env" (dsp.adsr (dsp.dc 0.01) (dsp.dc 0.01) (dsp.dc 0.5) (dsp.dc 0.01) gate)
+  print (first q 30 (env 1))
+  print (first q 8 (env 0))
+  -- a frequency changed: the named saw keeps its phase, 3/8 of a cycle,
+  -- and steps by 1/4 from there; unnamed, it starts again at 0
+  osc <- \f -> g.named "osc" (dsp.saw f)
+  first p 3 (osc 1000)
+  print (first p 3 (osc 2000))
+  first p 3 (dsp.saw 1000)
+  print (first p 3 (dsp.saw 2000))
+  -- a control: a gate on at frame 5 and off at 10, at 1000 frames a
+  -- second; the envelope rises over 3 frames from frame 5 and falls over 2
+  -- from frame 10
+  r <- g.player [k] 1000.0 64
+  g.play r (dsp.adsr (dsp.dc 0.003) 0 1 (dsp.dc 0.002) (g.control "gate" 0.0))
+  g.send r 5 "gate" 1.0
+  g.send r 10 "gate" 0.0
+  print (frames r 14)
+  print (g.frames r)
+  g.close p
+  g.close q
+  g.close r

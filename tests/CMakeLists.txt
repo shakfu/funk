@@ -48,6 +48,11 @@ add_test(NAME hosts/midi
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/midi PROPERTIES LABELS hosts TIMEOUT 300)
+# ... with --audio: a graph of lib/kernels.fk, rendered on the virtual clock
+add_test(NAME hosts/audio
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --script tests/hosts/audio.txt 2>&1 | diff tests/hosts/audio.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/audio PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 
 # libfunk.h from a host's C (docs/dev/embedding.md)
 foreach(n signals output interrupt memory)
@@ -168,13 +173,16 @@ if(HAVE_TSAN)
   funk_test(ffi/sched/tsan-compiled "ffi;lib;stress;tsan" run tests/ffi/sched.fk tsan-compiled ${LINK} -M lib)
 endif()
 # exports without the runtime, loaded by a C host (docs/dev/audio.md, D)
-funk_test(kernels/dsp "ffi;kernels" kernels tests/kernels/dsp.fk tests/kernels/host.c)
+funk_test(kernels/chain "ffi;kernels" kernels tests/kernels/chain.fk tests/kernels/host.c)
 # ... run as a graph by hosts/graph, swapped while an audio thread renders
-set(GRAPH kernels tests/kernels/dsp.fk tests/kernels/graph.c hosts/graph/graph.c -Ihosts/graph -lpthread -lm)
+set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c hosts/graph/graph.c -Ihosts/graph -lpthread -lm)
 funk_test(kernels/graph "ffi;kernels" ${GRAPH})
 # ... built from funk by lib/graph.fk
-funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/dsp.fk tests/kernels/build.fk
-          -M lib -I hosts/graph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
+set(FUNKGRAPH -M lib -I hosts/graph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
+funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/chain.fk tests/kernels/build.fk ${FUNKGRAPH})
+funk_test(kernels/dupname "ffi;kernels;lib" error tests/kernels/dupname.fk ${FUNKGRAPH})
+# lib/dsp.fk over lib/kernels.fk
+funk_test(kernels/ugens "ffi;kernels;lib" kernels lib/kernels.fk tests/kernels/ugens.fk ${FUNKGRAPH})
 set(CMAKE_REQUIRED_FLAGS -fsanitize=address)
 set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=address)
 check_c_source_compiles("int main(void) { return 0; }" HAVE_ASAN)
@@ -218,6 +226,8 @@ set(clis
   "1|funk: tests/run/strings.fk: no `foreign export` to compile|emit-c^tests/run/strings.fk^--kernels"
   "1|funk: tests/kernels/alloc.fk: `digits`, a top-level value an export reads, may allocate or fail: the primitive `primShowInt`, at 6:18 in `digits`|emit-c^tests/kernels/alloc.fk^--kernels"
   "2|-|build^tests/run/strings.fk^--kernels"
+  "0|/* link: -lm */|emit-c^tests/kernels/chain.fk^--kernels"
+  "0|/* link: -lsqlite3 -lm */|emit-c^tests/kernels/libs.fk^--kernels"
   "1|-|run^tests/run/no-such-file.fk")
 set(i 0)
 foreach(c ${clis})

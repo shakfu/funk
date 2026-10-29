@@ -1,0 +1,8 @@
+-- expect: graph: two different nodes named osc
+-- One name, two nodes: an error, not the first node silently. Names are
+-- checked before kernels, so the kernel "k" need not exist.
+import graph as g
+
+main = do
+  p <- g.player [] 8000.0 64
+  g.play p (g.Node "k" [] [g.named "osc" (g.Node "k" [1.0] []), g.named "osc" (g.Node "k" [2.0] [])])

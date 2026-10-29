@@ -197,7 +197,7 @@ funk's thread (interpreted, live)               audio thread
   (kernels loaded on demand or ahead of time)        for each node: kernel(state, ins, out, n)
 ```
 
-- **Unit generators** are funk exports with one C signature, such as `void k(void *state, const float **in, float *out, int n)`, plus their state's size. They are compiled ahead of time, or on demand while playing. The interpreter cannot run exports, so they are always compiled.
+- **Unit generators** are funk exports with one C signature (below). They are compiled ahead of time, or on demand while playing. The interpreter cannot run exports, so they are always compiled.
 
 - **The graph** is built in funk on funk's thread, interpreted: a pure value, such as `sinosc 800 |> mul 0.3`, that `play` writes into a table in C memory. A row holds a kernel's address, its input rows, its state and its output buffer. Buffers and state are allocated then, so the audio thread allocates nothing; sapf allocates each block (inferred from `Gen::produce` and `List`'s allocation paths, not traced).
 
@@ -209,7 +209,7 @@ Why the graph is in C memory, not funk's heap: exports may not use heap values, 
 
 What it needs:
 
-1. **Kernels without the runtime.** Done, 2026-10-29: `funk emit-c --kernels FILE` writes FILE's exports and what they call, with `rt.h` but not `rt.c`; test `kernels/dsp`. Before, an export's code took a `self` closure from `G[]`, read field offsets from `G[]` entries set at startup, returned `()` as a runtime object, and called `fk_match_fail`. In a kernel, a foreign value such as a field offset is its C expression, a top-level value is its initializer, inlined, and the runtime's few names are hidden definitions. A top-level value an export reads must itself pass the export check, since nothing computes it at startup. The test links with undefined symbols rejected and checks that no `fk_` name is exported.
+1. **Kernels without the runtime.** Done, 2026-10-29: `funk emit-c --kernels FILE` writes FILE's exports and what they call, with `rt.h` but not `rt.c`; test `kernels/chain`. Before, an export's code took a `self` closure from `G[]`, read field offsets from `G[]` entries set at startup, returned `()` as a runtime object, and called `fk_match_fail`. In a kernel, a foreign value such as a field offset is its C expression, a top-level value is its initializer, inlined, and the runtime's few names are hidden definitions. A top-level value an export reads must itself pass the export check, since nothing computes it at startup. The test links with undefined symbols rejected and checks that no `fk_` name is exported.
 
    Results, four kernels (M1, Apple clang 21, `-O2`): `emit-c --kernels` takes 10 ms, and `cc -fPIC -shared` 70 ms on its 1,103 lines, against 57 ms for the same kernels written in C. The samples equal the hand-written C's bit for bit. Per 64-frame block, all four equal that C built with `-ffp-contract=off`, as does a voice whose state is a struct of two structs. Before `primByteAddr` and `primFieldAddr`, the state-variable filter was 1.34x, multiply 3.9x and the voice 2.6x: `peekByteOff` and `fieldPtr` added through `plusPtr`'s `uintptr_t`, whose lost provenance stops clang vectorizing. The test fails if generated kernels compute an address through `uintptr_t`. `plusPtr` itself keeps the integers, since `char *` arithmetic makes `plusPtr nullPtr 16` undefined behaviour (UBSan, `tests/run/array.fk`). With FP contraction, as clang's default, the C one-pole and filter are 1.4x faster again, from fused multiply-adds funk does not emit; they would change results against the interpreter.
 
@@ -226,13 +226,38 @@ What it needs:
 
 2. **A C runner**, since funk cannot call through a `FunPtr`: it has `&cname` imports but no `"dynamic"` import. The alternative is a `"dynamic"` import that R4 allows. Done, 2026-10-29: `hosts/graph/graph.h`, tests `kernels/graph`, plain and under AddressSanitizer and ThreadSanitizer. A node owns a copy of its state and its buffers, so a graph is freed whole. A replaced graph is freed by the host's thread once the audio thread has finished a block after the swap; the test, which swaps 2,000 graphs while one renders, reports a use-after-free under AddressSanitizer if that rule is off by one block. Calls are split at the graph's block size, so a host's buffer may be larger.
 
-3. **A kernel library**, `lib/dsp.fk`: A's oscillators, envelope and filters, in the kernel signature.
+3. **A kernel library.** Done, 2026-10-29: `lib/kernels.fk`, the kernels, and `lib/dsp.fk`, the signals built from them; test `kernels/ugens`, interpreted and compiled. Sine (C `sin`), saw, square and pulse (polyBLEP), one-pole low-pass, state-variable low-, band- and high-pass (Cytomic's trapezoidal form), linear ADSR, constant, add, multiply. `Sig` is a `Num`, so `saw 220 * adsr ...` builds a graph; a `Float` literal needs `dc`, since funk has no `Fractional`. The two are separate modules because an interpreted program cannot import a file with exports.
 
-4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring. The builder is done, 2026-10-29: `lib/graph.fk`, test `kernels/build`, interpreted and compiled. A `Sig` is a tree of nodes; `play` writes it into a new C graph, inputs first, and swaps it in. Limits:
-   - A subgraph used twice is two copies; shared nodes need names, such as a `let` the builder can see.
+   Cost per 64 frames at 48 kHz (M1, `-O2`): constant and multiply 4-6 ns; saw, one-pole and ADSR about 210 ns; square 280, sine 300, state-variable filter 340. Recurrences through the state bound them: each frame waits for the last. A 64-frame block at 48 kHz lasts 1.33 ms. Not compared with hand-written C, except the one-pole, which matched it in item 1.
+
+   **The kernel signature**, decided 2026-10-29:
+
+   ```c
+   typedef struct { double rate; } funk_context;   /* fields only added at the end */
+   void k(void *state, float **in, float *out, int n, const funk_context *cx);
+   ```
+
+   - **Parameters are inputs**, buffers of `n` frames like any signal, and a constant is a `dsp_const` node. Over parameters in the state, which was the first design: a parameter can be modulated, and changing one restarts only its constant, while a named oscillator keeps its phase. A separate parameter block per kernel would keep the second property but not the first.
+   - **Control rate is the kernel's choice:** a kernel may read an input's first frame once per call, as the filters read their cutoff to compute `tan` once. SuperCollider's rates per input were the alternative; the runner would then track rates, and reads would need a stride.
+   - **The context** holds the sample rate, and later what every kernel may need, such as time or tempo, without changing the signature. The rate cannot be in the state, since a modulator's frequency in Hz needs it at run time.
+   - **One output.** A filter's three responses are three exports sharing one loop. Several outputs, and stereo, wait for the plugin; no kernels have shipped, so the change would be mechanical.
+
+4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring. The builder is done, 2026-10-29: `lib/graph.fk`, test `kernels/build`, interpreted and compiled. A `Sig` is a tree of nodes; `play` writes it into a new C graph, inputs first, and swaps it in.
+
+   **Named nodes** (`named "lfo" s`): one node however often the tree uses it; two different nodes of one name are an error. A named node keeps its state across a swap if its kernel and initial state are unchanged, so an edit elsewhere in the graph does not restart its oscillators. The audio thread copies the state at the new graph's first block, from the graph it rendered last, matched by name: the host's thread cannot read a state the audio thread is writing, and the graph played before may never have been rendered. A replaced graph is therefore freed one block later than before; the stress test reports a use-after-free under AddressSanitizer, 5 runs of 5, with the earlier rule.
+
+   Parameters are inputs (item 3), so a changed frequency restarts only its constant; the named oscillator keeps its phase.
+
+   Limits:
    - State is a list of `Float`s, so a struct with other field types cannot be given.
-   - Each `play` copies the initial states again, so oscillators restart and a swap can click. Carrying state across swaps needs node identities.
+   - Unnamed nodes restart at every `play`.
    - Voices are not done.
+
+   **Controls and events**, 2026-10-29: a control is a node without a kernel, whose output the runner writes: a value that an event changes from its frame. A host sends `(frame, name, value)` on the player's queue, 4,096 events, single producer; each block the runner applies those before its end to the current graph's controls of that name, and leaves later ones queued. A late event takes the block's first frame. The block is not split: a control writes a stepped buffer, so every kernel downstream sees the change at its frame. A control's value carries across swaps as a named node's state does. In funk, `g.control "gate" 0.0`, `g.send` and `g.frames`; test `kernels/ugens` starts an envelope at frame 5 and releases it at frame 10.
+
+   These replace widening funk's `Ring Int` (A's item 4) for graphs: the consumer is the C runner, not a funk export, so the queue holds C structs, and funk pushes through a foreign call. A frame is 64 bits, the target a name's hash, the value a `float`.
+
+5. **`funk-midi --audio`.** Done, 2026-10-29: input that defines `sig`, a `g.Sig`, plays it from the next block, beside `pat`'s MIDI; test `hosts/audio`, on the virtual clock, which prints the output's peak every 250 ms. The host owns the player and the kernel library, `lib/kernels.fk` compiled by CMake (`tools/kernels.sh`); funk only builds graphs, so the audio thread runs C alone. Through miniaudio with `-DFUNK_MINIAUDIO_DIR`, a header-only library, rather than PortAudio, which would be an installed dependency. Checked on macOS: the device rendered 144,207 frames in 3 s at 48 kHz. Not yet listened to, nor run on Linux. Mono, the same on every channel. A `sig` that fails, by type or by naming no kernel, leaves the last graph playing.
 
 Limits:
 
@@ -268,17 +293,15 @@ Order:
 
 3. The C runner with the graph swap, then the graph builder in funk.
 
-4. `funk-midi --audio`.
+4. `funk-midi --audio`. Done (item 5 above).
 
 5. Measurements: the cost per node and per voice, how many voices fit in 1.33 ms, and a kernel's compile time. Log the friction of writing kernels.
 
 ## Open questions
 
-- The kernel signature: several outputs, inputs at control rate, and a kernel's parameter count.
+- Several outputs per kernel, and a stereo graph, for the plugin.
 
-- Polyphony: a fixed number of voices with stealing, or one voice per pattern layer?
-
-- Parameters: events on the ring, or atomics the audio thread reads every block?
+- Polyphony: a fixed number of voices with stealing, or one voice per pattern layer? Either way, notes are scheduled against the player's frame count, which drifts from the host's clock.
 
 - Where the synth is defined: one file built ahead of time, or a section of the live file that B recompiles?
 

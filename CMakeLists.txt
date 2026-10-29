@@ -59,14 +59,36 @@ set_target_properties(funkgraph PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(funkgraph PRIVATE -Wall -Wextra)
 target_include_directories(funkgraph PUBLIC hosts/graph)
 
+# lib/kernels.fk, compiled for lib/dsp.fk's signals
+set(FUNK_DSP_LIB ${CMAKE_CURRENT_BINARY_DIR}/funkdsp.so)
+add_custom_command(OUTPUT ${FUNK_DSP_LIB}
+  COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/tools/kernels.sh $<TARGET_FILE:funk> ${CMAKE_CURRENT_SOURCE_DIR}/lib/kernels.fk ${FUNK_DSP_LIB}
+  DEPENDS funk lib/kernels.fk tools/kernels.sh)
+add_custom_target(funkdsp ALL DEPENDS ${FUNK_DSP_LIB})
+
 # funk-midi: plays a pattern to MIDI, live (hosts/midi/main.c). Without
 # libremidi it can only print, which the tests use. FUNK_LIBREMIDI_DIR is a
-# libremidi source tree, e.g. midi-langs/thirdparty/libremidi.
+# libremidi source tree, e.g. midi-langs/thirdparty/libremidi. With
+# --audio it plays a graph of kernels too: through miniaudio if
+# FUNK_MINIAUDIO_DIR holds miniaudio.h, else only on the virtual clock.
 set(FUNK_LIBREMIDI_DIR "" CACHE PATH "libremidi source, for funk-midi's MIDI output")
+set(FUNK_MINIAUDIO_DIR "" CACHE PATH "the directory of miniaudio.h, for funk-midi's audio output")
 add_executable(funk-midi hosts/midi/main.c)
 target_compile_options(funk-midi PRIVATE -Wall -Wextra)
-target_compile_definitions(funk-midi PRIVATE FUNK_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/lib")
-target_link_libraries(funk-midi PRIVATE libfunk)
+target_compile_definitions(funk-midi PRIVATE FUNK_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/lib"
+  FUNK_DSP_LIB="${FUNK_DSP_LIB}" FUNK_GRAPH_INCLUDE="${CMAKE_CURRENT_SOURCE_DIR}/hosts/graph")
+target_link_libraries(funk-midi PRIVATE libfunk funkgraph)
+set_target_properties(funk-midi PROPERTIES ENABLE_EXPORTS ON) # graph.fk's glue calls the runtime and funkgraph
+add_dependencies(funk-midi funkdsp)
+if(FUNK_MINIAUDIO_DIR)
+  target_sources(funk-midi PRIVATE hosts/midi/miniaudio.c)
+  target_include_directories(funk-midi PRIVATE ${FUNK_MINIAUDIO_DIR})
+  target_compile_definitions(funk-midi PRIVATE HAVE_MINIAUDIO)
+  set_source_files_properties(hosts/midi/miniaudio.c PROPERTIES COMPILE_OPTIONS -w)
+  if(APPLE)
+    target_link_libraries(funk-midi PRIVATE "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
+  endif()
+endif()
 if(FUNK_LIBREMIDI_DIR)
   enable_language(CXX)
   set(LIBREMIDI_EXAMPLES OFF CACHE BOOL "" FORCE)

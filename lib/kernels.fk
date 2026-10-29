@@ -1,0 +1,217 @@
+-- kernels.fk -- the unit generators behind dsp.fk (docs/dev/audio.md, D),
+-- compiled ahead of time with `funk emit-c --kernels lib/kernels.fk`.
+-- Each has hosts/graph's kernel signature: state, inputs, output, frames,
+-- context. Inputs read every frame are audio rate; those read once per
+-- call, from their first frame, are marked "per call".
+foreign export ccall "dsp_const" constK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_add" addK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_mul" mulK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_sine" sineK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_saw" sawK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_square" squareK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_lowpass1" lowpass1K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_lowpass" lowpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_bandpass" bandpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_highpass" highpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_adsr" adsrK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign import ccall "math.h sin" csin :: Float -> Float
+foreign import ccall "math.h tan" ctan :: Float -> Float
+foreign import ccall "math.h exp" cexp :: Float -> Float
+
+-- hosts/graph's funk_context
+foreign struct Context { rate :: Float }
+
+foreign struct Phase { phase :: Float }
+foreign struct Const { value :: Float }
+foreign struct Pole { y :: Float }
+foreign struct Svf { ic1 :: Float, ic2 :: Float }
+-- stage: 0 idle, 1 attack, 2 decay or sustain, 3 release
+foreign struct Env { stage :: Float, level :: Float, gate :: Float }
+
+pi2 :: Float
+pi2 = 6.283185307179586
+
+input :: Ptr (Ptr CFloat) -> Int ->> Ptr CFloat
+input ins j = peekByteOff ins (8 * j)
+
+at :: Ptr CFloat -> Int ->> Float
+at buf i = fromCFloat (peekByteOff buf (4 * i))
+
+put :: Ptr CFloat -> Int -> Float ->> ()
+put out i x = pokeByteOff out (4 * i) (toCFloat x)
+
+rateOf :: Ptr Context ->> Float
+rateOf cx = readField cx Context.rate
+
+-- a phase in [0, 1) after a step of less than one cycle either way
+wrap :: Float -> Float
+wrap x = if x >= 1.0 then x - 1.0 else if x < 0.0 then x + 1.0 else x
+
+-- the phase before this frame's step; advances it by freq / rate
+step :: Ptr Phase -> Float -> Float ->> Float
+step s freq rate = do
+  ph <- readField s Phase.phase
+  writeField s Phase.phase (wrap (ph + freq / rate))
+  ph
+
+-- polyBLEP: the correction near a unit step at phase 0, for a phase
+-- advancing dt per frame
+blep :: Float -> Float -> Float
+blep t dt =
+  if dt <= 0.0 then 0.0
+  else if t < dt then (let x = t / dt in x + x - x * x - 1.0)
+  else if t > 1.0 - dt then (let x = (t - 1.0) / dt in x * x + x + x + 1.0)
+  else 0.0
+
+constLoop :: Ptr CFloat -> Float -> Int -> Int ->> ()
+constLoop out v i n = if i == n then () else do
+  put out i v
+  constLoop out v (i + 1) n
+
+-- state: value
+constK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+constK st ins out n cx = constLoop out (readField (castPtr st) Const.value) 0 (fromIntegral n)
+
+addLoop :: Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+addLoop a b out i n = if i == n then () else do
+  put out i (at a i + at b i)
+  addLoop a b out (i + 1) n
+
+-- inputs: a, b
+addK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+addK st ins out n cx = addLoop (input ins 0) (input ins 1) out 0 (fromIntegral n)
+
+mulLoop :: Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+mulLoop a b out i n = if i == n then () else do
+  put out i (at a i * at b i)
+  mulLoop a b out (i + 1) n
+
+-- inputs: a, b
+mulK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+mulK st ins out n cx = mulLoop (input ins 0) (input ins 1) out 0 (fromIntegral n)
+
+sineLoop :: Ptr Phase -> Ptr CFloat -> Ptr CFloat -> Float -> Int -> Int ->> ()
+sineLoop s freq out rate i n = if i == n then () else do
+  ph <- step s (at freq i) rate
+  put out i (csin (pi2 * ph))
+  sineLoop s freq out rate (i + 1) n
+
+-- state: phase; inputs: frequency
+sineK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+sineK st ins out n cx = sineLoop (castPtr st) (input ins 0) out (rateOf cx) 0 (fromIntegral n)
+
+sawLoop :: Ptr Phase -> Ptr CFloat -> Ptr CFloat -> Float -> Int -> Int ->> ()
+sawLoop s freq out rate i n = if i == n then () else do
+  dt <- at freq i / rate
+  ph <- step s (at freq i) rate
+  put out i (2.0 * ph - 1.0 - blep ph dt)
+  sawLoop s freq out rate (i + 1) n
+
+-- band-limited by polyBLEP; state: phase; inputs: frequency
+sawK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+sawK st ins out n cx = sawLoop (castPtr st) (input ins 0) out (rateOf cx) 0 (fromIntegral n)
+
+squareLoop :: Ptr Phase -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Int -> Int ->> ()
+squareLoop s freq width out rate i n = if i == n then () else do
+  dt <- at freq i / rate
+  w <- at width i
+  ph <- step s (at freq i) rate
+  v <- if ph < w then 1.0 else -1.0
+  put out i (v + blep ph dt - blep (wrap (ph + 1.0 - w)) dt)
+  squareLoop s freq width out rate (i + 1) n
+
+-- a pulse, high for width of each cycle, band-limited by polyBLEP; state:
+-- phase; inputs: frequency, width in (0, 1)
+squareK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+squareK st ins out n cx = squareLoop (castPtr st) (input ins 0) (input ins 1) out (rateOf cx) 0 (fromIntegral n)
+
+poleLoop :: Ptr Pole -> Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+poleLoop s x c out i n = if i == n then () else do
+  y <- readField s Pole.y
+  y2 <- y + c * (at x i - y)
+  writeField s Pole.y y2
+  put out i y2
+  poleLoop s x c out (i + 1) n
+
+-- a one-pole low-pass; state: y; inputs: signal, cutoff in Hz (per call)
+lowpass1K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+lowpass1K st ins out n cx = do
+  c <- 1.0 - cexp (0.0 - pi2 * at (input ins 1) 0 / rateOf cx)
+  poleLoop (castPtr st) (input ins 0) c out 0 (fromIntegral n)
+
+-- Cytomic's trapezoidal state-variable filter; mode 0 low-pass, 1
+-- band-pass, 2 high-pass
+svfLoop :: Ptr Svf -> Int -> Ptr CFloat -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+svfLoop s mode x k a1 a2 a3 out i n = if i == n then () else do
+  v0 <- at x i
+  ic1 <- readField s Svf.ic1
+  ic2 <- readField s Svf.ic2
+  v3 <- v0 - ic2
+  v1 <- a1 * ic1 + a2 * v3
+  v2 <- ic2 + a2 * ic1 + a3 * v3
+  writeField s Svf.ic1 (2.0 * v1 - ic1)
+  writeField s Svf.ic2 (2.0 * v2 - ic2)
+  put out i (if mode == 0 then v2 else if mode == 1 then v1 else v0 - k * v1 - v2)
+  svfLoop s mode x k a1 a2 a3 out (i + 1) n
+
+-- inputs: signal, cutoff in Hz, below half the rate, and Q above 0 (both
+-- per call)
+svf :: Int -> Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+svf mode st ins out n cx = do
+  rate <- rateOf cx
+  fc <- min (at (input ins 1) 0) (0.49 * rate)
+  g <- ctan (3.141592653589793 * max fc 0.0 / rate)
+  k <- 1.0 / max (at (input ins 2) 0) 0.01
+  a1 <- 1.0 / (1.0 + g * (g + k))
+  svfLoop (castPtr st) mode (input ins 0) k a1 (g * a1) (g * g * a1) out 0 (fromIntegral n)
+
+lowpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+lowpassK st ins out n cx = svf 0 st ins out n cx
+
+bandpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+bandpassK st ins out n cx = svf 1 st ins out n cx
+
+highpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+highpassK st ins out n cx = svf 2 st ins out n cx
+
+-- one frame of the envelope from stage and level: writes both, returns
+-- the level; up, down and rel are steps per frame, sus the sustain level
+envStep :: Ptr Env -> Float -> Float -> Float -> Float -> Float -> Float ->> Float
+envStep s stage level up down sus rel = do
+  st2 <- if stage == 1.0 then (if level + up >= 1.0 then 2.0 else 1.0)
+         else if stage == 3.0 then (if level - rel <= 0.0 then 0.0 else 3.0)
+         else stage
+  l2 <- if stage == 1.0 then min 1.0 (level + up)
+        else if stage == 2.0 then max sus (level - down)
+        else if stage == 3.0 then max 0.0 (level - rel)
+        else 0.0
+  writeField s Env.stage st2
+  writeField s Env.level l2
+  l2
+
+envLoop :: Ptr Env -> Ptr CFloat -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+envLoop s gate up down sus rel out i n = if i == n then () else do
+  g <- at gate i
+  was <- readField s Env.gate
+  stage <- readField s Env.stage
+  st <- if g > 0.0 && was <= 0.0 then 1.0 else if g <= 0.0 && was > 0.0 then 3.0 else stage
+  writeField s Env.gate g
+  put out i (envStep s st (readField s Env.level) up down sus rel)
+  envLoop s gate up down sus rel out (i + 1) n
+
+-- seconds to a step per frame; an instant step for 0
+perFrame :: Float -> Float -> Float -> Float
+perFrame span secs rate = if secs <= 0.0 then 2.0 else span / (secs * rate)
+
+-- linear attack, decay and release, restarted by a rising gate; state:
+-- stage, level, gate; inputs: gate (above 0 is on), attack and decay in
+-- seconds, sustain level, release in seconds from full scale (the last
+-- four per call)
+adsrK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+adsrK st ins out n cx = do
+  rate <- rateOf cx
+  sus <- min 1.0 (max 0.0 (at (input ins 3) 0))
+  up <- perFrame 1.0 (at (input ins 1) 0) rate
+  down <- perFrame (1.0 - sus) (at (input ins 2) 0) rate
+  rel <- perFrame 1.0 (at (input ins 4) 0) rate
+  envLoop (castPtr st) (input ins 0) up down sus rel out 0 (fromIntegral n)

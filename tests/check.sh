@@ -18,8 +18,9 @@
 #                                     -M also to funk emit-c
 #   check.sh kernels FILE HOST [ARGS]
 #                                   funk emit-c --kernels FILE computes no address through
-#                                   uintptr_t, and compiles under -Wall -Wextra into a shared
-#                                   library with no undefined symbols and no exported fk_ name;
+#                                   uintptr_t, and compiles under -Wall -Wextra, with the
+#                                   libraries its link line names, into a shared library with
+#                                   no undefined symbols and no exported fk_ name;
 #                                   HOST.c, built with ARGS and $HOST_CFLAGS (a sanitizer) and
 #                                   given its path, prints HOST.expected; a HOST.fk runs
 #                                   with ARGS, interpreted and compiled, with $KERNELS the path
@@ -112,9 +113,11 @@ kernels)
   f=$1 host=$2
   shift 2
   "$FUNK" emit-c --kernels "$f" -o "$tmp/k.c" 2>"$tmp/cc" || fail "funk emit-c --kernels" "$tmp/cc"
+  libs=$(sed -n '1s|^/\* link: \(.*\) \*/$|\1|p' "$tmp/k.c") # the libraries the kernels need
+  [ -n "$libs" ] || fail "no link line" "$tmp/k.c"
   undef=-Wl,--no-undefined dl=-ldl # a runtime symbol left in a kernel fails the link
   [ "$(uname)" = Darwin ] && undef= dl= # its linker rejects undefined symbols by default
-  ${CC:-cc} -O2 -fPIC -shared -Wall -Wextra -Wno-unused-parameter -Werror $undef -o "$tmp/k.so" "$tmp/k.c" -lm >"$tmp/cc" 2>&1 ||
+  ${CC:-cc} -O2 -fPIC -shared -Wall -Wextra -Wno-unused-parameter -Werror $undef -o "$tmp/k.so" "$tmp/k.c" $libs >"$tmp/cc" 2>&1 ||
     fail "the kernels' C" "$tmp/cc"
   # an address added through integers loses provenance, and clang stops vectorizing
   sed -n '/---- generated kernels ----/,$p' "$tmp/k.c" | grep -n 'uintptr_t)' >"$tmp/casts" && fail "an address computed through uintptr_t" "$tmp/casts"

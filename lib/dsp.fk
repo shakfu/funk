@@ -1,0 +1,47 @@
+-- dsp.fk -- signals built from kernels.fk's unit generators, for graph.fk
+-- (docs/dev/audio.md, D). Every parameter is a Sig, so any can be
+-- modulated; an Int literal is a constant (Num), a Float one needs dc.
+-- The player needs kernels.fk compiled, as CMake does into funkdsp.so:
+--   tools/kernels.sh funk lib/kernels.fk funkdsp.so
+module dsp where
+import graph as g
+
+dc :: Float -> g.Sig
+dc x = g.Node "dsp_const" [x] []
+
+instance Num g.Sig where
+  a + b = g.Node "dsp_add" [] [a, b]
+  a - b = g.Node "dsp_add" [] [a, g.Node "dsp_mul" [] [dc (-1.0), b]]
+  a * b = g.Node "dsp_mul" [] [a, b]
+  negate a = g.Node "dsp_mul" [] [dc (-1.0), a]
+  abs a = a
+  fromInt n = dc (toFloat n)
+
+-- oscillators, from -1 to 1; frequency in Hz
+sine :: g.Sig -> g.Sig
+sine freq = g.Node "dsp_sine" [0.0] [freq]
+
+saw :: g.Sig -> g.Sig
+saw freq = g.Node "dsp_saw" [0.0] [freq]
+
+-- high for width of each cycle, width in (0, 1)
+pulse :: g.Sig -> g.Sig -> g.Sig
+pulse freq width = g.Node "dsp_square" [0.0] [freq, width]
+
+square :: g.Sig -> g.Sig
+square freq = pulse freq (dc 0.5)
+
+-- filters: cutoff in Hz, read once per block, then the signal
+lowpass1 :: g.Sig -> g.Sig -> g.Sig
+lowpass1 cutoff x = g.Node "dsp_lowpass1" [0.0] [x, cutoff]
+
+-- state-variable filters, 12 dB per octave; q from 0.5 (no resonance) up
+lowpass, bandpass, highpass :: g.Sig -> g.Sig -> g.Sig -> g.Sig
+lowpass cutoff q x = g.Node "dsp_lowpass" [0.0, 0.0] [x, cutoff, q]
+bandpass cutoff q x = g.Node "dsp_bandpass" [0.0, 0.0] [x, cutoff, q]
+highpass cutoff q x = g.Node "dsp_highpass" [0.0, 0.0] [x, cutoff, q]
+
+-- 0 to 1: attack, decay, sustain level, release, then the gate (above 0
+-- is on); times in seconds, read once per block
+adsr :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+adsr a d s r gate = g.Node "dsp_adsr" [0.0, 0.0, 0.0] [gate, a, d, s, r]

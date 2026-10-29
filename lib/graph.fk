@@ -1,35 +1,63 @@
 -- graph.fk -- builds graphs of kernels for hosts/graph's player
--- (docs/dev/audio.md, D). A Sig is a tree of nodes: a kernel, its initial
--- state as Floats (a foreign struct of Float fields), and its inputs. play
--- writes it into a new C graph, inputs first, and gives the graph to the
--- player, which renders it from the audio thread's next block. Link with
+-- (docs/dev/audio.md, D). A Sig is a tree of nodes: a kernel's C name, its
+-- initial state as Floats (a foreign struct of Float fields), and its
+-- inputs, parameters included. play writes it into a new C graph, inputs
+-- first, finding each kernel in the player's libraries, and swaps it in
+-- from the audio thread's next block. A named node is one node however
+-- often the tree uses it, and keeps its state across plays while its
+-- kernel and initial state stay the same. A control's output is a value
+-- that send changes from a given frame, such as a note's gate. Link with
 -- -I hosts/graph and the funkgraph library.
 module graph where
 
-foreign import ccall "graph.h funk_graph_new" graphNew :: CInt ->> Ptr ()
-foreign import ccall "graph.h funk_graph_add" graphAdd :: Ptr () -> FunPtr (Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CSize -> Ptr CInt -> CInt ->> CInt
-foreign import ccall "graph.h funk_graph_free" graphFree :: Ptr () ->> ()
+foreign import ccall "graph.h funk_graph_new" graphNew :: CInt -> Float ->> Ptr ()
+foreign import ccall "graph.h funk_graph_add" graphAdd :: Ptr () -> Ptr () -> Ptr () -> CSize -> Ptr CInt -> CInt ->> CInt
+foreign import ccall "graph.h funk_graph_control" graphControl :: Ptr () -> CFloat ->> CInt
+foreign import ccall "graph.h funk_player_send" playerSend :: Ptr () -> CLLong -> String -> CFloat ->> CBool
+foreign import ccall "graph.h funk_player_frames" playerFrames :: Ptr () ->> CLLong
+foreign import ccall "graph.h funk_graph_name" graphName :: Ptr () -> CInt -> String ->> CInt
 foreign import ccall "graph.h funk_player_new" playerNew :: () ->> Ptr ()
 foreign import ccall "graph.h funk_player_play" playerPlay :: Ptr () -> Ptr () ->> ()
-foreign import ccall "graph.h funk_player_reclaim" reclaim :: Ptr () ->> ()
-foreign import ccall "graph.h funk_player_render" render :: Ptr () -> Ptr CFloat -> CInt ->> ()
+foreign import ccall "graph.h funk_player_render" playerRender :: Ptr () -> Ptr CFloat -> CInt ->> ()
 foreign import ccall "graph.h funk_player_free" playerFree :: Ptr () ->> ()
 foreign import ccall "dlfcn.h dlopen" dlopen :: String -> CInt ->> Ptr ()
 foreign import ccall "dlfcn.h dlsym" dlsym :: Ptr () -> String ->> Ptr ()
 foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
 
-data Sig = Silence | Node (FunPtr (Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ())) [Float] [Sig]
+data Sig = Silence | Node String [Float] [Sig] | Named String Sig | Control Float
 
--- a library of kernels, such as one from `funk emit-c --kernels`
+-- a C player, its kernel libraries, frames per second, and the most
+-- frames per kernel call
+data Player = Player (Ptr ()) [Ptr ()] Float Int
+
+named :: String -> Sig -> Sig
+named n s = Named n s
+
+-- a control named n, starting at v
+control :: String -> Float -> Sig
+control n v = Named n (Control v)
+
+same :: Sig -> Sig -> Bool
+same Silence Silence = True
+same (Node k st ins) (Node k2 st2 ins2) = k == k2 && st == st2 && length ins == length ins2 && and (zipWith same ins ins2)
+same (Named n s) (Named n2 s2) = n == n2 && same s s2
+same (Control v) (Control v2) = v == v2
+same _ _ = False
+
+-- libraries of kernels, such as `funk emit-c --kernels` output compiled
+player :: [String] -> Float -> Int ->> Player
+player paths rate maxBlock = Player (playerNew ()) (map library paths) rate maxBlock
+
 library :: String ->> Ptr ()
 library path = do
   h <- dlopen path rtldNow
-  if h == nullPtr then error ("graph.library: cannot load " ++ path) else h
+  if h == nullPtr then error ("graph.player: cannot load " ++ path) else h
 
-kernel :: Ptr () -> String ->> FunPtr (Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt ->> ())
-kernel lib name = do
+kernel :: [Ptr ()] -> String ->> Ptr ()
+kernel [] name = error ("graph: no kernel " ++ name)
+kernel (lib:libs) name = do
   k <- dlsym lib name
-  if k == nullPtr then error ("graph.kernel: no " ++ name) else castPtrToFunPtr k
+  if k == nullPtr then kernel libs name else k
 
 pokeFloats :: Ptr () -> Int -> [Float] ->> ()
 pokeFloats p i [] = ()
@@ -43,34 +71,80 @@ pokeInputs p i (x:xs) = do
   pokeByteOff p (4 * i) (fromIntegral x :: CInt)
   pokeInputs p (i + 1) xs
 
--- s's nodes after those in g; s's index, or -1 for silence
-add :: Ptr () -> Sig ->> Int
-add g Silence = -1
-add g (Node k st ins) = do
-  is <- addAll g ins
+-- s's errors, before a C graph is allocated: two different nodes of one
+-- name, then unknown kernels. names returns ns with s's names.
+names :: [(String, Sig)] -> Sig -> [(String, Sig)]
+names ns Silence = ns
+names ns (Named n s) = case lookup n ns of
+  Just s2 -> if same s s2 then ns else error ("graph: two different nodes named " ++ n)
+  Nothing -> names ((n, s) : ns) s
+names ns (Node k st ins) = foldl names ns ins
+names ns (Control v) = ns
+
+kernels :: [Ptr ()] -> Sig ->> ()
+kernels libs Silence = ()
+kernels libs (Named n s) = kernels libs s
+kernels libs (Control v) = ()
+kernels libs (Node k st ins) = do
+  kernel libs k
+  mapM_ (kernels libs) ins
+
+-- s's nodes after those in g, and those named, with the names added
+-- before; s's index, or -1 for silence
+add :: Ptr () -> [Ptr ()] -> [(String, (Int, Sig))] -> Sig ->> (Int, [(String, (Int, Sig))])
+add g libs ns Silence = (-1, ns)
+add g libs ns (Named n s) = case lookup n ns of
+  Just (i, s2) -> (i, ns)
+  Nothing -> do
+    (i, ns2) <- add g libs ns s
+    if i < 0 then (i, ns2)
+    else if graphName g (fromIntegral i) n < 0 then error ("graph: cannot name a named node " ++ n)
+    else (i, (n, (i, s)) : ns2)
+add g libs ns (Control v) = do
+  i <- graphControl g (toCFloat v)
+  if i < 0 then error "graph: out of memory" else (fromIntegral i, ns)
+add g libs ns (Node k st ins) = do
+  (is, ns2) <- addAll g libs ns ins
+  kp <- kernel libs k
   i <- allocaBytes (8 * length st + 4 * length is) (\p -> do
     pokeFloats p 0 st
     q <- plusPtr p (8 * length st)
     pokeInputs q 0 is
-    graphAdd g k p (fromIntegral (8 * length st)) q (fromIntegral (length is)))
-  if i < 0 then error "graph.add: out of memory" else fromIntegral i
+    graphAdd g kp p (fromIntegral (8 * length st)) q (fromIntegral (length is)))
+  if i < 0 then error "graph: out of memory" else (fromIntegral i, ns2)
 
-addAll :: Ptr () -> [Sig] ->> [Int]
-addAll g [] = []
-addAll g (s:ss) = do
-  i <- add g s
-  is <- addAll g ss
-  i : is
-
--- a C graph of s, rendering at most maxBlock frames per kernel call
-build :: Int -> Sig ->> Ptr ()
-build maxBlock s = do
-  g <- graphNew (fromIntegral maxBlock)
-  if g == nullPtr then error "graph.build: out of memory" else do
-    add g s
-    g
+addAll :: Ptr () -> [Ptr ()] -> [(String, (Int, Sig))] -> [Sig] ->> ([Int], [(String, (Int, Sig))])
+addAll g libs ns [] = ([], ns)
+addAll g libs ns (s:ss) = do
+  (i, ns2) <- add g libs ns s
+  (is, ns3) <- addAll g libs ns2 ss
+  (i : is, ns3)
 
 -- s plays from the player's next block; Silence stops it
-play :: Ptr () -> Int -> Sig ->> ()
-play player maxBlock Silence = playerPlay player nullPtr
-play player maxBlock s = playerPlay player (build maxBlock s)
+play :: Player -> Sig ->> ()
+play (Player p libs rate maxBlock) Silence = playerPlay p nullPtr
+play (Player p libs rate maxBlock) s = do
+  names [] s
+  kernels libs s
+  g <- graphNew (fromIntegral maxBlock) rate
+  if g == nullPtr then error "graph: out of memory" else do
+    add g libs [] s
+    playerPlay p g
+
+-- from frame on, the control named n outputs v; False if the queue is
+-- full. Frames already rendered count as the next block's first; sends
+-- must come in time order.
+send :: Player -> Int -> String -> Float ->> Bool
+send (Player p libs rate maxBlock) frame n v = playerSend p (fromIntegral frame) n (toCFloat v) /= 0
+
+-- the frames rendered so far
+frames :: Player ->> Int
+frames (Player p libs rate maxBlock) = fromIntegral (playerFrames p)
+
+-- the audio thread's call: n frames of output
+render :: Player -> Ptr CFloat -> Int ->> ()
+render (Player p libs rate maxBlock) out n = playerRender p out (fromIntegral n)
+
+-- once render is no longer called; the libraries stay loaded
+close :: Player ->> ()
+close (Player p libs rate maxBlock) = playerFree p

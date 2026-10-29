@@ -94,7 +94,7 @@ Status:
 
 - **Timing, macOS, M1.** As a default-policy thread, the sender woke from a timed wait up to 8 ms late (median 2 ms). Waking 2 ms early and sleeping the rest did not help, nor did the user-interactive QoS class. As a time-constraint thread (`THREAD_TIME_CONSTRAINT_POLICY`): median 0.06 ms, max 0.32 ms over 600 messages. Through CoreMIDI to a second process, notes a cycle apart arrived within 0.03 ms of each other. Linux is unmeasured.
 
-- **Build.** Without libremidi, `funk-midi` can only print (`--print`, `--no-sleep`), which `tests/hosts/midi.txt` uses. `-DFUNK_LIBREMIDI_DIR=` a libremidi source tree, such as `midi-langs/thirdparty/libremidi`, adds MIDI output.
+- **Build.** Without libremidi, `funk-midi` can only print (`--print`, `--no-sleep`), which `tests/hosts/midi.txt` uses. `-DFUNK_LIBREMIDI_DIR=` a libremidi source tree, such as `midi-langs/thirdparty/libremidi`, adds MIDI output. `--audio` plays `sig` too ([audio.md](audio.md), item 5); `-DFUNK_MINIAUDIO_DIR=` the directory of `miniaudio.h` adds the audio device.
 
 ## CLAP plugin
 
@@ -119,5 +119,7 @@ Status:
 | 1 | `mapP :: (a -> b) -> Pattern a -> Pattern b` is rejected: the signature's arrows share an effect variable, and `Pattern`'s field needs `f` pure ([typed-effects.md](typed-effects.md), "A pure argument, regardless"). The message, "functions whose effects differ", names neither. | no signature | a pure-argument marker; or name the field and the parameter in the message |
 | 2 | `map p.atom "abc"` fails: `String` is packed | `unpack` | the targeted error from the review |
 | 3 | A field read on a parameter, `e.whole.start`, needs a signature: "cannot infer the record type" | a signature | infer from the field name when one type has it |
-| 4 | A test file `pattern.fk` that imports `pattern` reports "import cycle: pattern -> pattern": the importer's directory is searched first and finds the file itself | rename | say "imports itself" || 5 | A definition keeps the names it was compiled with: after `:l`, an earlier `step` still plays the old `pat` | redefine `step` after each load | none needed; document for live use |
+| 4 | A test file `pattern.fk` that imports `pattern` reports "import cycle: pattern -> pattern": the importer's directory is searched first and finds the file itself | rename | say "imports itself" |
+| 5 | A definition keeps the names it was compiled with: after `:l`, an earlier `step` still plays the old `pat` | redefine `step` after each load | none needed; document for live use |
 | 6 | Every `funk_eval` input stays compiled: about 16 KB each, and the slowest call grew from 0.12 to 0.62 ms over 40,000 calls. A host cannot evaluate per window | `funk_call` | rolling back an expression's chunk after it runs |
+| 7 | `chain k named = ... g.Node (k "k_saw") ...`, with `k :: String ->> FunPtr ...`, is rejected under the signature `(String ->> FunPtr ...) -> Bool ->> g.Sig`: "functions whose effects differ: a signature fixes one, and another is required" (met in an earlier `tests/kernels/build.fk`). Without the signature it compiles. Possibly #1 again | no signature | as #1 |

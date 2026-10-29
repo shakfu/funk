@@ -1,6 +1,7 @@
--- lib/graph.fk over the kernels of dsp.fk, in the interpreter: host.c's
--- chain as a Sig, played and rendered in two blocks of 8 frames, must equal
--- host.c's clip rows. $KERNELS names the kernel library.
+-- lib/graph.fk over the kernels of chain.fk: host.c's chain as a Sig, in
+-- blocks of 8 frames, must equal host.c's clip rows. Played again, a chain
+-- with named nodes continues and one without starts again. $KERNELS names
+-- the kernel library.
 import graph as g
 
 foreign import ccall "stdlib.h getenv" getenv :: String ->> Ptr CChar
@@ -11,25 +12,44 @@ showBlock out i n = if i == n then () else do
   print (fromCFloat x)
   showBlock out (i + 1) n
 
+-- host.c's chain; its oscillators and filter named if named
+chain :: Bool -> g.Sig
+chain named =
+  let saw = nameIf named "saw" (g.Node "k_saw" [0.0, 1000.0] [])
+      pole = nameIf named "lp" (g.Node "k_onepole" [0.0, 0.5] [saw])
+      sine = nameIf named "sine" (g.Node "k_sine" [0.25, 500.0] [])
+  in g.Node "k_clip" [] [g.Node "k_mul" [] [pole, sine]]
+
+nameIf :: Bool -> String -> g.Sig -> g.Sig
+nameIf named n s = if named then g.named n s else s
+
+block :: g.Player -> Ptr CFloat -> String ->> ()
+block p out what = do
+  g.render p out 8
+  print what
+  showBlock out 0 8
+
 main = do
-  lib <- g.library (peekCString (getenv "KERNELS"))
-  k <- g.kernel lib
-  saw <- g.Node (k "k_saw") [0.0, 1000.0] []
-  pole <- g.Node (k "k_onepole") [0.0, 0.5] [saw]
-  sine <- g.Node (k "k_sine") [0.25, 500.0] []
-  chain <- g.Node (k "k_clip") [] [g.Node (k "k_mul") [] [pole, sine]]
-  p <- g.playerNew ()
+  p <- g.player [peekCString (getenv "KERNELS")] 8000.0 5
   out <- mallocBytes 32
   g.render p out 8
   print "silent"
   showBlock out 0 1
-  g.play p 5 chain
-  g.render p out 8
-  showBlock out 0 8
-  g.render p out 8
-  showBlock out 0 8
-  g.play p 5 g.Silence
+  g.play p (chain False)
+  block p out "block 0"
+  block p out "block 1"
+  g.play p (chain False)
+  block p out "unnamed, played again: block 0"
+  g.play p (chain True)
+  block p out "named: block 0"
+  g.play p (chain True)
+  block p out "named, played again: block 1"
+  -- one node however often it is used: naming it twice would fail
+  lfo <- g.named "lfo" (g.Node "k_sine" [0.0, 1000.0] [])
+  g.play p (g.Node "k_mul" [] [lfo, lfo])
+  block p out "lfo squared"
+  g.play p g.Silence
   g.render p out 8
   showBlock out 0 1
   free out
-  g.playerFree p
+  g.close p

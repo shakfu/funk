@@ -1,0 +1,7 @@
+-- A kernel file that names a library: emit-c --kernels lists it on its
+-- first line, before libm. Only emitted, never linked.
+foreign library "sqlite3"
+foreign export ccall "k_id" ident :: CInt ->> CInt
+
+ident :: CInt ->> CInt
+ident x = x
