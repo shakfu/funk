@@ -93,7 +93,15 @@ Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
 - Audio ([audio.md](audio.md)): kernels from `funk emit-c --kernels`, the `funkgraph` runner, `lib/graph.fk` and `lib/dsp.fk`, voices per MIDI channel.
 - The CLAP plugin ([plugin.md](plugin.md)): moved from `midi-langs`, with a stereo output, note input from the DAW and linked glue, so it needs no C compiler.
 
-## 0.8 -- language growth
+## 0.8 -- done: sessions
+
+Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
+
+- Sessions ([embedding.md](embedding.md), phase 2): every `libfunk.h` call takes a `funk *`; any number of sessions per process, each on its own thread, with its memory freed by `funk_free`.
+- The CLAP plugin ([plugin.md](plugin.md#instances)): any number of instances in one process.
+- AddressSanitizer: the suite runs clean under it, and CI runs it on Linux and macOS.
+
+## 0.9 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 

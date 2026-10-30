@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-30
+
 ### Changed
 
 - The CLAP plugin allows any number of instances in one process, each with its own funk session, player and voices; it refused a second ([docs/dev/plugin.md](docs/dev/plugin.md#instances)). Its framework's audio calls are `Language` methods, since free functions could not tell instances apart.
