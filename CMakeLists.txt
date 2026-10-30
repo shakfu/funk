@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(funk VERSION 0.6.0 LANGUAGES C)
+project(funk VERSION 0.7.0 LANGUAGES C)
 
 # One build of every project under projects/:
 #   funk       the language: libfunk and the command line

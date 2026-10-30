@@ -84,7 +84,16 @@ Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - CI on Linux and macOS, plain and under UBSan.
 
-## 0.7 -- language growth
+## 0.7 -- done: embedding, patterns and audio
+
+Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
+
+- Embedding ([embedding.md](embedding.md), phase 0): `libfunk.h`'s output, interrupt, memory and provide calls; only `funk_*` exported; foreign imports inside a plugin; `make install` with a CMake package.
+- Patterns ([patterns.md](patterns.md)): `lib/pattern.fk` and `lib/midi.fk`, and `funk-midi`, a REPL that plays `pat` live.
+- Audio ([audio.md](audio.md)): kernels from `funk emit-c --kernels`, the `funkgraph` runner, `lib/graph.fk` and `lib/dsp.fk`, voices per MIDI channel.
+- The CLAP plugin ([plugin.md](plugin.md)): moved from `midi-langs`, with a stereo output, note input from the DAW and linked glue, so it needs no C compiler.
+
+## 0.8 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 

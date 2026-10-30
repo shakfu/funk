@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-30
+
 ### Added
 
 - The `funk-midi` CLAP plugin moved here from `midi-langs`, with a copy of `midi-langs`' plugin framework (`projects/clap`, `projects/funk-clap`). `-DFUNK_CLAP=ON`, or `make clap`, builds it from the vendored `thirdparty/{clap,pugl,imgui,libremidi}`; `tests/hosts/clap` tests it. The plugin will gain audio ports (gh:3), which `midi-langs`' note effects do not need; the copy keeps that change out of their framework ([docs/dev/plugin.md](docs/dev/plugin.md#decision)).
