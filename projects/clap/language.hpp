@@ -32,7 +32,8 @@ struct AudioOutput {
 	uint32_t channels; // of the one output port
 	bool (*activate)(double rate, uint32_t maxFrames);
 	void (*deactivate)();
-	// Each note-on or note-off the plugin sends, offset frames into the block, before render.
+	// Each note-on or note-off of the block, offset frames into it, in time order, before
+	// render: the ones the plugin sends and the ones the host sends to its note input.
 	void (*note)(uint32_t offset, const uint8_t* data);
 	void (*render)(float* const* out, uint32_t channels, uint32_t frames);
 };

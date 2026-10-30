@@ -199,6 +199,14 @@ Options to need no compiler at all:
 - **The plugin** emits `projects/funk-clap/glue.fk`, which imports the modules its session imports, at build time.
 - **Tests**: `embed/glue` runs an import through linked glue with `CC=/nonexistent/cc`, after a global that moves its slot; `embed/glue/none`, the same without `funk_glue`, fails to compile. `hosts/clap/nocc` runs every plugin check, audio included, with `CC=/nonexistent/cc`, and compiles no glue.
 
+## Note input
+
+Done, 2026-10-30: an instrument plugin has a note input port, in the CLAP and MIDI dialects, and the host's notes play the same voices as the plugin's own. They are not sent on to the MIDI output, and funk code does not see them.
+
+- **Order**: `process()` collects a block's notes, the host's and those `emit` sends, sorts them by frame, and only then gives them to `AudioOutput::note`. The voices take events in time order and move an earlier one up to the last frame sent, so a clip's note at frame 0 handled after a host's at frame 300 started at 300. The sort is an insertion sort: `std::stable_sort` may allocate, on the audio thread.
+- **Capacity**: 1024 notes per block; more are dropped.
+- **Tests**: `tests/hosts/clap` sends a CLAP note ended by MIDI and a MIDI note ended by a CLAP note, each sounding from its frame at its velocity, and a host's note at frame 300 in the block of a clip's note at frame 0. Without the sort, the last check fails.
+
 ## Open questions
 
-1. Does the plugin take note input from the DAW, as an instrument? Its notes could reach the same voice pool through `funk_player_send_audio`.
+1. Should the host's notes reach funk code, for patterns that answer them, or the MIDI output?

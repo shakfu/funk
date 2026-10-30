@@ -190,8 +190,22 @@ const clap_input_events_t kNoInput = {
 	[](const clap_input_events_t*, uint32_t) -> const clap_event_header_t* { return nullptr; },
 };
 
+// Events for a block's input, in time order.
+struct Input {
+	std::vector<const clap_event_header_t*> list;
+};
+
+const clap_input_events_t* MakeIn(const Input& input)
+{
+	static clap_input_events_t in;
+	in.ctx = const_cast<Input*>(&input);
+	in.size = [](const clap_input_events_t* i) { return (uint32_t)static_cast<Input*>(i->ctx)->list.size(); };
+	in.get = [](const clap_input_events_t* i, uint32_t k) { return static_cast<Input*>(i->ctx)->list[k]; };
+	return &in;
+}
+
 // Processes one block. beat < 0 means no transport; playing selects the transport's play flag.
-void Process(const clap_plugin_t* plugin, Events& events, double beat, bool playing)
+void Process(const clap_plugin_t* plugin, Events& events, double beat, bool playing, const Input* input = nullptr)
 {
 	clap_event_transport_t tr{};
 	tr.header.size = sizeof(tr);
@@ -206,7 +220,7 @@ void Process(const clap_plugin_t* plugin, Events& events, double beat, bool play
 	process.frames_count = kBlock;
 	process.steady_time = -1;
 	process.transport = beat < 0 ? nullptr : &tr;
-	process.in_events = &kNoInput;
+	process.in_events = input ? MakeIn(*input) : &kNoInput;
 	process.out_events = MakeOut(events);
 	std::vector<float> channels(gAudioChannels * kBlock);
 	std::vector<float*> data;
@@ -318,11 +332,6 @@ void CheckDescriptor(const clap_plugin_factory_t* factory)
 
 void CheckPorts(const clap_plugin_t* plugin)
 {
-	auto* notes = (const clap_plugin_note_ports_t*)plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS);
-	clap_note_port_info_t info{};
-	check(notes && notes->count(plugin, true) == 0 && notes->count(plugin, false) == 1, "one note output, no note input");
-	check(notes && notes->get(plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
-	      "the note output speaks MIDI");
 	// A note effect has no audio ports; an instrument one main output.
 	auto* audio = (const clap_plugin_audio_ports_t*)plugin->get_extension(plugin, CLAP_EXT_AUDIO_PORTS);
 	check(audio && audio->count(plugin, true) == 0 && audio->count(plugin, false) <= 1, "no audio input, one output at most");
@@ -332,6 +341,46 @@ void CheckPorts(const clap_plugin_t* plugin)
 		      "the audio output is a main port");
 		gAudioChannels = port.channel_count;
 	}
+	// One note output; an instrument also takes notes, as CLAP events or MIDI.
+	auto* notes = (const clap_plugin_note_ports_t*)plugin->get_extension(plugin, CLAP_EXT_NOTE_PORTS);
+	clap_note_port_info_t info{};
+	const uint32_t inputs = gAudioChannels ? 1 : 0;
+	check(notes && notes->count(plugin, true) == inputs && notes->count(plugin, false) == 1,
+	      "one note output, and a note input if an instrument");
+	check(notes && notes->get(plugin, 0, false, &info) && info.supported_dialects == CLAP_NOTE_DIALECT_MIDI,
+	      "the note output speaks MIDI");
+	if (inputs)
+		check(notes->get(plugin, 0, true, &info) && (info.supported_dialects & CLAP_NOTE_DIALECT_CLAP)
+		          && (info.supported_dialects & CLAP_NOTE_DIALECT_MIDI),
+		      "the note input takes CLAP notes and MIDI");
+}
+
+clap_event_note_t Note(uint16_t type, uint32_t time, int16_t key, double velocity)
+{
+	clap_event_note_t e{};
+	e.header.size = sizeof(e);
+	e.header.time = time;
+	e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	e.header.type = type;
+	e.note_id = -1;
+	e.port_index = 0;
+	e.channel = 0;
+	e.key = key;
+	e.velocity = velocity;
+	return e;
+}
+
+clap_event_midi_t Midi(uint32_t time, uint8_t status, uint8_t key, uint8_t vel)
+{
+	clap_event_midi_t e{};
+	e.header.size = sizeof(e);
+	e.header.time = time;
+	e.header.space_id = CLAP_CORE_EVENT_SPACE_ID;
+	e.header.type = CLAP_EVENT_MIDI;
+	e.data[0] = status;
+	e.data[1] = key;
+	e.data[2] = vel;
+	return e;
 }
 
 // The index of the first sample from `from` whose being nonzero is `nonzero`, or -1.
@@ -353,12 +402,40 @@ void CheckAudio(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 	check(reply.find("error") == std::string::npos, "the [audio] case evaluates: " + reply);
 	Events silent = Play(plugin, 0., 4);
 	check(FirstWhere(silent.audio, 0, true) < 0, "silent without notes");
+
+	// The host's notes play the voices from their frames: a CLAP note, ended by MIDI, then the reverse.
+	Events in;
+	const clap_event_note_t noteOn = Note(CLAP_EVENT_NOTE_ON, 100, 69, 1.0), noteOff = Note(CLAP_EVENT_NOTE_OFF, 30, 60, 0.);
+	const clap_event_midi_t midiOff = Midi(50, 0x80, 69, 0), midiOn = Midi(10, 0x90, 60, 64);
+	const Input blocks[4] = {{{&noteOn.header}}, {{&midiOff.header}}, {{&midiOn.header}}, {{&noteOff.header}}};
+	for (const Input& b : blocks) Process(plugin, in, -1., false, &b);
+	const long long a = FirstWhere(in.audio, 0, true), b = FirstWhere(in.audio, (size_t)std::max(a, 0LL), false);
+	const long long c = FirstWhere(in.audio, (size_t)std::max(b, 0LL), true), d = FirstWhere(in.audio, (size_t)std::max(c, 0LL), false);
+	check(a == 100 && in.audio[100] == 1.f && b == kBlock + 50,
+	      "a CLAP note-on sounds from its frame, at its velocity, to a MIDI note-off: " + std::to_string(a) + " to " + std::to_string(b));
+	check(c == 2 * kBlock + 10 && in.audio[c] == 64.f / 127.f && d == 3 * kBlock + 30,
+	      "a MIDI note-on sounds to a CLAP note-off: " + std::to_string(c) + " to " + std::to_string(d));
 	reply = Eval(cases["note"]);
 	check(reply.find("clip: ") != std::string::npos, "note becomes a clip: " + reply);
 	Events ev = Play(plugin, 0., (int)(2 * kBeatFrames / kBlock));
 	const long long on = FirstWhere(ev.audio, 0, true), off = on < 0 ? -1 : FirstWhere(ev.audio, (size_t)on, false);
 	check(on == 0 && off == kBeatFrames,
 	      "the note sounds from frame 0 to its note-off at 24000: " + std::to_string(on) + " to " + std::to_string(off));
+
+	// In one block, a host's note at frame 300 and the clip's at frame 0 play in time order:
+	// the voices take events in order, so the clip's, if second, would start at 300.
+	Events mixed;
+	const clap_event_note_t hostOn = Note(CLAP_EVENT_NOTE_ON, 300, 69, 1.0), hostOff = Note(CLAP_EVENT_NOTE_OFF, 0, 69, 0.);
+	const Input first{{&hostOn.header}}, second{{&hostOff.header}};
+	Process(plugin, mixed, 0., true, &first);
+	Process(plugin, mixed, kBlock / (double)kBeatFrames, true, &second);
+	const float clip = 100.f / 127.f;
+	check(mixed.list.size() == 1 && Is(mixed.list[0], 0, 0x90, 60) && mixed.audio[0] == clip
+	          && std::fabs(mixed.audio[300] - (clip + 1.f)) < 1e-6f && mixed.audio[kBlock] == clip,
+	      "the host's and the clip's notes in one block sound in time order: " + std::to_string(mixed.audio[0]) + ", "
+	          + std::to_string(mixed.audio[300]) + ", " + std::to_string(mixed.audio[kBlock]));
+	Events released; // a stopped transport releases the clip's held note
+	Process(plugin, released, 2 * kBlock / (double)kBeatFrames, false);
 }
 
 void CheckEval(std::map<std::string, std::string>& cases)

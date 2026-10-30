@@ -398,9 +398,11 @@ private:
 		const uint32_t frames = process->frames_count;
 		const AudioOutput* audio = kLanguage.audio;
 		if ((!out && !audio) || frames == 0 || sampleRate_ <= 0.) return CLAP_PROCESS_CONTINUE;
-		auto emit = [out, audio](uint32_t offset, const uint8_t* data, uint8_t size) {
-			const uint8_t status = data[0] & 0xF0;
-			if (audio && size == 3 && (status == 0x80 || status == 0x90)) audio->note(offset, data);
+		// An instrument's notes, the host's and its own, go to audio in time order once all are known.
+		notes_.clear();
+		if (audio) takeNoteInput(process->in_events, frames);
+		auto emit = [this, out, audio](uint32_t offset, const uint8_t* data, uint8_t size) {
+			if (audio && size == 3) notes_.add(offset, data);
 			if (!out) return;
 			clap_event_midi_t ev{};
 			ev.header.size = sizeof(ev);
@@ -455,12 +457,39 @@ private:
 		livePlayer_.render(tl_.liveQueue, gen, live, emit);
 		liveBeat_ = live.end();
 
+		if (audio) {
+			notes_.sort();
+			for (uint32_t i = 0; i < notes_.n; ++i) audio->note(notes_.a[i].offset, notes_.a[i].data);
+		}
 		if (audio && process->audio_outputs_count > 0 && process->audio_outputs[0].data32) {
 			const clap_audio_buffer_t& port = process->audio_outputs[0];
 			audio->render(port.data32, port.channel_count, frames);
 			process->audio_outputs[0].constant_mask = 0;
 		}
 		return CLAP_PROCESS_CONTINUE;
+	}
+
+	// The host's notes, from the note input port, as MIDI note-ons and note-offs.
+	void takeNoteInput(const clap_input_events_t* in, uint32_t frames)
+	{
+		const uint32_t count = in ? in->size(in) : 0;
+		for (uint32_t i = 0; i < count; ++i) {
+			const clap_event_header_t* h = in->get(in, i);
+			if (h->space_id != CLAP_CORE_EVENT_SPACE_ID) continue;
+			const uint32_t offset = std::min(h->time, frames - 1);
+			if (h->type == CLAP_EVENT_MIDI) {
+				const auto* m = reinterpret_cast<const clap_event_midi_t*>(h);
+				notes_.add(offset, m->data);
+			} else if (h->type == CLAP_EVENT_NOTE_ON || h->type == CLAP_EVENT_NOTE_OFF || h->type == CLAP_EVENT_NOTE_CHOKE) {
+				const auto* e = reinterpret_cast<const clap_event_note_t*>(h);
+				if (e->key < 0 || e->key > 127) continue; // -1: every key, which a note-on never is
+				const uint8_t channel = e->channel >= 0 && e->channel < 16 ? (uint8_t)e->channel : 0;
+				const bool on = h->type == CLAP_EVENT_NOTE_ON;
+				const uint8_t vel = on ? (uint8_t)std::clamp((int)std::lround(e->velocity * 127.), 1, 127) : 0;
+				const uint8_t data[3] = {(uint8_t)((on ? 0x90 : 0x80) | channel), (uint8_t)e->key, vel};
+				notes_.add(offset, data);
+			}
+		}
 	}
 
 	// --- output -------------------------------------------------------------
@@ -656,20 +685,42 @@ private:
 	double freeBeat_ = 0.;
 	double liveBeat_ = 0.;
 	ClipPlayer clipPlayer_;
+	// A block's note-ons and note-offs for AudioOutput::note; ones past the capacity are dropped.
+	struct Notes {
+		struct Note {
+			uint32_t offset;
+			uint8_t data[3];
+		};
+		Note a[1024];
+		uint32_t n = 0;
+		void clear() { n = 0; }
+		void add(uint32_t offset, const uint8_t* data)
+		{
+			const uint8_t status = data[0] & 0xF0;
+			if ((status != 0x80 && status != 0x90) || n == sizeof a / sizeof a[0]) return;
+			a[n++] = {offset, {data[0], data[1], data[2]}};
+		}
+		void sort() // by offset, stable; insertion: no allocation, and the notes come nearly in order
+		{
+			for (uint32_t i = 1; i < n; ++i)
+				for (uint32_t j = i; j > 0 && a[j - 1].offset > a[j].offset; --j) std::swap(a[j - 1], a[j]);
+		}
+	} notes_;
 	LivePlayer livePlayer_;
 
 	std::mutex logMutex_;
 	std::string pendingLog_;
 };
 
+// One MIDI output; an instrument also takes notes, which play its audio.
 const clap_plugin_note_ports_t Plugin::kNotePorts = {
-	[](const clap_plugin_t*, bool isInput) -> uint32_t { return isInput ? 0 : 1; },
+	[](const clap_plugin_t*, bool isInput) -> uint32_t { return isInput ? (kLanguage.audio ? 1 : 0) : 1; },
 	[](const clap_plugin_t*, uint32_t index, bool isInput, clap_note_port_info_t* info) {
-		if (isInput || index != 0) return false;
-		info->id = 0;
-		info->supported_dialects = CLAP_NOTE_DIALECT_MIDI;
-		info->preferred_dialect = CLAP_NOTE_DIALECT_MIDI;
-		snprintf(info->name, sizeof(info->name), "%s", "midi out");
+		if (index != 0 || (isInput && !kLanguage.audio)) return false;
+		info->id = isInput ? 1 : 0;
+		info->supported_dialects = isInput ? CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI : CLAP_NOTE_DIALECT_MIDI;
+		info->preferred_dialect = isInput ? CLAP_NOTE_DIALECT_CLAP : CLAP_NOTE_DIALECT_MIDI;
+		snprintf(info->name, sizeof(info->name), "%s", isInput ? "notes in" : "midi out");
 		return true;
 	},
 };
