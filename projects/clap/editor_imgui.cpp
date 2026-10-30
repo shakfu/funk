@@ -4,6 +4,7 @@
 // AppKit usually consumes Cmd+.) stops all notes.
 
 #include "editor.hpp"
+#include "editor_colours.hpp"
 #include "editor_logic.hpp"
 #include "language.hpp"
 
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -399,11 +401,25 @@ private:
 		// Ctrl/Cmd+Return validates a multiline field (Return inserts a newline); EnterReturnsTrue reports it.
 		const ImGuiInputTextFlags flags = ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackAlways
 		                                  | ImGuiInputTextFlags_EnterReturnsTrue | (wrap_ ? ImGuiInputTextFlags_WordWrap : 0);
-		if (ImGui::InputTextMultiline("##code", &text_, ImVec2(-1, codeHeight), flags, &ImGuiEditor::TrackCaret, this)) {
+		// With syntax colours, the field draws its text transparent and DrawTokens draws it over
+		const bool coloured = language_.highlight != nullptr;
+		const ImGuiID codeId = ImGui::GetID("##code");
+		if (coloured) ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 0));
+		const bool entered = ImGui::InputTextMultiline("##code", &text_, ImVec2(-1, codeHeight), flags, &ImGuiEditor::TrackCaret, this);
+		const bool edited = ImGui::IsItemEdited();
+		if (coloured) {
+			ImGui::PopStyleColor();
+			if (text_ != tokensFor_) {
+				language_.highlight(text_, tokens_);
+				tokensFor_ = text_;
+			}
+			DrawTokens(codeId, text_, tokens_, wrap_);
+		}
+		if (entered) {
 			eval = true;
 			refocusCode_ = true;
 		}
-		if (ImGui::IsItemEdited()) callbacks_.textChanged(text_);
+		if (edited) callbacks_.textChanged(text_);
 		if (eval) {
 			std::string code = SelectEvalCode(text_, selStart_, selEnd_, cursor_, language_.syntax);
 			if (!code.empty()) callbacks_.eval(code);
@@ -467,6 +483,8 @@ private:
 	bool scrollLog_ = false;
 	bool refocusCode_ = false;
 	int cursor_ = 0, selStart_ = 0, selEnd_ = 0;
+	std::vector<uint8_t> tokens_; // a Token per byte of tokensFor_
+	std::string tokensFor_;
 };
 
 } // namespace

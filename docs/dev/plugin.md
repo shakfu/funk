@@ -216,6 +216,15 @@ Done, 2026-10-30, once `libfunk` ran sessions side by side ([embedding.md](embed
 - funk's library files are written to the cache directory once per process: two instances would have raced on one temporary name, which carries only the pid.
 - One UDP port serves one instance; a second one's bind fails, and the editor shows it. Test `hosts/clap` passes the port between two instances through their state's flag: a definition in one is not in scope in the other, and one note sounds through each one's own `sig`.
 
+## Syntax colours
+
+Done, 2026-10-30: the editor colours funk from `projects/tree-sitter-funk`'s parser and its `queries/highlights.scm`, the grammar Helix and Neovim use, so the three agree.
+
+- ImGui's multiline field cannot colour parts of its text. The field keeps editing, undo, word wrap and the eval keys, and draws its text transparent; `DrawTokens` (`projects/clap/editor_colours.cpp`) draws the same text over it, a colour per byte, repeating ImGui 1.93's layout. A code editor widget such as ImGuiColorTextEdit was the alternative; it has no word wrap, and the eval keys and caret tracking would have moved to it.
+- The framework has no tree-sitter: `LanguageInfo::highlight` gives a `Token` per byte, or is null for plain text. funk's (`projects/funk-clap/highlight.cpp`) parses the whole text on each change; a later pattern's capture wins, as in Neovim.
+- It builds where `projects/tree-sitter-funk/src/parser.c` (`make tree-sitter`) and the tree-sitter runtime are found; elsewhere, such as CI, the text is plain. The plugin grows from 2.2 MB to 6.4 MB.
+- Tests: `hosts/clap/colours` draws the field headless, by ImGui and by `DrawTokens`, and compares every glyph's vertices: wrapped or not, scrolled down or right, active, and at fractional font sizes. An ImGui update that moves its text fails it. `hosts/clap/highlight` checks a token per construct.
+
 ## Open questions
 
 1. Should the host's notes reach funk code, for patterns that answer them, or the MIDI output?

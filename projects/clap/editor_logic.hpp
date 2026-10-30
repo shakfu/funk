@@ -1,6 +1,24 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+
+// A byte's class for the editor's syntax colours (LanguageInfo::highlight).
+enum Token : uint8_t {
+	kPlain,
+	kComment,
+	kKeyword,
+	kString,
+	kNumber,
+	kType,
+	kConstructor,
+	kFunction,
+	kOperator,
+	kModule,
+	kPunctuation,
+	kField,
+	kTokenCount
+};
 
 // How an eval request extends the caret's line, per language.
 struct EvalSyntax {

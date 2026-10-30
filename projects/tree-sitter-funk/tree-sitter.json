@@ -1,0 +1,21 @@
+{
+  "grammars": [
+    {
+      "name": "funk",
+      "camelcase": "Funk",
+      "scope": "source.funk",
+      "path": ".",
+      "file-types": ["fk"],
+      "highlights": "queries/highlights.scm",
+      "injection-regex": "^(fk|funk)$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "funk grammar for tree-sitter, forked from tree-sitter-haskell 0.24.1",
+    "links": {
+      "repository": "https://github.com/shakfu/funk"
+    }
+  }
+}

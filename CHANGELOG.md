@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- The CLAP plugin's editor colours funk's syntax, from `projects/tree-sitter-funk`'s parser and highlight query, as Helix and Neovim do. ImGui's text field cannot colour its text, so the field draws it transparent and the plugin draws it over in colour, repeating ImGui's layout; a test compares every glyph with ImGui's own. A code-editor widget was the alternative, without the field's word wrap. Built when the generated parser and the tree-sitter runtime are present; otherwise the text is plain ([docs/dev/plugin.md](docs/dev/plugin.md#syntax-colours)).
+
+- `projects/tree-sitter-funk`: a tree-sitter grammar for highlighting funk in Helix and Neovim, forked from tree-sitter-haskell 0.24.1, whose layout scanner handled funk's layout in every file. The fork adds funk's syntax: lowercase module names and qualifiers, definitions in a type's namespace, `foreign library`, `foreign struct` and `->>`. `make tree-sitter` parses every `.fk` file in the repository, 238, without errors; upstream parsed 166 of them. A new grammar would have needed its own layout scanner ([projects/tree-sitter-funk/README.md](projects/tree-sitter-funk/README.md)).
+
 ### Changed
 
 - Unnamed graph nodes keep their state across `play`, as named ones do, so editing a graph without names no longer restarts its oscillators and clicks. `funk_player_play` names each by its shape, a hash of its kernel and its inputs, without initial states, and its order among nodes of that shape. A changed constant or a filter put around an oscillator keeps its phase; a changed kernel restarts the nodes above it. A node's path in the tree was the alternative; wrapping a signal or adding a term to a sum changes every path below. Playing silence first gives fresh states ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time), item 4).

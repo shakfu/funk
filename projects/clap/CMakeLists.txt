@@ -35,6 +35,7 @@ function(midi_langs_add_clap target)
     add_library(${target} MODULE
         ${MIDI_LANGS_CLAP_DIR}/plugin.cpp
         ${MIDI_LANGS_CLAP_DIR}/editor_imgui.cpp
+        ${MIDI_LANGS_CLAP_DIR}/editor_colours.cpp
         ${ARG_SOURCES}
     )
     target_link_libraries(${target} PRIVATE midi_langs_clap ${target}_pugl imgui_gl3 ${ARG_LIBRARIES})
@@ -103,3 +104,7 @@ endif()
 
 add_executable(test_clap_units test_clap_units.cpp)
 target_link_libraries(test_clap_units PRIVATE midi_langs_clap)
+
+# The syntax colours' glyphs against ImGui's own, headless
+add_executable(test_editor_colours test_editor_colours.cpp editor_colours.cpp)
+target_link_libraries(test_editor_colours PRIVATE midi_langs_clap imgui_gl3)

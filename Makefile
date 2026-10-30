@@ -12,6 +12,8 @@
 #   make clap                      build build/clap/funk-midi.clap (FUNK_CLAP)
 #   make clap-dev                  run the plugin's editor in a minimal host,
 #                                  MIDI to the first port
+#   make tree-sitter               generate projects/tree-sitter-funk's parser and
+#                                  parse every .fk file with it (tree-sitter CLI)
 #   make clean                     remove build/ and ./funk
 
 CMAKE ?= cmake
@@ -55,10 +57,13 @@ endif
 clap-dev: clap
 	./$(BUILD)/clap_dev_host $(CLAP_BIN)
 
+tree-sitter:
+	$(MAKE) -C projects/tree-sitter-funk check
+
 install: funk
 	$(CMAKE) --install $(BUILD) --prefix $(PREFIX)
 
 clean:
 	rm -rf build funk
 
-.PHONY: all funk test bench bench-report clap clap-dev install clean
+.PHONY: all funk test bench bench-report clap clap-dev tree-sitter install clean

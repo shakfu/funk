@@ -69,6 +69,14 @@ if(TARGET funk_midi_clap)
   # lookahead, which a loaded machine misses: under ctest -j 10, a note 3 ms late
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  # the editor's syntax colours: drawn where ImGui draws its text, headless
+  add_test(NAME hosts/clap/colours COMMAND test_editor_colours)
+  set_tests_properties(hosts/clap/colours PROPERTIES LABELS "hosts;clap")
+  # the editor's syntax colours, where projects/tree-sitter-funk's parser is generated
+  if(TARGET test_funk_highlight)
+    add_test(NAME hosts/clap/highlight COMMAND test_funk_highlight)
+    set_tests_properties(hosts/clap/highlight PROPERTIES LABELS "hosts;clap")
+  endif()
   # graph.fk's glue is linked in: with no C compiler, audio still plays and no glue is compiled
   set(CACHE_DIR ${CMAKE_CURRENT_BINARY_DIR}/clap-cache)
   add_test(NAME hosts/clap/nocc COMMAND sh -c "rm -rf \"$0\" && \"$1\" \"$2\" \"$3\" 57292 >/dev/null 2>&1 && ls \"$0\"/funk/ffi 2>/dev/null | wc -l"

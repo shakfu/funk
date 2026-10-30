@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 class Language {
 public:
@@ -51,6 +52,9 @@ struct LanguageInfo {
 	const char* defaultCode;
 	std::unique_ptr<Language> (*create)(); // returns nullptr if the interpreter cannot start
 	uint32_t audioChannels;                // of the one output port; 0: a note effect, without audio
+	// The editor's syntax colours: a Token per byte of text, on the host's main thread; nullptr
+	// for plain text.
+	void (*highlight)(const std::string& text, std::vector<uint8_t>& tokens);
 };
 
 extern const LanguageInfo kLanguage;

@@ -18,6 +18,9 @@
 // thread, which sends the MIDI, or from the host's main thread at activation.
 
 #include "language.hpp"
+#ifdef FUNK_HIGHLIGHT
+#include "highlight.hpp"
+#endif
 
 #include "funk_lib.h" // kFunkLib: funk's lib modules, as {file name, source}
 
@@ -519,4 +522,9 @@ const LanguageInfo kLanguage = {
 		return lang;
 	},
 	kChannels,
+#ifdef FUNK_HIGHLIGHT
+	FunkHighlight,
+#else
+	nullptr,
+#endif
 };
