@@ -3,7 +3,7 @@
    protects and unprotects on a fault, from funk's thread and the host's.
    funk's own faults, the stack snapshot's (realtime.md), still work: run
    under FUNK_GCSTRESS=1, an evaluation collects throughout. After
-   funk_main returns, the host's handler is installed again. */
+   funk_free, the host's handler is installed again. */
 #define _DEFAULT_SOURCE
 #include <pthread.h>
 #include <signal.h>
@@ -39,12 +39,11 @@ static void *other(void *arg) {
   return NULL;
 }
 
-static int run(void *arg) {
+static int run(funk *f, void *arg) {
   (void)arg;
-  if (!funk_init(NULL, 0)) return 1;
   touch(); /* on funk's thread */
   char *shown;
-  if (!funk_eval("sum (map (\\x -> length (reverse [1 .. x])) [1 .. 300])", "<test>", &shown)) return 1;
+  if (!funk_eval(f, "sum (map (\\x -> length (reverse [1 .. x])) [1 .. 300])", "<test>", &shown)) return 1;
   printf("%s\n", shown);
   free(shown);
   pthread_t t;
@@ -64,9 +63,12 @@ int main(void) {
   sigemptyset(&sa.sa_mask);
   sigaction(SIGSEGV, &sa, NULL);
   sigaction(SIGBUS, &sa, NULL); /* macOS reports a protected page as SIGBUS */
-  int status = funk_main(run, NULL);
+  funk *f = funk_new(NULL);
+  if (!f) return 1;
+  int status = funk_run(f, run, NULL);
+  funk_free(f);
   struct sigaction now;
   sigaction(SIGSEGV, NULL, &now);
-  printf("after funk_main: %s\n", now.sa_sigaction == host_fault ? "host handler" : "another handler");
+  printf("after funk_free: %s\n", now.sa_sigaction == host_fault ? "host handler" : "another handler");
   return status;
 }

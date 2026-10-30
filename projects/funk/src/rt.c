@@ -2119,7 +2119,7 @@ static void *task_main(void *p) {
    an error the REPL recovers from; compiled code relies on the guard. */
 static size_t stack_size = (size_t)4 << 30;
 
-/* libfunk.h, funk_memory; 0 keeps a default. The threshold stays at most a
+/* libfunk.h, funk_config; 0 keeps a default. The threshold stays at most a
    quarter of the heap, and the stack above its guard and check margin. */
 void fk_set_memory(size_t heap, size_t threshold, size_t stack) {
   if (heap) heap_reserve = heap < 4 * CHUNK_SIZE ? 4 * CHUNK_SIZE : (heap + CHUNK_SIZE - 1) & ~(CHUNK_SIZE - 1);
@@ -2129,7 +2129,9 @@ void fk_set_memory(size_t heap, size_t threshold, size_t stack) {
   if (stack) stack_size = stack < ((size_t)32 << 20) ? (size_t)32 << 20 : stack;
 }
 
-int fk_run(void (*fn)(void *), void *arg) {
+static Task start_task; /* fk_start's; task_main copies it before fk_start returns */
+
+bool fk_start(void (*fn)(void *), void *arg, pthread_t *th) {
   size_t size = stack_size, guard = (size_t)16 << 20; /* larger than any frame */
   fk_init();
   char *mem = MAP_FAILED;
@@ -2138,7 +2140,7 @@ int fk_run(void (*fn)(void *), void *arg) {
     if (mem != MAP_FAILED) break;
     size /= 2;
   }
-  if (mem == MAP_FAILED) { perror("funk: mmap stack"); return 1; }
+  if (mem == MAP_FAILED) { perror("funk: mmap stack"); return false; }
   mprotect(mem, guard, PROT_NONE);
   if (size > ((size_t)64 << 20)) core_dump(mem, size - ((size_t)64 << 20), false); /* a core keeps the top 64 MiB of stack */
   guard_lo = mem;
@@ -2146,16 +2148,25 @@ int fk_run(void (*fn)(void *), void *arg) {
   fk_stack_base = mem + size;
   fk_stack_limit = mem + guard + ((size_t)1 << 20);
   pthread_attr_t attr;
-  pthread_t th;
-  Task t = {fn, arg};
+  start_task = (Task){fn, arg};
   pthread_attr_init(&attr);
   pthread_attr_setstack(&attr, mem, size);
-  if (pthread_create(&th, &attr, task_main, &t)) { perror("funk: pthread_create"); return 1; }
+  if (pthread_create(th, &attr, task_main, &start_task)) { perror("funk: pthread_create"); return false; }
+  return true;
+}
+
+void fk_stop(pthread_t th) {
   pthread_join(th, NULL);
   if (handlers_installed) { /* a plugin may be unloaded next: no handler may point into it */
     sigaction(SIGSEGV, &prev_segv, NULL);
     sigaction(SIGBUS, &prev_bus, NULL);
     handlers_installed = false;
   }
+}
+
+int fk_run(void (*fn)(void *), void *arg) {
+  pthread_t th;
+  if (!fk_start(fn, arg, &th)) return 1;
+  fk_stop(th);
   return 0;
 }

@@ -48,16 +48,104 @@ static void report(const char *fmt, const char *arg) { fk_message("funk: ", fmt,
 
 const char *funk_version(void) { return FUNK_VERSION; }
 
-typedef struct { int (*fn)(void *); void *arg; int status; } Main;
+/* A session (libfunk.h): its thread runs funk_run's jobs, one at a time,
+   until funk_free. One per process until the globals move into it
+   (embedding.md, phase 2). */
+struct funk {
+  pthread_t th;
+  pthread_mutex_t mu, run; /* run: held by a funk_run from another thread for its job */
+  pthread_cond_t cv;
+  int (*fn)(funk *, void *); /* the job; NULL when idle */
+  void *arg;
+  int status;
+  bool ready, ok, done, stop;
+};
+static funk session;
+static bool session_made;
 
-static void main_task(void *arg) {
-  Main *m = arg;
-  m->status = m->fn(m->arg);
+/* The api's functions but funk_run, funk_free, funk_interrupt, funk_output
+   and funk_on_fatal run on the session's thread. */
+static bool on_thread(funk *f, const char *fn) {
+  if (f == &session && fk_on_funk_thread()) return true;
+  report("%s", xsprintf("%s: not on its session's thread; call it inside funk_run", fn));
+  return false;
+}
+#define ON_THREAD(f, fail) \
+  if (!on_thread(f, __func__)) return fail
+
+static bool init(void);
+
+static void session_main(void *p) {
+  funk *f = p;
+  bool ok = init();
+  pthread_mutex_lock(&f->mu);
+  f->ok = ok;
+  f->ready = true;
+  pthread_cond_broadcast(&f->cv);
+  while (ok) {
+    while (!f->fn && !f->stop) pthread_cond_wait(&f->cv, &f->mu);
+    if (f->stop) break;
+    pthread_mutex_unlock(&f->mu);
+    int status = f->fn(f, f->arg);
+    pthread_mutex_lock(&f->mu);
+    f->status = status;
+    f->fn = NULL;
+    f->done = true;
+    pthread_cond_broadcast(&f->cv);
+  }
+  pthread_mutex_unlock(&f->mu);
+  fflush(stdout);
 }
 
-int funk_main(int (*fn)(void *), void *arg) {
-  Main m = {fn, arg, 1};
-  return fk_run(main_task, &m) ? 1 : m.status;
+funk *funk_new(const funk_config *c) {
+  if (session_made) {
+    report("%s", "funk_new: one session per process, for now");
+    return NULL;
+  }
+  session_made = true;
+  funk *f = &session;
+  if (c) {
+    fk_set_memory(c->heap, c->threshold, c->stack);
+    for (int i = 0; i < c->ncc_args; i++) VPUSH(cc_args, c->cc_args[i]);
+  }
+  pthread_mutex_init(&f->mu, NULL);
+  pthread_mutex_init(&f->run, NULL);
+  pthread_cond_init(&f->cv, NULL);
+  if (!fk_start(session_main, f, &f->th)) return NULL;
+  pthread_mutex_lock(&f->mu);
+  while (!f->ready) pthread_cond_wait(&f->cv, &f->mu);
+  pthread_mutex_unlock(&f->mu);
+  if (f->ok) return f;
+  fk_stop(f->th); /* the thread has left its loop */
+  return NULL;
+}
+
+int funk_run(funk *f, int (*fn)(funk *, void *), void *arg) {
+  if (fk_on_funk_thread()) return fn(f, arg);
+  pthread_mutex_lock(&f->run);
+  pthread_mutex_lock(&f->mu);
+  f->fn = fn;
+  f->arg = arg;
+  f->done = false;
+  pthread_cond_broadcast(&f->cv);
+  while (!f->done) pthread_cond_wait(&f->cv, &f->mu);
+  int status = f->status;
+  pthread_mutex_unlock(&f->mu);
+  pthread_mutex_unlock(&f->run);
+  return status;
+}
+
+void funk_free(funk *f) {
+  if (!f) return;
+  if (fk_on_funk_thread()) {
+    report("%s", "funk_free: on its session's thread; call it from another");
+    return;
+  }
+  pthread_mutex_lock(&f->mu);
+  f->stop = true;
+  pthread_cond_broadcast(&f->cv);
+  pthread_mutex_unlock(&f->mu);
+  fk_stop(f->th);
 }
 
 /* Parse with compile errors caught; NULL on error (already reported). */
@@ -109,8 +197,8 @@ static int is_decl_caught(const char *src, size_t len) {
   return r;
 }
 
-bool funk_init(const char *const *args, int nargs) {
-  for (int i = 0; i < nargs; i++) VPUSH(cc_args, args[i]);
+/* The prelude, compiled on the session's thread. */
+static bool init(void) {
   ffi_cc_args = cc_args;
   compiler_init();
   cur_file = "<prelude>";
@@ -127,9 +215,13 @@ static void install_prelude(void) {
   prelude_installed = true;
 }
 
-void funk_module_dir(const char *dir) { VPUSH(mod_dirs, dir); }
+void funk_module_dir(funk *f, const char *dir) {
+  ON_THREAD(f, );
+  VPUSH(mod_dirs, dir);
+}
 
-bool funk_provide(const char *name, void *addr) {
+bool funk_provide(funk *f, const char *name, void *addr) {
+  ON_THREAD(f, false);
   bool ident = name && (isalpha((unsigned char)*name) || *name == '_');
   for (const char *c = name; ident && *c; c++) ident = isalnum((unsigned char)*c) || *c == '_';
   if (!ident || !addr) return false;
@@ -137,7 +229,8 @@ bool funk_provide(const char *name, void *addr) {
   return true;
 }
 
-void funk_glue(const funk_glue_entry *glue, int n) {
+void funk_glue(funk *f, const funk_glue_entry *glue, int n) {
+  ON_THREAD(f, );
   for (int i = 0; i < n; i++) ffi_link(glue[i].key, (FkCode)glue[i].code);
 }
 
@@ -310,7 +403,8 @@ static bool compile_program(const char *path, Chunk *out) {
   return false;
 }
 
-bool funk_check_file(const char *path) {
+bool funk_check_file(funk *f, const char *path) {
+  ON_THREAD(f, false);
   Chunk c;
   return compile_file(path, &c);
 }
@@ -325,7 +419,8 @@ bool funk_check_file(const char *path) {
     failed;                      \
   }
 
-bool funk_run_file(const char *path) {
+bool funk_run_file(funk *f, const char *path) {
+  ON_THREAD(f, false);
   atomic_store(&fk_interrupt, 0);
   Chunk c;
   if (!compile_program(path, &c)) return false;
@@ -338,7 +433,8 @@ bool funk_run_file(const char *path) {
   return true;
 }
 
-char *funk_emit_c(const char *path) {
+char *funk_emit_c(funk *f, const char *path) {
+  ON_THREAD(f, NULL);
   Chunk c;
   if (!compile_program(path, &c)) return NULL;
   int n = mod_chunks.n + 2;
@@ -349,7 +445,8 @@ char *funk_emit_c(const char *path) {
   return cgen_program(all, n);
 }
 
-char *funk_emit_kernels(const char *path) {
+char *funk_emit_kernels(funk *f, const char *path) {
+  ON_THREAD(f, NULL);
   Chunk c;
   if (!compile_file(path, &c)) return NULL;
   int n = mod_chunks.n + 2;
@@ -363,7 +460,8 @@ char *funk_emit_kernels(const char *path) {
   return src;
 }
 
-char *funk_emit_glue(const char *path) {
+char *funk_emit_glue(funk *f, const char *path) {
+  ON_THREAD(f, NULL);
   Chunk c;
   if (!compile_file(path, &c)) return NULL;
   VEC(ForeignDecl *) fs = {0};
@@ -390,25 +488,26 @@ static int run_cc(const char *csrc, const char *exe, const char *opt) {
   return status;
 }
 
-int funk_build(const char *path, const char *exe, const char *opt) {
-  char *c = funk_emit_c(path);
+int funk_build(funk *f, const char *path, const char *exe, const char *opt) {
+  char *c = funk_emit_c(f, path);
   if (!c) return -1;
   const char *dir = getenv("TMPDIR");
   char *tmp = xsprintf("%s/funkXXXXXX.c", dir && *dir ? dir : "/tmp");
   int fd = mkstemps(tmp, 2);
-  FILE *f = fd < 0 ? NULL : fdopen(fd, "w");
-  if (!f) {
+  FILE *out = fd < 0 ? NULL : fdopen(fd, "w");
+  if (!out) {
     report("cannot create %s", tmp);
     return -1;
   }
-  fputs(c, f);
-  fclose(f);
+  fputs(c, out);
+  fclose(out);
   int rc = run_cc(tmp, exe, opt);
   unlink(tmp);
   return rc;
 }
 
-bool funk_load_file(const char *path) {
+bool funk_load_file(funk *f, const char *path) {
+  ON_THREAD(f, false);
   atomic_store(&fk_interrupt, 0);
   Chunk c;
   int mark = undo_mark(); /* fixities installed by the parser */
@@ -457,7 +556,9 @@ static char *show_result(Bind *it) {
   return fk_show_cstr(v);
 }
 
-bool funk_eval(const char *src, const char *name, char **shown) {
+bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
+  *shown = NULL;
+  ON_THREAD(f, false);
   atomic_store(&fk_interrupt, 0);
   size_t len = strlen(src);
   const char *file = cur_file;
@@ -516,7 +617,8 @@ bool funk_eval(const char *src, const char *name, char **shown) {
   return ok;
 }
 
-char *funk_type_of(const char *src, const char *name) {
+char *funk_type_of(funk *f, const char *src, const char *name) {
+  ON_THREAD(f, NULL);
   const char *file = cur_file;
   cur_file = name;
   Expr *e = parse_expr_caught(src, strlen(src));
@@ -540,21 +642,25 @@ static bool int_function(Type *t, int n) {
   return strcmp(want.s, got.s) == 0;
 }
 
-void funk_memory(size_t heap, size_t threshold, size_t stack) { fk_set_memory(heap, threshold, stack); }
-
-void funk_on_fatal(void (*fn)(void *ctx, const char *msg), void *ctx) {
+void funk_on_fatal(funk *f, void (*fn)(void *ctx, const char *msg), void *ctx) {
+  (void)f;
   fk_fatal_hook = fn;
   fk_fatal_ctx = ctx;
 }
 
-void funk_interrupt(void) { atomic_store(&fk_interrupt, 1); }
+void funk_interrupt(funk *f) {
+  (void)f;
+  atomic_store(&fk_interrupt, 1);
+}
 
-void funk_output(void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx) {
+void funk_output(funk *f, void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx) {
+  (void)f;
   fk_out = out;
   fk_out_ctx = ctx;
 }
 
-bool funk_call(const char *name, int n, const long *args, long *result) {
+bool funk_call(funk *f, const char *name, int n, const long *args, long *result) {
+  ON_THREAD(f, false);
   int g = global_lookup(intern(name));
   if (g < 0) {
     report("`%s` is not defined", name);

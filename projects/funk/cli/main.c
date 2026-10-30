@@ -110,36 +110,36 @@ static char *default_exe(const char *file) {
 
 /* ------------------------------------------------------------------- REPL */
 
-static bool eval_print(const char *src, const char *name) {
+static bool eval_print(funk *f, const char *src, const char *name) {
   char *shown;
-  bool ok = funk_eval(src, name, &shown);
+  bool ok = funk_eval(f, src, name, &shown);
   if (shown) puts(shown);
   free(shown);
   return ok;
 }
 
-static void load(const char *path) {
-  if (funk_load_file(path)) printf("loaded %s\n", path);
+static void load(funk *f, const char *path) {
+  if (funk_load_file(f, path)) printf("loaded %s\n", path);
 }
 
-static void command(const char *line) {
+static void command(funk *f, const char *line) {
   const char *arg = line + 2;
   while (*arg == ' ') arg++;
   if (line[1] == 'q') exit(0);
   if (line[1] == 't' && (line[2] == ' ' || !line[2])) {
-    char *t = funk_type_of(arg, "<repl>");
+    char *t = funk_type_of(f, arg, "<repl>");
     if (t) printf("%s :: %s\n", arg, t);
     free(t);
     return;
   }
   if (line[1] == 'l' && (line[2] == ' ' || !line[2])) {
-    load(arg);
+    load(f, arg);
     return;
   }
   printf("commands: :t EXPR (type), :l FILE (load), :{ ... :} (multi-line), :q (quit)\n");
 }
 
-static void repl(void) {
+static void repl(funk *f) {
   bool tty = isatty(0);
   if (tty) puts("funk REPL. :t EXPR shows a type, :{ starts multi-line input, :q quits.");
   char *block = NULL; /* multi-line input so far */
@@ -156,7 +156,7 @@ static void repl(void) {
     if (multi) {
       if (strcmp(line, ":}") == 0) {
         multi = false;
-        eval_print(block ? block : "", "<repl>");
+        eval_print(f, block ? block : "", "<repl>");
       } else {
         block = realloc(block, nblock + (size_t)n + 2);
         if (!block) die("%s", "out of memory");
@@ -176,40 +176,39 @@ static void repl(void) {
       if (block) block[0] = 0;
       continue;
     }
-    if (*s == ':') command(s);
-    else eval_print(line, "<repl>");
+    if (*s == ':') command(f, s);
+    else eval_print(f, line, "<repl>");
   }
   if (tty) putchar('\n');
 }
 
 /* ------------------------------------------------------------------- main */
 
-static int task(void *arg) {
+static int task(funk *f, void *arg) {
   Opts *o = arg;
-  if (!funk_init(o->cc_args, o->ncc_args)) return 1;
-  for (int i = 0; i < o->nmod_dirs; i++) funk_module_dir(o->mod_dirs[i]);
+  for (int i = 0; i < o->nmod_dirs; i++) funk_module_dir(f, o->mod_dirs[i]);
   switch (o->mode) {
   case M_BUILD: {
-    int rc = funk_build(o->file, o->out ? o->out : default_exe(o->file), o->opt);
+    int rc = funk_build(f, o->file, o->out ? o->out : default_exe(o->file), o->opt);
     return rc < 0 ? 1 : rc; /* the C compiler's status */
   }
   case M_EMITC: {
-    char *c = o->kernels ? funk_emit_kernels(o->file) : o->glue ? funk_emit_glue(o->file) : funk_emit_c(o->file);
+    char *c = o->kernels ? funk_emit_kernels(f, o->file) : o->glue ? funk_emit_glue(f, o->file) : funk_emit_c(f, o->file);
     if (!c) return 1;
     write_text(o->out, c);
     return 0;
   }
-  case M_CHECK: return funk_check_file(o->file) ? 0 : 1;
+  case M_CHECK: return funk_check_file(f, o->file) ? 0 : 1;
   case M_EVAL: {
-    bool ok = eval_print(o->expr, "<eval>");
+    bool ok = eval_print(f, o->expr, "<eval>");
     fflush(stdout);
     return ok ? 0 : 1;
   }
   case M_REPL:
-    if (o->file) load(o->file);
-    repl();
+    if (o->file) load(f, o->file);
+    repl(f);
     return 0;
-  default: return funk_run_file(o->file) ? 0 : 1;
+  default: return funk_run_file(f, o->file) ? 0 : 1;
   }
 }
 
@@ -304,5 +303,9 @@ int main(int argc, char **argv) {
   if (o.mode == M_EVAL && !o.expr) usage_error(cmd, "missing EXPR", NULL);
   if (o.mode != M_REPL && o.mode != M_EVAL && !o.file) usage_error(cmd, "missing FILE", NULL);
   if (o.file && access(o.file, R_OK) != 0) die("cannot read %s", o.file);
-  return funk_main(task, &o);
+  funk *f = funk_new(&(funk_config){.cc_args = o.cc_args, .ncc_args = o.ncc_args});
+  if (!f) return 1;
+  int status = funk_run(f, task, &o);
+  funk_free(f);
+  return status;
 }

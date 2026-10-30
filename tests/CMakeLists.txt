@@ -115,7 +115,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory)
+foreach(n signals output interrupt memory session)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -126,13 +126,17 @@ endforeach()
 add_test(NAME embed/signals COMMAND embed_signals)
 add_test(NAME embed/signals/stress COMMAND embed_signals)
 set_tests_properties(embed/signals embed/signals/stress PROPERTIES LABELS embed TIMEOUT 300
-  PASS_REGULAR_EXPRESSION "host handler: 3 faults, page 3\nafter funk_main: host handler")
+  PASS_REGULAR_EXPRESSION "host handler: 3 faults, page 3\nafter funk_free: host handler")
 set_tests_properties(embed/signals/stress PROPERTIES ENVIRONMENT FUNK_GCSTRESS=1)
 # stdout only: anything funk_output should have collected would show here
 add_test(NAME embed/output
   COMMAND sh -c "\"$<TARGET_FILE:embed_output>\" 2>/dev/null | diff tests/embed/output.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(embed/output PROPERTIES LABELS embed TIMEOUT 300)
+add_test(NAME embed/session
+  COMMAND sh -c "\"$<TARGET_FILE:embed_session>\" | diff tests/embed/session.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/session PROPERTIES LABELS embed TIMEOUT 300)
 add_test(NAME embed/interrupt
   COMMAND sh -c "\"$<TARGET_FILE:embed_interrupt>\" 2>/dev/null | diff tests/embed/interrupt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

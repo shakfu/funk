@@ -106,7 +106,7 @@ Status:
 
 - **Order.** The framework's live queue plays in the order sent and waits at a future event, so the adapter keeps every message in one heap and sends only what precedes `pat`'s next window.
 
-- **Limits.** A 512 MiB heap and a 256 MiB stack (`funk_memory`): a runaway evaluation replies "out of memory" or "stack overflow" and the host goes on. Afterwards the host keeps 217 MiB resident, against 89 MiB before the evaluation: the empty chunks within the 128 MiB threshold stay.
+- **Limits.** A 512 MiB heap and a 256 MiB stack (`funk_config`): a runaway evaluation replies "out of memory" or "stack overflow" and the host goes on. Afterwards the host keeps 217 MiB resident, against 89 MiB before the evaluation: the empty chunks within the 128 MiB threshold stay.
 
 - **The lib modules** are compiled into the plugin and written to a temporary directory at start-up: a bundle cannot rely on a funk checkout.
 

@@ -20,9 +20,9 @@ static void collect(void *ctx, int stream, const char *s, size_t n) {
   calls[i]++;
 }
 
-static void eval(const char *src) {
+static void eval(funk *f, const char *src) {
   char *shown;
-  bool ok = funk_eval(src, "<test>", &shown);
+  bool ok = funk_eval(f, src, "<test>", &shown);
   printf("%s %s -> %s\n", ok ? "ok  " : "fail", src, shown ? shown : "-");
   free(shown);
 }
@@ -32,21 +32,26 @@ static void dump(const char *name, int i) {
   for (char *line = strtok(got[i], "\n"); line; line = strtok(NULL, "\n")) printf("  | %s\n", line);
 }
 
-static int run(void *arg) {
+static int run(funk *f, void *arg) {
   (void)arg;
-  if (!funk_init(NULL, 0)) return 1;
-  funk_output(collect, NULL);
-  eval("print (1 + 2)");
-  eval("putStr \"a\" >> putStrLn \"b\"");
-  eval("f x = x + True");
-  eval("trace \"traced\" 5");
-  eval("head ([] :: [Int])");
-  eval("g x = x * 2");
-  funk_output(NULL, NULL);
+  funk_output(f, collect, NULL);
+  eval(f, "print (1 + 2)");
+  eval(f, "putStr \"a\" >> putStrLn \"b\"");
+  eval(f, "f x = x + True");
+  eval(f, "trace \"traced\" 5");
+  eval(f, "head ([] :: [Int])");
+  eval(f, "g x = x * 2");
+  funk_output(f, NULL, NULL);
   dump("stream 1", 0);
   dump("stream 2", 1);
-  eval("print 7");
+  eval(f, "print 7");
   return 0;
 }
 
-int main(void) { return funk_main(run, NULL); }
+int main(void) {
+  funk *f = funk_new(NULL);
+  if (!f) return 1;
+  int status = funk_run(f, run, NULL);
+  funk_free(f);
+  return status;
+}

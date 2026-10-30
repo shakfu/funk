@@ -51,27 +51,29 @@ static void write_patterns(const char *path, int n) {
   fclose(f);
 }
 
+static funk *session; /* for eval */
+
 static bool eval(const char *src) {
   char *shown;
-  bool ok = funk_eval(src, "<reload>", &shown);
+  bool ok = funk_eval(session, src, "<reload>", &shown);
   free(shown);
   return ok;
 }
 
 typedef struct { const char *lib; int windows; } Args;
 
-static int run(void *arg) {
+static int run(funk *f, void *arg) {
   Args *a = arg;
-  if (!funk_init(NULL, 0)) return 1;
-  funk_module_dir(a->lib);
+  session = f;
+  funk_module_dir(f, a->lib);
   char dir[] = "/tmp/funk-reload-XXXXXX", good[64], bad[64];
   if (!mkdtemp(dir)) { perror("mkdtemp"); return 1; }
   snprintf(good, sizeof good, "%s/b.fk", dir);
   snprintf(bad, sizeof bad, "%s/c.fk", dir);
   write_patterns(good, 200);
-  FILE *f = fopen(bad, "w");
-  fprintf(f, "import pattern as p\npat = p.atom 'x' + 1\n");
-  fclose(f);
+  FILE *out = fopen(bad, "w");
+  fprintf(out, "import pattern as p\npat = p.atom 'x' + 1\n");
+  fclose(out);
   /* the first pattern's values are 60 and up, the reloaded one's below */
   if (!eval("import pattern as p") || !eval("pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]") || !eval(STEP)) return 1;
 
@@ -82,15 +84,15 @@ static int run(void *arg) {
   for (int w = 0; w < a->windows; w++) {
     if (w == half) {
       double t = now_ms();
-      if (!funk_load_file(good) || !eval(STEP)) return 1;
+      if (!funk_load_file(f, good) || !eval(STEP)) return 1;
       reload = now_ms() - t;
       t = now_ms();
-      if (funk_load_file(bad)) { fputs("reload: the bad file loaded\n", stderr); return 1; }
+      if (funk_load_file(f, bad)) { fputs("reload: the bad file loaded\n", stderr); return 1; }
       rejected = now_ms() - t;
     }
     long args[2] = {(long)buf, (long)w * WINDOW}, n;
     double t = now_ms();
-    if (!funk_call("step", 2, args, &n)) return 1;
+    if (!funk_call(f, "step", 2, args, &n)) return 1;
     t = now_ms() - t;
     if (w > 0 && t > worst) worst = t; /* the first includes warming up */
     if (w == 10) rss0 = rss_kib();
@@ -118,5 +120,9 @@ static int run(void *arg) {
 int main(int argc, char **argv) {
   if (argc < 2) { fputs("usage: reload LIBDIR [WINDOWS]\n", stderr); return 2; }
   Args a = {argv[1], argc > 2 ? atoi(argv[2]) : 2000};
-  return funk_main(run, &a);
+  funk *f = funk_new(NULL);
+  if (!f) return 1;
+  int status = funk_run(f, run, &a);
+  funk_free(f);
+  return status;
 }

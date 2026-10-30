@@ -253,6 +253,8 @@ static void realtime(void) {
 }
 #endif
 
+static funk *session; /* this program has one */
+
 static void *sender(void *arg) {
   (void)arg;
 #ifdef __APPLE__
@@ -292,7 +294,7 @@ static void schedule(void) {
   while (win <= now_us() + LOOKAHEAD_US) {
     if (playing && have_step) {
       long args[5] = {(long)buf, (long)cs, (long)origin_tick, (long)(win - origin_us), (long)(win + WINDOW_US - origin_us)}, n;
-      if (!funk_call("step", 5, args, &n)) {
+      if (!funk_call(session, "step", 5, args, &n)) {
         have_step = false; /* a runtime error, reported: silence until pat is defined again */
         fputs("funk-midi: pat failed; stopped until it is defined again\n", stderr);
       } else {
@@ -329,7 +331,7 @@ static bool eval(const char *src);
 static void play_sig(void) {
   long r, arg = 0;
   if (!audio || !have_sig) return;
-  if (!funk_call(playing ? "playsig" : "hushsig", 1, &arg, &r)) {
+  if (!funk_call(session, playing ? "playsig" : "hushsig", 1, &arg, &r)) {
     have_sig = false;
     fputs("funk-midi: sig failed; the last graph plays on until sig is defined again\n", stderr);
   }
@@ -500,7 +502,7 @@ static void set_cycle(int64_t us) { /* from the next unscheduled window, so the 
 
 static bool eval(const char *src) {
   char *shown;
-  bool ok = funk_eval(src, "<input>", &shown);
+  bool ok = funk_eval(session, src, "<input>", &shown);
   if (shown) puts(shown);
   free(shown);
   return ok;
@@ -545,7 +547,7 @@ static bool handle(char *line) {
   switch (s[1]) {
   case 'q': return false;
   case 'l':
-    if (funk_load_file(arg)) {
+    if (funk_load_file(session, arg)) {
       rebind();
       rebind_sig();
     }
@@ -612,20 +614,19 @@ typedef struct { const char *lib, *file, *script, *kernels; } Opts;
   X(funk_graph_new) X(funk_graph_add) X(funk_graph_control) X(funk_graph_name) X(funk_graph_output)            \
   X(funk_player_new) X(funk_player_send) X(funk_player_frames) X(funk_player_play)                            \
   X(funk_player_render_channels) X(funk_player_free)
-#define PROVIDE(f) funk_provide(#f, (void *)f);
+#define PROVIDE(f) funk_provide(session, #f, (void *)f);
 
-static int run(void *arg) {
+static int run(funk *f, void *arg) {
   Opts *o = arg;
-  const char *cc_args[] = {"-I", FUNK_GRAPH_INCLUDE}; /* graph.h, for graph.fk's imports */
+  session = f;
   if (audio) { GRAPH_FUNCTIONS(PROVIDE) }
-  if (!funk_init(audio ? cc_args : NULL, audio ? 2 : 0)) return 1;
-  funk_module_dir(o->lib);
+  funk_module_dir(f, o->lib);
   if (!eval("import pattern as p") || !eval("import midi as m")) return 1;
   if (audio && (!eval("import graph as g") || !eval("import dsp as d") || !start_audio(o->kernels))) return 1;
   t0 = mono_us();
   pthread_t send_th = 0;
   if (!virtual_time && pthread_create(&send_th, NULL, sender, NULL)) { perror("funk-midi: pthread_create"); return 1; }
-  if (o->file && funk_load_file(o->file)) {
+  if (o->file && funk_load_file(f, o->file)) {
     rebind();
     rebind_sig();
   }
@@ -737,7 +738,11 @@ int main(int argc, char **argv) {
   }
 #endif
   signal(SIGINT, on_interrupt);
-  int status = funk_main(run, &o);
+  static const char *const cc_args[] = {"-I", FUNK_GRAPH_INCLUDE}; /* graph.h, for graph.fk's imports */
+  funk *f = funk_new(&(funk_config){.cc_args = audio ? cc_args : NULL, .ncc_args = audio ? 2 : 0});
+  if (!f) return 1;
+  int status = funk_run(f, run, &o);
+  funk_free(f);
 #ifdef HAVE_LIBREMIDI
   if (out) libremidi_midi_out_free(out);
 #endif

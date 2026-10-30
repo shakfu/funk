@@ -4,6 +4,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `libfunk.h` takes a session, `funk *`, on every call except `funk_version` ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)). `funk_new` starts the session's thread and compiles the prelude; `funk_run` runs a host's function there, queued if it comes from another thread; `funk_free` stops it. They replace `funk_main` and `funk_init`, and `funk_config` replaces `funk_memory`. Other calls made off the session's thread fail with a message. The state is still global, so a process makes one session; the handle comes first so that hosts change once, before the globals move into it.
+
+  ```c
+  funk *f = funk_new(&(funk_config){.heap = 512 << 20});
+  int status = funk_run(f, body, arg); /* body(f, arg) on f's thread */
+  funk_free(f);
+  ```
+
 ## [0.7.0] - 2026-10-30
 
 ### Added

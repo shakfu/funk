@@ -1,8 +1,8 @@
 # Embedding: multi-instance scope
 
-Status: scope, 2026-10-27, of funk 0.6.0. Hosts: Max, Pure Data, VST3/AU/CLAP plugins, Eurorack, [psnd](https://github.com/shakfu/psnd) ([261027-lang-review.md](261027-lang-review.md#addendum-target-users-and-hosts)). It asks what a host needs to run several funk programs in one process.
+Status: scope, 2026-10-27, of funk 0.6.0; phase 2 designed 2026-10-30. Hosts: Max, Pure Data, VST3/AU/CLAP plugins, Eurorack, [psnd](https://github.com/shakfu/psnd) ([261027-lang-review.md](261027-lang-review.md#addendum-target-users-and-hosts)). It asks what a host needs to run several funk programs in one process.
 
-**Recommendation.** Do phase 0 (embedding basics) and phase 1 (instances in one shared runtime). Defer phase 2 (separate sessions) until a host needs isolated heaps.
+**Recommendation**, revised 2026-10-30. Phase 0 is done. Do phase 2 next: a session per instance, its state passed as an explicit pointer ([261030-session-measurements.md](261030-session-measurements.md)). Defer phase 1, namespaces in one runtime, to hosts with hundreds of small instances. Phase 1 was first because phase 2 seemed to slow compiled code; compiled programs keep a static struct, so it does not. Phase 1 also shares one heap limit and one collector across instances, and its main unknown, an undo log per instance, is still open.
 
 ## What is global today
 
@@ -53,6 +53,8 @@ Needed by every host, whatever follows.
 
 ## Phase 1: instances in one runtime
 
+Deferred, 2026-10-30, behind phase 2; see the recommendation.
+
 One runtime per process: one heap, one funk thread, one compiler. An instance is a namespace in it. Pd runs all objects on one thread; Max's calls can be queued onto funk's thread; real-time exports stay off it.
 
 1. **Instance = module prefix.** `qualify.c` already prefixes a module's names. Add `funk_instance_new` and `funk_instance_free`; freeing drops the instance's global values and stables for the collector.
@@ -65,20 +67,76 @@ One runtime per process: one heap, one funk thread, one compiler. An instance is
 
 Acceptance test: a Pd external with two instances running different code, one reloaded while the other plays.
 
-## Phase 2: separate sessions (deferred)
+## Phase 2: sessions
 
-Move the runtime's globals into a `Runtime` struct and the compiler's into a `Compiler` struct.
+A `funk *` on every call; nothing mutable shared between sessions but a process registry.
 
-- **Cost.** The compiler half is mechanical, mostly in `check.c`. The runtime half reaches generated code, which uses `fk_cons`, `fk_true`, `fk_nil`, the bump allocator and `fk_marking` directly. Each allocation then needs a context pointer or a thread-local lookup. Thread-local access in a macOS dynamic library calls `__tlv_get_addr` (from memory, not measured), which risks the 1.18x-of-C result. Needs interleaved A/B timing first.
+### API
 
-- **Needed when** instances need independent collector pauses, or a host runs funk on several threads in parallel.
+```c
+typedef struct funk funk;
+typedef struct {
+  size_t heap, threshold, stack; /* 0 keeps a default */
+  const char *const *cc_args; int ncc_args;
+} funk_config;
 
-- **Partly covered by `funk build --shared`** (phase 0 item 5, deferred): each funk-built `.so` would have its own private runtime, which covers two different funk plugins in one DAW.
+funk *funk_new(const funk_config *c); /* starts the session's thread, compiles the prelude */
+void funk_free(funk *f);
+int funk_run(funk *f, int (*fn)(funk *, void *), void *arg); /* fn on f's thread */
+/* any thread: funk_interrupt, funk_output, funk_on_fatal; the rest, as
+   before with f first, inside funk_run */
+```
+
+`funk_new` and `funk_run` replace `funk_main` and `funk_init`; `funk_config`, `funk_memory`. `funk_output` and `funk_on_fatal` stay setters, since hosts change them while a session runs (`embed/output`, `embed/memory`).
+
+### Threads
+
+Each session owns a thread, on the runtime's large stack; a host thread has 512 KB to 8 MB, and the collector and stack-overflow check need the guarded one. `funk_run` from another thread queues its job and waits; from `f`'s thread it runs at once (phase 1's item 3). Any other call off `f`'s thread fails with a message rather than queueing, so a host sees each crossing. A session is never on two threads at once, so it takes no locks. Over the host entering a session on its own thread: that needs a stack switch per entry, which is what `funk_main` did.
+
+### State
+
+| Kind | Examples | Where |
+|-|-|-|
+| Fixed for the process | `fk_prims`, `page_size`, the builtin nullaries | global, `const` or set once |
+| Runtime | heap, free lists, bump pointers, collector, stables, export ring, `fk_cons`, stack guard, `fk_error_jmp`, interrupt flag, callbacks | `FkRt`, in `funk` |
+| Compiler | `check.c`'s tables, `elab.c`, `driver.c`'s modules and prelude, the undo log, `gvals`, `ffi.c`'s provided names and linked glue | `FkCompiler`, a part per file, in `funk` |
+| Function-local scratch | `fk_p_getline`'s buffer, `verify_marks` | moved into the structs |
+| Process-wide by nature | `SIGSEGV`/`SIGBUS` handlers, the live sessions | the registry |
+
+- `fk_true`, `fk_false`, `fk_unit` and `fk_nil` become static objects, never collected, as compiled programs already have them (`fk_nullaries`).
+- The registry installs the signal handler with the first session and removes it with the last. The handler finds the faulting session by address, its snapshot and stack guard, and passes other faults on. Each session saving and restoring the previous handler breaks when sessions end out of order.
+
+### Reaching the state: an explicit pointer
+
+Measured: a thread-local pointer costs the interpreter 27%, a pointer by load nothing ([261030-session-measurements.md](261030-session-measurements.md)). So, as Lua passes `lua_State *`, runtime and compiler functions take the session:
+
+- The API's `funk *` reaches the compiler and runtime.
+- An interpreted closure's `Lambda` holds its session, so `interp_entry` finds it with one load; the closure calling convention, shared with compiled code, does not change.
+- Primitives and glue wrappers called from the interpreter take it as an argument.
+- The signal handler finds it through the registry; an export's callback through its closure.
+
+Compiled programs are one session: the runtime pasted into them uses one static `FkRt`, at a constant address, so they cost what they do now.
+
+A global pointer switched on entry would also cost nothing, but lets one session run at a time, behind a process lock; one long evaluation then stops every other session.
+
+### Glue
+
+`ffi_load` writes the runtime's addresses into each glue `.so` (`GLUE_NAMES`). Two sessions loading one cached `.so` share its image, so the second's addresses replace the first's. The functions stay process-wide; `fk_true` and its kin become the static objects; `fk_cb_failed`, `fk_callback_depth`, `fk_snap_lo` and `fk_error_jmp` are reached through the session argument. One image then serves every session.
+
+### Steps
+
+Each passes `make test`.
+
+1. Measure. Done, 2026-10-30.
+2. The API alone: `funk *` in `libfunk.h`, backed by the one global session; the CLI, `funk-midi`, the plugin and `embed/*` move to it. Done, 2026-10-30, with the session's thread (from step 6); test `embed/session`. A process makes one session in its life until step 4.
+3. Static builtin nullaries; `const` on fixed tables.
+4. `FkRt` and the session argument in the runtime and interpreter; glue binding. Benchmarks against step 3.
+5. `FkCompiler`, a file at a time, `check.c` first.
+6. The registry; the session's thread is done.
+7. Tests: `embed/sessions`, two sessions on two threads defining `x` differently, evaluating and collecting at once, freed out of order, also under TSan; `embed/globals`, `nm`'s writable symbols against an allow-list, so a new global fails.
 
 ## Unchecked
 
-- Whether the undo log can be split by instance (phase 1 item 2): the main unknown in phase 1.
+- Phase 1: whether the undo log can be split by instance, whether `gvals` can be split by namespace, and how much of `driver.c`'s module state (`mods`, `mod_chunks`) assumes one root program.
 
-- Whether `interp.c`'s `gvals` can be split by namespace, or needs one table per instance.
-
-- How much of `driver.c`'s module state (`mods`, `mod_chunks`) assumes one root program.
+- Phase 2: the cost of the session argument in compiled programs, if they ever take it; Linux's thread-local cost; whether the queue onto a session's thread adds more than tens of microseconds per call.

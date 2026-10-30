@@ -87,6 +87,7 @@ public:
 	}
 
 	bool ok() const { return ok_; }
+	funk* handle() const { return funk_; }
 	bool graphs() const { return graphs_; } // graph.fk's imports compiled: audio is possible
 
 	// Runs fn on funk's thread, with what funk writes meanwhile appended to out. A Stop
@@ -108,7 +109,7 @@ public:
 		bool interrupted = false;
 		while (done.wait_for(std::chrono::milliseconds(5)) != std::future_status::ready) {
 			if (stoppable && midi_clock_cancelled()) {
-				funk_interrupt(); // again on each poll: a call that starts afterwards clears it
+				funk_interrupt(funk_); // again on each poll: a call that starts afterwards clears it
 				interrupted = true;
 			}
 		}
@@ -132,11 +133,22 @@ private:
 				return;
 			}
 		}
-		// A runaway pattern meets a limit, as a runtime error, before it takes the host's memory.
-		funk_memory(kHeapLimit, 0, kStackSize);
 		Start start{this, {}};
 		std::future<bool> ok = start.started.get_future();
-		thread_ = std::thread([&start] { funk_main(&Session::Main, &start); });
+		thread_ = std::thread([this, &start] {
+			// A runaway pattern meets a limit, as a runtime error, before it takes the host's memory.
+			// graph.h, for glue compiled if the linked glue does not match.
+			cc_args_[0] = "-I";
+			cc_args_[1] = dir_.c_str();
+			const funk_config config{kHeapLimit, 0, kStackSize, cc_args_, 2};
+			funk_ = funk_new(&config);
+			if (!funk_) {
+				start.started.set_value(false);
+				return;
+			}
+			funk_run(funk_, &Session::Main, &start);
+			funk_free(funk_); // restores the signal handlers it replaced
+		});
 		ok_ = ok.get();
 	}
 
@@ -147,7 +159,7 @@ private:
 			quit_ = true;
 		}
 		cv_.notify_one();
-		if (thread_.joinable()) thread_.join(); // funk_main restores the signal handlers it replaced
+		if (thread_.joinable()) thread_.join();
 	}
 
 	// kFunkLib's directory, named by a hash of its files and kept across loads: graph.fk's
@@ -177,30 +189,26 @@ private:
 		std::promise<bool> started;
 	};
 
-	static int Main(void* arg)
+	static int Main(funk* f, void* arg)
 	{
 		auto* start = static_cast<Start*>(arg);
 		Session& s = *start->session;
 		std::promise<bool>* started = &start->started;
 		char* shown = nullptr;
 		// graph.fk's imports: the plugin's own functions, which it does not export
-#define PROVIDE(f) funk_provide(#f, (void*)f);
+#define PROVIDE(fn) funk_provide(f, #fn, (void*)fn);
 		PROVIDE(funk_graph_new) PROVIDE(funk_graph_add) PROVIDE(funk_graph_control) PROVIDE(funk_graph_name)
 		PROVIDE(funk_graph_output) PROVIDE(funk_player_new) PROVIDE(funk_player_send) PROVIDE(funk_player_frames)
 		PROVIDE(funk_player_play) PROVIDE(funk_player_render_channels) PROVIDE(funk_player_free)
 #undef PROVIDE
-		funk_glue(funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed
-		const char* cc_args[] = {"-I", s.dir_.c_str()}; // graph.h, for glue compiled if the linked glue does not match
-		bool ok = funk_init(cc_args, 2);
-		if (ok) {
-			funk_module_dir(s.dir_.c_str());
-			funk_output(&Session::Output, &s);
-			ok = funk_eval("import pattern as p", "<setup>", &shown) && funk_eval("import midi as m", "<setup>", &shown);
-			// If the linked glue does not match and no C compiler runs, graph.fk's imports fail:
-			// MIDI still plays, the output is silent.
-			s.graphs_ = ok && funk_eval("import graph as g", "<setup>", &shown) && funk_eval("import dsp as d", "<setup>", &shown);
-			if (ok && !s.graphs_) fputs("funk-midi: no audio: graph.fk's foreign imports did not compile\n", stderr);
-		}
+		funk_glue(f, funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed
+		funk_module_dir(f, s.dir_.c_str());
+		funk_output(f, &Session::Output, &s);
+		bool ok = funk_eval(f, "import pattern as p", "<setup>", &shown) && funk_eval(f, "import midi as m", "<setup>", &shown);
+		// If the linked glue does not match and no C compiler runs, graph.fk's imports fail:
+		// MIDI still plays, the output is silent.
+		s.graphs_ = ok && funk_eval(f, "import graph as g", "<setup>", &shown) && funk_eval(f, "import dsp as d", "<setup>", &shown);
+		if (ok && !s.graphs_) fputs("funk-midi: no audio: graph.fk's foreign imports did not compile\n", stderr);
 		started->set_value(ok);
 		if (!ok) return 1;
 		for (;;) {
@@ -225,6 +233,8 @@ private:
 	}
 
 	std::string dir_;
+	const char* cc_args_[2] = {};
+	funk* funk_ = nullptr;
 	bool ok_ = false, graphs_ = false;
 	std::string* out_ = nullptr; // funk's thread only
 	std::mutex mutex_;
@@ -238,7 +248,7 @@ private:
 bool Eval(const std::string& src, std::string& out)
 {
 	char* shown = nullptr;
-	const bool ok = funk_eval(src.c_str(), "<eval>", &shown);
+	const bool ok = funk_eval(Session::get().handle(), src.c_str(), "<eval>", &shown);
 	if (shown) out += std::string(shown) + "\n";
 	free(shown);
 	return ok;
@@ -286,7 +296,7 @@ void PlaySig(std::string& out)
 	gAudio.haveSig = true;
 	if (!gAudio.ready) return;
 	long arg = 0, r = 0;
-	if (!Eval("playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }", out) || !funk_call("playsig", 1, &arg, &r))
+	if (!Eval("playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }", out) || !funk_call(Session::get().handle(), "playsig", 1, &arg, &r))
 		out += "funk-midi: sig is not playing: it must be a g.Sig of funkdsp.so's kernels\n";
 }
 
@@ -459,7 +469,7 @@ private:
 	{
 		long args[3] = {(long)buf_, std::lround(a * 1000), std::lround(b * 1000)}, n = 0;
 		bool ok = false;
-		Session::get().call([&] { ok = funk_call(step, 3, args, &n); }, &out);
+		Session::get().call([&] { ok = funk_call(Session::get().handle(), step, 3, args, &n); }, &out);
 		if (!ok) {
 			out += "funk-midi: the pattern failed; it stops until it is evaluated again\n";
 			return false;

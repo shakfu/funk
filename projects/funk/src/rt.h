@@ -4,6 +4,7 @@
 #ifndef FK_RT_H
 #define FK_RT_H
 
+#include <pthread.h>
 #include <setjmp.h>
 #include <stdatomic.h>
 #include <stdbool.h>
@@ -299,6 +300,10 @@ static inline V fk_s_apokef(int64_t w, void *p, double x) {
 
 void fk_init(void);
 int fk_run(void (*fn)(void *), void *arg); /* run fn on a large stack */
+/* fk_run in two halves: fn starts on the large stack's thread, and
+   fk_stop joins it. One at a time per process. */
+bool fk_start(void (*fn)(void *), void *arg, pthread_t *th);
+void fk_stop(pthread_t th);
 void fk_add_roots(V **base, size_t *count);
 
 V fk_alloc(size_t words, int kind, int n, uint32_t aux);
