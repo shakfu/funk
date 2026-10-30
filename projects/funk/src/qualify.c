@@ -9,8 +9,6 @@
 
 #include "funk.h"
 
-Strs sealed_types, hidden_types;
-const char *cur_module;
 
 typedef VEC(const char *) Names;
 
@@ -292,8 +290,8 @@ static Exports *list_exports(Q *q, Module *m, Exports *all) {
     const char *x = q->types.a[i];
     bool open = false;
     for (int j = 0; j < m->exports.n; j++) open |= m->exports.a[j].name == x && m->exports.a[j].all;
-    if (!open) VPUSH(sealed_types, with_prefix(q->prefix, x));
-    if (!exported(ex, NS_TYPE, x)) VPUSH(hidden_types, with_prefix(q->prefix, x));
+    if (!open) VPUSH(CS->sealed_types, with_prefix(q->prefix, x));
+    if (!exported(ex, NS_TYPE, x)) VPUSH(CS->hidden_types, with_prefix(q->prefix, x));
   }
   return ex;
 }

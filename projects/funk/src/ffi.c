@@ -14,8 +14,6 @@
 
 #include "funk.h"
 
-Strs ffi_libs, ffi_cc_args;
-Foreigns ffi_exports;
 
 /* The funk types that pass to C, and how each is held: 'i' as an Int,
    'f' as a Float, 'c' Char, 'b' Bool, 'v' (), 's' String, 'p' Ptr, FunPtr
@@ -101,7 +99,7 @@ static const char *box(Type *t, const char *x) {
    returns, so it never unwinds C frames. A queued one copies its arguments
    into an event, which waitEvent runs. */
 static void trampoline(SB *b, ForeignDecl *f, int id, bool exported) {
-  Type *t = repr(repr(globals.a[f->gidx].type)->args[0]), *r;
+  Type *t = repr(repr(CS->globals.a[f->gidx].type)->args[0]), *r;
   SB params = {0}, fields = {0}, fill = {0}, frees = {0}, args = {0}, nulls = {0};
   bool q = f->cb == 'q';
   int n = 0;
@@ -190,7 +188,7 @@ static void wrapper(SB *b, ForeignDecl *f, int id, bool exported) {
     return;
   }
   SB body = {0}, call = {0};
-  Type *t = repr(globals.a[f->gidx].type);
+  Type *t = repr(CS->globals.a[f->gidx].type);
   sb_printf(&call, "%s%s", f->cname, f->arity ? "(" : "");
   for (int k = 0; k < f->arity; k++, t = repr(t->args[1])) {
     if (ffi_kind(t->args[0]) == 'v') continue; /* f () */
@@ -198,7 +196,7 @@ static void wrapper(SB *b, ForeignDecl *f, int id, bool exported) {
     sb_printf(&call, "%sx%d", k ? ", " : "", k);
   }
   if (f->arity) sb_puts(&call, ")");
-  const char *what = xsprintf("/* %s :: %s, from %s */", f->name, type_str(globals.a[f->gidx].type), f->header);
+  const char *what = xsprintf("/* %s :: %s, from %s */", f->name, type_str(CS->globals.a[f->gidx].type), f->header);
   /* fk_cb_check: a direct callback that failed during the call */
   switch (ffi_kind(t)) {
   case 'v': sb_printf(&body, "  %s; %s\n  fk_cb_check();\n  return fk_unit;\n", call.s, what); break;
@@ -273,13 +271,13 @@ static bool headers_newer(const char *so) {
    time, so a rebuilt library rebuilds the glue that links it. */
 static uint64_t hash_libraries(uint64_t h) {
   static const char *const ext[] = {".a", ".dylib", ".so"};
-  for (int i = 0; i < ffi_cc_args.n; i++) {
-    if (strncmp(ffi_cc_args.a[i], "-L", 2) != 0) continue;
-    for (int j = 0; j < ffi_libs.n + ffi_cc_args.n; j++) {
-      const char *name = j < ffi_libs.n ? ffi_libs.a[j] : !strncmp(ffi_cc_args.a[j - ffi_libs.n], "-l", 2) ? ffi_cc_args.a[j - ffi_libs.n] + 2 : NULL;
+  for (int i = 0; i < CS->ffi_cc_args.n; i++) {
+    if (strncmp(CS->ffi_cc_args.a[i], "-L", 2) != 0) continue;
+    for (int j = 0; j < CS->ffi_libs.n + CS->ffi_cc_args.n; j++) {
+      const char *name = j < CS->ffi_libs.n ? CS->ffi_libs.a[j] : !strncmp(CS->ffi_cc_args.a[j - CS->ffi_libs.n], "-l", 2) ? CS->ffi_cc_args.a[j - CS->ffi_libs.n] + 2 : NULL;
       for (size_t k = 0; name && k < sizeof ext / sizeof ext[0]; k++) {
         struct stat st;
-        if (stat(xsprintf("%s/lib%s%s", ffi_cc_args.a[i] + 2, name, ext[k]), &st) == 0)
+        if (stat(xsprintf("%s/lib%s%s", CS->ffi_cc_args.a[i] + 2, name, ext[k]), &st) == 0)
           h = hash(h, xsprintf("%lld %lld", (long long)st.st_size, (long long)st.st_mtime));
       }
     }
@@ -294,27 +292,41 @@ static uint64_t hash_libraries(uint64_t h) {
 #define GLUE_NAMES(X)                                                                                           \
   X(fk_int64_box) X(fk_float) X(fk_ptr) X(fk_str) X(fk_cstr) X(fk_cstr_result) X(fk_apply) X(fk_stable_deref)   \
   X(fk_error) X(fk_on_funk_thread) X(fk_callback_thread) X(fk_cb_rethrow) X(fk_snapshot_release)                \
-  X(fk_event_claim) X(fk_event_publish) X(fk_event_release) X(fk_event_copy) X(fk_event_uncopy)                 \
-  X(fk_true) X(fk_false) X(fk_unit) X(fk_cb_failed) X(fk_callback_depth) X(fk_snap_lo) X(fk_error_jmp)
+  X(fk_snapshot_enter) X(fk_event_claim) X(fk_event_publish) X(fk_event_release) X(fk_event_copy)               \
+  X(fk_event_uncopy) X(fk_true) X(fk_false) X(fk_unit)
 #define GLUE_NAME(n) #n,
 #define GLUE_ADDR(n) (void *)&n,
 static const char *const glue_names[] = {GLUE_NAMES(GLUE_NAME)};
 static void *const glue_addrs[] = {GLUE_NAMES(GLUE_ADDR)};
 enum { NGLUE = sizeof glue_names / sizeof glue_names[0] };
 
-/* The host's functions and variables, from funk_provide; reached as the
-   runtime's are. */
-static Strs host_names;
-static VEC(void *) host_addrs;
+/* ffi.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  /* The host's functions and variables, from funk_provide; reached as the
+     runtime's are. */
+  Strs host_names;
+  VEC(void *) host_addrs;
+  VEC(struct { uint64_t key; FkCode code; }) linked;
+} FfiState;
+static const FfiState ffi_init = {0};
+#define ST ((FfiState *)fk_here()->cc[CC_FFI])
+
+void *ffi_state_new(void) {
+  FfiState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = ffi_init;
+  return s;
+}
+
 
 void ffi_provide(const char *name, void *addr) {
-  for (int i = 0; i < host_names.n; i++)
-    if (!strcmp(host_names.a[i], name)) {
-      host_addrs.a[i] = addr;
+  for (int i = 0; i < ST->host_names.n; i++)
+    if (!strcmp(ST->host_names.a[i], name)) {
+      ST->host_addrs.a[i] = addr;
       return;
     }
-  VPUSH(host_names, name);
-  VPUSH(host_addrs, addr);
+  VPUSH(ST->host_names, name);
+  VPUSH(ST->host_addrs, addr);
 }
 
 /* Glue for ffi_load: each of glue_names, and each provided name an import
@@ -328,15 +340,16 @@ static char *loaded_glue(ForeignDecl **fs, int n, void ***addrs) {
     VPUSH(vars, xsprintf("fk_glue_%s", glue_names[i] + 3));
     VPUSH(as, glue_addrs[i]);
   }
-  for (int i = 0; i < host_names.n; i++) {
+  for (int i = 0; i < ST->host_names.n; i++) {
     bool used = false;
-    for (int j = 0; j < n && !used; j++) used = !strcmp(fs[j]->cname, host_names.a[i]);
+    for (int j = 0; j < n && !used; j++) used = !strcmp(fs[j]->cname, ST->host_names.a[i]);
     if (!used) continue; /* its header may not be included */
-    VPUSH(names, host_names.a[i]);
-    VPUSH(vars, xsprintf("fk_host_%s", host_names.a[i]));
-    VPUSH(as, host_addrs.a[i]);
+    VPUSH(names, ST->host_names.a[i]);
+    VPUSH(vars, xsprintf("fk_host_%s", ST->host_names.a[i]));
+    VPUSH(as, ST->host_addrs.a[i]);
   }
   SB b = {0};
+  sb_puts(&b, "#define FK_SESSIONS 1 /* the session's state through the stack (rt.h) */\n");
   for (int i = 0; i < names.n; i++) sb_printf(&b, "#define %s (*%s)\n", names.a[i], vars.a[i]);
   sb_puts(&b, fk_rth_src);
   sb_puts(&b, ffi_glue(fs, n, true));
@@ -363,15 +376,13 @@ static uint64_t ffi_key(ForeignDecl *f) {
 }
 
 /* Glue linked into the host (funk_glue), by key. */
-static VEC(struct { uint64_t key; FkCode code; }) linked;
-
 void ffi_link(uint64_t key, FkCode code) {
-  for (int i = 0; i < linked.n; i++)
-    if (linked.a[i].key == key) {
-      linked.a[i].code = code;
+  for (int i = 0; i < ST->linked.n; i++)
+    if (ST->linked.a[i].key == key) {
+      ST->linked.a[i].code = code;
       return;
     }
-  VPUSH(linked, ((__typeof__(*linked.a)){key, code}));
+  VPUSH(ST->linked, ((__typeof__(*ST->linked.a)){key, code}));
 }
 
 /* For `funk emit-c --glue`: fs's wrappers as one C file for a host to link
@@ -381,7 +392,8 @@ void ffi_link(uint64_t key, FkCode code) {
 char *ffi_linked_glue(ForeignDecl **fs, int n) {
   SB b = {0};
   sb_puts(&b, "/* funk emit-c --glue: foreign import wrappers, for funk_glue (libfunk.h) */\n"
-              "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers */\n");
+              "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers */\n"
+              "#define FK_SESSIONS 1 /* linked with libfunk: the session's state through the stack (rt.h) */\n");
   sb_puts(&b, fk_rth_src);
   sb_puts(&b, ffi_headers(fs, n));
   sb_puts(&b, conversion_checks);
@@ -396,10 +408,10 @@ char *ffi_linked_glue(ForeignDecl **fs, int n) {
 void ffi_load(ForeignDecl **fs, int n) {
   int missing = 0; /* the imports without linked glue, moved to the front */
   for (int i = 0; i < n; i++) {
-    uint64_t key = linked.n ? ffi_key(fs[i]) : 0;
+    uint64_t key = ST->linked.n ? ffi_key(fs[i]) : 0;
     fs[i]->code = NULL;
-    for (int j = 0; j < linked.n && !fs[i]->code; j++)
-      if (linked.a[j].key == key) fs[i]->code = linked.a[j].code;
+    for (int j = 0; j < ST->linked.n && !fs[i]->code; j++)
+      if (ST->linked.a[j].key == key) fs[i]->code = ST->linked.a[j].code;
     if (!fs[i]->code) {
       ForeignDecl *t = fs[missing];
       fs[missing++] = fs[i];
@@ -415,8 +427,8 @@ void ffi_load(ForeignDecl **fs, int n) {
   Dl_info self; /* two plugins loading one file would share one image, bound to one runtime */
   if (dladdr((void *)ffi_load, &self) && self.dli_fname) h = hash(h, self.dli_fname);
   for (int i = 0; i < argv.n; i++) h = hash(h, argv.a[i]);
-  for (int i = 0; i < ffi_libs.n; i++) h = hash(h, ffi_libs.a[i]);
-  for (int i = 0; i < ffi_cc_args.n; i++) h = hash(h, ffi_cc_args.a[i]);
+  for (int i = 0; i < CS->ffi_libs.n; i++) h = hash(h, CS->ffi_libs.a[i]);
+  for (int i = 0; i < CS->ffi_cc_args.n; i++) h = hash(h, CS->ffi_cc_args.a[i]);
   h = hash_libraries(h);
   const char *dir = cache_dir();
   char *so = xsprintf("%s/%016llx.so", dir, (unsigned long long)h);
@@ -435,11 +447,11 @@ void ffi_load(ForeignDecl **fs, int n) {
 #endif
                            "-o", tmp, c, "-MD", "-MF", xsprintf("%s.d", so)};
     for (size_t i = 0; i < sizeof fixed / sizeof fixed[0]; i++) VPUSH(argv, (char *)fixed[i]);
-    for (int i = 0; i < ffi_cc_args.n; i++) VPUSH(argv, (char *)ffi_cc_args.a[i]);
+    for (int i = 0; i < CS->ffi_cc_args.n; i++) VPUSH(argv, (char *)CS->ffi_cc_args.a[i]);
     bool m = false; /* the linker warns about a library named twice */
-    for (int i = 0; i < ffi_libs.n; i++) {
-      VPUSH(argv, xsprintf("-l%s", ffi_libs.a[i]));
-      m |= !strcmp(ffi_libs.a[i], "m");
+    for (int i = 0; i < CS->ffi_libs.n; i++) {
+      VPUSH(argv, xsprintf("-l%s", CS->ffi_libs.a[i]));
+      m |= !strcmp(CS->ffi_libs.a[i], "m");
     }
     if (!m) VPUSH(argv, "-lm");
     const char *cc = argv.a[0];

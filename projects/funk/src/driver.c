@@ -11,36 +11,51 @@
 #define FUNK_VERSION "dev" /* CMake defines it from the project version */
 #endif
 
-static Chunk prelude;
-static bool prelude_installed; /* in the interpreter: build and check do not need it there */
-static Strs cc_args;
-
 /* Imported modules (modules.md): each file once, keyed by realpath, its
    chunk compiled before the files that import it. */
 typedef struct { const char *real, *file, *prefix; bool done; Exports *ex; } Mod; /* file: as found, for messages */
-static VEC(Mod) mods;
-static VEC(Chunk) mod_chunks;
-static int mods_installed; /* in the interpreter */
-static Strs mod_dirs;      /* -M DIR */
-static ImportInfo *last_imps; /* the program's imports, resolved by the last prepare */
-static int nlast_imps;
-static VEC(ImportInfo) repl_imps; /* in scope at the prompt: `import` inputs and :l files' imports */
+
+/* driver.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  Chunk prelude;
+  bool prelude_installed; /* in the interpreter: build and check do not need it there */
+  Strs cc_args;
+  VEC(Mod) mods;
+  VEC(Chunk) mod_chunks;
+  int mods_installed; /* in the interpreter */
+  Strs mod_dirs; /* -M DIR */
+  ImportInfo *last_imps; /* the program's imports, resolved by the last prepare */
+  int nlast_imps;
+  VEC(ImportInfo) repl_imps; /* in scope at the prompt: `import` inputs and :l files' imports */
+  Exports prepare_none;
+  int funk_call_checked, funk_call_checked_n; /* type_str allocates: check a global once */
+} DriverState;
+static const DriverState driver_init = {.funk_call_checked = -1};
+#define ST ((DriverState *)fk_here()->cc[CC_DRIVER])
+
+void *driver_state_new(void) {
+  DriverState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = driver_init;
+  return s;
+}
+
 
 /* The REPL's imports as Import lines, for the parser's qualified tokens. */
 static Import *repl_lines(void) {
-  Import *ims = xmalloc((size_t)repl_imps.n * sizeof *ims + 1);
-  for (int i = 0; i < repl_imps.n; i++) ims[i] = *repl_imps.a[i].im;
+  Import *ims = xmalloc((size_t)ST->repl_imps.n * sizeof *ims + 1);
+  for (int i = 0; i < ST->repl_imps.n; i++) ims[i] = *ST->repl_imps.a[i].im;
   return ims;
 }
 
 /* The last program's imports into the REPL's scope; a qualifier bound
    before is rebound. */
 static void adopt_imports(void) {
-  for (int i = 0; i < nlast_imps; i++) {
+  for (int i = 0; i < ST->nlast_imps; i++) {
     int k = 0;
-    while (k < repl_imps.n && repl_imps.a[k].im->qual != last_imps[i].im->qual) k++;
-    if (k == repl_imps.n) VPUSH(repl_imps, last_imps[i]);
-    else repl_imps.a[k] = last_imps[i];
+    while (k < ST->repl_imps.n && ST->repl_imps.a[k].im->qual != ST->last_imps[i].im->qual) k++;
+    if (k == ST->repl_imps.n) VPUSH(ST->repl_imps, ST->last_imps[i]);
+    else ST->repl_imps.a[k] = ST->last_imps[i];
   }
 }
 
@@ -52,6 +67,7 @@ const char *funk_version(void) { return FUNK_VERSION; }
    until funk_free. One per process until the globals move into it
    (embedding.md, phase 2). */
 struct funk {
+  FkRt *rt;
   pthread_t th;
   pthread_mutex_t mu, run; /* run: held by a funk_run from another thread for its job */
   pthread_cond_t cv;
@@ -59,6 +75,8 @@ struct funk {
   void *arg;
   int status;
   bool ready, ok, done, stop;
+  const char *const *cc_args; /* funk_config's, for the session's thread */
+  int ncc_args;
 };
 static funk session;
 static bool session_made;
@@ -66,8 +84,8 @@ static bool session_made;
 /* The api's functions but funk_run, funk_free, funk_interrupt, funk_output
    and funk_on_fatal run on the session's thread. */
 static bool on_thread(funk *f, const char *fn) {
-  if (f == &session && fk_on_funk_thread()) return true;
-  report("%s", xsprintf("%s: not on its session's thread; call it inside funk_run", fn));
+  if (f == &session && fk_current() == f->rt) return true;
+  fk_message_rt(f->rt, "funk: ", "%s: not on its session's thread; call it inside funk_run", fn);
   return false;
 }
 #define ON_THREAD(f, fail) \
@@ -75,8 +93,28 @@ static bool on_thread(funk *f, const char *fn) {
 
 static bool init(void);
 
+static const CompilerShared shared_init = {.cur_file = "<input>", .num_class = -1};
+
+void *shared_state_new(void) {
+  CompilerShared *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = shared_init;
+  return s;
+}
+
+/* The compiler's state for this session, on its thread. */
+static void states_new(void) {
+  static void *(*const make[CC_N])(void) = {
+      [CC_SHARED] = shared_state_new, [CC_UTIL] = util_state_new,   [CC_PARSE] = parse_state_new, [CC_RESOLVE] = resolve_state_new,
+      [CC_CHECK] = check_state_new,   [CC_ELAB] = elab_state_new,   [CC_FUSE] = fuse_state_new,   [CC_CGEN] = cgen_state_new,
+      [CC_INTERP] = interp_state_new, [CC_FFI] = ffi_state_new,     [CC_DRIVER] = driver_state_new};
+  for (int i = 0; i < CC_N; i++) fk_here()->cc[i] = make[i]();
+}
+
 static void session_main(void *p) {
   funk *f = p;
+  states_new();
+  for (int i = 0; i < f->ncc_args; i++) VPUSH(ST->cc_args, f->cc_args[i]);
   bool ok = init();
   pthread_mutex_lock(&f->mu);
   f->ok = ok;
@@ -105,13 +143,13 @@ funk *funk_new(const funk_config *c) {
   session_made = true;
   funk *f = &session;
   if (c) {
-    fk_set_memory(c->heap, c->threshold, c->stack);
-    for (int i = 0; i < c->ncc_args; i++) VPUSH(cc_args, c->cc_args[i]);
+    f->cc_args = c->cc_args;
+    f->ncc_args = c->ncc_args;
   }
   pthread_mutex_init(&f->mu, NULL);
   pthread_mutex_init(&f->run, NULL);
   pthread_cond_init(&f->cv, NULL);
-  if (!fk_start(session_main, f, &f->th)) return NULL;
+  if (!(f->rt = fk_start(session_main, f, &f->th, c ? c->heap : 0, c ? c->threshold : 0, c ? c->stack : 0))) return NULL;
   pthread_mutex_lock(&f->mu);
   while (!f->ready) pthread_cond_wait(&f->cv, &f->mu);
   pthread_mutex_unlock(&f->mu);
@@ -150,74 +188,74 @@ void funk_free(funk *f) {
 
 /* Parse with compile errors caught; NULL on error (already reported). */
 static Module *parse_caught(const char *src, size_t len) {
-  jmp_buf jb, *saved = cerr_jmp;
+  jmp_buf jb, *saved = CS->cerr_jmp;
   Module *volatile m = NULL;
   if (!setjmp(jb)) {
-    cerr_jmp = &jb;
+    CS->cerr_jmp = &jb;
     m = parse_module(src, len);
   }
-  cerr_jmp = saved;
+  CS->cerr_jmp = saved;
   return m;
 }
 
 static Module *begin_caught(const char *src, size_t len) {
-  jmp_buf jb, *saved = cerr_jmp;
+  jmp_buf jb, *saved = CS->cerr_jmp;
   Module *volatile m = NULL;
   if (!setjmp(jb)) {
-    cerr_jmp = &jb;
+    CS->cerr_jmp = &jb;
     m = parse_begin(src, len);
   }
-  cerr_jmp = saved;
+  CS->cerr_jmp = saved;
   return m;
 }
 
 static Expr *parse_expr_caught(const char *src, size_t len) {
-  jmp_buf jb, *saved = cerr_jmp;
+  jmp_buf jb, *saved = CS->cerr_jmp;
   Expr *volatile e = NULL;
   if (!setjmp(jb)) {
-    cerr_jmp = &jb;
-    e = parse_expr_text(src, len, repl_lines(), repl_imps.n);
+    CS->cerr_jmp = &jb;
+    e = parse_expr_text(src, len, repl_lines(), ST->repl_imps.n);
     Bind *b = NEW(Bind); /* qualified through a module holding e */
     *b = (Bind){.name = intern("$q"), .e = e};
-    if (repl_imps.n) qualify_module(&(Module){.binds = &b, .nb = 1}, NULL, repl_imps.a, repl_imps.n);
+    if (ST->repl_imps.n) qualify_module(&(Module){.binds = &b, .nb = 1}, NULL, ST->repl_imps.a, ST->repl_imps.n);
     e = b->e;
   }
-  cerr_jmp = saved;
+  CS->cerr_jmp = saved;
   return e;
 }
 
 static int is_decl_caught(const char *src, size_t len) {
-  jmp_buf jb, *saved = cerr_jmp;
+  jmp_buf jb, *saved = CS->cerr_jmp;
   volatile int r = -1;
   if (!setjmp(jb)) {
-    cerr_jmp = &jb;
+    CS->cerr_jmp = &jb;
     r = is_decl_text(src, len);
   }
-  cerr_jmp = saved;
+  CS->cerr_jmp = saved;
   return r;
 }
 
 /* The prelude, compiled on the session's thread. */
 static bool init(void) {
-  ffi_cc_args = cc_args;
+  CS->ffi_cc_args = ST->cc_args;
   compiler_init();
-  cur_file = "<prelude>";
+  CS->cur_file = "<prelude>";
   char *src = xsprintf("%s\n%s", fk_prelude_src, builtin_instances_src());
   Module *m = parse_caught(src, strlen(src));
-  if (m && compile_chunk(m, &prelude)) return true;
+  if (m && compile_chunk(m, &ST->prelude)) return true;
   report("%s", "internal error: prelude failed to compile");
   return false;
 }
 
 static void install_prelude(void) {
-  if (prelude_installed) return;
-  interp_install(&prelude);
-  prelude_installed = true;
+  if (ST->prelude_installed) return;
+  interp_install(&ST->prelude);
+  ST->prelude_installed = true;
 }
 
 void funk_module_dir(funk *f, const char *dir) {
   ON_THREAD(f, );
-  VPUSH(mod_dirs, dir);
+  VPUSH(ST->mod_dirs, dir);
 }
 
 bool funk_provide(funk *f, const char *name, void *addr) {
@@ -245,7 +283,7 @@ static const char *find_module(const char *path, const char *from, const char **
   const char *slash = strrchr(from, '/');
   Strs dirs = {0};
   VPUSH(dirs, slash ? xsprintf("%.*s", (int)(slash - from), from) : ".");
-  for (int i = 0; i < mod_dirs.n; i++) VPUSH(dirs, mod_dirs.a[i]);
+  for (int i = 0; i < ST->mod_dirs.n; i++) VPUSH(dirs, ST->mod_dirs.a[i]);
   for (int i = 0; i < dirs.n; i++) {
     char *cand = xsprintf("%s/%s", dirs.a[i], rel);
     sb_printf(searched, "%s%s", i ? ", " : "", cand);
@@ -267,23 +305,23 @@ static int import_module(Import *im, const char *from) {
   SB searched = {0};
   const char *real = find_module(im->path, from, &found, &searched);
   if (!real) cerror(im->line, im->col, "module `%s` not found; looked for %s", im->path, searched.s);
-  for (int i = 0; i < mods.n; i++) {
-    if (mods.a[i].real != real) continue;
-    if (mods.a[i].done) return i;
+  for (int i = 0; i < ST->mods.n; i++) {
+    if (ST->mods.a[i].real != real) continue;
+    if (ST->mods.a[i].done) return i;
     SB chain = {0}; /* the modules still loading, from this one, are the cycle */
-    for (int j = i; j < mods.n; j++) sb_printf(&chain, "%s -> ", mods.a[j].prefix);
-    cerror(im->line, im->col, "import cycle: %s%s", chain.s, mods.a[i].prefix);
+    for (int j = i; j < ST->mods.n; j++) sb_printf(&chain, "%s -> ", ST->mods.a[j].prefix);
+    cerror(im->line, im->col, "import cycle: %s%s", chain.s, ST->mods.a[i].prefix);
   }
   const char *dot = strrchr(im->path, '.'), *prefix = intern(dot ? dot + 1 : im->path);
-  for (int i = 0; i < mods.n; i++)
-    if (mods.a[i].prefix == prefix)
-      cerror(im->line, im->col, "two modules are named `%s`: %s, and %s imported earlier", prefix, found, mods.a[i].file);
-  VPUSH(mods, ((Mod){real, found, prefix, false, NULL}));
-  int me = mods.n - 1;
+  for (int i = 0; i < ST->mods.n; i++)
+    if (ST->mods.a[i].prefix == prefix)
+      cerror(im->line, im->col, "two modules are named `%s`: %s, and %s imported earlier", prefix, found, ST->mods.a[i].file);
+  VPUSH(ST->mods, ((Mod){real, found, prefix, false, NULL}));
+  int me = ST->mods.n - 1;
   size_t len;
   char *src = read_file(found, &len);
   if (!src) cerror(im->line, im->col, "cannot read %s", found);
-  cur_file = found;
+  CS->cur_file = found;
   Module *m = parse_begin(src, len);
   if (m->name) {
     const char *hd = strrchr(m->name, '.');
@@ -292,16 +330,16 @@ static int import_module(Import *im, const char *from) {
   Chunk c;
   Exports *ex = prepare(m, found, prefix);
   if (!ex) return -1;
-  cur_file = found;
-  const char *cm = cur_module;
-  cur_module = prefix;
+  CS->cur_file = found;
+  const char *cm = CS->cur_module;
+  CS->cur_module = prefix;
   bool ok = compile_chunk(m, &c);
-  cur_module = cm;
+  CS->cur_module = cm;
   if (!ok) return -1;
-  VPUSH(mod_chunks, c);
-  mods.a[me].done = true;
-  mods.a[me].ex = ex;
-  cur_file = from;
+  VPUSH(ST->mod_chunks, c);
+  ST->mods.a[me].done = true;
+  ST->mods.a[me].ex = ex;
+  CS->cur_file = from;
   return me;
 }
 
@@ -309,17 +347,16 @@ static int import_module(Import *im, const char *from) {
    for a module, NULL for the program. What m exports, or NULL after an
    error. */
 static Exports *prepare(Module *m, const char *file, const char *prefix) {
-  static Exports none;
   if (!m->nimports && !prefix) {
     parse_finish(m);
-    nlast_imps = 0;
-    return &none;
+    ST->nlast_imps = 0;
+    return &ST->prepare_none;
   }
   ImportInfo *imps = xmalloc((size_t)m->nimports * sizeof *imps + 1);
   for (int i = 0; i < m->nimports; i++) {
-    cur_file = file;
+    CS->cur_file = file;
     Import *im = &m->imports[i];
-    if (im->base) { /* the prelude stands in for it: names checked, none added (modules.md) */
+    if (im->base) { /* the prelude stands in for it: names checked, ST->prepare_none added (modules.md) */
       static const char *const base[] = {"Prelude", "Data.List", "Data.Char", "Data.Maybe", "Data.Either", "Data.Bits",
                                          "Data.Function", "Data.Tuple", "Data.Ord", "Control.Monad", "System.IO", NULL};
       int b = 0;
@@ -333,53 +370,53 @@ static Exports *prepare(Module *m, const char *file, const char *prefix) {
     }
     int k = import_module(im, file);
     if (k < 0) return NULL;
-    imps[i] = (ImportInfo){&m->imports[i], mods.a[k].prefix, mods.a[k].ex};
+    imps[i] = (ImportInfo){&m->imports[i], ST->mods.a[k].prefix, ST->mods.a[k].ex};
   }
-  cur_file = file;
+  CS->cur_file = file;
   parse_finish(m);
   if (!prefix) {
-    last_imps = imps;
-    nlast_imps = m->nimports;
+    ST->last_imps = imps;
+    ST->nlast_imps = m->nimports;
   }
   return qualify_module(m, prefix, imps, m->nimports);
 }
 
 static bool prepare_caught(Module *m, const char *file) {
-  jmp_buf jb, *saved = cerr_jmp;
-  const char *cf = cur_file;
-  int n0 = mods.n;
+  jmp_buf jb, *saved = CS->cerr_jmp;
+  const char *cf = CS->cur_file;
+  int n0 = ST->mods.n;
   volatile bool ok = false;
   if (!setjmp(jb)) {
-    cerr_jmp = &jb;
+    CS->cerr_jmp = &jb;
     ok = prepare(m, file, NULL) != NULL;
   }
-  cerr_jmp = saved;
-  cur_file = cf;
+  CS->cerr_jmp = saved;
+  CS->cur_file = cf;
   if (!ok) { /* forget the modules left half-loaded; compiled ones stay */
     int k = n0;
-    for (int i = n0; i < mods.n; i++)
-      if (mods.a[i].done) mods.a[k++] = mods.a[i];
-    mods.n = k;
+    for (int i = n0; i < ST->mods.n; i++)
+      if (ST->mods.a[i].done) ST->mods.a[k++] = ST->mods.a[i];
+    ST->mods.n = k;
   }
   return ok;
 }
 
 /* The rest of a REPL declaration, qualified with the REPL's imports. */
 static bool finish_caught(Module *m) {
-  jmp_buf jb, *saved = cerr_jmp;
+  jmp_buf jb, *saved = CS->cerr_jmp;
   volatile bool ok = false;
   if (!setjmp(jb)) {
-    cerr_jmp = &jb;
+    CS->cerr_jmp = &jb;
     parse_finish(m);
-    if (repl_imps.n) qualify_module(m, NULL, repl_imps.a, repl_imps.n);
+    if (ST->repl_imps.n) qualify_module(m, NULL, ST->repl_imps.a, ST->repl_imps.n);
     ok = true;
   }
-  cerr_jmp = saved;
+  CS->cerr_jmp = saved;
   return ok;
 }
 
 static void install_modules(void) {
-  for (; mods_installed < mod_chunks.n; mods_installed++) interp_install(&mod_chunks.a[mods_installed]);
+  for (; ST->mods_installed < ST->mod_chunks.n; ST->mods_installed++) interp_install(&ST->mod_chunks.a[ST->mods_installed]);
 }
 
 static bool compile_file(const char *path, Chunk *out) {
@@ -389,14 +426,14 @@ static bool compile_file(const char *path, Chunk *out) {
     report("cannot read %s", path);
     return false;
   }
-  cur_file = path;
+  CS->cur_file = path;
   Module *m = begin_caught(src, len);
   return m && prepare_caught(m, path) && compile_chunk(m, out);
 }
 
 /* Compile path, which must define `main`. */
 static bool compile_program(const char *path, Chunk *out) {
-  int first = globals.n;
+  int first = CS->globals.n;
   if (!compile_file(path, out)) return false;
   if (global_lookup(intern("main")) >= first) return true;
   report("%s: no `main` defined", path);
@@ -437,10 +474,10 @@ char *funk_emit_c(funk *f, const char *path) {
   ON_THREAD(f, NULL);
   Chunk c;
   if (!compile_program(path, &c)) return NULL;
-  int n = mod_chunks.n + 2;
+  int n = ST->mod_chunks.n + 2;
   Chunk *all = xmalloc((size_t)n * sizeof *all);
-  all[0] = prelude;
-  copy_n(all + 1, mod_chunks.a, (size_t)mod_chunks.n * sizeof *all);
+  all[0] = ST->prelude;
+  copy_n(all + 1, ST->mod_chunks.a, (size_t)ST->mod_chunks.n * sizeof *all);
   all[n - 1] = c;
   return cgen_program(all, n);
 }
@@ -449,10 +486,10 @@ char *funk_emit_kernels(funk *f, const char *path) {
   ON_THREAD(f, NULL);
   Chunk c;
   if (!compile_file(path, &c)) return NULL;
-  int n = mod_chunks.n + 2;
+  int n = ST->mod_chunks.n + 2;
   Chunk *all = xmalloc((size_t)n * sizeof *all);
-  all[0] = prelude;
-  copy_n(all + 1, mod_chunks.a, (size_t)mod_chunks.n * sizeof *all);
+  all[0] = ST->prelude;
+  copy_n(all + 1, ST->mod_chunks.a, (size_t)ST->mod_chunks.n * sizeof *all);
   all[n - 1] = c;
   const char *err = NULL;
   char *src = cgen_kernels(all, n, &err);
@@ -465,8 +502,8 @@ char *funk_emit_glue(funk *f, const char *path) {
   Chunk c;
   if (!compile_file(path, &c)) return NULL;
   VEC(ForeignDecl *) fs = {0};
-  for (int i = 0; i < globals.n; i++)
-    if (globals.a[i].ffi) VPUSH(fs, globals.a[i].ffi);
+  for (int i = 0; i < CS->globals.n; i++)
+    if (CS->globals.a[i].ffi) VPUSH(fs, CS->globals.a[i].ffi);
   return ffi_linked_glue(fs.a, fs.n);
 }
 
@@ -474,13 +511,13 @@ static int run_cc(const char *csrc, const char *exe, const char *opt) {
   Argv argv = cc_argv();
   char *fixed[] = {xsprintf("-O%s", opt), "-o", (char *)exe, (char *)csrc, NULL};
   for (int i = 0; fixed[i]; i++) VPUSH(argv, fixed[i]);
-  for (int i = 0; i < cc_args.n; i++) VPUSH(argv, (char *)cc_args.a[i]);
-  for (int i = 0; i < ffi_libs.n; i++) VPUSH(argv, xsprintf("-l%s", ffi_libs.a[i])); /* before -lm, which they may use */
+  for (int i = 0; i < ST->cc_args.n; i++) VPUSH(argv, (char *)ST->cc_args.a[i]);
+  for (int i = 0; i < CS->ffi_libs.n; i++) VPUSH(argv, xsprintf("-l%s", CS->ffi_libs.a[i])); /* before -lm, which they may use */
   static const char *const runtime_libs[] = {"-lm", "-lpthread"};
   for (int i = 0; i < 2; i++) {
     bool given = false; /* the linker warns about a library named twice */
-    for (int j = 0; j < cc_args.n; j++) given |= strcmp(cc_args.a[j], runtime_libs[i]) == 0;
-    for (int j = 0; j < ffi_libs.n; j++) given |= strcmp(ffi_libs.a[j], runtime_libs[i] + 2) == 0;
+    for (int j = 0; j < ST->cc_args.n; j++) given |= strcmp(ST->cc_args.a[j], runtime_libs[i]) == 0;
+    for (int j = 0; j < CS->ffi_libs.n; j++) given |= strcmp(CS->ffi_libs.a[j], runtime_libs[i] + 2) == 0;
     if (!given) VPUSH(argv, (char *)runtime_libs[i]);
   }
   int status = spawn_wait(&argv);
@@ -511,9 +548,9 @@ bool funk_load_file(funk *f, const char *path) {
   atomic_store(&fk_interrupt, 0);
   Chunk c;
   int mark = undo_mark(); /* fixities installed by the parser */
-  const char *file = cur_file;
+  const char *file = CS->cur_file;
   bool ok = false;
-  CATCH_RUNTIME(cur_file = file; return false);
+  CATCH_RUNTIME(CS->cur_file = file; return false);
   install_prelude();
   if (compile_file(path, &c)) {
     install_modules();
@@ -524,7 +561,7 @@ bool funk_load_file(funk *f, const char *path) {
     undo_to(mark);
   }
   fk_error_jmp = NULL;
-  cur_file = file;
+  CS->cur_file = file;
   return ok;
 }
 
@@ -543,16 +580,16 @@ static char *show_result(Bind *it) {
   b->e->args[0] = x;
   Module m = {.binds = &b, .nb = 1};
   Chunk c;
-  cerr_quiet = true;
+  CS->cerr_quiet = true;
   bool ok = compile_chunk(&m, &c);
-  cerr_quiet = false;
+  CS->cerr_quiet = false;
   if (ok) {
     interp_install(&c);
     return fk_cstring(interp_global(b->gidx), NULL);
   }
   V v = interp_global(it->gidx);
   if (FK_ISPTR(v) && FK_HDR(v)->kind != K_CON && FK_HDR(v)->kind != K_FLOAT)
-    return xsprintf("<function> :: %s", type_str(globals.a[it->gidx].type));
+    return xsprintf("<function> :: %s", type_str(CS->globals.a[it->gidx].type));
   return fk_show_cstr(v);
 }
 
@@ -561,10 +598,10 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
   ON_THREAD(f, false);
   atomic_store(&fk_interrupt, 0);
   size_t len = strlen(src);
-  const char *file = cur_file;
+  const char *file = CS->cur_file;
   *shown = NULL;
-  cur_file = name;
-  CATCH_RUNTIME(cur_file = file; return false);
+  CS->cur_file = name;
+  CATCH_RUNTIME(CS->cur_file = file; return false);
   install_prelude();
   bool ok = false;
   int decl = is_decl_caught(src, len);
@@ -586,7 +623,7 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
     Module *m = begin_caught(src, len);
     if (m) { /* in the REPL's scope */
       m->imports = repl_lines();
-      m->nimports = repl_imps.n;
+      m->nimports = ST->repl_imps.n;
     }
     if (m && !finish_caught(m)) m = NULL;
     if (m && compile_chunk(m, &c)) {
@@ -613,17 +650,17 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
     }
   }
   fk_error_jmp = NULL;
-  cur_file = file;
+  CS->cur_file = file;
   return ok;
 }
 
 char *funk_type_of(funk *f, const char *src, const char *name) {
   ON_THREAD(f, NULL);
-  const char *file = cur_file;
-  cur_file = name;
+  const char *file = CS->cur_file;
+  CS->cur_file = name;
   Expr *e = parse_expr_caught(src, strlen(src));
   const char *t = e ? infer_type_text(e) : NULL;
-  cur_file = file;
+  CS->cur_file = file;
   return t ? xsprintf("%s", t) : NULL;
 }
 
@@ -648,16 +685,9 @@ void funk_on_fatal(funk *f, void (*fn)(void *ctx, const char *msg), void *ctx) {
   fk_fatal_ctx = ctx;
 }
 
-void funk_interrupt(funk *f) {
-  (void)f;
-  atomic_store(&fk_interrupt, 1);
-}
+void funk_interrupt(funk *f) { fk_rt_interrupt(f->rt); }
 
-void funk_output(funk *f, void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx) {
-  (void)f;
-  fk_out = out;
-  fk_out_ctx = ctx;
-}
+void funk_output(funk *f, void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx) { fk_rt_output(f->rt, out, ctx); }
 
 bool funk_call(funk *f, const char *name, int n, const long *args, long *result) {
   ON_THREAD(f, false);
@@ -666,13 +696,12 @@ bool funk_call(funk *f, const char *name, int n, const long *args, long *result)
     report("`%s` is not defined", name);
     return false;
   }
-  static int checked = -1, checked_n; /* type_str allocates: check a global once */
-  if (g != checked || n != checked_n) {
-    if (n < 1 || n > 8 || !int_function(globals.a[g].type, n)) {
+  if (g != ST->funk_call_checked || n != ST->funk_call_checked_n) {
+    if (n < 1 || n > 8 || !int_function(CS->globals.a[g].type, n)) {
       report("funk_call needs a function from Int arguments to Int: `%s`", name);
       return false;
     }
-    checked = g, checked_n = n;
+    ST->funk_call_checked = g, ST->funk_call_checked_n = n;
   }
   atomic_store(&fk_interrupt, 0);
   CATCH_RUNTIME(return false);

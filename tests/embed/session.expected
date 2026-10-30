@@ -6,5 +6,4 @@ inc defined: ok
 2 threads x 1000 jobs: 2000, all on one thread: yes
 messages:
 funk: funk_eval: not on its session's thread; call it inside funk_run
-funk: funk_new: one session per process, for now
 funk: funk_free: on its session's thread; call it from another

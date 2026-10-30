@@ -67,8 +67,24 @@ char *read_file(const char *path, size_t *len) {
 
 /* ------------------------------------------------------------- interning */
 
-static const char **itab;
-static size_t icap, icount;
+typedef struct { Map *m; const char *key; int old; } Undo;
+
+/* util.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  const char **itab;
+  size_t icap, icount;
+  VEC(Undo) undo_log;
+} UtilState;
+static const UtilState util_init = {0};
+#define ST ((UtilState *)fk_here()->cc[CC_UTIL])
+
+void *util_state_new(void) {
+  UtilState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = util_init;
+  return s;
+}
+
 
 static uint64_t hash(const char *s, size_t n) {
   uint64_t h = 1469598103934665603ull;
@@ -77,29 +93,29 @@ static uint64_t hash(const char *s, size_t n) {
 }
 
 const char *intern_n(const char *s, size_t n) {
-  if (icount * 2 >= icap) {
-    size_t ncap = icap ? icap * 2 : 1024;
+  if (ST->icount * 2 >= ST->icap) {
+    size_t ncap = ST->icap ? ST->icap * 2 : 1024;
     const char **nt = xcalloc(ncap, sizeof *nt);
-    for (size_t i = 0; i < icap; i++)
-      if (itab[i]) {
-        size_t j = hash(itab[i], strlen(itab[i])) & (ncap - 1);
+    for (size_t i = 0; i < ST->icap; i++)
+      if (ST->itab[i]) {
+        size_t j = hash(ST->itab[i], strlen(ST->itab[i])) & (ncap - 1);
         while (nt[j]) j = (j + 1) & (ncap - 1);
-        nt[j] = itab[i];
+        nt[j] = ST->itab[i];
       }
-    free(itab);
-    itab = nt;
-    icap = ncap;
+    free(ST->itab);
+    ST->itab = nt;
+    ST->icap = ncap;
   }
-  size_t j = hash(s, n) & (icap - 1);
-  while (itab[j]) {
-    if (strlen(itab[j]) == n && memcmp(itab[j], s, n) == 0) return itab[j];
-    j = (j + 1) & (icap - 1);
+  size_t j = hash(s, n) & (ST->icap - 1);
+  while (ST->itab[j]) {
+    if (strlen(ST->itab[j]) == n && memcmp(ST->itab[j], s, n) == 0) return ST->itab[j];
+    j = (j + 1) & (ST->icap - 1);
   }
   char *p = xmalloc(n + 1);
   memcpy(p, s, n);
   p[n] = 0;
-  itab[j] = p;
-  icount++;
+  ST->itab[j] = p;
+  ST->icount++;
   return p;
 }
 
@@ -127,9 +143,6 @@ void sb_printf(SB *b, const char *fmt, ...) {
 }
 
 /* ------------------------------------------------------------------- map */
-
-typedef struct { Map *m; const char *key; int old; } Undo;
-static VEC(Undo) undo_log;
 
 static int map_slot(Map *m, const char *key) {
   size_t j = ((uintptr_t)key >> 3) & (size_t)(m->cap - 1);
@@ -165,40 +178,37 @@ static void map_set(Map *m, const char *key, int val) {
 }
 
 void map_put(Map *m, const char *key, int val) {
-  VPUSH(undo_log, ((Undo){m, key, map_get(m, key)}));
+  VPUSH(ST->undo_log, ((Undo){m, key, map_get(m, key)}));
   map_set(m, key, val);
 }
 
-int undo_mark(void) { return undo_log.n; }
+int undo_mark(void) { return ST->undo_log.n; }
 
 void undo_to(int mark) {
-  while (undo_log.n > mark) {
-    Undo u = undo_log.a[--undo_log.n];
+  while (ST->undo_log.n > mark) {
+    Undo u = ST->undo_log.a[--ST->undo_log.n];
     map_set(u.m, u.key, u.old); /* -1 reads back as absent */
   }
 }
 
 /* ---------------------------------------------------------------- errors */
 
-const char *cur_file = "<input>";
-jmp_buf *cerr_jmp;
-bool cerr_quiet;
 
 _Noreturn void cerror(int line, int col, const char *fmt, ...) {
   va_list ap;
-  if (cerr_quiet && cerr_jmp) longjmp(*cerr_jmp, 1);
-  char *prefix = xsprintf("%s:%d:%d: error: ", cur_file, line, col);
+  if (CS->cerr_quiet && CS->cerr_jmp) longjmp(*CS->cerr_jmp, 1);
+  char *prefix = xsprintf("%s:%d:%d: error: ", CS->cur_file, line, col);
   va_start(ap, fmt);
   fk_vmessage(prefix, fmt, ap);
   va_end(ap);
   free(prefix);
-  if (cerr_jmp) longjmp(*cerr_jmp, 1);
+  if (CS->cerr_jmp) longjmp(*CS->cerr_jmp, 1);
   exit(1);
 }
 
 void cwarning(int line, int col, const char *fmt, ...) {
   va_list ap;
-  char *prefix = xsprintf("%s:%d:%d: warning: ", cur_file, line, col);
+  char *prefix = xsprintf("%s:%d:%d: warning: ", CS->cur_file, line, col);
   va_start(ap, fmt);
   fk_vmessage(prefix, fmt, ap);
   va_end(ap);

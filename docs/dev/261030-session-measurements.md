@@ -32,6 +32,10 @@ With the state behind a thread-local, `ffi.c`'s `glue_addrs` stops compiling: a 
 
 A session is mostly the compiler's tables and the prelude's compiled code; the heap is under 1 MB. A frozen prelude shared by sessions would remove most of it.
 
+## The allocator's fields
+
+Step 4a moved `rt.c`'s statics into one static `FkRt`. Compiled `lists` (`bench.py ab HEAD`, 11 runs) ran 15% slower; `hyperfine` over 30 runs: 41.9 against 48.1 ms, 504M against 512M instructions, 125M against 144M cycles. Bisecting by declaration, with each group returned to separate statics: all of `FkRt`'s 45 lines together recovered nothing (142M cycles); `alloc`'s five fields alone (`freelist`, `bump`, `bump_end`, `alloc_since_gc`, `gc_threshold`) recovered all of it (124M). The same five in a struct of their own were as slow as in `FkRt`. Not the cause: `find_obj`'s inlining (`noinline` changed nothing), the binary's size. Inferred, not checked: in one struct the compiler cannot tell the arrays apart, so it reloads them around each allocation. The interpreter, measured with them in the struct, did not slow (1.004, above).
+
 ## Globals
 
 288 writable symbols in `libfunk.a` (`nm -m`, `__DATA` data, bss and common): `rt.c` 107, `check.c` 64, `elab.c` 25, `driver.c` 23, `fuse.c` 17, `ffi.c` 13, `util.c` 11, `cgen.c` 10, five others 24. Function-local statics and compiler labels count; [embedding.md](embedding.md)'s 2026-10-27 count of about 215 did not.

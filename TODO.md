@@ -135,7 +135,7 @@ Rewiring a graph needs no compiler; a new kernel does. Desktop only for now: plu
 
 ### Other
 
-- [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): a `funk *` on every call, state passed explicitly, a thread per session. Measured 2026-10-30: a thread-local pointer costs the interpreter 27%, an explicit one nothing ([docs/dev/261030-session-measurements.md](docs/dev/261030-session-measurements.md)). Step 2, the API and the session's thread, done; step 3 next.
+- [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): a `funk *` on every call, state passed explicitly, a thread per session. Measured 2026-10-30: a thread-local pointer costs the interpreter 27%, an explicit one nothing ([docs/dev/261030-session-measurements.md](docs/dev/261030-session-measurements.md)). Steps 2 to 5 done: the runtime's and the compiler's state are per session, found from the stack. Step 6, the registry, next; then two sessions at once.
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`, `Monad`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases). Only if the friction log shows a need: with one `Pattern` type, monomorphic functions suffice ([docs/dev/patterns.md](docs/dev/patterns.md)).
 

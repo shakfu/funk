@@ -45,8 +45,28 @@ typedef struct {
 static TV cg_expr(CG *c, Expr *e);
 static void cg_tail(CG *c, Expr *e);
 
-static bool kmode;   /* cgen_kernels: no runtime, no G */
-static Bind **kbind; /* there: each global's binding */
+/* cgen.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  bool kmode; /* cgen_kernels: no runtime, no G */
+  Bind **kbind; /* there: each global's binding */
+  Rep **freps;
+  signed char *af_state; /* by lambda id: 0 unknown, 1 being checked, 2 rejected, 3 accepted */
+  const char **af_why;
+  int af_cap;
+  int cg_expr_nstr;
+  signed char *tuple_result_memo; /* by lambda id: 0 unknown, 1 no, 2 yes */
+  int tuple_result_cap;
+} CgenState;
+static const CgenState cgen_init = {0};
+#define ST ((CgenState *)fk_here()->cc[CC_CGEN])
+
+void *cgen_state_new(void) {
+  CgenState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = cgen_init;
+  return s;
+}
+
 
 static Rep rep_of(Type *t) {
   if (!t) return R_V;
@@ -92,9 +112,7 @@ static TV hold(CG *c, TV v) {
    scalar is stored raw in its closure slot, so capturing a Float does not
    allocate. Set before generation, from the slots of the function that
    creates the closure; stores and reads both use this table. */
-static Rep **freps;
-
-static Rep frep(Lambda *L, int i) { return freps[L->id] ? freps[L->id][i] : R_V; }
+static Rep frep(Lambda *L, int i) { return ST->freps[L->id] ? ST->freps[L->id][i] : R_V; }
 
 static TV raw_read(const char *w, Rep r) {
   static const char *const fmt[] = {"%s", "((int64_t)%s)", "fk_rawf(%s)", "((int32_t)%s)", "((bool)%s)", "((void *)%s)"};
@@ -111,7 +129,7 @@ static const char *raw_word(TV v, Rep r) {
    Bit i of the mask: field i of constructor con. The runtime learns the
    masks from fk_con_raw calls at startup. */
 static uint32_t con_raw(int con) {
-  Type *t = condefs.a[con].scheme;
+  Type *t = CS->condefs.a[con].scheme;
   uint32_t m = 0;
   for (int i = 0; t && i < 32; i++) {
     t = repr(t);
@@ -138,10 +156,10 @@ static const char *field_word(int con, int i, TV v) {
    and a function needs no closure, since the check admits only direct
    calls. */
 static TV kernel_global(int g) {
-  ForeignDecl *f = globals.a[g].ffi;
+  ForeignDecl *f = CS->globals.a[g].ffi;
   if (f && !f->arity && !f->cb) {
     const char *x = f->cname;
-    switch (ffi_kind(globals.a[g].type)) {
+    switch (ffi_kind(CS->globals.a[g].type)) {
     case 'i': return tv(xsprintf("((int64_t)(%s))", x), R_I);
     case 'f': return tv(xsprintf("((double)(%s))", x), R_F);
     case 'c': return tv(xsprintf("((int32_t)(unsigned char)(%s))", x), R_C);
@@ -150,7 +168,7 @@ static TV kernel_global(int g) {
     default: break;
     }
   }
-  Bind *b = kbind[g];
+  Bind *b = ST->kbind[g];
   if (b && b->init) return tv(xsprintf("w_%d(0)", b->init->id), result_rep(b->init));
   return tv("0", R_V);
 }
@@ -159,7 +177,7 @@ static TV var_ref(CG *c, Expr *e) {
   switch (e->vk) {
   case VK_LOCAL: return tv(xsprintf("l%d", e->idx), c->slot[e->idx]);
   case VK_FREE: return raw_read(xsprintf("FK_FREE(self, %d)", e->idx), frep(c->lam, e->idx));
-  default: return kmode ? kernel_global(e->idx) : tv(xsprintf("G[%d]", e->idx), R_V);
+  default: return ST->kmode ? kernel_global(e->idx) : tv(xsprintf("G[%d]", e->idx), R_V);
   }
 }
 
@@ -400,7 +418,7 @@ static TV cg_call(CG *c, Expr *e) {
   Expr *f = e->fn;
   int n = e->n;
   int g = f->k == E_VAR && f->vk == VK_GLOBAL ? f->idx : -1;
-  int prim = g >= 0 ? globals.a[g].prim : -1;
+  int prim = g >= 0 ? CS->globals.a[g].prim : -1;
   const Scalar *sc = prim >= 0 && n == fk_prims[prim].arity ? scalar_prim(prim_cname(prim)) : NULL;
   if (sc && sc->reps) {
     static const char codes[] = "vifcbp"; /* Rep order */
@@ -422,10 +440,10 @@ static TV cg_call(CG *c, Expr *e) {
       return tv(xsprintf("fk_b_%s(%s, %s)", sc->name, a0, a1), R_B);
     return tv(n == 1 ? xsprintf(sc->fmt, a0) : xsprintf(sc->fmt, a0, a1), sc->res);
   }
-  ForeignDecl *ffi = g >= 0 ? globals.a[g].ffi : NULL;
+  ForeignDecl *ffi = g >= 0 ? CS->globals.a[g].ffi : NULL;
   bool scalar = ffi != NULL;
   if (ffi) {
-    Type *t = repr(globals.a[g].type);
+    Type *t = repr(CS->globals.a[g].type);
     for (int i = 0; i < ffi->arity; i++, t = repr(t->args[1])) scalar &= ffi_kind(t->args[0]) != 's';
     scalar &= ffi_kind(t) != 's';
   }
@@ -437,19 +455,19 @@ static TV cg_call(CG *c, Expr *e) {
   if (ffi && n == ffi->arity) { /* the C function itself; the wrapper has checked the types */
     SB call = {0};
     sb_printf(&call, "%s(", ffi->cname);
-    Type *t = repr(globals.a[g].type);
+    Type *t = repr(CS->globals.a[g].type);
     for (int i = 0; i < ffi->arity; i++, t = repr(t->args[1])) {
       const char *x = conv(cg_expr(c, e->args[i]), rep_of(t->args[0]));
       if (ffi_kind(t->args[0]) != 'v') sb_printf(&call, "%s(%s)%s", i ? ", " : "", ffi_param_type(t->args[0]), x);
     }
     sb_puts(&call, ")");
     Rep r = rep_of(t); /* a scalar: the result is never applied further */
-    if (!kmode) sb_puts(c->out, "  fk_ffi_enter();\n"); /* no read-only stack snapshot page below: realtime.md */
+    if (!ST->kmode) sb_puts(c->out, "  fk_ffi_enter();\n"); /* no read-only stack snapshot page below: realtime.md */
     TV res = hold(c, r == R_V   ? tv(xsprintf("((void)%s, fk_unit)", call.s), R_V)
                      : r == R_B ? tv(xsprintf("(%s != 0)", call.s), R_B)
                      : r == R_C ? tv(xsprintf("(int32_t)(unsigned char)%s", call.s), R_C)
                                 : tv(xsprintf("(%s)%s", ctype[r], call.s), r));
-    if (!kmode) sb_puts(c->out, "  fk_cb_check();\n"); /* a direct callback that failed during the call */
+    if (!ST->kmode) sb_puts(c->out, "  fk_cb_check();\n"); /* a direct callback that failed during the call */
     return res;
   }
   bool direct = f->k == E_CON || prim >= 0 || (f->k == E_VAR && f->known);
@@ -504,17 +522,14 @@ static TV cg_call(CG *c, Expr *e) {
    C scalars and addresses: literals, variables of scalar types, unboxed
    primitives, C imports, calls to checked functions at full arity, if,
    case on scalars, and strict local values. */
-static signed char *af_state; /* by lambda id: 0 unknown, 1 being checked, 2 rejected, 3 accepted */
-static const char **af_why;
-static int af_cap;
 
 /* A type whose constructors all take no arguments, such as Ordering: its
    values are static objects. */
 static bool enum_type(Type *t) {
   bool any = false;
-  for (int c = 0; c < condefs.n; c++) {
-    if (strcmp(tydefs.a[condefs.a[c].tydef].name, t->name) != 0) continue;
-    if (condefs.a[c].arity) return false;
+  for (int c = 0; c < CS->condefs.n; c++) {
+    if (strcmp(CS->tydefs.a[CS->condefs.a[c].tydef].name, t->name) != 0) continue;
+    if (CS->condefs.a[c].arity) return false;
     any = true;
   }
   return any;
@@ -590,7 +605,7 @@ static const char *af_expr(Expr *e, Lambda *L, bool tail) { /* tail: a self call
     Expr *f = e->fn;
     if (f->k == E_CON) return af_at(xsprintf("the constructor `%s`", f->name), e, L);
     if (f->k != E_VAR || f->vk != VK_GLOBAL) return af_at("a call of an unknown function", e, L);
-    Global *g = &globals.a[f->idx];
+    Global *g = &CS->globals.a[f->idx];
     if (g->prim >= 0) {
       if (!prim_call_total(e)) return af_at(xsprintf("`%s` may fail; divide only by a non-zero literal", g->name), e, L);
       const Scalar *sc = scalar_prim(prim_cname(g->prim));
@@ -613,7 +628,7 @@ static const char *af_expr(Expr *e, Lambda *L, bool tail) { /* tail: a self call
     Lambda *K = f->known;
     if (!K || e->n != K->n) return af_at(xsprintf("`%s` is called with %d of %d arguments", g->name, e->n, K ? K->n : 0), e, L);
     if (K == L && tail) return NULL; /* a loop */
-    if (K->id < af_cap && af_state[K->id] == 1) /* the stack would grow with each call: an export runs on its caller's stack */
+    if (K->id < ST->af_cap && ST->af_state[K->id] == 1) /* the stack would grow with each call: an export runs on its caller's stack */
       return af_at(xsprintf("`%s` recurses other than as a call of itself in tail position", g->name), e, L);
     return af_lambda(K);
   }
@@ -622,15 +637,15 @@ static const char *af_expr(Expr *e, Lambda *L, bool tail) { /* tail: a self call
 }
 
 static const char *af_lambda(Lambda *L) {
-  if (L->id >= af_cap) {
+  if (L->id >= ST->af_cap) {
     int cap = L->id * 2 + 64;
-    af_state = xrealloc(af_state, (size_t)cap);
-    af_why = xrealloc(af_why, (size_t)cap * sizeof *af_why);
-    memset(af_state + af_cap, 0, (size_t)(cap - af_cap));
-    af_cap = cap;
+    ST->af_state = xrealloc(ST->af_state, (size_t)cap);
+    ST->af_why = xrealloc(ST->af_why, (size_t)cap * sizeof *ST->af_why);
+    memset(ST->af_state + ST->af_cap, 0, (size_t)(cap - ST->af_cap));
+    ST->af_cap = cap;
   }
-  if (af_state[L->id] > 1) return af_state[L->id] == 2 ? af_why[L->id] : NULL;
-  af_state[L->id] = 1;
+  if (ST->af_state[L->id] > 1) return ST->af_state[L->id] == 2 ? ST->af_why[L->id] : NULL;
+  ST->af_state[L->id] = 1;
   const char *w = NULL;
   for (int i = 0; i < L->n && !w; i++)
     if (!L->ptypes || !af_type(L->ptypes[i]))
@@ -638,8 +653,8 @@ static const char *af_lambda(Lambda *L) {
   if (!w && !af_type(L->body->ty)) w = xsprintf("`%s` returns `%s`, a heap value", L->name ? L->name : "a function", type_str(L->body->ty));
   if (!w && L->nfree) w = xsprintf("`%s` is a closure", L->name ? L->name : "a function");
   if (!w) w = af_expr(L->body, L, true);
-  af_state[L->id] = w ? 2 : 3;
-  af_why[L->id] = w;
+  ST->af_state[L->id] = w ? 2 : 3;
+  ST->af_why[L->id] = w;
   return w;
 }
 
@@ -651,14 +666,14 @@ const char *cgen_alloc_free(Lambda *L) { return af_lambda(L); }
    type's only other constructor when it has one or two nullary ones, as
    `:` and `Just`, compares addresses instead of loading the header. */
 static void con_test(SB *cond, const char *path, int con) {
-  int td = condefs.a[con].tydef, nullary[2], nn = 0, others = 0;
-  if (condefs.a[con].arity == 0) {
+  int td = CS->condefs.a[con].tydef, nullary[2], nn = 0, others = 0;
+  if (CS->condefs.a[con].arity == 0) {
     sb_printf(cond, " && %s == (V)&fk_nullaries[%d]", path, con);
     return;
   }
-  for (int i = 0; i < condefs.n; i++)
-    if (condefs.a[i].tydef == td && i != con) {
-      if (condefs.a[i].arity == 0 && nn < 2) nullary[nn++] = i;
+  for (int i = 0; i < CS->condefs.n; i++)
+    if (CS->condefs.a[i].tydef == td && i != con) {
+      if (CS->condefs.a[i].arity == 0 && nn < 2) nullary[nn++] = i;
       else others++;
     }
   if (others) {
@@ -692,7 +707,7 @@ static void pat_cond(SB *cond, Pat *p, const char *path, Rep r) {
       sb_printf(cond, p->con == FK_C_TRUE ? " && %s" : " && !%s", path);
       return;
     }
-    if (tydefs.a[condefs.a[p->con].tydef].ncons > 1) con_test(cond, path, p->con);
+    if (CS->tydefs.a[CS->condefs.a[p->con].tydef].ncons > 1) con_test(cond, path, p->con);
     for (int i = 0; i < p->n; i++) {
       TV f = field_read(p->con, i, path);
       pat_cond(cond, p->args[i], f.s, f.r);
@@ -825,10 +840,9 @@ static TV cg_expr(CG *c, Expr *e) {
     if (isinf(e->fval)) return tv(e->fval > 0 ? "INFINITY" : "(-INFINITY)", R_F);
     return tv(xsprintf("%a", e->fval), R_F);
   case E_STR: { /* a static String, made on first use */
-    static int nstr;
     SB s = {0};
     c_string(&s, e->name, e->slen);
-    t = xsprintf("s%d", nstr++);
+    t = xsprintf("s%d", ST->cg_expr_nstr++);
     sb_printf(c->out, "  static V %s;\n  if (!%s) %s = fk_str_static(%s, %d);\n", t, t, t, s.s, e->slen);
     return tv(t, R_V);
   }
@@ -914,20 +928,18 @@ static bool tuple_tails(Lambda *L, Expr *e) { /* cg_tail's cases */
 }
 
 static bool tuple_result(Lambda *L) {
-  static signed char *memo; /* by lambda id: 0 unknown, 1 no, 2 yes */
-  static int cap;
-  if (L->id >= cap) {
+  if (L->id >= ST->tuple_result_cap) {
     int n = L->id + 256;
-    memo = xrealloc(memo, (size_t)n);
-    memset(memo + cap, 0, (size_t)(n - cap));
-    cap = n;
+    ST->tuple_result_memo = xrealloc(ST->tuple_result_memo, (size_t)n);
+    memset(ST->tuple_result_memo + ST->tuple_result_cap, 0, (size_t)(n - ST->tuple_result_cap));
+    ST->tuple_result_cap = n;
   }
-  if (!memo[L->id]) {
+  if (!ST->tuple_result_memo[L->id]) {
     Type *t = L->body->ty ? repr(L->body->ty) : NULL; /* dictionary bodies have no type */
     bool tup = t && t->k == TY_CON && t->n >= 2 && t->name[0] == '(' && t->name[1] == ',';
-    memo[L->id] = tup && !has_trmc(L, L->body) && tuple_tails(L, L->body) ? 2 : 1;
+    ST->tuple_result_memo[L->id] = tup && !has_trmc(L, L->body) && tuple_tails(L, L->body) ? 2 : 1;
   }
-  return memo[L->id] == 2;
+  return ST->tuple_result_memo[L->id] == 2;
 }
 
 static Rep tuple_rep(Lambda *L, int i) { return rep_of(repr(L->body->ty)->args[i]); }
@@ -1146,7 +1158,7 @@ static void freps_lambda(Lambda *L, Lambda *P, Rep *pslot) {
   if (L->nfree) {
     Rep *r = xmalloc((size_t)L->nfree * sizeof *r);
     for (int i = 0; i < L->nfree; i++) r[i] = L->free[i].vk == VK_LOCAL ? pslot[L->free[i].idx] : frep(P, L->free[i].idx);
-    freps[L->id] = r;
+    ST->freps[L->id] = r;
   }
   freps_expr(L->body, L, lam_slots(L));
 }
@@ -1174,7 +1186,7 @@ static void cg_lambda(SB *out, Lambda *L) {
   if (c.looped) sb_puts(out, "  top:;\n");
   sb_puts(out, body.s);
   sb_puts(out, "  __builtin_unreachable(); /* every path returns, jumps to top or fails: for GCC's -Wreturn-type */\n}\n");
-  if (kmode) { /* no closures, so no wrapper */
+  if (ST->kmode) { /* no closures, so no wrapper */
     sb_puts(out, "\n");
     return;
   }
@@ -1256,8 +1268,8 @@ static void reach_lambda(Reach *r, Lambda *L) {
 
 /* Nothing reached yet; each global's binding. */
 static Reach reach_new(Chunk *chunks, int nchunks) {
-  Reach r = {xcalloc((size_t)globals.n + 1, sizeof(Bind *)), xcalloc((size_t)globals.n + 1, 1),
-             xcalloc((size_t)all_lambdas.n + 1, 1)};
+  Reach r = {xcalloc((size_t)CS->globals.n + 1, sizeof(Bind *)), xcalloc((size_t)CS->globals.n + 1, 1),
+             xcalloc((size_t)CS->all_lambdas.n + 1, 1)};
   for (int k = 0; k < nchunks; k++) {
     for (int i = 0; i < chunks[k].nraw; i++) r.bind[chunks[k].raw[i]->gidx] = chunks[k].raw[i];
     for (int i = 0; i < chunks[k].ng; i++)
@@ -1287,9 +1299,9 @@ static const char *export_head(ForeignDecl *f) {
 /* It calls the function's typed worker; check_export_code has checked
    that the worker takes and returns C scalars or addresses. */
 static void export_body(SB *out, ForeignDecl *f) {
-  Lambda *L = globals.a[f->gidx].lam;
+  Lambda *L = CS->globals.a[f->gidx].lam;
   SB call = {0};
-  sb_printf(&call, kmode ? "w_%d(0" : "w_%d(G[%d]", L->id, f->gidx);
+  sb_printf(&call, ST->kmode ? "w_%d(0" : "w_%d(G[%d]", L->id, f->gidx);
   Type *t = repr(f->xtype);
   for (int i = 0; i < f->arity; i++, t = repr(t->args[1]))
     sb_printf(&call, ", %s", ffi_kind(t->args[0]) == 'v' ? "fk_unit" : xsprintf("(%s)x%d", ctype[param_rep(L, i)], i));
@@ -1302,12 +1314,12 @@ static void export_body(SB *out, ForeignDecl *f) {
 /* The reached lambdas' prototypes, the nullary constructors, and the
    lambdas. */
 static void cg_functions(SB *out, Reach *r) {
-  for (int i = 0; i < all_lambdas.n; i++)
-    if (r->lam[all_lambdas.a[i]->id]) {
-      Lambda *L = all_lambdas.a[i];
+  for (int i = 0; i < CS->all_lambdas.n; i++)
+    if (r->lam[CS->all_lambdas.a[i]->id]) {
+      Lambda *L = CS->all_lambdas.a[i];
       Rep rr = has_trmc(L, L->body) ? R_V : result_rep(L);
       if (tuple_result(L)) tuple_decls(out, L);
-      if (!kmode) sb_printf(out, "static V fn_%d(V self, V *a);\n", L->id);
+      if (!ST->kmode) sb_printf(out, "static V fn_%d(V self, V *a);\n", L->id);
       sb_printf(out, "static %s w_%d(V self", result_ctype(L, rr), L->id);
       for (int j = 0; j < L->n; j++) sb_printf(out, ", %s", ctype[param_rep(L, j)]);
       sb_puts(out, ");\n");
@@ -1316,38 +1328,38 @@ static void cg_functions(SB *out, Reach *r) {
   for (uint32_t i = 0; i < fk_ncons; i++)
     if (fk_cons[i].arity == 0) sb_printf(out, "\n  [%u] = {{K_CON, 0, 0, %u}, 0}, /* %s */", i, i, fk_cons[i].name);
   sb_printf(out, "\n  [%u] = {{0}, 0}};\n\n", fk_ncons);
-  if (kmode) /* the runtime's names for them, and its match failure, which the check makes unreachable */
+  if (ST->kmode) /* the runtime's names for them, and its match failure, which the check makes unreachable */
     sb_printf(out, "#define FK_HIDDEN __attribute__((visibility(\"hidden\")))\n"
                    "FK_HIDDEN V fk_false = (V)&fk_nullaries[%d], fk_true = (V)&fk_nullaries[%d], fk_unit = (V)&fk_nullaries[%d], fk_nil = (V)&fk_nullaries[%d];\n"
                    "FK_HIDDEN void fk_match_fail(const char *where) { (void)where; __builtin_trap(); }\n\n",
               FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL);
   int maxid = 0;
-  for (int i = 0; i < all_lambdas.n; i++) maxid = all_lambdas.a[i]->id > maxid ? all_lambdas.a[i]->id : maxid;
-  freps = xcalloc((size_t)maxid + 1, sizeof *freps);
-  for (int i = 0; i < all_lambdas.n; i++) /* the outermost functions; nested ones from their creators */
-    if (r->lam[all_lambdas.a[i]->id] && !all_lambdas.a[i]->nfree) freps_lambda(all_lambdas.a[i], NULL, NULL);
-  for (int i = 0; i < all_lambdas.n; i++)
-    if (r->lam[all_lambdas.a[i]->id]) cg_lambda(out, all_lambdas.a[i]);
+  for (int i = 0; i < CS->all_lambdas.n; i++) maxid = CS->all_lambdas.a[i]->id > maxid ? CS->all_lambdas.a[i]->id : maxid;
+  ST->freps = xcalloc((size_t)maxid + 1, sizeof *ST->freps);
+  for (int i = 0; i < CS->all_lambdas.n; i++) /* the outermost functions; nested ones from their creators */
+    if (r->lam[CS->all_lambdas.a[i]->id] && !CS->all_lambdas.a[i]->nfree) freps_lambda(CS->all_lambdas.a[i], NULL, NULL);
+  for (int i = 0; i < CS->all_lambdas.n; i++)
+    if (r->lam[CS->all_lambdas.a[i]->id]) cg_lambda(out, CS->all_lambdas.a[i]);
 }
 
 char *cgen_program(Chunk *chunks, int nchunks) {
   Reach r = reach_program(chunks, nchunks);
-  for (int i = 0; i < ffi_exports.n; i++) reach_global(&r, ffi_exports.a[i]->gidx);
+  for (int i = 0; i < CS->ffi_exports.n; i++) reach_global(&r, CS->ffi_exports.a[i]->gidx);
   SB out = {0};
   sb_puts(&out, fk_rt_src);
   VEC(ForeignDecl *) fs = {0};
-  for (int i = 0; i < globals.n; i++)
-    if (globals.a[i].ffi && r.global[i]) VPUSH(fs, globals.a[i].ffi);
-  for (int i = 0; i < ffi_exports.n; i++) /* before the glue, which may take an export's address */
-    sb_printf(&out, "%s;\n", export_head(ffi_exports.a[i]));
+  for (int i = 0; i < CS->globals.n; i++)
+    if (CS->globals.a[i].ffi && r.global[i]) VPUSH(fs, CS->globals.a[i].ffi);
+  for (int i = 0; i < CS->ffi_exports.n; i++) /* before the glue, which may take an export's address */
+    sb_printf(&out, "%s;\n", export_head(CS->ffi_exports.a[i]));
   sb_puts(&out, ffi_glue(fs.a, fs.n, false));
   /* Temporaries a pattern does not read: clang removes them; -Wall need not list them. */
   sb_puts(&out, "\n/* ---- generated program ---- */\n\n#ifdef __clang__\n#pragma clang diagnostic ignored \"-Wunknown-warning-option\"\n#endif\n"
                 "#pragma GCC diagnostic ignored \"-Wunused-variable\"\n#pragma GCC diagnostic ignored \"-Wunused-but-set-variable\"\n");
   sb_printf(&out, "\nstatic V G[%d];\nstatic size_t G_n = %d;\n\n",
-            globals.n ? globals.n : 1, globals.n);
+            CS->globals.n ? CS->globals.n : 1, CS->globals.n);
   cg_functions(&out, &r);
-  for (int i = 0; i < ffi_exports.n; i++) export_body(&out, ffi_exports.a[i]);
+  for (int i = 0; i < CS->ffi_exports.n; i++) export_body(&out, CS->ffi_exports.a[i]);
   sb_puts(&out, "static void program(void *arg) {\n  static V *roots = G;\n  fk_add_roots(&roots, &G_n);\n");
   for (uint32_t i = FK_NBUILTIN_CONS; i < fk_ncons; i++) {
     sb_printf(&out, "  fk_register_con(\"%s\", %d);\n", fk_cons[i].name, fk_cons[i].arity);
@@ -1357,11 +1369,11 @@ char *cgen_program(Chunk *chunks, int nchunks) {
     for (int j = 0; j < fk_cons[i].arity; j++) sb_printf(&out, "%s\"%s\"", j ? ", " : "", fk_cons[i].labels[j]);
     sb_printf(&out, "}; fk_con_labels(%u, ls); }\n", i);
   }
-  for (int i = 0; i < globals.n; i++)
-    if (globals.a[i].prim >= 0 && r.global[i]) sb_printf(&out, "  G[%d] = fk_prim_value(%d);\n", i, globals.a[i].prim);
-  for (int i = 0; i < globals.n; i++)
-    if (globals.a[i].ffi && r.global[i]) {
-      int n = globals.a[i].ffi->arity; /* 0: a C value, read once */
+  for (int i = 0; i < CS->globals.n; i++)
+    if (CS->globals.a[i].prim >= 0 && r.global[i]) sb_printf(&out, "  G[%d] = fk_prim_value(%d);\n", i, CS->globals.a[i].prim);
+  for (int i = 0; i < CS->globals.n; i++)
+    if (CS->globals.a[i].ffi && r.global[i]) {
+      int n = CS->globals.a[i].ffi->arity; /* 0: a C value, read once */
       if (n) sb_printf(&out, "  G[%d] = fk_closure(fk_ffi_%d, %d, 0, 0);\n", i, i, n);
       else sb_printf(&out, "  G[%d] = fk_ffi_%d(0, 0);\n", i, i);
     }
@@ -1385,44 +1397,44 @@ char *cgen_program(Chunk *chunks, int nchunks) {
    (R4) leaves them only C scalars and addresses; top-level values they
    read must pass it too, since there is no startup to compute them. */
 char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
-  if (!ffi_exports.n) {
+  if (!CS->ffi_exports.n) {
     *err = "no `foreign export` to compile";
     return NULL;
   }
   Reach r = reach_new(chunks, nchunks);
-  for (int i = 0; i < ffi_exports.n; i++) reach_global(&r, ffi_exports.a[i]->gidx);
-  for (int g = 0; g < globals.n; g++)
+  for (int i = 0; i < CS->ffi_exports.n; i++) reach_global(&r, CS->ffi_exports.a[i]->gidx);
+  for (int g = 0; g < CS->globals.n; g++)
     if (r.global[g] && r.bind[g] && r.bind[g]->init) {
       const char *why = af_lambda(r.bind[g]->init);
       if (why) {
-        *err = xsprintf("`%s`, a top-level value an export reads, may allocate or fail: %s", globals.a[g].name, why);
+        *err = xsprintf("`%s`, a top-level value an export reads, may allocate or fail: %s", CS->globals.a[g].name, why);
         return NULL;
       }
     }
-  kmode = true;
-  kbind = r.bind;
+  ST->kmode = true;
+  ST->kbind = r.bind;
   SB out = {0};
   sb_puts(&out, "/* link:");
   bool m = false; /* as the interpreter's glue: the `foreign library` names, then libm */
-  for (int i = 0; i < ffi_libs.n; i++) {
-    sb_printf(&out, " -l%s", ffi_libs.a[i]);
-    m |= !strcmp(ffi_libs.a[i], "m");
+  for (int i = 0; i < CS->ffi_libs.n; i++) {
+    sb_printf(&out, " -l%s", CS->ffi_libs.a[i]);
+    m |= !strcmp(CS->ffi_libs.a[i], "m");
   }
   sb_puts(&out, m ? " */\n" : " -lm */\n");
   sb_puts(&out, "/* funk kernels: foreign exports without the runtime */\n");
   sb_puts(&out, "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers, outside a header */\n");
   sb_puts(&out, fk_rth_src);
   VEC(ForeignDecl *) fs = {0};
-  for (int i = 0; i < globals.n; i++)
-    if (globals.a[i].ffi && r.global[i]) VPUSH(fs, globals.a[i].ffi);
+  for (int i = 0; i < CS->globals.n; i++)
+    if (CS->globals.a[i].ffi && r.global[i]) VPUSH(fs, CS->globals.a[i].ffi);
   sb_puts(&out, ffi_headers(fs.a, fs.n));
-  for (int i = 0; i < ffi_exports.n; i++)
-    sb_printf(&out, "__attribute__((visibility(\"default\"))) %s;\n", export_head(ffi_exports.a[i]));
+  for (int i = 0; i < CS->ffi_exports.n; i++)
+    sb_printf(&out, "__attribute__((visibility(\"default\"))) %s;\n", export_head(CS->ffi_exports.a[i]));
   sb_puts(&out, "\n/* ---- generated kernels ---- */\n\n#ifdef __clang__\n#pragma clang diagnostic ignored \"-Wunknown-warning-option\"\n#endif\n"
                 "#pragma GCC diagnostic ignored \"-Wunused-variable\"\n#pragma GCC diagnostic ignored \"-Wunused-but-set-variable\"\n\n");
   cg_functions(&out, &r);
-  for (int i = 0; i < ffi_exports.n; i++) export_body(&out, ffi_exports.a[i]);
-  kmode = false;
-  kbind = NULL;
+  for (int i = 0; i < CS->ffi_exports.n; i++) export_body(&out, CS->ffi_exports.a[i]);
+  ST->kmode = false;
+  ST->kbind = NULL;
   return out.s;
 }

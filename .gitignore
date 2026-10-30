@@ -1,6 +1,11 @@
 # Prerequisites
 *.d
 
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+
 # cache
 .cache
 .*_cache

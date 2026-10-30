@@ -24,7 +24,21 @@ typedef struct Scope {
   struct Scope *next;
 } Scope;
 
-static int lam_counter;
+/* resolve.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  int lam_counter;
+  VEC(struct { Bind *b; char v; }) eager_fn_memo; /* v: 1 checking, 2 eager, 3 not */
+} ResolveState;
+static const ResolveState resolve_init = {0};
+#define ST ((ResolveState *)fk_here()->cc[CC_RESOLVE])
+
+void *resolve_state_new(void) {
+  ResolveState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = resolve_init;
+  return s;
+}
+
 
 static Scope *push(Scope *sc, const char *name, Fn *fn, int slot, Lambda *known, bool lazy) {
   Scope *s = NEW(Scope);
@@ -65,18 +79,17 @@ static bool eager(Expr *e, Scope *sc);
    terminate, so a function being checked counts as not eager. Keyed by the
    Bind, since a failed REPL chunk frees its global indices for reuse. */
 static bool eager_fn(int g) {
-  static VEC(struct { Bind *b; char v; }) memo; /* v: 1 checking, 2 eager, 3 not */
-  Bind *b = globals.a[g].bind;
+  Bind *b = CS->globals.a[g].bind;
   if (!b || b->e->k != E_LAM) return false;
-  while (memo.n <= g) VPUSH(memo, ((__typeof__(*memo.a)){NULL, 0}));
-  if (memo.a[g].b == b && memo.a[g].v) return memo.a[g].v == 2;
-  memo.a[g].b = b;
-  memo.a[g].v = 1;
+  while (ST->eager_fn_memo.n <= g) VPUSH(ST->eager_fn_memo, ((__typeof__(*ST->eager_fn_memo.a)){NULL, 0}));
+  if (ST->eager_fn_memo.a[g].b == b && ST->eager_fn_memo.a[g].v) return ST->eager_fn_memo.a[g].v == 2;
+  ST->eager_fn_memo.a[g].b = b;
+  ST->eager_fn_memo.a[g].v = 1;
   Lambda *L = b->e->lam;
   Scope *sc = NULL; /* parameters are values; a call of one is unknown */
   for (int i = 0; i < L->n; i++) sc = push(sc, L->params[i], NULL, i, NULL, false);
   bool ok = eager(L->body, sc);
-  memo.a[g].v = ok ? 2 : 3;
+  ST->eager_fn_memo.a[g].v = ok ? 2 : 3;
   return ok;
 }
 
@@ -102,9 +115,9 @@ static bool eager(Expr *e, Scope *sc) {
     for (Scope *s = sc; s; s = s->next)
       if (s->name == e->fn->name) return false; /* a local function */
     int g = global_lookup(e->fn->name);
-    int p = g >= 0 ? globals.a[g].prim : -1;
-    if (p < 0) return g >= 0 && globals.a[g].bind && globals.a[g].bind->e->k == E_LAM &&
-                      e->n == globals.a[g].bind->e->lam->n && eager_fn(g);
+    int p = g >= 0 ? CS->globals.a[g].prim : -1;
+    if (p < 0) return g >= 0 && CS->globals.a[g].bind && CS->globals.a[g].bind->e->k == E_LAM &&
+                      e->n == CS->globals.a[g].bind->e->lam->n && eager_fn(g);
     if (e->n != fk_prims[p].arity) return false;
     const char *c = prim_cname(p);
     if (total_prim(c)) return true;
@@ -160,7 +173,7 @@ static void expr(Expr *e, Fn *f, Scope *sc) {
       }
     e->vk = VK_GLOBAL;
     e->idx = global_lookup(e->name);
-    e->known = globals.a[e->idx].lam;
+    e->known = CS->globals.a[e->idx].lam;
     return;
   }
   case E_INT: {
@@ -202,8 +215,8 @@ static void expr(Expr *e, Fn *f, Scope *sc) {
 
 static void lambda(Lambda *L, Fn *parent, Scope *sc) {
   Fn fn = {L, parent, L->n, {0}};
-  L->id = lam_counter++;
-  VPUSH(all_lambdas, L);
+  L->id = ST->lam_counter++;
+  VPUSH(CS->all_lambdas, L);
   for (int i = 0; i < L->n; i++) sc = push(sc, L->params[i], &fn, i, NULL, false);
   expr(L->body, &fn, sc);
   L->nslots = fn.nslots;

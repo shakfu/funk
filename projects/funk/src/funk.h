@@ -55,9 +55,6 @@ void map_put(Map *m, const char *key, int val);
 int undo_mark(void);
 void undo_to(int mark);
 
-extern const char *cur_file;
-extern jmp_buf *cerr_jmp;
-extern bool cerr_quiet; /* suppress error messages (REPL probes) */
 _Noreturn void cerror(int line, int col, const char *fmt, ...);
 void cwarning(int line, int col, const char *fmt, ...);
 
@@ -333,8 +330,6 @@ typedef VEC(Export) Exports;
 typedef struct { Import *im; const char *prefix; Exports *ex; } ImportInfo;
 /* Qualify m, and return what it exports. */
 Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nimps);
-extern Strs sealed_types, hidden_types; /* prefix.T: fields not exported; the type not exported at all */
-extern const char *cur_module; /* the module being checked: its prefix, or NULL for the program */
 bool in_prelude(int ns, const char *name);
 /* In `[module.]Type.member`, the '.' before member; NULL for other names. */
 const char *ns_dot(const char *name);
@@ -401,17 +396,8 @@ typedef struct {
 
 /* Dictionaries, selectors: bindings built after inference. */
 typedef struct { Group *groups; int ng; Bind **raw; int nraw; } Chunk;
-extern Strs ffi_libs;    /* libraries named by `foreign library`, in all chunks so far */
-extern Strs ffi_cc_args; /* -I, -l and -L given to funk run or repl */
 typedef VEC(ForeignDecl *) Foreigns;
-extern Foreigns ffi_exports; /* foreign exports of all chunks so far */
 
-extern VEC(Global) globals;
-extern VEC(ConDef) condefs;
-extern VEC(TyDef) tydefs;
-extern VEC(Lambda *) all_lambdas;
-extern VEC(ClassDef) classes;
-extern VEC(InstDef) insts;
 
 void compiler_init(void);
 bool compile_chunk(Module *m, Chunk *out);
@@ -427,8 +413,6 @@ Type *tcon_new(const char *name, int n, Type **args);
 
 /* ---------------------------------------------------------- elaboration */
 
-extern int num_class;
-extern Type *dict_type; /* type of dictionary arguments: represented as V */
 void check_types(Bind **bs, int n); /* report expressions without a type (FK_CHECK_TYPES) */
 int global_add(const char *name, Type *t, Lambda *lam);
 void elab_bind(Bind *b);
@@ -440,7 +424,6 @@ void reuse_cells(Bind **bs, int n, Bind **cs, int nc); /* copies go to `speciali
 int fuse_lists(Bind **all, int n); /* moves the changed bindings to the front; returns their count */
 bool case_covers(Expr *e, bool otherwise_true); /* exhaustive, guards included; before resolve */
 bool prim_call_total(Expr *e); /* an application of a primitive that cannot fail: div by a non-zero literal, not chr */
-extern VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 
 /* --------------------------------------------------------------- backends */
 
@@ -470,5 +453,42 @@ void ffi_load(ForeignDecl **fs, int n);                 /* interpreter: linked g
 void ffi_link(uint64_t key, FkCode code);               /* funk_glue */
 char *ffi_linked_glue(ForeignDecl **fs, int n);         /* funk_emit_glue */
 extern const char fk_prelude_src[];
+
+/* The compiler's state its files share, one per session (embedding.md,
+   phase 2); each file keeps its own in a struct of its own, ST there. The
+   session reaches them through FkShared's cc (rt.h), on its own thread. */
+enum { CC_SHARED, CC_UTIL, CC_PARSE, CC_RESOLVE, CC_CHECK, CC_ELAB, CC_FUSE, CC_CGEN, CC_INTERP, CC_FFI, CC_DRIVER, CC_N };
+_Static_assert(CC_N <= FK_NCC, "FkShared's cc is too small");
+typedef struct {
+  const char *cur_file;
+  jmp_buf *cerr_jmp;
+  bool cerr_quiet; /* suppress error messages (REPL probes) */
+  Strs sealed_types, hidden_types; /* prefix.T: fields not exported; the type not exported at all */
+  const char *cur_module; /* the module being checked: its prefix, or NULL for the program */
+  Strs ffi_libs; /* libraries named by `foreign library`, in all chunks so far */
+  Strs ffi_cc_args; /* -I, -l and -L given to funk run or repl */
+  Foreigns ffi_exports; /* foreign exports of all chunks so far */
+  VEC(Global) globals;
+  VEC(ConDef) condefs;
+  VEC(TyDef) tydefs;
+  VEC(Lambda *) all_lambdas;
+  VEC(ClassDef) classes;
+  VEC(InstDef) insts;
+  int num_class;
+  Type *dict_type; /* type of dictionary arguments: represented as V */
+  VEC(Bind *) specialized; /* clones made by elab_bind, to install */
+} CompilerShared;
+#define CS ((CompilerShared *)fk_here()->cc[CC_SHARED])
+void *shared_state_new(void);
+void *util_state_new(void);
+void *parse_state_new(void);
+void *resolve_state_new(void);
+void *check_state_new(void);
+void *elab_state_new(void);
+void *fuse_state_new(void);
+void *cgen_state_new(void);
+void *interp_state_new(void);
+void *ffi_state_new(void);
+void *driver_state_new(void);
 
 #endif

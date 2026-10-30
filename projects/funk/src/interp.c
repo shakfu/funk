@@ -7,8 +7,22 @@
    tail-recursive loops run in constant C stack. */
 #include "funk.h"
 
-static V *gvals;
-static size_t ngvals, capgvals;
+/* interp.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  V *gvals;
+  size_t ngvals, capgvals;
+  int interp_install_nexports; /* a foreign export is a C function: compiled code only */
+} InterpState;
+static const InterpState interp_init = {0};
+#define ST ((InterpState *)fk_here()->cc[CC_INTERP])
+
+void *interp_state_new(void) {
+  InterpState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = interp_init;
+  return s;
+}
+
 
 /* Tail call target: args are written straight into the caller's frame. */
 typedef struct { V *fr; int cap; V f; } Tail;
@@ -17,7 +31,7 @@ static V run(Lambda *L, V self, V *args);
 
 static V interp_entry(V self, V *args) { return run(FK_INFO(self), self, args); }
 
-V interp_global(int gidx) { return gvals[gidx]; }
+V interp_global(int gidx) { return ST->gvals[gidx]; }
 
 static V load(Expr *e, V *fr, V self) {
   V v;
@@ -25,7 +39,7 @@ static V load(Expr *e, V *fr, V self) {
   case VK_LOCAL: v = fr[e->idx]; break;
   case VK_FREE: v = FK_FREE(self, e->idx); break;
   default:
-    v = gvals[e->idx];
+    v = ST->gvals[e->idx];
     if (!v) fk_error("`%s` is undefined (its definition failed)", e->name);
     return v;
   }
@@ -159,38 +173,37 @@ static V run(Lambda *L, V self, V *args) {
 }
 
 void interp_install(Chunk *c) {
-  static int nexports; /* a foreign export is a C function: compiled code only */
-  if (ffi_exports.n > nexports) {
-    nexports = ffi_exports.n;
-    fk_error("foreign export `%s` needs compiled code: use funk build", ffi_exports.a[ffi_exports.n - 1]->name);
+  if (CS->ffi_exports.n > ST->interp_install_nexports) {
+    ST->interp_install_nexports = CS->ffi_exports.n;
+    fk_error("foreign export `%s` needs compiled code: use funk build", CS->ffi_exports.a[CS->ffi_exports.n - 1]->name);
   }
-  if ((size_t)globals.n > capgvals) {
-    size_t ncap = capgvals ? capgvals : 256;
-    while (ncap < (size_t)globals.n) ncap *= 2;
-    gvals = xrealloc(gvals, ncap * sizeof(V));
-    memset(gvals + capgvals, 0, (ncap - capgvals) * sizeof(V));
-    if (!capgvals) fk_add_roots(&gvals, &ngvals);
-    capgvals = ncap;
+  if ((size_t)CS->globals.n > ST->capgvals) {
+    size_t ncap = ST->capgvals ? ST->capgvals : 256;
+    while (ncap < (size_t)CS->globals.n) ncap *= 2;
+    ST->gvals = xrealloc(ST->gvals, ncap * sizeof(V));
+    memset(ST->gvals + ST->capgvals, 0, (ncap - ST->capgvals) * sizeof(V));
+    if (!ST->capgvals) fk_add_roots(&ST->gvals, &ST->ngvals);
+    ST->capgvals = ncap;
   }
   VEC(ForeignDecl *) fs = {0};
-  for (size_t i = ngvals; i < (size_t)globals.n; i++) {
-    if (globals.a[i].prim >= 0) gvals[i] = fk_prim_value(globals.a[i].prim);
-    if (globals.a[i].ffi) VPUSH(fs, globals.a[i].ffi);
+  for (size_t i = ST->ngvals; i < (size_t)CS->globals.n; i++) {
+    if (CS->globals.a[i].prim >= 0) ST->gvals[i] = fk_prim_value(CS->globals.a[i].prim);
+    if (CS->globals.a[i].ffi) VPUSH(fs, CS->globals.a[i].ffi);
   }
-  ngvals = (size_t)globals.n; /* if loading fails, the imports stay undefined */
+  ST->ngvals = (size_t)CS->globals.n; /* if loading fails, the imports stay undefined */
   ffi_load(fs.a, fs.n);
   for (int i = 0; i < fs.n; i++) /* arity 0: a C value, read once */
-    gvals[fs.a[i]->gidx] = fs.a[i]->arity ? fk_closure(fs.a[i]->code, fs.a[i]->arity, 0, NULL) : fs.a[i]->code(0, NULL);
+    ST->gvals[fs.a[i]->gidx] = fs.a[i]->arity ? fk_closure(fs.a[i]->code, fs.a[i]->arity, 0, NULL) : fs.a[i]->code(0, NULL);
   /* Functions first, then dictionaries, which refer to them, then values,
      which may use dictionaries. Creating a closure runs no code. */
   for (int i = 0; i < c->nraw; i++)
-    if (!c->raw[i]->init) gvals[c->raw[i]->gidx] = alloc_closure(c->raw[i]->e->lam);
+    if (!c->raw[i]->init) ST->gvals[c->raw[i]->gidx] = alloc_closure(c->raw[i]->e->lam);
   for (int i = 0; i < c->ng; i++)
     for (int j = 0; j < c->groups[i].n; j++)
-      if (!c->groups[i].b[j]->init) gvals[c->groups[i].b[j]->gidx] = alloc_closure(c->groups[i].b[j]->e->lam);
+      if (!c->groups[i].b[j]->init) ST->gvals[c->groups[i].b[j]->gidx] = alloc_closure(c->groups[i].b[j]->e->lam);
   for (int i = 0; i < c->nraw; i++)
-    if (c->raw[i]->init) gvals[c->raw[i]->gidx] = run(c->raw[i]->init, 0, NULL);
+    if (c->raw[i]->init) ST->gvals[c->raw[i]->gidx] = run(c->raw[i]->init, 0, NULL);
   for (int i = 0; i < c->ng; i++)
     for (int j = 0; j < c->groups[i].n; j++)
-      if (c->groups[i].b[j]->init) gvals[c->groups[i].b[j]->gidx] = run(c->groups[i].b[j]->init, 0, NULL);
+      if (c->groups[i].b[j]->init) ST->gvals[c->groups[i].b[j]->gidx] = run(c->groups[i].b[j]->init, 0, NULL);
 }

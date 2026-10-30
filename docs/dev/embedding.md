@@ -103,25 +103,28 @@ Each session owns a thread, on the runtime's large stack; a host thread has 512 
 | Function-local scratch | `fk_p_getline`'s buffer, `verify_marks` | moved into the structs |
 | Process-wide by nature | `SIGSEGV`/`SIGBUS` handlers, the live sessions | the registry |
 
-- `fk_true`, `fk_false`, `fk_unit` and `fk_nil` become static objects, never collected, as compiled programs already have them (`fk_nullaries`).
+- `fk_true`, `fk_false`, `fk_unit` and `fk_nil` point to static objects, never collected, as compiled programs already have them (`fk_nullaries`); the variables hold the same address in every session.
 - The registry installs the signal handler with the first session and removes it with the last. The handler finds the faulting session by address, its snapshot and stack guard, and passes other faults on. Each session saving and restoring the previous handler breaks when sessions end out of order.
 
-### Reaching the state: an explicit pointer
+### Reaching the state: the stack
 
-Measured: a thread-local pointer costs the interpreter 27%, a pointer by load nothing ([261030-session-measurements.md](261030-session-measurements.md)). So, as Lua passes `lua_State *`, runtime and compiler functions take the session:
+Decided 2026-10-30, over an explicit pointer. Each session's stack lies in an 8 GiB slot of address space aligned to 8 GiB, and the slot's last word, in a page above the stack, points to the session's `FkRt`. Code on the session's thread finds it in three instructions: read `sp`, set its low bits, load (`fk_here` in `rt.h`). Go keeps its current goroutine in a register for the same reason. Measured against today's build: 0.996, as free as a pointer by load (0.999); a thread-local pointer costs the interpreter 27% ([261030-session-measurements.md](261030-session-measurements.md)).
 
-- The API's `funk *` reaches the compiler and runtime.
-- An interpreted closure's `Lambda` holds its session, so `interp_entry` finds it with one load; the closure calling convention, shared with compiled code, does not change.
-- Primitives and glue wrappers called from the interpreter take it as an argument.
-- The signal handler finds it through the registry; an export's callback through its closure.
+An explicit pointer, as Lua passes `lua_State *`, measured as free, but every runtime function, primitive and glue wrapper, the interpreter and compiled code's calls would take it. The slot changes no signature. Its risk: code on a session's thread running on another stack, such as a C library that switches stacks and calls back into funk, reads a wrong pointer; a callback trampoline can check that `sp` is inside its session's slot.
 
-Compiled programs are one session: the runtime pasted into them uses one static `FkRt`, at a constant address, so they cost what they do now.
+The page above the stack is not the thread's: glibc keeps a thread's own data at the top of the stack it is given.
 
-A global pointer switched on entry would also cost nothing, but lets one session run at a time, behind a process lock; one long evaluation then stops every other session.
+Code off a session's thread does not use the slot:
+
+- the API's calls from a host's thread use `f`'s session;
+- `fk_on_funk_thread`, output and `fk_ffi_enter` in glue use a thread-local set on the session's thread, `NULL` elsewhere; none is on a hot path;
+- the signal handler, which runs on its own stack, and the queued-callback ring, claimed on any thread, use the session started last until the registry (step 6) finds it by address and by stable pointer.
+
+Compiled programs are one session: the runtime pasted into them is built without `FK_SESSIONS`, and keeps a static `FkRt`, separate allocator statics and `rt.h`'s variables as globals, so they cost what they did.
 
 ### Glue
 
-`ffi_load` writes the runtime's addresses into each glue `.so` (`GLUE_NAMES`). Two sessions loading one cached `.so` share its image, so the second's addresses replace the first's. The functions stay process-wide; `fk_true` and its kin become the static objects; `fk_cb_failed`, `fk_callback_depth`, `fk_snap_lo` and `fk_error_jmp` are reached through the session argument. One image then serves every session.
+`ffi_load` wrote the runtime's addresses into each glue `.so` (`GLUE_NAMES`). Two sessions loading one cached `.so` share its image, so the second's addresses would replace the first's. The functions stay process-wide and `fk_true` and its kin are static objects; `fk_cb_failed`, `fk_callback_depth`, `fk_snap_lo` and `fk_error_jmp` are reached through the slot, as glue is compiled with `FK_SESSIONS`. One image then serves every session.
 
 ### Steps
 
@@ -129,9 +132,11 @@ Each passes `make test`.
 
 1. Measure. Done, 2026-10-30.
 2. The API alone: `funk *` in `libfunk.h`, backed by the one global session; the CLI, `funk-midi`, the plugin and `embed/*` move to it. Done, 2026-10-30, with the session's thread (from step 6); test `embed/session`. A process makes one session in its life until step 4.
-3. Static builtin nullaries; `const` on fixed tables.
-4. `FkRt` and the session argument in the runtime and interpreter; glue binding. Benchmarks against step 3.
-5. `FkCompiler`, a file at a time, `check.c` first.
+3. Static builtin nullaries; `const` on fixed tables. Done, 2026-10-30: `False`, `True`, `()` and `[]` are one read-only object each in `libfunk` (`builtin_nullaries`); before, `fk_init` `calloc`ed them, so with `fk_cons` per session, each session would have made its own `True`, and the interpreter compares by address. Few tables were left to make `const`: the initialized globals are mostly `funk_config`'s sizes, which move into `FkRt`.
+4. `FkRt` and the session argument in the runtime and interpreter; glue binding. Benchmarks against step 3. In two parts:
+   - 4a, done 2026-10-30: 73 of `rt.c`'s file-scope statics are fields of one static `FkRt`, reached as `RT->x` with `RT` a constant address; no signature changed. The compiler found each use, with the declarations removed, so a local of the same name was left alone; `#ifdef` branches it did not compile were checked by hand (one, Linux's `sem_init`). The export ring is `calloc`ed: in a struct with an initializer, its 512 KiB became initialized data, and a compiled `lists` grew from 114 to 693 KB. `alloc`'s five fields stay separate statics: in any struct, compiled `lists` ran 15% slower ([measurements](261030-session-measurements.md#the-allocators-fields)). Against HEAD: compiled +0.1%, interpreted +0.2% (geometric means). `rt.c`'s writable symbols: 107 to 40.
+   - 4b, done 2026-10-30: the session found from the stack ([above](#reaching-the-state-the-stack)), in `libfunk` (`FK_SESSIONS`); `fk_start` allocates each session's `FkRt` and its stack's slot, and `fk_init` runs on the session's thread. `rt.h`'s variables (`fk_marking`, `fk_cb_failed`, `fk_snap_lo`, `fk_error_jmp`, `fk_cons` and their kin) head `FkRt` as `FkShared`; `alloc`'s fields are the session's. Compiled programs are unchanged. Glue no longer takes the four variables' addresses. A failed `funk_new`'s message goes to stderr: output callbacks are a session's. Against HEAD: interpreted +0.1%, compiled -0.0% to +0.6% (geometric means); compiled output had looked up its session per write, 3% on `printing`, until it no longer did. `rt.c`'s writable symbols: 21, from 107. Left: process-wide (`fk_true` and its kin, the signal handlers, `page_size`, the environment's flags, a compiled program's nullary table, the fatal hook); `last_rt`, until step 6; and three function-local statics, `fk_p_getline`'s buffer, `verify_marks`'s and `prim_values`, which two sessions on two threads would share.
+5. `FkCompiler`, a file at a time, `check.c` first. Done, 2026-10-30, all at once: 118 variables in 11 files. Each file's own are a struct of its own (`CheckState` and the rest, `ST->x` in the file); `funk.h`'s 18 extern ones are `CompilerShared` (`CS->x`); the session's thread allocates them, from `const` templates, and reaches them through `FkShared`'s `cc`, from the stack. Declarations were found in clang's AST, and uses by the compiler's errors with the declarations removed; 9 type definitions moved above the structs that use them. Kept global: the session object itself (`driver.c`'s `session`), and `wild_pat` and `parse.c`'s `pn`, never written. Generated C is byte-identical (4 benchmarks); interpreted +0.3% (geometric mean); a session starts in 7.0 ms, 10.5 MB, against 6.6 ms and 9.9 MB. `libfunk`'s writable symbols: 28, from 288.
 6. The registry; the session's thread is done.
 7. Tests: `embed/sessions`, two sessions on two threads defining `x` differently, evaluating and collecting at once, freed out of order, also under TSan; `embed/globals`, `nm`'s writable symbols against an allow-list, so a new global fails.
 

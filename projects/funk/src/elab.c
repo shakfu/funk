@@ -22,19 +22,51 @@
 typedef struct DEnv { Type *var; int cls; const char *name; struct DEnv *next; } DEnv;
 typedef struct Sc { const char *name; Bind *b; struct Sc *next; } Sc; /* b NULL: monomorphic */
 
-static int dcounter;
-__typeof__(specialized) specialized;
-
 typedef struct { Type *from, *to; } TS;
-static TS *tsub; /* type variables of the function being specialized */
-static int ntsub;
+
+typedef struct Nm { const char *name; struct Nm *next; } Nm;
+
+/* Local variables of a call site that an argument uses, in order. */
+typedef struct { VEC(const char *) names; VEC(Type *) types; } Fv;
+
+/* Versions: a function and its parameters' modes, 2 bits each. */
+typedef struct { Bind *f; uint32_t key; int res; Bind *copy; } Ver;
+
+/* elab.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  int dcounter;
+  TS *tsub; /* type variables of the function being specialized */
+  int ntsub;
+  int nho; /* copies made, bounded so argument growth terminates */
+  Fv *key_fv;
+  Nm *keep_locals; /* the copy's leading parameters, during replace */
+  VEC(Bind *) ho_work;
+  int nhparam;
+  int nbeta;
+  int nlift;
+  VEC(Bind *) lifted;
+  VEC(Ver) vers;
+  bool vers_new; /* the fixpoint met a version it had not seen */
+  bool vers_done; /* the fixpoint is over: an unseen version is unowned */
+  VEC(Bind *) own_work;
+} ElabState;
+static const ElabState elab_init = {0};
+#define ST ((ElabState *)fk_here()->cc[CC_ELAB])
+
+void *elab_state_new(void) {
+  ElabState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = elab_init;
+  return s;
+}
+
 
 /* t with the variables of tsub replaced. */
 static Type *apply(Type *t) {
   t = repr(t);
   if (t->k == TY_VAR) {
-    for (int i = 0; i < ntsub; i++)
-      if (tsub[i].from == t) return tsub[i].to;
+    for (int i = 0; i < ST->ntsub; i++)
+      if (ST->tsub[i].from == t) return ST->tsub[i].to;
     return t;
   }
   if (!t->n) return t;
@@ -144,7 +176,7 @@ static Expr *mk(int k, int line, int col) {
 static Expr *var(const char *name, int line, int col) {
   Expr *e = mk(E_VAR, line, col);
   e->name = name;
-  e->ty = dict_type;
+  e->ty = CS->dict_type;
   return e;
 }
 
@@ -154,7 +186,7 @@ static Expr *app(Expr *f, int n, Expr **args) {
   e->fn = f;
   e->n = n;
   e->args = args;
-  e->ty = dict_type;
+  e->ty = CS->dict_type;
   return e;
 }
 
@@ -173,13 +205,13 @@ static Sc *scope(Sc *sc, const char *name, Bind *b) {
 /* Extract the dictionary for class `to` from e, a dictionary for `from`. */
 static Expr *super_path(int from, int to, Expr *e, int line, int col) {
   if (from == to) return e;
-  ClassDef *c = &classes.a[from];
+  ClassDef *c = &CS->classes.a[from];
   for (int i = 0; i < c->nsup; i++) {
     int s = c->sups[i];
-    if (!(classes.a[s].closure & ((uint64_t)1 << to))) continue;
+    if (!(CS->classes.a[s].closure & ((uint64_t)1 << to))) continue;
     Expr **a = xmalloc(sizeof *a);
     a[0] = e;
-    const char *sel = intern(xsprintf("$sup.%s.%s", c->name, classes.a[s].name));
+    const char *sel = intern(xsprintf("$sup.%s.%s", c->name, CS->classes.a[s].name));
     return super_path(s, to, app(var(sel, line, col), 1, a), line, col);
   }
   abort();
@@ -203,12 +235,12 @@ static Expr *dict_for(int cls, Type *t, DEnv *env, int line, int col) {
     for (DEnv *d = env; d; d = d->next)
       if (d->var == t && d->cls == cls) return var(d->name, line, col);
     for (DEnv *d = env; d; d = d->next)
-      if (d->var == t && (classes.a[d->cls].closure & ((uint64_t)1 << cls)))
+      if (d->var == t && (CS->classes.a[d->cls].closure & ((uint64_t)1 << cls)))
         return super_path(d->cls, cls, var(d->name, line, col), line, col);
-    cerror(line, col, "ambiguous type: no dictionary for `%s`; add a type signature", classes.a[cls].name);
+    cerror(line, col, "ambiguous type: no dictionary for `%s`; add a type signature", CS->classes.a[cls].name);
   }
   InstDef *in = find_inst(cls, t->name);
-  if (!in) cerror(line, col, "no instance `%s %s`", classes.a[cls].name, t->name);
+  if (!in) cerror(line, col, "no instance `%s %s`", CS->classes.a[cls].name, t->name);
   Pred *ps;
   int n = inst_preds(in, &ps);
   Expr **a = xmalloc((size_t)n * sizeof *a + 1);
@@ -217,7 +249,7 @@ static Expr *dict_for(int cls, Type *t, DEnv *env, int line, int col) {
     while (in->vars[k] != ps[i].t) k++;
     a[i] = dict_for(ps[i].cls, t->args[k], env, line, col);
   }
-  return app(var(globals.a[in->dict].name, line, col), n, a);
+  return app(var(CS->globals.a[in->dict].name, line, col), n, a);
 }
 
 /* Types whose instances are primitives: primEqInt, primAppendString, ... */
@@ -292,7 +324,7 @@ static void subst_types(Expr *e) {
    now if new; NULL if not worth it (a type nested too deeply, as in
    polymorphic recursion). */
 static const char *specialize(int g, Type **tys, int n) {
-  Bind *ob = globals.a[g].bind;
+  Bind *ob = CS->globals.a[g].bind;
   Pred *ps = ob->preds; /* same order as the use's constraints */
   if (ob->npreds != n) return NULL;
   SB nm = {0};
@@ -303,26 +335,26 @@ static const char *specialize(int g, Type **tys, int n) {
   }
   const char *name = intern(nm.s);
   if (global_lookup(name) >= 0) return name;
-  TS *saved = tsub;
-  int nsaved = ntsub;
+  TS *saved = ST->tsub;
+  int nsaved = ST->ntsub;
   VEC(TS) ts = {0};
   for (int i = 0; i < n; i++) {
     VPUSH(ts, ((TS){ps[i].t, tys[i]}));
     for (int k = 0; k < ob->nskolem; k++)
       if (ob->skolem[2 * k] == ps[i].t) VPUSH(ts, ((TS){ob->skolem[2 * k + 1], tys[i]}));
   }
-  tsub = ts.a;
-  ntsub = ts.n;
+  ST->tsub = ts.a;
+  ST->ntsub = ts.n;
   Bind *b = NEW(Bind);
   *b = (Bind){.name = name, .e = copy_expr(ob->orig), .line = ob->line, .col = ob->col, .from = ob->from ? ob->from : ob};
   b->e->lam->name = name;
-  b->type = apply(globals.a[g].type);
+  b->type = apply(CS->globals.a[g].type);
   subst_types(b->e);
   b->gidx = global_add(name, b->type, b->e->lam); /* before the body, for recursion */
   elab(b->e, NULL, NULL);
-  tsub = saved;
-  ntsub = nsaved;
-  VPUSH(specialized, b);
+  ST->tsub = saved;
+  ST->ntsub = nsaved;
+  VPUSH(CS->specialized, b);
   return name;
 }
 
@@ -339,27 +371,27 @@ static int var_dicts(Expr *v, Sc *sc, DEnv *env, Expr ***out) {
       ps = s->b->preds;
     }
   } else if ((g = global_lookup(v->name)) >= 0) {
-    n = preds_of(globals.a[g].type, &ps);
+    n = preds_of(CS->globals.a[g].type, &ps);
   }
   if (!n) return 0;
   if (v->npreds == n) ps = v->preds; /* else a use inside its own group: the binding's own dictionaries */
   Type **tys = xmalloc((size_t)n * sizeof *tys);
   for (int i = 0; i < n; i++) tys[i] = apply(ps[i].t);
-  if (g >= 0 && globals.a[g].spec && n == 1 && builtin_num(tys[0])) {
-    const char *p = intern(xsprintf("prim%s%s", globals.a[g].spec, tys[0]->name));
+  if (g >= 0 && CS->globals.a[g].spec && n == 1 && builtin_num(tys[0])) {
+    const char *p = intern(xsprintf("prim%s%s", CS->globals.a[g].spec, tys[0]->name));
     if (global_lookup(p) >= 0) {
       v->name = p;
       return 0;
     }
   }
   InstDef *in;
-  if (g >= 0 && globals.a[g].mcls >= 0 && tys[0]->k == TY_CON && (in = find_inst(globals.a[g].mcls, tys[0]->name))) {
-    ClassDef *c = &classes.a[in->cls]; /* method at a known instance: $m.C.T.m and its context */
-    const char *m = intern(xsprintf("$m.%s.%s.%s", c->name, in->tycon, c->meths[globals.a[g].midx]));
+  if (g >= 0 && CS->globals.a[g].mcls >= 0 && tys[0]->k == TY_CON && (in = find_inst(CS->globals.a[g].mcls, tys[0]->name))) {
+    ClassDef *c = &CS->classes.a[in->cls]; /* method at a known instance: $m.C.T.m and its context */
+    const char *m = intern(xsprintf("$m.%s.%s.%s", c->name, in->tycon, c->meths[CS->globals.a[g].midx]));
     Type *t0 = tys[0];
     v->name = m;
     g = global_lookup(m);
-    n = preds_of(globals.a[g].type, &ps);
+    n = preds_of(CS->globals.a[g].type, &ps);
     tys = xmalloc((size_t)n * sizeof *tys + 1);
     for (int i = 0; i < n; i++) {
       int k = 0;
@@ -368,7 +400,7 @@ static int var_dicts(Expr *v, Sc *sc, DEnv *env, Expr ***out) {
     }
     if (!n) return 0;
   }
-  bool ground = g >= 0 && globals.a[g].bind && globals.a[g].bind->orig;
+  bool ground = g >= 0 && CS->globals.a[g].bind && CS->globals.a[g].bind->orig;
   for (int i = 0; ground && i < n; i++) ground = ground_depth(tys[i]) > 0;
   const char *sp = ground ? specialize(g, tys, n) : NULL;
   if (sp) {
@@ -387,13 +419,13 @@ static void elab_one(Bind *b, Sc *sc, DEnv *env) {
   if (n) {
     const char **names = xmalloc((size_t)n * sizeof *names);
     for (int i = 0; i < n; i++) {
-      names[i] = intern(xsprintf("$d%d", dcounter++));
+      names[i] = intern(xsprintf("$d%d", ST->dcounter++));
       env = denv(env, ps[i].t, ps[i].cls, names[i]);
       for (int k = 0; k < b->nskolem; k++) /* the body was checked against rigid copies */
         if (b->skolem[2 * k] == ps[i].t) env = denv(env, b->skolem[2 * k + 1], ps[i].cls, names[i]);
     }
     Type **dts = xmalloc((size_t)n * sizeof *dts);
-    for (int i = 0; i < n; i++) dts[i] = dict_type;
+    for (int i = 0; i < n; i++) dts[i] = CS->dict_type;
     if (b->e->k == E_LAM) {
       Lambda *L = b->e->lam;
       const char **all = xmalloc((size_t)(n + L->n) * sizeof *all);
@@ -412,7 +444,7 @@ static void elab_one(Bind *b, Sc *sc, DEnv *env) {
       *L = (Lambda){.n = n, .params = names, .ptypes = dts, .body = body, .line = body->line, .col = body->col,
                     .name = b->name};
       l->lam = L;
-      l->ty = dict_type;
+      l->ty = CS->dict_type;
       b->e = l;
     }
   }
@@ -453,19 +485,19 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
     Expr *lit = mk(E_INT, e->line, e->col);
     lit->ival = e->ival;
     lit->ty = tcon_new(intern("Int"), 0, NULL);
-    InstDef *in = t->k == TY_CON ? find_inst(num_class, t->name) : NULL;
+    InstDef *in = t->k == TY_CON ? find_inst(CS->num_class, t->name) : NULL;
     int m = in && !in->arity ? global_lookup(intern(xsprintf("$m.Num.%s.fromInt", t->name))) : -1;
     if (m >= 0) { /* a known instance: its fromInt directly, without a dictionary */
       Expr **a = xmalloc(sizeof *a);
       a[0] = lit;
-      *e = *app(var(globals.a[m].name, e->line, e->col), 1, a);
+      *e = *app(var(CS->globals.a[m].name, e->line, e->col), 1, a);
       e->ty = t;
       e->fn->idx = m;
-      e->fn->known = globals.a[m].lam;
+      e->fn->known = CS->globals.a[m].lam;
       return;
     }
     Expr **a = xmalloc(2 * sizeof *a);
-    a[0] = dict_for(num_class, t, env, e->line, e->col);
+    a[0] = dict_for(CS->num_class, t, env, e->line, e->col);
     a[1] = lit;
     *e = *app(var(intern("$fromInt"), e->line, e->col), 2, a);
     e->ty = t;
@@ -522,7 +554,7 @@ void elab_bind(Bind *b) { elab_one(b, NULL, NULL); }
 
 /* $dict.C.T = [\c.. ->] $D.C $m.C.T.m1 .. superclass dictionaries */
 Bind *dict_bind(InstDef *in) {
-  ClassDef *c = &classes.a[in->cls];
+  ClassDef *c = &CS->classes.a[in->cls];
   int line = in->line, col = in->col;
   Pred *ps;
   int n = inst_preds(in, &ps);
@@ -538,14 +570,14 @@ Bind *dict_bind(InstDef *in) {
   for (int i = 0; i < c->nmeth; i++) {
     const char *m = intern(xsprintf("$m.%s.%s.%s", c->name, in->tycon, c->meths[i]));
     Pred *mp;
-    int k = preds_of(globals.a[global_lookup(m)].type, &mp);
+    int k = preds_of(CS->globals.a[global_lookup(m)].type, &mp);
     Expr **a = xmalloc((size_t)k * sizeof *a + 1);
     for (int j = 0; j < k; j++) a[j] = dict_for(mp[j].cls, mp[j].t, env, line, col);
     fields[i] = app(var(m, line, col), k, a);
   }
   for (int i = 0; i < c->nsup; i++) fields[c->nmeth + i] = dict_for(c->sups[i], head, env, line, col);
   Expr *con = mk(E_CON, line, col);
-  con->name = condefs.a[c->con].name;
+  con->name = CS->condefs.a[c->con].name;
   con->idx = c->con;
   Expr *body = app(con, nf, fields);
   if (n) {
@@ -556,7 +588,7 @@ Bind *dict_bind(InstDef *in) {
     body = l;
   }
   Bind *b = NEW(Bind);
-  *b = (Bind){.name = globals.a[in->dict].name, .e = body, .line = line, .col = col};
+  *b = (Bind){.name = CS->globals.a[in->dict].name, .e = body, .line = line, .col = col};
   if (body->k == E_LAM) body->lam->name = b->name;
   return b;
 }
@@ -574,8 +606,6 @@ Bind *dict_bind(InstDef *in) {
    inside a copy, which passes the copy's own parameters, reuses it.
    Global references copied into a body are pinned, so a local of the same
    name there cannot capture them. */
-
-typedef struct Nm { const char *name; struct Nm *next; } Nm;
 
 static Nm *nm(Nm *s, const char *name) {
   Nm *n = NEW(Nm);
@@ -595,10 +625,6 @@ static Nm *pat_nm(Pat *p, Nm *s) {
   return s;
 }
 
-static int nho; /* copies made, bounded so argument growth terminates */
-
-/* Local variables of a call site that an argument uses, in order. */
-typedef struct { VEC(const char *) names; VEC(Type *) types; } Fv;
 
 static int fv_index(Fv *fv, const char *name) {
   for (int i = 0; i < fv->names.n; i++)
@@ -672,8 +698,6 @@ static void pat_key(SB *b, Pat *p, Nm **params) {
 
 /* The structure of an argument, as a key; lambda parameters and the call
    site's locals (fv) are numbered, so equal structures give equal keys. */
-static Fv *key_fv;
-
 static void key(SB *b, Expr *e, Nm *params) {
   switch (e->k) {
   case E_VAR: {
@@ -683,7 +707,7 @@ static void key(SB *b, Expr *e, Nm *params) {
         sb_printf(b, "#%d", i);
         return;
       }
-    if (!e->global_ref && (i = fv_index(key_fv, e->name)) >= 0) {
+    if (!e->global_ref && (i = fv_index(ST->key_fv, e->name)) >= 0) {
       sb_printf(b, "$%d", i);
       return;
     }
@@ -824,7 +848,6 @@ static void rename_fv(Expr *e, Fv *fv, const char **to, Nm *inner) {
   }
 }
 
-static Nm *keep_locals; /* the copy's leading parameters, during replace */
 
 /* Replace free occurrences of variable x in e by copies of arg. */
 static void replace(Expr *e, const char *x, Expr *arg);
@@ -845,7 +868,7 @@ static void replace(Expr *e, const char *x, Expr *arg) {
   case E_VAR:
     if (e->name == x && !e->global_ref) {
       Expr *c = copy_expr(arg);
-      pin(c, keep_locals);
+      pin(c, ST->keep_locals);
       *e = *c;
     }
     return;
@@ -918,7 +941,6 @@ static bool fun_type(Type *t) {
   return t && t->k == TY_CON && !strcmp(t->name, "->");
 }
 
-static VEC(Bind *) ho_work;
 
 /* Bind the variables of the callee's type pat to the call site's ground
    type t, so a copy's parameters get C types (typed-backend.md). */
@@ -938,14 +960,12 @@ static void match_type(Type *pat, Type *t, TSs *out) {
 }
 
 /* Specialize the call e if it qualifies; locals are the call site's. */
-static int nhparam;
-
 static void ho_call(Expr *e, Nm *locals) {
   Expr *f = e->fn;
   if (f->k != E_VAR || (!f->global_ref && in(locals, f->name))) return;
   int g = global_lookup(f->name);
-  Bind *fb = g >= 0 ? globals.a[g].bind : NULL;
-  if (!fb || fb->e->k != E_LAM || !fb->e->lam->ptypes || nho >= 4000) return;
+  Bind *fb = g >= 0 ? CS->globals.a[g].bind : NULL;
+  if (!fb || fb->e->k != E_LAM || !fb->e->lam->ptypes || ST->nho >= 4000) return;
   Lambda *L = fb->e->lam;
   int m = e->n < L->n ? e->n : L->n;
   bool *use = xcalloc((size_t)m + 1, sizeof *use);
@@ -975,7 +995,7 @@ static void ho_call(Expr *e, Nm *locals) {
   TSs ts = {0};
   for (int i = 0; i < m; i++)
     if (L->ptypes[i] && e->args[i]->ty) match_type(L->ptypes[i], e->args[i]->ty, &ts);
-  key_fv = &fv;
+  ST->key_fv = &fv;
   SB k = {0};
   sb_printf(&k, "%s@{", fb->name);
   for (int i = 0, c = 0; i < m; i++) {
@@ -988,15 +1008,15 @@ static void ho_call(Expr *e, Nm *locals) {
   }
   sb_puts(&k, "}");
   if (ts.n) { /* the types are part of the copy: `map id` differs at [Int] and [Char] */
-    TS *saved = tsub;
-    int nsaved = ntsub;
-    tsub = ts.a;
-    ntsub = ts.n;
+    TS *saved = ST->tsub;
+    int nsaved = ST->ntsub;
+    ST->tsub = ts.a;
+    ST->ntsub = ts.n;
     sb_puts(&k, "<");
     for (int i = 0; i < L->n; i++) sb_printf(&k, "%s%s", i ? "," : "", L->ptypes[i] ? type_str(apply(L->ptypes[i])) : "$");
     sb_puts(&k, ">");
-    tsub = saved;
-    ntsub = nsaved;
+    ST->tsub = saved;
+    ST->ntsub = nsaved;
   }
   const char *name = intern(k.s);
   int nf = fv.names.n;
@@ -1004,19 +1024,19 @@ static void ho_call(Expr *e, Nm *locals) {
     Bind *b = NEW(Bind);
     *b = (Bind){.name = name, .e = copy_expr(fb->e), .line = fb->line, .col = fb->col, .type = fb->type};
     if (ts.n) {
-      TS *saved = tsub;
-      int nsaved = ntsub;
-      tsub = ts.a;
-      ntsub = ts.n;
+      TS *saved = ST->tsub;
+      int nsaved = ST->ntsub;
+      ST->tsub = ts.a;
+      ST->ntsub = ts.n;
       subst_types(b->e);
       b->type = apply(b->type);
-      tsub = saved;
-      ntsub = nsaved;
+      ST->tsub = saved;
+      ST->ntsub = nsaved;
     }
     Lambda *C = b->e->lam;
     const char **hp = xmalloc((size_t)nf * sizeof *hp + 1);
     Nm *keep = NULL;
-    for (int i = 0; i < nf; i++) keep = nm(keep, hp[i] = intern(xsprintf("$h%d", nhparam++)));
+    for (int i = 0; i < nf; i++) keep = nm(keep, hp[i] = intern(xsprintf("$h%d", ST->nhparam++)));
     const char **ps = xmalloc((size_t)(C->n + nf) * sizeof *ps);
     Type **ts = xmalloc((size_t)(C->n + nf) * sizeof *ts);
     int n = 0;
@@ -1024,7 +1044,7 @@ static void ho_call(Expr *e, Nm *locals) {
       ps[n] = hp[i];
       ts[n++] = fv.types.a[i];
     }
-    keep_locals = keep;
+    ST->keep_locals = keep;
     for (int i = 0; i < C->n; i++) {
       if (i < m && use[i]) {
         Expr *arg = copy_expr(e->args[i]);
@@ -1035,16 +1055,16 @@ static void ho_call(Expr *e, Nm *locals) {
       ps[n] = C->params[i];
       ts[n++] = C->ptypes[i];
     }
-    keep_locals = NULL;
+    ST->keep_locals = NULL;
     C->params = ps;
     C->ptypes = ts;
     C->n = n;
     C->name = name;
     b->gidx = global_add(name, NULL, C);
-    globals.a[b->gidx].bind = b;
-    nho++;
-    VPUSH(specialized, b);
-    VPUSH(ho_work, b);
+    CS->globals.a[b->gidx].bind = b;
+    ST->nho++;
+    VPUSH(CS->specialized, b);
+    VPUSH(ST->ho_work, b);
   }
   Expr **rest = xmalloc((size_t)(e->n + nf) * sizeof *rest);
   int n = 0;
@@ -1081,22 +1101,20 @@ static Nm *ho_group(Group *g, Nm *s) {
    pn -> body: the arguments are still evaluated first, in order, and no
    closure is built. Parameters get fresh names first, so one cannot
    capture a variable of a later argument. */
-static int nbeta;
-
 static void beta(Expr *e) {
   Lambda *L = e->fn->lam;
   int n = L->n;
   Expr *body = L->body;
   const char **fresh = xmalloc((size_t)n * sizeof *fresh);
   for (int i = 0; i < n; i++) {
-    fresh[i] = intern(xsprintf("$b%d", nbeta++));
+    fresh[i] = intern(xsprintf("$b%d", ST->nbeta++));
     Expr *v = mk(E_VAR, e->line, e->col);
     v->name = fresh[i];
     v->ty = L->ptypes ? L->ptypes[i] : NULL;
-    Nm *saved = keep_locals;
-    keep_locals = nm(NULL, fresh[i]); /* the fresh name stays local */
+    Nm *saved = ST->keep_locals;
+    ST->keep_locals = nm(NULL, fresh[i]); /* the fresh name stays local */
     replace(body, L->params[i], v);
-    keep_locals = saved;
+    ST->keep_locals = saved;
   }
   for (int i = n; i-- > 0;) {
     Pat *p = NEW(Pat);
@@ -1110,7 +1128,7 @@ static void beta(Expr *e) {
     alt->rhs.bodies = xmalloc(sizeof(Expr *));
     alt->rhs.bodies[0] = body;
     Expr *c = mk(E_CASE, e->line, e->col);
-    c->name = cur_file;
+    c->name = CS->cur_file;
     c->ns = 1;
     c->scruts = xmalloc(sizeof *c->scruts);
     c->scruts[0] = e->args[i];
@@ -1181,9 +1199,9 @@ static void ho_expr(Expr *e, Nm *s) {
 }
 
 void ho_specialize(Bind **bs, int n) {
-  for (int i = 0; i < n; i++) VPUSH(ho_work, bs[i]);
-  while (ho_work.n) {
-    Bind *b = ho_work.a[--ho_work.n];
+  for (int i = 0; i < n; i++) VPUSH(ST->ho_work, bs[i]);
+  while (ST->ho_work.n) {
+    Bind *b = ST->ho_work.a[--ST->ho_work.n];
     ho_expr(b->e, NULL);
   }
 }
@@ -1201,7 +1219,6 @@ void ho_specialize(Bind **bs, int n) {
 
 typedef struct Lift { const char *name, *global; int nfv; const char **fv; Type **fvt; struct Lift *next; } Lift;
 
-static int nlift;
 
 static Lift *lift_find(Lift *l, const char *name) {
   for (; l; l = l->next)
@@ -1344,7 +1361,6 @@ static void free_locals(Expr *e, Nm *inner, Nm *locals, Lift *lifts, Fv *fv) {
   }
 }
 
-static VEC(Bind *) lifted;
 
 static void lift_expr(Expr *e, Nm *locals, Lift *lifts, const char *owner);
 
@@ -1376,7 +1392,7 @@ static Lift *lift_group(Group *g, Expr **rest, int nrest, Nm *locals, Lift *lift
     if (in(bound, fv.names.a[i])) return lifts; /* a call might see another variable of that name */
   for (int i = 0; i < g->n; i++) {
     Lift *l = NEW(Lift);
-    *l = (Lift){g->b[i]->name, intern(xsprintf("%s/%s%d", owner, g->b[i]->name, nlift++)), fv.names.n, fv.names.a,
+    *l = (Lift){g->b[i]->name, intern(xsprintf("%s/%s%d", owner, g->b[i]->name, ST->nlift++)), fv.names.n, fv.names.a,
                 fv.types.a, lifts};
     lifts = l;
   }
@@ -1404,8 +1420,8 @@ static Lift *lift_group(Group *g, Expr **rest, int nrest, Nm *locals, Lift *lift
     Bind *nb = NEW(Bind);
     *nb = (Bind){.name = l->global, .e = b->e, .line = b->line, .col = b->col, .type = b->type};
     nb->gidx = global_add(l->global, NULL, L);
-    globals.a[nb->gidx].bind = nb;
-    VPUSH(lifted, nb);
+    CS->globals.a[nb->gidx].bind = nb;
+    VPUSH(ST->lifted, nb);
   }
   *done = true;
   return lifts;
@@ -1509,8 +1525,8 @@ static void lift_expr(Expr *e, Nm *locals, Lift *lifts, const char *owner) {
    are themselves searched for nested ones. */
 void lift_locals(Bind **bs, int n) {
   for (int i = 0; i < n; i++) lift_expr(bs[i]->e, NULL, NULL, bs[i]->name);
-  for (int i = 0; i < lifted.n; i++) VPUSH(specialized, lifted.a[i]);
-  lifted.n = 0;
+  for (int i = 0; i < ST->lifted.n; i++) VPUSH(CS->specialized, ST->lifted.a[i]);
+  ST->lifted.n = 0;
 }
 
 /* ------------------------------------------------- reuse of list cells */
@@ -1572,9 +1588,9 @@ static uint32_t cell_sizes(Type *t) {
   t = t ? repr(t) : NULL;
   if (!t || t->k != TY_CON || !strcmp(t->name, "->")) return 0;
   uint32_t m = 0;
-  for (int i = 0; i < condefs.n; i++) {
-    int a = condefs.a[i].arity;
-    if (a > 0 && a < 31 && tydefs.a[condefs.a[i].tydef].name == t->name) m |= 1u << (a + 1); /* a header word, then the fields */
+  for (int i = 0; i < CS->condefs.n; i++) {
+    int a = CS->condefs.a[i].arity;
+    if (a > 0 && a < 31 && CS->tydefs.a[CS->condefs.a[i].tydef].name == t->name) m |= 1u << (a + 1); /* a header word, then the fields */
   }
   return m;
 }
@@ -1644,7 +1660,7 @@ static int mode_min(int a, int b) { return a < b ? a : b; }
 static Bind *own_callee(Expr *f, Own *o) {
   if (f->k != E_VAR || (!f->global_ref && own_get(o, f->name) >= 0)) return NULL;
   int g = global_lookup(f->name);
-  Bind *b = g >= 0 ? globals.a[g].bind : NULL;
+  Bind *b = g >= 0 ? CS->globals.a[g].bind : NULL;
   return b && b->e->k == E_LAM && b->e->lam->ptypes ? b : NULL;
 }
 
@@ -1698,32 +1714,26 @@ static uint32_t deep_sizes(Type *t) {
   uint32_t m = cell_sizes(t);
   if (!m) return 0;
   for (int i = 0; i < t->n; i++) m |= cell_sizes(t->args[i]);
-  for (int i = 0; i < condefs.n; i++)
-    if (tydefs.a[condefs.a[i].tydef].name == t->name)
-      for (Type *f = condefs.a[i].scheme ? repr(condefs.a[i].scheme) : NULL; f && f->k == TY_CON && !strcmp(f->name, "->");
+  for (int i = 0; i < CS->condefs.n; i++)
+    if (CS->tydefs.a[CS->condefs.a[i].tydef].name == t->name)
+      for (Type *f = CS->condefs.a[i].scheme ? repr(CS->condefs.a[i].scheme) : NULL; f && f->k == TY_CON && !strcmp(f->name, "->");
            f = repr(f->args[1]))
         m |= cell_sizes(f->args[0]);
   return m;
 }
 
-/* Versions: a function and its parameters' modes, 2 bits each. */
-typedef struct { Bind *f; uint32_t key; int res; Bind *copy; } Ver;
-static VEC(Ver) vers;
-static bool vers_new;  /* the fixpoint met a version it had not seen */
-static bool vers_done; /* the fixpoint is over: an unseen version is unowned */
-
 static int ver_find(Bind *f, uint32_t key) {
-  for (int i = 0; i < vers.n; i++)
-    if (vers.a[i].f == f && vers.a[i].key == key) return i;
+  for (int i = 0; i < ST->vers.n; i++)
+    if (ST->vers.a[i].f == f && ST->vers.a[i].key == key) return i;
   return -1;
 }
 
 static int ver_res(Bind *f, uint32_t key) {
   int i = ver_find(f, key);
-  if (i >= 0) return vers.a[i].res;
-  if (vers_done) return M_NONE;
-  VPUSH(vers, ((Ver){f, key, M_UNIQUE, NULL})); /* optimistic, lowered by the fixpoint */
-  vers_new = true;
+  if (i >= 0) return ST->vers.a[i].res;
+  if (ST->vers_done) return M_NONE;
+  VPUSH(ST->vers, ((Ver){f, key, M_UNIQUE, NULL})); /* optimistic, lowered by the fixpoint */
+  ST->vers_new = true;
   return M_UNIQUE;
 }
 
@@ -1870,11 +1880,10 @@ static Own *params_env(Bind *b, uint32_t key) {
   return o;
 }
 
-static VEC(Bind *) own_work;
 
 static const char *own_copy(Bind *b, uint32_t key) {
   int v = ver_find(b, key);
-  if (v >= 0 && vers.a[v].copy) return vers.a[v].copy->name;
+  if (v >= 0 && ST->vers.a[v].copy) return ST->vers.a[v].copy->name;
   SB name = {0};
   sb_puts(&name, b->name);
   for (int j = 0; j < 16; j++) {
@@ -1883,8 +1892,8 @@ static const char *own_copy(Bind *b, uint32_t key) {
   }
   const char *nm = intern(name.s);
   int g = global_lookup(nm); /* made in an earlier chunk: the same function and modes */
-  if (g >= 0 && globals.a[g].bind) {
-    if (v >= 0) vers.a[v].copy = globals.a[g].bind;
+  if (g >= 0 && CS->globals.a[g].bind) {
+    if (v >= 0) ST->vers.a[v].copy = CS->globals.a[g].bind;
     return nm;
   }
   Bind *c = NEW(Bind);
@@ -1892,10 +1901,10 @@ static const char *own_copy(Bind *b, uint32_t key) {
               .linear = b->linear, .gain = b->gain, .own_key = key, .own_of = b};
   c->e->lam->name = nm;
   c->gidx = global_add(nm, NULL, c->e->lam);
-  globals.a[c->gidx].bind = c;
-  VPUSH(specialized, c);
-  VPUSH(own_work, c);
-  if (v >= 0) vers.a[v].copy = c;
+  CS->globals.a[c->gidx].bind = c;
+  VPUSH(CS->specialized, c);
+  VPUSH(ST->own_work, c);
+  if (v >= 0) ST->vers.a[v].copy = c;
   return nm;
 }
 
@@ -1924,7 +1933,7 @@ static void own_rw(Expr *e, Own *o) {
     Bind *b = own_callee(e->fn, o);
     if (b && !b->own_of && e->n == b->e->lam->n) {
       uint32_t key = arg_key(b, e, o);
-      if (key && !vers_done) ver_res(b, key);
+      if (key && !ST->vers_done) ver_res(b, key);
       else if (key && ver_find(b, key) >= 0) {
         Expr *f = var(own_copy(b, key), e->fn->line, e->fn->col);
         f->global_ref = true;
@@ -1954,7 +1963,7 @@ static void own_rw(Expr *e, Own *o) {
     return;
   case E_CASE:
     for (int i = 0; i < e->ns; i++) {
-      if (mode_of(e->scruts[i], o) != M_NONE && vers_done) e->scruts[i]->own = true; /* its matched cell is dead */
+      if (mode_of(e->scruts[i], o) != M_NONE && ST->vers_done) e->scruts[i]->own = true; /* its matched cell is dead */
       own_rw(e->scruts[i], o);
     }
     for (int a = 0; a < e->na; a++) own_rw_rhs(&e->alts[a]->rhs, alt_env(e, e->alts[a], o));
@@ -2085,11 +2094,11 @@ static void recon(Expr *e) {
 void reuse_cells(Bind **bs, int n, Bind **cs, int nc) {
   VEC(Bind *) all = {0}, fns = {0};
   for (int i = 0; i < n + nc; i++) VPUSH(all, i < n ? bs[i] : cs[i - n]);
-  vers.n = 0;
-  vers_done = false;
+  ST->vers.n = 0;
+  ST->vers_done = false;
   for (int i = 0; i < all.n; i++) {
     Bind *b = all.a[i];
-    if (b->e->k == E_LAM && !globals.a[b->gidx].bind) globals.a[b->gidx].bind = b; /* type-class clones */
+    if (b->e->k == E_LAM && !CS->globals.a[b->gidx].bind) CS->globals.a[b->gidx].bind = b; /* type-class clones */
     recon(b->e);
     if (b->e->k != E_LAM || !b->e->lam->ptypes) continue;
     Lambda *L = b->e->lam;
@@ -2114,28 +2123,28 @@ void reuse_cells(Bind **bs, int n, Bind **cs, int nc) {
   }
   for (int i = 0; i < fns.n; i++) ver_res(fns.a[i], 0);
   for (bool changed = true; changed;) { /* lower each version's result to what its body gives */
-    changed = vers_new = false;
-    for (int i = 0; i < vers.n; i++) {
-      Bind *b = vers.a[i].f;
+    changed = ST->vers_new = false;
+    for (int i = 0; i < ST->vers.n; i++) {
+      Bind *b = ST->vers.a[i].f;
       Expr *src = b->own_src ? b->own_src : b->e; /* calls still name the originals */
-      Own *o = params_env(b, vers.a[i].key);
+      Own *o = params_env(b, ST->vers.a[i].key);
       int r = mode_of(src->lam->body, o);
       own_rw(src->lam->body, o); /* the versions its calls need, in every position */
-      if (r < vers.a[i].res) {
-        vers.a[i].res = r;
+      if (r < ST->vers.a[i].res) {
+        ST->vers.a[i].res = r;
         changed = true;
       }
     }
     for (int i = 0; i < all.n; i++) /* values, such as main */
       if (all.a[i]->e->k != E_LAM || !all.a[i]->e->lam->ptypes) own_rw(all.a[i]->e, NULL);
-    changed |= vers_new;
+    changed |= ST->vers_new;
   }
-  vers_done = true;
+  ST->vers_done = true;
   for (int i = 0; i < fns.n; i++) own_rw(fns.a[i]->e, NULL);
   for (int i = 0; i < all.n; i++)
     if (all.a[i]->e->k != E_LAM || !all.a[i]->e->lam->ptypes) own_rw(all.a[i]->e, NULL);
-  while (own_work.n) {
-    Bind *c = own_work.a[--own_work.n];
+  while (ST->own_work.n) {
+    Bind *c = ST->own_work.a[--ST->own_work.n];
     own_rw(c->e->lam->body, params_env(c->own_of, c->own_key));
   }
 }

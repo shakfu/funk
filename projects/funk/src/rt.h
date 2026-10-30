@@ -66,9 +66,65 @@ static inline double fk_rawf(V v) { double d; memcpy(&d, &v, sizeof d); return d
 #define FK_PTRV(v)     (((FkPtr *)(v))->p)
 V fk_ptr(void *p); /* not const: GCC would take the memory for read, and warn that a fresh malloc is uninitialized */
 
+/* A session's state that generated code and glue name (embedding.md,
+   phase 2). A compiled program has one session, and these are globals. In
+   libfunk (FK_SESSIONS) they head the session's FkRt, which fk_here finds
+   from the stack: each session's stack lies in an FK_SLOT-aligned slot
+   whose last word points to it. Only code on a session's own stack may
+   use them there; elsewhere fk_current gives the session, or NULL. */
+typedef struct FkRt FkRt;
+#define FK_NCC 16
+typedef struct {
+  jmp_buf *error_jmp;
+  char *stack_limit;
+  atomic_int interrupt; /* set from any thread (libfunk.h, funk_interrupt); the interpreter checks it at each call */
+  void (*out)(void *ctx, int stream, const char *s, size_t n); /* libfunk.h, funk_output */
+  void *out_ctx;
+  int marking;
+  int cb_failed;      /* a direct callback failed; its message is printed */
+  int callback_depth; /* direct callbacks running, for the collector's stack snapshot */
+  char *snap_lo;      /* the lowest read-only page of a cycle's stack snapshot, or NULL */
+  struct FkCon *cons;
+  uint32_t ncons;
+  void *cc[FK_NCC]; /* libfunk's compiler (funk.h, CompilerShared and each file's state) */
+} FkShared;
+FkRt *fk_current(void);
+#ifdef FK_SESSIONS
+#define FK_SLOT ((uintptr_t)1 << 33)
+static inline __attribute__((pure, unused)) FkShared *fk_here(void) {
+  uintptr_t sp;
+#if defined __aarch64__
+  __asm__("mov %0, sp" : "=r"(sp));
+#else
+  __asm__("mov %%rsp, %0" : "=r"(sp));
+#endif
+  return *(FkShared **)((sp | (FK_SLOT - 1)) - 7);
+}
+#define fk_error_jmp (fk_here()->error_jmp)
+#define fk_stack_limit (fk_here()->stack_limit)
+#define fk_interrupt (fk_here()->interrupt)
+#define fk_marking (fk_here()->marking)
+#define fk_cb_failed (fk_here()->cb_failed)
+#define fk_callback_depth (fk_here()->callback_depth)
+#define fk_snap_lo (fk_here()->snap_lo)
+#define fk_cons (fk_here()->cons)
+#define fk_ncons (fk_here()->ncons)
+#else
+extern jmp_buf *fk_error_jmp;
+extern char *fk_stack_limit;
+extern atomic_int fk_interrupt;
+extern void (*fk_out)(void *ctx, int stream, const char *s, size_t n);
+extern void *fk_out_ctx;
+extern int fk_marking;
+extern int fk_cb_failed;
+extern int fk_callback_depth;
+extern char *fk_snap_lo; /* atomic: exports' threads read it */
+extern struct FkCon *fk_cons;
+extern uint32_t fk_ncons;
+#endif
+
 /* Incremental marking (realtime.md, R2): a write that overwrites a heap
    pointer shades the old value while a cycle is marking. */
-extern int fk_marking;
 void fk_shade(V old);
 #define FK_SHADE(old) do { if (fk_marking) fk_shade(old); } while (0)
 const char *fk_cstr(V s);                     /* a String's bytes for C; an error if a NUL is inside */
@@ -78,19 +134,21 @@ V fk_cstr_result(const void *p, const char *fn); /* a C string copied into a Str
 V fk_stable_deref(void *p);
 bool fk_on_funk_thread(void);
 __attribute__((noreturn)) void fk_callback_thread(const char *name); /* not _Noreturn: glue renames it to a pointer (ffi.c, GLUE_NAMES) */
-extern int fk_cb_failed; /* a direct callback failed; its message is printed */
-extern int fk_callback_depth; /* direct callbacks running, for the collector's stack snapshot */
-extern char *fk_snap_lo;
 void fk_snapshot_release(char *sp);
+void fk_snapshot_enter(char *frame);
 /* Before a foreign call: no read-only snapshot page below this frame (realtime.md). */
 static inline __attribute__((unused)) void fk_ffi_enter(void) { /* also on an export's thread, while funk's collects */
+#ifdef FK_SESSIONS
+  fk_snapshot_enter((char *)__builtin_frame_address(0)); /* finds its session safely on any thread */
+#else
   char *lo = __atomic_load_n(&fk_snap_lo, __ATOMIC_RELAXED);
   if (lo && (char *)__builtin_frame_address(0) > lo) fk_snapshot_release((char *)__builtin_frame_address(0));
+#endif
 }
 __attribute__((noreturn)) void fk_cb_rethrow(void);
 bool fk_on_funk_thread(void);
 /* the failure is funk's thread's: an export on another thread leaves it */
-static inline __attribute__((unused)) void fk_cb_check(void) { if (fk_cb_failed && fk_on_funk_thread()) fk_cb_rethrow(); }
+static inline __attribute__((unused)) void fk_cb_check(void) { if (fk_on_funk_thread() && fk_cb_failed) fk_cb_rethrow(); }
 /* A slot of the queued-callback ring (realtime.md, R3). The trampoline
    writes its arguments into data; bytes that do not fit are malloc'd. */
 #define FK_EVENT_DATA 104
@@ -111,19 +169,17 @@ enum { FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL, FK_C_CONS, FK_C_TUP2 };
 #define FK_MAXTUPLE 7
 #define FK_NBUILTIN_CONS (FK_C_TUP2 + FK_MAXTUPLE - 1)
 
-typedef struct {
+typedef struct FkCon {
   const char *name;
   int arity;
   V nullary, fn;
   const char *const *labels;
   uint32_t raw; /* bit i: field i holds a raw double, in compiled code (typed-backend.md, step 5) */
 } FkCon;
-extern FkCon *fk_cons;
 /* Nullary constructors' objects, from a constant table in generated code,
    so a case on one folds; set before fk_run. The interpreter makes its own. */
 typedef struct { FkHdr h; V pad; } FkNullary;
 void fk_nullary_table(const FkNullary *t, uint32_t n);
-extern uint32_t fk_ncons;
 extern V fk_true, fk_false, fk_unit, fk_nil;
 #define FK_BOOL(b) ((b) ? fk_true : fk_false)
 /* peek and poke on C addresses, for typed code: the width in bytes,
@@ -300,9 +356,10 @@ static inline V fk_s_apokef(int64_t w, void *p, double x) {
 
 void fk_init(void);
 int fk_run(void (*fn)(void *), void *arg); /* run fn on a large stack */
-/* fk_run in two halves: fn starts on the large stack's thread, and
-   fk_stop joins it. One at a time per process. */
-bool fk_start(void (*fn)(void *), void *arg, pthread_t *th);
+/* fk_run in two halves: a session, with fn started on its stack's thread,
+   and fk_stop to join it. heap, threshold and stack as funk_config's, 0 for
+   a default; NULL if the stack cannot be made. */
+FkRt *fk_start(void (*fn)(void *), void *arg, pthread_t *th, size_t heap, size_t threshold, size_t stack);
 void fk_stop(pthread_t th);
 void fk_add_roots(V **base, size_t *count);
 
@@ -327,26 +384,23 @@ char *fk_show_cstr(V v);
 int fk_compare(V a, V b);
 int fk_num_eq_int(V v, long long i);
 
-extern jmp_buf *fk_error_jmp;
 __attribute__((noreturn)) void fk_error(const char *fmt, ...);
 /* An error funk cannot recover from: fk_fatal_hook (libfunk.h, funk_on_fatal) runs, then the process exits. */
 extern void (*fk_fatal_hook)(void *ctx, const char *msg);
 extern void *fk_fatal_ctx;
 _Noreturn void fk_fatal(const char *msg);
-void fk_set_memory(size_t heap, size_t threshold, size_t stack);
 void fk_recover(void); /* after a runtime error has unwound: a full heap's memory collected */
-/* Set from any thread (libfunk.h, funk_interrupt); the interpreter checks it at each call. */
-extern atomic_int fk_interrupt;
-/* Output: stream 1 the program's, 2 messages. To fk_out if set (libfunk.h,
-   funk_output), else stdout and stderr. A message is one write, newline included. */
-extern void (*fk_out)(void *ctx, int stream, const char *s, size_t n);
-extern void *fk_out_ctx;
+/* Output: stream 1 the program's, 2 messages. To the session's out if set
+   (libfunk.h, funk_output), else stdout and stderr. A message is one write,
+   newline included. The _rt forms are for a session not this thread's. */
 void fk_write(int stream, const char *s, size_t n);
 void fk_message(const char *prefix, const char *fmt, ...);
 void fk_vmessage(const char *prefix, const char *fmt, va_list ap);
+void fk_message_rt(FkRt *r, const char *prefix, const char *fmt, ...);
+void fk_rt_output(FkRt *r, void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx);
+void fk_rt_interrupt(FkRt *r);
 _Noreturn void fk_match_fail(const char *where);
 _Noreturn void fk_stack_overflow(void);
-extern char *fk_stack_limit;
 #define FK_STACK_CHECK() \
   do { char c_; if ((char *)&c_ < fk_stack_limit) fk_stack_overflow(); } while (0)
 

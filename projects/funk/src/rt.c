@@ -32,30 +32,52 @@
 
 /* ---------------------------------------------------------------- errors */
 
+#ifndef FK_SESSIONS /* libfunk: FkShared's fields (rt.h) */
 jmp_buf *fk_error_jmp;
 char *fk_stack_limit;
-static char *fk_stack_base;
+atomic_int fk_interrupt;
+void (*fk_out)(void *ctx, int stream, const char *s, size_t n);
+void *fk_out_ctx;
+int fk_marking;
+char *fk_snap_lo;
+int fk_callback_depth;
+int fk_cb_failed;
+FkCon *fk_cons;
+uint32_t fk_ncons;
+#endif
 
 bool fk_on_funk_thread(void);
 
-atomic_int fk_interrupt;
-
-void (*fk_out)(void *ctx, int stream, const char *s, size_t n);
-void *fk_out_ctx;
 
 void fk_message(const char *prefix, const char *fmt, ...);
 
-void fk_write(int stream, const char *s, size_t n) {
-  if (fk_out) {
-    fk_out(fk_out_ctx, stream, s, n);
+#ifdef FK_SESSIONS
+#define OUT(r) ((r) ? ((FkShared *)(r))->out : NULL) /* FkRt's first member */
+#define OUT_CTX(r) (((FkShared *)(r))->out_ctx)
+#else
+#define OUT(r) ((void)(r), fk_out)
+#define OUT_CTX(r) ((void)(r), fk_out_ctx)
+#endif
+
+static void write_rt(FkRt *r, int stream, const char *s, size_t n) {
+  if (OUT(r)) {
+    OUT(r)(OUT_CTX(r), stream, s, n);
     return;
   }
   if (stream == 2) fflush(stdout); /* a message follows the output before it */
   fwrite(s, 1, n, stream == 2 ? stderr : stdout);
 }
 
-/* One message, prefix and fmt's text and a newline, in one fk_write. */
-void fk_vmessage(const char *prefix, const char *fmt, va_list ap) {
+#ifdef FK_SESSIONS
+#define CUR_RT fk_current()
+#else
+#define CUR_RT NULL /* a compiled program's output is its one session's */
+#endif
+
+void fk_write(int stream, const char *s, size_t n) { write_rt(CUR_RT, stream, s, n); }
+
+/* One message, prefix and fmt's text and a newline, in one write. */
+static void vmessage_rt(FkRt *r, const char *prefix, const char *fmt, va_list ap) {
   char small[512], *s = small;
   va_list ap2;
   va_copy(ap2, ap);
@@ -71,8 +93,37 @@ void fk_vmessage(const char *prefix, const char *fmt, va_list ap) {
   if (p < len) vsnprintf(s + p, len - p, fmt, ap2); /* writes the text and a NUL in place of the newline */
   va_end(ap2);
   s[len - 1] = '\n';
-  fk_write(2, s, len);
+  write_rt(r, 2, s, len);
   if (s != small) free(s);
+}
+
+void fk_vmessage(const char *prefix, const char *fmt, va_list ap) { vmessage_rt(CUR_RT, prefix, fmt, ap); }
+
+void fk_message_rt(FkRt *r, const char *prefix, const char *fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  vmessage_rt(r, prefix, fmt, ap);
+  va_end(ap);
+}
+
+void fk_rt_output(FkRt *r, void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx) {
+#ifdef FK_SESSIONS
+  ((FkShared *)r)->out = out;
+  ((FkShared *)r)->out_ctx = ctx;
+#else
+  (void)r;
+  fk_out = out;
+  fk_out_ctx = ctx;
+#endif
+}
+
+void fk_rt_interrupt(FkRt *r) {
+#ifdef FK_SESSIONS
+  atomic_store(&((FkShared *)r)->interrupt, 1);
+#else
+  (void)r;
+  atomic_store(&fk_interrupt, 1);
+#endif
 }
 
 void fk_message(const char *prefix, const char *fmt, ...) {
@@ -146,39 +197,113 @@ typedef struct {
 typedef struct { V *p; size_t words; uint8_t mark; } Large;
 typedef struct { V **base; size_t *count; } Root;
 
-static size_t heap_reserve = (size_t)64 << 30; /* address space only; MAP_NORESERVE */
-static char *heap_base;  /* chunk i is at heap_base + i * CHUNK_SIZE */
-static size_t nchunks;
-static uintptr_t heap_lo = UINTPTR_MAX, heap_hi; /* chunks in use */
+#define RING_SLOTS 4096
+#define STEP_BYTES ((size_t)256 << 10)
+
+/* The runtime's state (embedding.md, phase 2). In libfunk (FK_SESSIONS),
+   one per session, found from the stack (rt.h, fk_here); in a compiled
+   program, one static. */
+struct FkRt {
+  FkShared sh; /* first: fk_here's pointer is to it */
+  char *fk_stack_base;
+  size_t heap_reserve; /* address space only; MAP_NORESERVE */
+  char *heap_base;  /* chunk i is at heap_base + i * CHUNK_SIZE */
+  size_t nchunks;
+  uintptr_t heap_lo, heap_hi; /* chunks in use */
+  Large *larges;
+  size_t nlarge, caplarge;
+  uintptr_t large_lo, large_hi;
+  Root *roots;
+  size_t nroots;
+  V **mstack;
+  size_t msp, mcap;
+  V *stack_copy; /* the stack when the cycle started: see snapshot_stack */
+  size_t stack_words, stack_cap, stack_scanned;
+  char *snap_hi, *snap_next; /* above the read-only pages; the next to scan */
+  char *snap_area;                     /* reserved: copies of the pages written while read-only */
+  uint8_t *snap_copied;                /* by page */
+  size_t snap_pages;
+  size_t live_bytes;  /* marked this collection */
+  size_t black_bytes; /* of which allocated during the cycle: mostly garbage by its end */
+  size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
+  size_t step_bytes, gc_min;
+  size_t cycle_start_threshold; /* gc_threshold when the cycle started */
+  size_t next_step; /* while marking, gc_threshold is 0, so every allocation takes alloc_slow, which marks it */
+  size_t gc_count, lazy_chunks, forced, cycle_steps;
+  double pause_total, pause_max, lazy_total, lazy_max, start_max, step_max, finish_max, sweep_step_max;
+  double cycle_start, cycle_step_max, cycle_mark;
+  size_t large_bytes; /* in large objects: they count toward the heap's limit, heap_reserve */
+  bool was_full, no_verify; /* fk_recover */
+  size_t warm, cold, nwarm; /* list heads, a chunk index plus one */
+  size_t warm_limit;         /* bytes: the threshold sweep() set */
+  char *guard_lo, *guard_hi; /* the stack's guard region, set by fk_run */
+  char *snapshot_sp; /* for the check's report */
+  char *stack_top; /* task_main's frame: above it, the thread's own data (glibc keeps its TCB and TLS there) */
+  V *verify_from, *verify_slot; /* the object, or the root, being scanned: for the report */
+  bool verify_reg; /* the root is a register the program held when it called alloc_slow */
+  V *stables;
+  bool *stable_live;
+  size_t nstables, capstables, free_stable; /* a freed index plus one; a freed slot holds the next */
+  pthread_t funk_thread; /* set by task_main */
+  FkEvent *ring; /* RING_SLOTS, from ring_init: in the struct, its 512 KiB were initialized data in every compiled program */
+  _Atomic size_t ring_head; /* the next slot to claim */
+  size_t ring_tail;         /* the next slot to run: funk's thread only */
+  _Atomic size_t ring_dropped;
+  size_t stack_size;
+#ifdef __APPLE__
+  dispatch_semaphore_t ring_sem; /* one count per published event */
+#else
+  sem_t ring_sem;
+#endif
+  uint32_t capcons; /* fk_cons's */
+#ifdef FK_SESSIONS
+  V *freelist[MAX_SMALL + 1];
+  V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
+  size_t alloc_since_gc, gc_threshold; /* gc_min below */
+#endif
+};
+
+/* alloc's fast path: separate statics in a compiled program, not FkRt's
+   fields. In any struct, FkRt or one of their own, compiled lists ran 15%
+   slower: 20M more cycles, 1.6% more instructions (inferred: the compiler
+   cannot tell the arrays apart, so it reloads them). The interpreter, with
+   them in the struct, did not slow. */
+#ifdef FK_SESSIONS
+#define RT ((FkRt *)fk_here())
+static _Thread_local FkRt *thread_rt; /* the session whose thread this is, or NULL */
+static FkRt *_Atomic last_rt;         /* the session started last: until a registry (embedding.md, step 6) */
+#define ANY_RT atomic_load(&last_rt)
+#define freelist (RT->freelist)
+#define bump (RT->bump)
+#define bump_end (RT->bump_end)
+#define alloc_since_gc (RT->alloc_since_gc)
+#define gc_threshold (RT->gc_threshold)
+#else
+static FkRt fk_rt;
+#define RT (&fk_rt)
+#define ANY_RT (&fk_rt)
 static V *freelist[MAX_SMALL + 1];
-static Large *larges;
-static size_t nlarge, caplarge;
-static uintptr_t large_lo = UINTPTR_MAX, large_hi;
-static Root *roots;
-static size_t nroots;
+static V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
+static size_t alloc_since_gc, gc_threshold = (size_t)128 << 20; /* gc_min below */
+#endif
+
+FkRt *fk_current(void) {
+#ifdef FK_SESSIONS
+  return thread_rt;
+#else
+  return fk_on_funk_thread() ? &fk_rt : NULL;
+#endif
+}
+
 /* Collect after max(128 MiB, 2x live) of allocation. Each collection scans
    the whole stack, which deep recursion makes large, so fewer collections
    pay off: 26-35% on sort and strings against 32 MiB and 1x, at about 2x
    the peak memory. */
-static size_t alloc_since_gc, gc_threshold = (size_t)128 << 20; /* gc_min below */
-static V **mstack;
-static size_t msp, mcap;
-static V *stack_copy; /* the stack when the cycle started: see snapshot_stack */
-static size_t stack_words, stack_cap, stack_scanned;
 static size_t page_size;
-char *fk_snap_lo; /* the lowest read-only page of a cycle's stack snapshot, or NULL; atomic, as exports' threads read it */
-static char *snap_hi, *snap_next; /* above the read-only pages; the next to scan */
-static char *snap_area;                     /* reserved: copies of the pages written while read-only */
-static uint8_t *snap_copied;                /* by page */
-static size_t snap_pages;
-int fk_callback_depth; /* direct callbacks running: C frames below them may be written by the kernel */
-static size_t live_bytes;  /* marked this collection */
-static size_t black_bytes; /* of which allocated during the cycle: mostly garbage by its end */
 
 /* Lazy sweeping (realtime.md, R1): a collection only marks. Each size
    class keeps a list of unswept chunks, in address order, and allocation
    sweeps the next one when its free list is empty. */
-static size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
 
 /* Incremental marking (realtime.md, R2), snapshot at the beginning: a
    cycle starts with a pause that scans the stack and the roots, then marks
@@ -188,24 +313,16 @@ static size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
    when the cycle started is marked. Nothing is freed until a cycle ends,
    so its allocation takes fresh chunks: 256 KiB, not 1 MiB, cut bst's
    resident set from 207 to 160 MB and its time by 4%. */
-#define STEP_BYTES ((size_t)256 << 10)
 #define STEP_MS 0.4
-int fk_marking;
 /* FUNK_GCSTRESS=1, for testing: a cycle 64 KiB after the last one ends,
    steps of 4096 objects every 16 KiB, never finished early, and a check at
    each cycle's end that every object reachable then is marked. Many short
    cycles start often, inside the windows where a missing barrier loses an
    object; tests/run/gcbarrier.fk hits them. */
 static bool gcstress;
-static size_t step_bytes = STEP_BYTES, gc_min = (size_t)128 << 20;
-static size_t cycle_start_threshold; /* gc_threshold when the cycle started */
-static size_t next_step; /* while marking, gc_threshold is 0, so every allocation takes alloc_slow, which marks it */
 
 /* FUNK_GCSTATS=1: each cycle's pauses, and a summary at exit (R0). */
 static bool gcstats;
-static size_t gc_count, lazy_chunks, forced, cycle_steps;
-static double pause_total, pause_max, lazy_total, lazy_max, start_max, step_max, finish_max, sweep_step_max;
-static double cycle_start, cycle_step_max, cycle_mark;
 
 static double now_ms(void) {
   struct timespec t;
@@ -216,18 +333,18 @@ static double now_ms(void) {
 static void gc_summary(void) {
   fprintf(stderr, "gc: %zu cycles, pause max %.2f ms (start %.2f, mark step %.2f, finish %.2f, sweep step %.2f), total %.2f ms, %zu forced; "
           "lazy sweep %zu chunks, max %.3f ms, total %.2f ms\n",
-          gc_count, pause_max, start_max, step_max, finish_max, sweep_step_max, pause_total, forced, lazy_chunks, lazy_max, lazy_total);
+          RT->gc_count, RT->pause_max, RT->start_max, RT->step_max, RT->finish_max, RT->sweep_step_max, RT->pause_total, RT->forced, RT->lazy_chunks, RT->lazy_max, RT->lazy_total);
 }
 
 static void pause_done(double t, double *kind_max) {
-  pause_total += t;
-  if (t > pause_max) pause_max = t;
+  RT->pause_total += t;
+  if (t > RT->pause_max) RT->pause_max = t;
   if (t > *kind_max) *kind_max = t;
 }
 
 void fk_add_roots(V **base, size_t *count) {
-  roots = rt_realloc(roots, (nroots + 1) * sizeof *roots);
-  roots[nroots++] = (Root){base, count};
+  RT->roots = rt_realloc(RT->roots, (RT->nroots + 1) * sizeof *RT->roots);
+  RT->roots[RT->nroots++] = (Root){base, count};
 }
 
 static void push_free(size_t words, V *o) {
@@ -241,17 +358,12 @@ static void push_free(size_t words, V *o) {
    objects. find_obj treats the unallocated rest of a bump region as free,
    since a reused chunk's still holds dead headers. Sweep ends the bump
    regions; their unallocated objects then go on the free lists. */
-static V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
 
-static size_t large_bytes; /* in large objects: they count toward the heap's limit, heap_reserve */
-static bool was_full, no_verify; /* fk_recover */
 
 /* Chunks that sweeping found all dead, reusable by any size class. nobj 0
    marks one: find_obj sees no objects in it, and sweep skips it. Empty
    chunks up to the cycle's threshold stay warm, since the next cycle
    allocates about that much; the rest go back to the system, cold. */
-static size_t warm, cold, nwarm; /* list heads, a chunk index plus one */
-static size_t warm_limit;         /* bytes: the threshold sweep() set */
 
 /* Fresh zero pages in place of [lo, lo + n): the old ones go back to the system. */
 static void release_pages(char *lo, size_t n) {
@@ -262,46 +374,46 @@ static void release_pages(char *lo, size_t n) {
 static Chunk *chunk_at(size_t i);
 
 static void chunk_empty(Chunk *c) {
-  size_t i = (size_t)((char *)c - heap_base) / CHUNK_SIZE + 1;
+  size_t i = (size_t)((char *)c - RT->heap_base) / CHUNK_SIZE + 1;
   c->nobj = 0;
-  if ((nwarm + 1) * CHUNK_SIZE <= warm_limit) {
-    c->next_unswept = warm;
-    warm = i;
-    nwarm++;
+  if ((RT->nwarm + 1) * CHUNK_SIZE <= RT->warm_limit) {
+    c->next_unswept = RT->warm;
+    RT->warm = i;
+    RT->nwarm++;
     return;
   }
   if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
   release_pages((char *)c + page_size, CHUNK_SIZE - page_size); /* the header's page stays */
-  c->next_unswept = cold;
-  cold = i;
+  c->next_unswept = RT->cold;
+  RT->cold = i;
 }
 
 /* A chunk for objects of words words, an empty one if any; false at the heap's limit. */
 static bool new_chunk(size_t words) {
   char *base;
-  bool reused = warm || cold;
+  bool reused = RT->warm || RT->cold;
   if (reused) {
-    size_t *list = warm ? &warm : &cold;
+    size_t *list = RT->warm ? &RT->warm : &RT->cold;
     base = (char *)chunk_at(*list - 1);
     *list = ((Chunk *)base)->next_unswept;
-    if (list == &warm) nwarm--;
+    if (list == &RT->warm) RT->nwarm--;
     else core_dump(base, CHUNK_SIZE, true);
   } else {
-    if (!heap_base) { /* reserve, halving on failure down to 256 MiB, then align to CHUNK_SIZE */
+    if (!RT->heap_base) { /* reserve, halving on failure down to 256 MiB, then align to CHUNK_SIZE */
       char *r;
-      while ((r = mmap(NULL, heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0)) == MAP_FAILED &&
-             heap_reserve / 2 >= ((size_t)256 << 20))
-        heap_reserve /= 2;
+      while ((r = mmap(NULL, RT->heap_reserve + CHUNK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0)) == MAP_FAILED &&
+             RT->heap_reserve / 2 >= ((size_t)256 << 20))
+        RT->heap_reserve /= 2;
       if (r == MAP_FAILED) fk_fatal("cannot reserve address space for the heap");
-      core_dump(r, heap_reserve + CHUNK_SIZE, false); /* chunks in use are added below */
-      heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
-      heap_lo = (uintptr_t)heap_base;
+      core_dump(r, RT->heap_reserve + CHUNK_SIZE, false); /* chunks in use are added below */
+      RT->heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
+      RT->heap_lo = (uintptr_t)RT->heap_base;
     }
-    if ((nchunks + 1) * CHUNK_SIZE + large_bytes > heap_reserve) return false;
-    base = heap_base + nchunks * CHUNK_SIZE; /* fresh pages are zero */
+    if ((RT->nchunks + 1) * CHUNK_SIZE + RT->large_bytes > RT->heap_reserve) return false;
+    base = RT->heap_base + RT->nchunks * CHUNK_SIZE; /* fresh pages are zero */
     core_dump(base, CHUNK_SIZE, true);
-    nchunks++;
-    heap_hi = (uintptr_t)base + CHUNK_SIZE;
+    RT->nchunks++;
+    RT->heap_hi = (uintptr_t)base + CHUNK_SIZE;
   }
   Chunk *c = (Chunk *)base;
   size_t hdr = sizeof(Chunk), objbytes = words * sizeof(V);
@@ -320,7 +432,7 @@ static bool new_chunk(size_t words) {
 
 /* Map a candidate word to the object containing it, or NULL. */
 static V *find_obj(uintptr_t w, uint8_t **mark, size_t *words) {
-  if (w >= heap_lo && w < heap_hi) {
+  if (w >= RT->heap_lo && w < RT->heap_hi) {
     Chunk *c = (Chunk *)(w & ~(uintptr_t)(CHUNK_SIZE - 1));
     if (w < (uintptr_t)c->objs) return NULL;
     size_t i = (size_t)(((uint64_t)(w - (uintptr_t)c->objs) * c->recip) >> 32);
@@ -331,11 +443,11 @@ static V *find_obj(uintptr_t w, uint8_t **mark, size_t *words) {
     *words = c->words;
     return o;
   }
-  if (w >= large_lo && w < large_hi) {
-    size_t lo = 0, hi = nlarge;
+  if (w >= RT->large_lo && w < RT->large_hi) {
+    size_t lo = 0, hi = RT->nlarge;
     while (lo < hi) {
       size_t mid = (lo + hi) / 2;
-      Large *l = &larges[mid];
+      Large *l = &RT->larges[mid];
       if (w < (uintptr_t)l->p) hi = mid;
       else if (w >= (uintptr_t)(l->p + l->words)) lo = mid + 1;
       else { *mark = &l->mark; *words = l->words; return l->p; }
@@ -351,16 +463,16 @@ static void mark_word(uintptr_t w) {
   V *o = find_obj(w, &m, &words);
   if (!o || *m) return;
   *m = 1;
-  live_bytes += words * sizeof(V);
-  if (w >= heap_lo && w < heap_hi) ((Chunk *)(w & ~(uintptr_t)(CHUNK_SIZE - 1)))->nmarked++;
+  RT->live_bytes += words * sizeof(V);
+  if (w >= RT->heap_lo && w < RT->heap_hi) ((Chunk *)(w & ~(uintptr_t)(CHUNK_SIZE - 1)))->nmarked++;
   int k = ((FkHdr *)o)->kind;
   if (k == K_FLOAT || k == K_STR || k == K_INT64 || k == K_PTR) return; /* a number, bytes or a C address */
-  if (msp + 2 > mcap) {
-    mcap = mcap ? 2 * mcap : 4096;
-    mstack = rt_realloc(mstack, mcap * sizeof *mstack);
+  if (RT->msp + 2 > RT->mcap) {
+    RT->mcap = RT->mcap ? 2 * RT->mcap : 4096;
+    RT->mstack = rt_realloc(RT->mstack, RT->mcap * sizeof *RT->mstack);
   }
-  mstack[msp++] = o;
-  mstack[msp++] = (V *)(uintptr_t)words;
+  RT->mstack[RT->msp++] = o;
+  RT->mstack[RT->msp++] = (V *)(uintptr_t)words;
 }
 
 static void scan_range(V *lo, V *hi) {
@@ -373,16 +485,16 @@ static bool scan_snapshot(double end, bool timed);
    when the mark stack is empty. */
 static bool drain(double budget_ms) {
   double end = now_ms() + budget_ms;
-  while (stack_scanned < stack_words) { /* the stack's snapshot first, 8 Ki words at a time */
-    size_t k = stack_words - stack_scanned < 8192 ? stack_words - stack_scanned : 8192;
-    scan_range(stack_copy + stack_scanned, stack_copy + stack_scanned + k);
-    stack_scanned += k;
+  while (RT->stack_scanned < RT->stack_words) { /* the stack's snapshot first, 8 Ki words at a time */
+    size_t k = RT->stack_words - RT->stack_scanned < 8192 ? RT->stack_words - RT->stack_scanned : 8192;
+    scan_range(RT->stack_copy + RT->stack_scanned, RT->stack_copy + RT->stack_scanned + k);
+    RT->stack_scanned += k;
     if (budget_ms < INFINITY && (gcstress || now_ms() > end)) return false; /* stress: a chunk per step, reproducibly */
   }
   if (!scan_snapshot(end, budget_ms < INFINITY)) return false;
-  for (int n = 0; msp;) {
-    size_t words = (size_t)(uintptr_t)mstack[--msp];
-    V *o = mstack[--msp];
+  for (int n = 0; RT->msp;) {
+    size_t words = (size_t)(uintptr_t)RT->mstack[--RT->msp];
+    V *o = RT->mstack[--RT->msp];
     scan_range(o + 1, o + words); /* every payload word, conservatively */
     if (++n == (gcstress ? 4096 : 256)) {
       if (gcstress && budget_ms < INFINITY) return false; /* steps of a fixed size, for reproducible tests */
@@ -403,9 +515,9 @@ static __attribute__((noinline)) void alloc_black(V *o) {
   size_t words;
   if (!find_obj((uintptr_t)o, &m, &words) || *m) return;
   *m = 1;
-  live_bytes += words * sizeof(V);
-  black_bytes += words * sizeof(V);
-  if ((uintptr_t)o >= heap_lo && (uintptr_t)o < heap_hi) ((Chunk *)((uintptr_t)o & ~(uintptr_t)(CHUNK_SIZE - 1)))->nmarked++;
+  RT->live_bytes += words * sizeof(V);
+  RT->black_bytes += words * sizeof(V);
+  if ((uintptr_t)o >= RT->heap_lo && (uintptr_t)o < RT->heap_hi) ((Chunk *)((uintptr_t)o & ~(uintptr_t)(CHUNK_SIZE - 1)))->nmarked++;
 }
 
 /* A cycle's snapshot of the stack (realtime.md): the start pause copies
@@ -418,118 +530,121 @@ static __attribute__((noinline)) void alloc_black(V *o) {
    pass stack memory to the kernel, which a read-only page would fail with
    EFAULT; then the whole stack is copied instead. */
 static void copy_words(V *from, size_t n) {
-  if (n > stack_cap) {
-    free(stack_copy);
-    stack_cap = n + n / 4;
-    stack_copy = malloc(stack_cap * sizeof(V));
-    if (!stack_copy) fk_fatal("out of memory");
+  if (n > RT->stack_cap) {
+    free(RT->stack_copy);
+    RT->stack_cap = n + n / 4;
+    RT->stack_copy = malloc(RT->stack_cap * sizeof(V));
+    if (!RT->stack_copy) fk_fatal("out of memory");
   }
-  memcpy(stack_copy, from, n * sizeof(V));
-  stack_words = n;
-  stack_scanned = 0;
+  memcpy(RT->stack_copy, from, n * sizeof(V));
+  RT->stack_words = n;
+  RT->stack_scanned = 0;
 }
 
-static char *guard_lo, *guard_hi; /* the stack's guard region, set by fk_run */
 
-static char *snapshot_sp; /* for the check's report */
-static char *stack_top; /* task_main's frame: above it, the thread's own data (glibc keeps its TCB and TLS there) */
 
 static void copy_more(V *from, size_t n) { /* appended to the copy */
-  size_t at = stack_words;
-  if (at + n > stack_cap) {
-    stack_cap = (at + n) + (at + n) / 4;
-    stack_copy = realloc(stack_copy, stack_cap * sizeof(V));
-    if (!stack_copy) fk_fatal("out of memory");
+  size_t at = RT->stack_words;
+  if (at + n > RT->stack_cap) {
+    RT->stack_cap = (at + n) + (at + n) / 4;
+    RT->stack_copy = realloc(RT->stack_copy, RT->stack_cap * sizeof(V));
+    if (!RT->stack_copy) fk_fatal("out of memory");
   }
-  memcpy(stack_copy + at, from, n * sizeof(V));
-  stack_words = at + n;
+  memcpy(RT->stack_copy + at, from, n * sizeof(V));
+  RT->stack_words = at + n;
 }
 
 static __attribute__((noinline)) void snapshot_stack(void) {
   V *sp = (V *)__builtin_frame_address(0);
-  snapshot_sp = (char *)sp;
+  RT->snapshot_sp = (char *)sp;
   if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
   if (gcstress) { /* the dead stack below holds old words, which new frames' unset slots would show the check */
     char *dead = (char *)(((uintptr_t)sp - 2 * page_size) & ~(uintptr_t)(page_size - 1));
     /* fresh pages, which read as zero: macOS's MADV_DONTNEED keeps the old contents */
-    if (dead > guard_hi &&
-        mmap(guard_hi, (size_t)(dead - guard_hi), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0) == MAP_FAILED) {
+    if (dead > RT->guard_hi &&
+        mmap(RT->guard_hi, (size_t)(dead - RT->guard_hi), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0) == MAP_FAILED) {
       fputs("funk: cannot clear the stack for FUNK_GCSTRESS\n", stderr);
       exit(1);
     }
-    if (dead > guard_hi) core_dump(guard_hi, (size_t)(dead - guard_hi), false); /* the new mapping dropped fk_run's advice */
+    if (dead > RT->guard_hi) core_dump(RT->guard_hi, (size_t)(dead - RT->guard_hi), false); /* the new mapping dropped fk_run's advice */
     memset(dead, 0, (size_t)((char *)sp - 1024 - dead));
   }
   char *lo = (char *)(((uintptr_t)sp + page_size - 1) & ~(uintptr_t)(page_size - 1)),
-       *hi = (char *)((uintptr_t)stack_top & ~(uintptr_t)(page_size - 1)); /* below the thread's data, which the kernel writes */
+       *hi = (char *)((uintptr_t)RT->stack_top & ~(uintptr_t)(page_size - 1)); /* below the thread's data, which the kernel writes */
   if (fk_callback_depth || lo >= hi) {
-    copy_words(sp, (size_t)((V *)fk_stack_base - sp));
+    copy_words(sp, (size_t)((V *)RT->fk_stack_base - sp));
     return;
   }
   size_t pages = (size_t)(hi - lo) / page_size;
-  if (pages > snap_pages) { /* address space for copies, touched only where a page is written */
-    if (snap_area) munmap(snap_area, snap_pages * page_size);
-    snap_area = mmap(NULL, pages * page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    free(snap_copied);
-    snap_copied = malloc(pages);
-    if (snap_area == MAP_FAILED || !snap_copied) fk_fatal("out of memory");
-    snap_pages = pages;
+  if (pages > RT->snap_pages) { /* address space for copies, touched only where a page is written */
+    if (RT->snap_area) munmap(RT->snap_area, RT->snap_pages * page_size);
+    RT->snap_area = mmap(NULL, pages * page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    free(RT->snap_copied);
+    RT->snap_copied = malloc(pages);
+    if (RT->snap_area == MAP_FAILED || !RT->snap_copied) fk_fatal("out of memory");
+    RT->snap_pages = pages;
   }
-  memset(snap_copied, 0, pages);
+  memset(RT->snap_copied, 0, pages);
   copy_words(sp, (size_t)((V *)lo - sp));
-  copy_more((V *)hi, (size_t)((V *)fk_stack_base - (V *)hi)); /* the frames and data above the read-only pages */
+  copy_more((V *)hi, (size_t)((V *)RT->fk_stack_base - (V *)hi)); /* the frames and data above the read-only pages */
   if (mprotect(lo, (size_t)(hi - lo), PROT_READ) != 0) { /* not expected; a copy is always correct */
-    copy_words(sp, (size_t)((V *)fk_stack_base - sp));
+    copy_words(sp, (size_t)((V *)RT->fk_stack_base - sp));
     return;
   }
-  snap_next = lo;
+  RT->snap_next = lo;
   __atomic_store_n(&fk_snap_lo, lo, __ATOMIC_RELAXED);
-  snap_hi = hi;
+  RT->snap_hi = hi;
 }
 
 /* Before a foreign call on funk's thread: the C code's frames go below the
    current frame, into snapshot pages funk returned above. The kernel
    cannot write into a read-only one, so the pages from the scan cursor to
    here are kept and made writable now. */
+void fk_snapshot_enter(char *frame) {
+  if (!fk_on_funk_thread()) return; /* another thread's frame is not in the snapshot */
+  char *lo = __atomic_load_n(&fk_snap_lo, __ATOMIC_RELAXED);
+  if (lo && frame > lo) fk_snapshot_release(frame);
+}
+
 void fk_snapshot_release(char *sp) {
   if (!fk_on_funk_thread() || !fk_snap_lo) return; /* another thread's frame is not in the snapshot */
   char *top = (char *)(((uintptr_t)sp & ~(uintptr_t)(page_size - 1)) + page_size);
-  if (top > snap_hi) top = snap_hi;
-  if (top <= snap_next) return;
-  for (char *pg = snap_next; pg < top; pg += page_size) {
+  if (top > RT->snap_hi) top = RT->snap_hi;
+  if (top <= RT->snap_next) return;
+  for (char *pg = RT->snap_next; pg < top; pg += page_size) {
     size_t i = (size_t)(pg - fk_snap_lo) / page_size;
-    if (!snap_copied[i]) {
-      memcpy(snap_area + i * page_size, pg, page_size);
-      snap_copied[i] = 1;
+    if (!RT->snap_copied[i]) {
+      memcpy(RT->snap_area + i * page_size, pg, page_size);
+      RT->snap_copied[i] = 1;
     }
   }
-  mprotect(snap_next, (size_t)(top - snap_next), PROT_READ | PROT_WRITE);
+  mprotect(RT->snap_next, (size_t)(top - RT->snap_next), PROT_READ | PROT_WRITE);
 }
 
 /* Out of line: an atomic store inlined into drain makes GCC reload globals in its mark loop. */
 static __attribute__((noinline)) void snap_done(void) {
   __atomic_store_n(&fk_snap_lo, NULL, __ATOMIC_RELAXED);
-  snap_hi = snap_next = NULL;
+  RT->snap_hi = RT->snap_next = NULL;
 }
 
 /* Scans the snapshot's pages for up to the step's budget; true when done. */
 static bool scan_snapshot(double end, bool timed) {
-  while (snap_next < snap_hi) {
-    char *from = snap_next;
-    for (int k = 0; k < 1 && snap_next < snap_hi; k++, snap_next += page_size) { /* a page, then the clock */
-      size_t i = (size_t)(snap_next - fk_snap_lo) / page_size;
-      V *p = (V *)(snap_copied[i] ? snap_area + i * page_size : snap_next);
+  while (RT->snap_next < RT->snap_hi) {
+    char *from = RT->snap_next;
+    for (int k = 0; k < 1 && RT->snap_next < RT->snap_hi; k++, RT->snap_next += page_size) { /* a page, then the clock */
+      size_t i = (size_t)(RT->snap_next - fk_snap_lo) / page_size;
+      V *p = (V *)(RT->snap_copied[i] ? RT->snap_area + i * page_size : RT->snap_next);
       scan_range(p, p + page_size / sizeof(V));
     }
-    mprotect(from, (size_t)(snap_next - from), PROT_READ | PROT_WRITE);
+    mprotect(from, (size_t)(RT->snap_next - from), PROT_READ | PROT_WRITE);
     if (timed && (gcstress || now_ms() > end)) break;
   }
-  if (snap_next < snap_hi) return false;
+  if (RT->snap_next < RT->snap_hi) return false;
   snap_done();
   return true;
 }
 
-static Chunk *chunk_at(size_t i) { return (Chunk *)(heap_base + i * CHUNK_SIZE); }
+static Chunk *chunk_at(size_t i) { return (Chunk *)(RT->heap_base + i * CHUNK_SIZE); }
 
 /* Frees a chunk's unmarked objects onto its free list, lowest address
    first, and clears its marks. */
@@ -563,16 +678,16 @@ static void sweep_chunk(Chunk *c) {
 /* Sweeps unswept chunks of a size class until its free list has an object. */
 static void sweep_lazily(size_t words) {
   double t0 = gcstats ? now_ms() : 0;
-  while (!freelist[words] && bump[words] >= bump_end[words] && unswept[words]) {
-    Chunk *c = chunk_at(unswept[words] - 1);
-    unswept[words] = c->next_unswept;
+  while (!freelist[words] && bump[words] >= bump_end[words] && RT->unswept[words]) {
+    Chunk *c = chunk_at(RT->unswept[words] - 1);
+    RT->unswept[words] = c->next_unswept;
     sweep_chunk(c);
-    lazy_chunks++;
+    RT->lazy_chunks++;
   }
   if (gcstats) {
     double t = now_ms() - t0;
-    lazy_total += t;
-    if (t > lazy_max) lazy_max = t;
+    RT->lazy_total += t;
+    if (t > RT->lazy_max) RT->lazy_max = t;
   }
 }
 
@@ -580,7 +695,7 @@ static void sweep_lazily(size_t words) {
    clearing them lets this cycle's sweep free what died since. */
 static void clear_unswept_marks(void) {
   for (size_t w = 0; w <= MAX_SMALL; w++)
-    for (size_t i = unswept[w]; i; i = chunk_at(i - 1)->next_unswept) {
+    for (size_t i = RT->unswept[w]; i; i = chunk_at(i - 1)->next_unswept) {
       memset(chunk_at(i - 1)->marks, 0, chunk_at(i - 1)->nobj);
       chunk_at(i - 1)->nmarked = 0;
     }
@@ -592,33 +707,33 @@ static void sweep(void) {
   memset(freelist, 0, sizeof freelist);
   memset(bump, 0, sizeof bump);
   memset(bump_end, 0, sizeof bump_end);
-  memset(unswept, 0, sizeof unswept);
+  memset(RT->unswept, 0, sizeof RT->unswept);
   fk_marking = 0;
-  for (size_t ci = nchunks; ci-- > 0;) { /* pushed in reverse: each list is in address order */
+  for (size_t ci = RT->nchunks; ci-- > 0;) { /* pushed in reverse: each list is in address order */
     Chunk *c = chunk_at(ci);
     if (!c->nobj) continue; /* empty: on the warm or cold list */
-    c->next_unswept = unswept[c->words];
-    unswept[c->words] = ci + 1;
+    c->next_unswept = RT->unswept[c->words];
+    RT->unswept[c->words] = ci + 1;
   }
-  size_t live = live_bytes - black_bytes, j = 0; /* reachable when the cycle started, large objects too */
-  large_lo = UINTPTR_MAX;
-  large_hi = 0;
-  for (size_t i = 0; i < nlarge; i++) {
-    if (!larges[i].mark) {
-      large_bytes -= larges[i].words * sizeof(V);
-      free(larges[i].p);
+  size_t live = RT->live_bytes - RT->black_bytes, j = 0; /* reachable when the cycle started, large objects too */
+  RT->large_lo = UINTPTR_MAX;
+  RT->large_hi = 0;
+  for (size_t i = 0; i < RT->nlarge; i++) {
+    if (!RT->larges[i].mark) {
+      RT->large_bytes -= RT->larges[i].words * sizeof(V);
+      free(RT->larges[i].p);
       continue;
     }
-    larges[i].mark = 0;
-    larges[j++] = larges[i];
-    if ((uintptr_t)larges[i].p < large_lo) large_lo = (uintptr_t)larges[i].p;
-    uintptr_t end = (uintptr_t)(larges[i].p + larges[i].words);
-    if (end > large_hi) large_hi = end;
+    RT->larges[i].mark = 0;
+    RT->larges[j++] = RT->larges[i];
+    if ((uintptr_t)RT->larges[i].p < RT->large_lo) RT->large_lo = (uintptr_t)RT->larges[i].p;
+    uintptr_t end = (uintptr_t)(RT->larges[i].p + RT->larges[i].words);
+    if (end > RT->large_hi) RT->large_hi = end;
   }
-  nlarge = j;
-  gc_threshold = 2 * live > gc_min && !gcstress ? 2 * live : gc_min;
-  if (gc_threshold > heap_reserve / 4) gc_threshold = heap_reserve / 4; /* room for a cycle's garbage below the limit */
-  warm_limit = gc_threshold;
+  RT->nlarge = j;
+  gc_threshold = 2 * live > RT->gc_min && !gcstress ? 2 * live : RT->gc_min;
+  if (gc_threshold > RT->heap_reserve / 4) gc_threshold = RT->heap_reserve / 4; /* room for a cycle's garbage below the limit */
+  RT->warm_limit = gc_threshold;
 }
 
 /* The cycle's first pause: the snapshot of the stack and the roots. */
@@ -628,23 +743,21 @@ static void gc_start(void) {
   __asm__ volatile("" : : "r"(&regs) : "memory");
   double t0 = gcstats ? now_ms() : 0;
   clear_unswept_marks();
-  live_bytes = black_bytes = 0;
+  RT->live_bytes = RT->black_bytes = 0;
   fk_marking = 1;
-  cycle_start_threshold = gc_threshold;
+  RT->cycle_start_threshold = gc_threshold;
   snapshot_stack();
-  for (size_t i = 0; i < nroots; i++) scan_range(*roots[i].base, *roots[i].base + *roots[i].count);
+  for (size_t i = 0; i < RT->nroots; i++) scan_range(*RT->roots[i].base, *RT->roots[i].base + *RT->roots[i].count);
   if (gcstats) {
-    cycle_start = now_ms() - t0;
-    cycle_steps = 0;
-    cycle_step_max = cycle_mark = 0;
-    pause_done(cycle_start, &start_max);
+    RT->cycle_start = now_ms() - t0;
+    RT->cycle_steps = 0;
+    RT->cycle_step_max = RT->cycle_mark = 0;
+    pause_done(RT->cycle_start, &RT->start_max);
   }
 }
 
 /* FUNK_GCSTRESS: every object reachable now must be marked. The check
    marks what it visits 2, which the sweep reads as marked. */
-static V *verify_from, *verify_slot; /* the object, or the root, being scanned: for the report */
-static bool verify_reg; /* the root is a register the program held when it called alloc_slow */
 
 static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   uint8_t *m;
@@ -653,19 +766,19 @@ static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   if (!o || *m == 2) return;
   if (!*m) {
     fprintf(stderr, "funk: gc check: reachable object %p (kind %d) is unmarked at the end of a cycle\n", (void *)o, ((FkHdr *)o)->kind);
-    if (verify_reg) {
+    if (RT->verify_reg) {
       fprintf(stderr, "  in a register at the call of alloc_slow\n");
-    } else if (verify_from) {
+    } else if (RT->verify_from) {
       uint8_t *pm;
       size_t pw;
-      find_obj((uintptr_t)verify_from, &pm, &pw);
-      fprintf(stderr, "  in field %ld of %p (kind %d, mark %d)\n", (long)(verify_slot - verify_from - 1), (void *)verify_from,
-              ((FkHdr *)verify_from)->kind, *pm);
-    } else if ((char *)verify_slot >= (char *)fk_stack_base - (1LL << 32) && (char *)verify_slot < fk_stack_base) {
-      fprintf(stderr, "  in the stack at %p, %s the cycle's start at %p\n", (void *)verify_slot,
-              (char *)verify_slot < snapshot_sp ? "deeper than" : "in a frame from before", snapshot_sp);
+      find_obj((uintptr_t)RT->verify_from, &pm, &pw);
+      fprintf(stderr, "  in field %ld of %p (kind %d, mark %d)\n", (long)(RT->verify_slot - RT->verify_from - 1), (void *)RT->verify_from,
+              ((FkHdr *)RT->verify_from)->kind, *pm);
+    } else if ((char *)RT->verify_slot >= (char *)RT->fk_stack_base - (1LL << 32) && (char *)RT->verify_slot < RT->fk_stack_base) {
+      fprintf(stderr, "  in the stack at %p, %s the cycle's start at %p\n", (void *)RT->verify_slot,
+              (char *)RT->verify_slot < RT->snapshot_sp ? "deeper than" : "in a frame from before", RT->snapshot_sp);
     } else {
-      fprintf(stderr, "  in a root table at %p\n", (void *)verify_slot);
+      fprintf(stderr, "  in a root table at %p\n", (void *)RT->verify_slot);
     }
     abort();
   }
@@ -713,7 +826,7 @@ static __attribute__((noinline)) void verify_marks(void) {
   static V **st;
   static size_t cap;
   size_t n = 0;
-  verify_from = NULL;
+  RT->verify_from = NULL;
 #ifdef VERIFY_UNWIND
   Caller c = {0};
   _Unwind_Backtrace(find_caller, &c);
@@ -721,9 +834,9 @@ static __attribute__((noinline)) void verify_marks(void) {
     fputs("funk: gc check: cannot find alloc_slow's caller by unwinding\n", stderr);
     abort();
   }
-  verify_reg = true;
+  RT->verify_reg = true;
   for (size_t i = 0; i < NSAVED; i++) verify_word(c.regs[i], &st, &n, &cap);
-  verify_reg = false;
+  RT->verify_reg = false;
   V *sp = (V *)c.sp;
 #else
   jmp_buf regs;
@@ -731,31 +844,31 @@ static __attribute__((noinline)) void verify_marks(void) {
   __asm__ volatile("" : : "r"(&regs) : "memory");
   V *sp = (V *)__builtin_frame_address(0);
 #endif
-  for (V *p = sp; p < (V *)fk_stack_base; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
-  for (size_t i = 0; i < nroots; i++)
-    for (V *p = *roots[i].base; p < *roots[i].base + *roots[i].count; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
+  for (V *p = sp; p < (V *)RT->fk_stack_base; p++) verify_word(*(RT->verify_slot = p), &st, &n, &cap);
+  for (size_t i = 0; i < RT->nroots; i++)
+    for (V *p = *RT->roots[i].base; p < *RT->roots[i].base + *RT->roots[i].count; p++) verify_word(*(RT->verify_slot = p), &st, &n, &cap);
   while (n) {
     size_t words = (size_t)(uintptr_t)st[--n];
     V *o = st[--n];
-    verify_from = o;
-    for (V *p = o + 1; p < o + words; p++) verify_word(*(verify_slot = p), &st, &n, &cap);
+    RT->verify_from = o;
+    for (V *p = o + 1; p < o + words; p++) verify_word(*(RT->verify_slot = p), &st, &n, &cap);
   }
 }
 
 /* The last pause: unswept lists for every chunk, and large objects swept. */
 static void gc_finish(bool was_forced) {
   double t0 = gcstats ? now_ms() : 0;
-  if (gcstress && !no_verify) verify_marks();
+  if (gcstress && !RT->no_verify) verify_marks();
   sweep();
   alloc_since_gc = 0;
-  forced += was_forced;
+  RT->forced += was_forced;
   if (gcstats) {
     double t = now_ms() - t0;
-    pause_done(t, &finish_max);
-    gc_count++;
-    fprintf(stderr, "gc %zu: start %.2f ms, %zu steps (max %.2f ms), finish %.2f ms, mark %.2f ms in all%s, live %.1f MiB, heap %zu MiB\n", gc_count,
-            cycle_start, cycle_steps, cycle_step_max, t, cycle_mark, was_forced ? ", forced" : "", (double)(live_bytes - black_bytes) / (1 << 20),
-            nchunks * (CHUNK_SIZE >> 20));
+    pause_done(t, &RT->finish_max);
+    RT->gc_count++;
+    fprintf(stderr, "gc %zu: start %.2f ms, %zu steps (max %.2f ms), finish %.2f ms, mark %.2f ms in all%s, live %.1f MiB, heap %zu MiB\n", RT->gc_count,
+            RT->cycle_start, RT->cycle_steps, RT->cycle_step_max, t, RT->cycle_mark, was_forced ? ", forced" : "", (double)(RT->live_bytes - RT->black_bytes) / (1 << 20),
+            RT->nchunks * (CHUNK_SIZE >> 20));
   }
 }
 
@@ -763,15 +876,15 @@ static void gc_finish(bool was_forced) {
    has allocated a whole threshold more, marking cannot keep up: it
    finishes in one pause. */
 static void gc_step(void) {
-  bool force = !gcstress && alloc_since_gc > 2 * cycle_start_threshold;
+  bool force = !gcstress && alloc_since_gc > 2 * RT->cycle_start_threshold;
   double t0 = gcstats ? now_ms() : 0;
   bool done = drain(force ? INFINITY : STEP_MS);
   if (gcstats) {
     double t = now_ms() - t0;
-    cycle_steps++;
-    cycle_mark += t;
-    if (t > cycle_step_max) cycle_step_max = t;
-    pause_done(t, &step_max);
+    RT->cycle_steps++;
+    RT->cycle_mark += t;
+    if (t > RT->cycle_step_max) RT->cycle_step_max = t;
+    pause_done(t, &RT->step_max);
   }
   if (done) gc_finish(force);
 }
@@ -783,18 +896,18 @@ static bool sweep_step(void) {
   double t0 = now_ms(), end = t0 + STEP_MS - 0.15; /* a chunk takes up to about 0.15 ms */
   bool done = true;
   for (size_t w = 0; w <= MAX_SMALL && done; w++)
-    while (unswept[w]) {
-      Chunk *c = chunk_at(unswept[w] - 1);
-      unswept[w] = c->next_unswept;
+    while (RT->unswept[w]) {
+      Chunk *c = chunk_at(RT->unswept[w] - 1);
+      RT->unswept[w] = c->next_unswept;
       sweep_chunk(c);
-      lazy_chunks++;
+      RT->lazy_chunks++;
       if (now_ms() > end) {
         done = false;
         break;
       }
     }
-  for (size_t w = 0; w <= MAX_SMALL; w++) done &= !unswept[w];
-  if (gcstats) pause_done(now_ms() - t0, &sweep_step_max);
+  for (size_t w = 0; w <= MAX_SMALL; w++) done &= !RT->unswept[w];
+  if (gcstats) pause_done(now_ms() - t0, &RT->sweep_step_max);
   return done;
 }
 
@@ -803,9 +916,9 @@ static void gc_due(void) {
   else if (sweep_step()) gc_start();
   if (fk_marking) {
     gc_threshold = 0;
-    next_step = alloc_since_gc + step_bytes;
+    RT->next_step = alloc_since_gc + RT->step_bytes;
   } else if (alloc_since_gc >= gc_threshold) {
-    gc_threshold = alloc_since_gc + step_bytes; /* the next sweep step */
+    gc_threshold = alloc_since_gc + RT->step_bytes; /* the next sweep step */
   }
 }
 
@@ -826,8 +939,8 @@ static void collect_now(void) {
 
 /* A runtime error, which a host recovers from (libfunk.h); no state is half-built. */
 static _Noreturn void heap_full(void) {
-  was_full = true;
-  fk_error("out of memory: the heap's limit is %zu MiB", heap_reserve >> 20);
+  RT->was_full = true;
+  fk_error("out of memory: the heap's limit is %zu MiB", RT->heap_reserve >> 20);
 }
 
 /* After the error a full heap raised has unwound (libfunk.h's calls): what
@@ -835,14 +948,14 @@ static _Noreturn void heap_full(void) {
    threshold go back to the system. The check of marks finds its roots from
    alloc_slow, so it is skipped. */
 void fk_recover(void) {
-  if (!was_full) return;
-  was_full = false;
-  no_verify = true;
+  if (!RT->was_full) return;
+  RT->was_full = false;
+  RT->no_verify = true;
   collect_now();
-  no_verify = false;
+  RT->no_verify = false;
 }
 
-static bool large_fits(size_t words) { return nchunks * CHUNK_SIZE + large_bytes + words * sizeof(V) <= heap_reserve; }
+static bool large_fits(size_t words) { return RT->nchunks * CHUNK_SIZE + RT->large_bytes + words * sizeof(V) <= RT->heap_reserve; }
 
 static V alloc_large(size_t words) {
   if (!large_fits(words)) {
@@ -851,16 +964,16 @@ static V alloc_large(size_t words) {
   }
   V *p = calloc(words, sizeof(V));
   if (!p) fk_fatal("out of memory");
-  large_bytes += words * sizeof(V);
-  if (nlarge == caplarge) {
-    caplarge = caplarge ? 2 * caplarge : 16;
-    larges = rt_realloc(larges, caplarge * sizeof *larges);
+  RT->large_bytes += words * sizeof(V);
+  if (RT->nlarge == RT->caplarge) {
+    RT->caplarge = RT->caplarge ? 2 * RT->caplarge : 16;
+    RT->larges = rt_realloc(RT->larges, RT->caplarge * sizeof *RT->larges);
   }
-  size_t i = nlarge++;
-  while (i > 0 && larges[i - 1].p > p) { larges[i] = larges[i - 1]; i--; }
-  larges[i] = (Large){p, words, 0};
-  if ((uintptr_t)p < large_lo) large_lo = (uintptr_t)p;
-  if ((uintptr_t)(p + words) > large_hi) large_hi = (uintptr_t)(p + words);
+  size_t i = RT->nlarge++;
+  while (i > 0 && RT->larges[i - 1].p > p) { RT->larges[i] = RT->larges[i - 1]; i--; }
+  RT->larges[i] = (Large){p, words, 0};
+  if ((uintptr_t)p < RT->large_lo) RT->large_lo = (uintptr_t)p;
+  if ((uintptr_t)(p + words) > RT->large_hi) RT->large_hi = (uintptr_t)(p + words);
   return (V)p;
 }
 
@@ -870,7 +983,7 @@ __attribute__((noclone)) /* verify_marks finds it by name */
 /* From a free list or a bump region; NULL at the heap's limit. */
 static V *alloc_small(size_t words) {
   V *o;
-  if (!freelist[words] && unswept[words] && !fk_marking) sweep_lazily(words); /* marks are partial while marking */
+  if (!freelist[words] && RT->unswept[words] && !fk_marking) sweep_lazily(words); /* marks are partial while marking */
   if ((o = freelist[words])) {
     freelist[words] = (V *)o[1];
   } else {
@@ -884,7 +997,7 @@ static V *alloc_small(size_t words) {
 
 static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uint32_t aux) {
   V *o;
-  if (fk_marking ? alloc_since_gc > next_step : alloc_since_gc > gc_threshold) gc_due();
+  if (fk_marking ? alloc_since_gc > RT->next_step : alloc_since_gc > gc_threshold) gc_due();
   if (words > MAX_SMALL) {
     o = (V *)alloc_large(words);
   } else {
@@ -929,9 +1042,6 @@ V fk_alloc(size_t words, int kind, int n, uint32_t aux) { return alloc(words, ki
 
 /* --------------------------------------------------------------- objects */
 
-FkCon *fk_cons;
-uint32_t fk_ncons;
-static uint32_t capcons;
 V fk_true, fk_false, fk_unit, fk_nil;
 
 static V static_obj(size_t words, int kind, int n, uint32_t aux) {
@@ -952,15 +1062,25 @@ void fk_nullary_table(const FkNullary *t, uint32_t n) {
   nullary_n = n;
 }
 
+/* False, True, () and []: one object each for the process, so every
+   session's fk_true is the same address. A compiled program uses its own. */
+static const FkNullary builtin_nullaries[] = {
+    [FK_C_FALSE] = {{K_CON, 0, 0, FK_C_FALSE}, 0},
+    [FK_C_TRUE] = {{K_CON, 0, 0, FK_C_TRUE}, 0},
+    [FK_C_UNIT] = {{K_CON, 0, 0, FK_C_UNIT}, 0},
+    [FK_C_NIL] = {{K_CON, 0, 0, FK_C_NIL}, 0},
+};
+
 static V nullary_obj(uint32_t id) {
   if (id < nullary_n && nullary_table[id].h.kind == K_CON && nullary_table[id].h.aux == id) return (V)&nullary_table[id];
+  if (id <= FK_C_NIL) return (V)&builtin_nullaries[id];
   return static_obj(1, K_CON, 0, id);
 }
 
 uint32_t fk_register_con(const char *name, int arity) {
-  if (fk_ncons == capcons) {
-    capcons = capcons ? 2 * capcons : 64;
-    fk_cons = rt_realloc(fk_cons, capcons * sizeof *fk_cons);
+  if (fk_ncons == RT->capcons) {
+    RT->capcons = RT->capcons ? 2 * RT->capcons : 64;
+    fk_cons = rt_realloc(fk_cons, RT->capcons * sizeof *fk_cons);
   }
   uint32_t id = fk_ncons++;
   fk_cons[id] = (FkCon){name, arity, arity == 0 ? nullary_obj(id) : 0, 0, NULL, 0};
@@ -1666,48 +1786,50 @@ V fk_p_peekcstring(V self, V *a) { return fk_cstr_result(FK_PTRV(a[0]), "peekCSt
 
 /* Callbacks (ffi.md, phase 3). A StablePtr is an index, plus one, into a
    root table, so a value C holds stays alive and does not move. */
-static V *stables;
-static bool *stable_live;
-static size_t nstables, capstables, free_stable; /* a freed index plus one; a freed slot holds the next */
 
 V fk_p_newstable(V self, V *a) {
   size_t i;
-  if (free_stable) {
-    i = free_stable - 1;
-    free_stable = (size_t)FK_INT(stables[i]);
+  if (RT->free_stable) {
+    i = RT->free_stable - 1;
+    RT->free_stable = (size_t)FK_INT(RT->stables[i]);
   } else {
-    if (nstables == capstables) {
-      capstables = capstables ? 2 * capstables : 64;
-      stables = rt_realloc(stables, capstables * sizeof *stables);
-      stable_live = rt_realloc(stable_live, capstables * sizeof *stable_live);
-      if (nstables == 0) fk_add_roots(&stables, &nstables);
+    if (RT->nstables == RT->capstables) {
+      RT->capstables = RT->capstables ? 2 * RT->capstables : 64;
+      RT->stables = rt_realloc(RT->stables, RT->capstables * sizeof *RT->stables);
+      RT->stable_live = rt_realloc(RT->stable_live, RT->capstables * sizeof *RT->stable_live);
+      if (RT->nstables == 0) fk_add_roots(&RT->stables, &RT->nstables);
     }
-    i = nstables++;
+    i = RT->nstables++;
   }
-  stables[i] = a[0];
-  stable_live[i] = true;
+  RT->stables[i] = a[0];
+  RT->stable_live[i] = true;
   return fk_ptr((void *)(uintptr_t)(i + 1));
 }
 
 static size_t stable_index(void *p) {
   size_t i = (size_t)(uintptr_t)p;
-  if (i == 0 || i > nstables || !stable_live[i - 1]) fk_error("%p is not a live StablePtr; was it freed?", p);
+  if (i == 0 || i > RT->nstables || !RT->stable_live[i - 1]) fk_error("%p is not a live StablePtr; was it freed?", p);
   return i - 1;
 }
 
-V fk_stable_deref(void *p) { return stables[stable_index(p)]; }
+V fk_stable_deref(void *p) { return RT->stables[stable_index(p)]; }
 V fk_p_derefstable(V self, V *a) { return fk_stable_deref(FK_PTRV(a[0])); }
 V fk_p_freestable(V self, V *a) {
   size_t i = stable_index(FK_PTRV(a[0]));
-  stables[i] = FK_MKINT((int64_t)free_stable);
-  stable_live[i] = false;
-  free_stable = i + 1;
+  RT->stables[i] = FK_MKINT((int64_t)RT->free_stable);
+  RT->stable_live[i] = false;
+  RT->free_stable = i + 1;
   return fk_unit;
 }
 
-static pthread_t funk_thread; /* set by task_main */
 
-bool fk_on_funk_thread(void) { return pthread_equal(pthread_self(), funk_thread); }
+bool fk_on_funk_thread(void) {
+#ifdef FK_SESSIONS
+  return thread_rt != NULL;
+#else
+  return pthread_equal(pthread_self(), RT->funk_thread);
+#endif
+}
 
 _Noreturn void fk_callback_thread(const char *name) {
   fprintf(stderr, "funk: callback `%s` was called on a thread other than funk's; declare it \"queue\" instead of \"callback\"\n", name);
@@ -1716,7 +1838,6 @@ _Noreturn void fk_callback_thread(const char *name) {
 
 /* A runtime error in a direct callback stops at its trampoline, which
    returns to C; the foreign call that led to it raises it again. */
-int fk_cb_failed;
 _Noreturn void fk_cb_rethrow(void) {
   fk_cb_failed = 0;
   if (fk_error_jmp) longjmp(*fk_error_jmp, 1);
@@ -1728,57 +1849,52 @@ _Noreturn void fk_cb_rethrow(void) {
    malloc, no lock. The ring is Vyukov's bounded queue: a slot's sequence
    number says whose turn it is. A full ring drops the event and counts it.
    waitEvent runs the next event's closure on funk's thread. */
-#define RING_SLOTS 4096
-static FkEvent ring[RING_SLOTS];
-static _Atomic size_t ring_head; /* the next slot to claim */
-static size_t ring_tail;         /* the next slot to run: funk's thread only */
-static _Atomic size_t ring_dropped;
 #ifdef __APPLE__
-static dispatch_semaphore_t ring_sem; /* one count per published event */
-#define SEM_POST() dispatch_semaphore_signal(ring_sem)
-#define SEM_WAIT() dispatch_semaphore_wait(ring_sem, DISPATCH_TIME_FOREVER)
-#define SEM_TRY() (dispatch_semaphore_wait(ring_sem, DISPATCH_TIME_NOW) == 0)
+#define SEM_POST(r) dispatch_semaphore_signal((r)->ring_sem)
+#define SEM_WAIT(r) dispatch_semaphore_wait((r)->ring_sem, DISPATCH_TIME_FOREVER)
+#define SEM_TRY(r) (dispatch_semaphore_wait((r)->ring_sem, DISPATCH_TIME_NOW) == 0)
 #else
-static sem_t ring_sem;
-#define SEM_POST() sem_post(&ring_sem)
-#define SEM_WAIT() while (sem_wait(&ring_sem) != 0)
-#define SEM_TRY() (sem_trywait(&ring_sem) == 0)
+#define SEM_POST(r) sem_post(&(r)->ring_sem)
+#define SEM_WAIT(r) while (sem_wait(&(r)->ring_sem) != 0)
+#define SEM_TRY(r) (sem_trywait(&(r)->ring_sem) == 0)
 #endif
 
 static void ring_init(void) {
-  for (size_t i = 0; i < RING_SLOTS; i++) atomic_init(&ring[i].seq, i);
+  if (!(RT->ring = calloc(RING_SLOTS, sizeof *RT->ring))) fk_fatal("out of memory");
+  for (size_t i = 0; i < RING_SLOTS; i++) atomic_init(&RT->ring[i].seq, i);
 #ifdef __APPLE__
-  ring_sem = dispatch_semaphore_create(0);
+  RT->ring_sem = dispatch_semaphore_create(0);
 #else
-  sem_init(&ring_sem, 0, 0);
+  sem_init(&RT->ring_sem, 0, 0);
 #endif
 }
 
-FkEvent *fk_event_claim(void) {
-  size_t pos = atomic_load_explicit(&ring_head, memory_order_relaxed);
+FkEvent *fk_event_claim(void) { /* any thread */
+  FkRt *r = ANY_RT;
+  size_t pos = atomic_load_explicit(&r->ring_head, memory_order_relaxed);
   for (;;) {
-    FkEvent *e = &ring[pos % RING_SLOTS];
+    FkEvent *e = &r->ring[pos % RING_SLOTS];
     size_t seq = atomic_load_explicit(&e->seq, memory_order_acquire);
     intptr_t dif = (intptr_t)seq - (intptr_t)pos;
     if (dif == 0) {
-      if (atomic_compare_exchange_weak_explicit(&ring_head, &pos, pos + 1, memory_order_relaxed, memory_order_relaxed)) return e;
+      if (atomic_compare_exchange_weak_explicit(&r->ring_head, &pos, pos + 1, memory_order_relaxed, memory_order_relaxed)) return e;
     } else if (dif < 0) { /* the slot is a lap behind: the ring is full */
-      atomic_fetch_add_explicit(&ring_dropped, 1, memory_order_relaxed);
+      atomic_fetch_add_explicit(&r->ring_dropped, 1, memory_order_relaxed);
       return NULL;
     } else {
-      pos = atomic_load_explicit(&ring_head, memory_order_relaxed);
+      pos = atomic_load_explicit(&r->ring_head, memory_order_relaxed);
     }
   }
 }
 
-void fk_event_publish(FkEvent *e) {
+void fk_event_publish(FkEvent *e) { /* any thread */
   atomic_store_explicit(&e->seq, atomic_load_explicit(&e->seq, memory_order_relaxed) + 1, memory_order_release);
-  SEM_POST();
+  SEM_POST(ANY_RT);
 }
 
 void fk_event_release(FkEvent *e) { /* the slot is free once its arguments are read */
-  atomic_store_explicit(&e->seq, ring_tail + RING_SLOTS, memory_order_release);
-  ring_tail++;
+  atomic_store_explicit(&e->seq, RT->ring_tail + RING_SLOTS, memory_order_release);
+  RT->ring_tail++;
 }
 
 void *fk_event_copy(FkEvent *e, size_t *used, const void *p, size_t n) {
@@ -1797,25 +1913,25 @@ void fk_event_uncopy(FkEvent *e, void *p) {
 /* The next event, once its producer has published it: a producer that
    claimed an earlier slot may still be writing, for a few instructions. */
 static void run_next(void) {
-  FkEvent *e = &ring[ring_tail % RING_SLOTS];
-  while (atomic_load_explicit(&e->seq, memory_order_acquire) != ring_tail + 1) sched_yield();
+  FkEvent *e = &RT->ring[RT->ring_tail % RING_SLOTS];
+  while (atomic_load_explicit(&e->seq, memory_order_acquire) != RT->ring_tail + 1) sched_yield();
   if (e->run) e->run(e); /* run releases the slot before calling funk */
   else fk_event_release(e); /* its bytes could not be copied: dropped */
 }
 
 V fk_p_waitevent(V self, V *a) {
-  SEM_WAIT();
+  SEM_WAIT(RT);
   run_next();
   return fk_unit;
 }
 
 V fk_p_pollevent(V self, V *a) {
-  if (!SEM_TRY()) return fk_false;
+  if (!SEM_TRY(RT)) return fk_false;
   run_next();
   return fk_true;
 }
 
-V fk_p_droppedevents(V self, V *a) { return FK_MKINT((int64_t)atomic_load(&ring_dropped)); }
+V fk_p_droppedevents(V self, V *a) { return FK_MKINT((int64_t)atomic_load(&RT->ring_dropped)); }
 
 /* show for a String, and for a [Char], which shows as one: quoted, escaped. */
 V fk_p_showstr(V self, V *a) { return fk_p_show(self, a); }
@@ -2026,16 +2142,20 @@ V fk_prim_value(int i) {
 /* ------------------------------------------------------------------ init */
 
 void fk_init(void) {
-  static const char *tuples[] = {"(,)", "(,,)", "(,,,)", "(,,,,)", "(,,,,,)", "(,,,,,,)"};
+  static const char *const tuples[] = {"(,)", "(,,)", "(,,,)", "(,,,,)", "(,,,,,)", "(,,,,,,)"};
   if (fk_ncons) return;
   ring_init();
   const char *s = getenv("FUNK_GCSTATS");
-  if ((gcstats = s && *s && strcmp(s, "0") != 0)) atexit(gc_summary);
+  gcstats = s && *s && strcmp(s, "0") != 0;
+#ifndef FK_SESSIONS
+  if (gcstats) atexit(gc_summary); /* libfunk: when the session's thread ends */
+#endif
   s = getenv("FUNK_GCSTRESS");
   if ((gcstress = s && *s && strcmp(s, "0") != 0)) {
-    gc_min = gc_threshold = (size_t)64 << 10;
-    step_bytes = (size_t)16 << 10;
+    RT->gc_min = (size_t)64 << 10;
+    RT->step_bytes = (size_t)16 << 10;
   }
+  gc_threshold = RT->gc_min;
   fk_register_con("False", 0);
   fk_register_con("True", 0);
   fk_register_con("()", 0);
@@ -2048,7 +2168,7 @@ void fk_init(void) {
   fk_nil = fk_cons[FK_C_NIL].nullary;
 }
 
-typedef struct { void (*fn)(void *); void *arg; } Task;
+typedef struct { void (*fn)(void *); void *arg; FkRt *rt; } Task;
 
 /* Generated code has no stack check: overflowing reaches the guard
    region below the stack and faults. The handler runs on its own stack. */
@@ -2072,19 +2192,32 @@ static void pass_on(int sig, siginfo_t *si, void *ctx) {
   signal(sig, SIG_DFL); /* a real fault: the faulting instruction runs again and the process ends */
 }
 
+#ifdef FK_SESSIONS
+#define SNAP_LO(r) ((r)->sh.snap_lo)
+#else
+#define SNAP_LO(r) fk_snap_lo
+#endif
+
+/* On the signal stack, so not RT: the session by address, which another
+   thread's write to a snapshot page has too. */
 static void on_fault(int sig, siginfo_t *si, void *ctx) {
-  char *a = si->si_addr, *lo = __atomic_load_n(&fk_snap_lo, __ATOMIC_RELAXED); /* the fault may be another thread's */
-  if (lo && a >= lo && a < snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
+  FkRt *r = ANY_RT;
+  if (!r) {
+    pass_on(sig, si, ctx);
+    return;
+  }
+  char *a = si->si_addr, *lo = __atomic_load_n(&SNAP_LO(r), __ATOMIC_RELAXED); /* the fault may be another thread's */
+  if (lo && a >= lo && a < r->snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
     char *pg = (char *)((uintptr_t)a & ~(uintptr_t)(page_size - 1));
     size_t i = (size_t)(pg - lo) / page_size;
-    if (!snap_copied[i]) {
-      memcpy(snap_area + i * page_size, pg, page_size);
-      snap_copied[i] = 1;
+    if (!r->snap_copied[i]) {
+      memcpy(r->snap_area + i * page_size, pg, page_size);
+      r->snap_copied[i] = 1;
     }
     mprotect(pg, page_size, PROT_READ | PROT_WRITE);
     return;
   }
-  if (a >= guard_lo && a < guard_hi) {
+  if (a >= r->guard_lo && a < r->guard_hi) {
     static const char msg[] = "runtime error: stack overflow\n";
     fflush(stdout); /* not async-signal-safe, but the process exits next */
     if (write(2, msg, sizeof msg - 1) < 0) {}
@@ -2095,8 +2228,12 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
 
 static void *task_main(void *p) {
   Task *t = p;
-  stack_top = __builtin_frame_address(0);
-  funk_thread = pthread_self();
+#ifdef FK_SESSIONS
+  thread_rt = t->rt;
+#endif
+  fk_init(); /* on the session's stack: RT is found through it */
+  RT->stack_top = __builtin_frame_address(0);
+  RT->funk_thread = pthread_self();
   stack_t ss = {.ss_sp = malloc(1 << 16), .ss_size = 1 << 16};
   struct sigaction sa = {0};
   sa.sa_sigaction = on_fault;
@@ -2108,6 +2245,9 @@ static void *task_main(void *p) {
     handlers_installed = true;
   }
   t->fn(t->arg);
+#ifdef FK_SESSIONS
+  if (gcstats) gc_summary();
+#endif
   fflush(stdout);
   return NULL;
 }
@@ -2117,42 +2257,68 @@ static void *task_main(void *p) {
    pages only as the stack grows; the size halves if the mapping fails.
    The interpreter and the runtime check the stack and report overflow as
    an error the REPL recovers from; compiled code relies on the guard. */
-static size_t stack_size = (size_t)4 << 30;
 
 /* libfunk.h, funk_config; 0 keeps a default. The threshold stays at most a
    quarter of the heap, and the stack above its guard and check margin. */
-void fk_set_memory(size_t heap, size_t threshold, size_t stack) {
-  if (heap) heap_reserve = heap < 4 * CHUNK_SIZE ? 4 * CHUNK_SIZE : (heap + CHUNK_SIZE - 1) & ~(CHUNK_SIZE - 1);
-  if (threshold) gc_min = threshold;
-  if (gc_min > heap_reserve / 4) gc_min = heap_reserve / 4;
-  gc_threshold = gc_min;
-  if (stack) stack_size = stack < ((size_t)32 << 20) ? (size_t)32 << 20 : stack;
+static void set_sizes(FkRt *r, size_t heap, size_t threshold, size_t stack) {
+  r->heap_reserve = (size_t)64 << 30; /* address space only; MAP_NORESERVE */
+  r->gc_min = (size_t)128 << 20;
+  r->stack_size = (size_t)4 << 30;
+  if (heap) r->heap_reserve = heap < 4 * CHUNK_SIZE ? 4 * CHUNK_SIZE : (heap + CHUNK_SIZE - 1) & ~(CHUNK_SIZE - 1);
+  if (threshold) r->gc_min = threshold;
+  if (r->gc_min > r->heap_reserve / 4) r->gc_min = r->heap_reserve / 4;
+  if (stack) r->stack_size = stack < ((size_t)32 << 20) ? (size_t)32 << 20 : stack;
 }
 
-static Task start_task; /* fk_start's; task_main copies it before fk_start returns */
+#ifndef FK_SLOT
+#define FK_SLOT ((uintptr_t)1 << 33)
+#endif
 
-bool fk_start(void (*fn)(void *), void *arg, pthread_t *th) {
-  size_t size = stack_size, guard = (size_t)16 << 20; /* larger than any frame */
-  fk_init();
-  char *mem = MAP_FAILED;
-  while (size >= ((size_t)32 << 20)) { /* above the guard and the check margin */
-    mem = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
-    if (mem != MAP_FAILED) break;
-    size /= 2;
+static Task start_task; /* fk_start's; task_main reads it before fk_start returns */
+
+/* The stack lies at the top of an FK_SLOT-aligned slot of address space,
+   below a page whose last word points to the session (rt.h, fk_here). The
+   page is not the thread's: glibc keeps a thread's own data at the top of
+   the stack it is given. */
+FkRt *fk_start(void (*fn)(void *), void *arg, pthread_t *th, size_t heap, size_t threshold, size_t stack) {
+#ifdef FK_SESSIONS
+  FkRt *r = calloc(1, sizeof *r);
+  if (!r) { perror("funk: session"); return NULL; }
+#else
+  FkRt *r = &fk_rt;
+#endif
+  set_sizes(r, heap, threshold, stack);
+  r->heap_lo = r->large_lo = UINTPTR_MAX;
+  r->step_bytes = STEP_BYTES;
+  size_t pg = (size_t)sysconf(_SC_PAGESIZE), guard = (size_t)16 << 20; /* larger than any frame */
+  char *res = mmap(NULL, 2 * FK_SLOT, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+  if (res == MAP_FAILED) { perror("funk: mmap stack"); return NULL; }
+  char *slot = (char *)(((uintptr_t)res + FK_SLOT - 1) & ~(FK_SLOT - 1)), *top = slot + FK_SLOT;
+  if (slot > res) munmap(res, (size_t)(slot - res));
+  if (res + 2 * FK_SLOT > top) munmap(top, (size_t)(res + 2 * FK_SLOT - top));
+  size_t size = r->stack_size < FK_SLOT - pg ? r->stack_size : FK_SLOT - pg;
+  char *mem = top - pg - size;
+  if (mprotect(top - pg, pg, PROT_READ | PROT_WRITE) || mprotect(mem + guard, size - guard, PROT_READ | PROT_WRITE)) {
+    perror("funk: mprotect stack");
+    return NULL;
   }
-  if (mem == MAP_FAILED) { perror("funk: mmap stack"); return false; }
-  mprotect(mem, guard, PROT_NONE);
+  *(FkRt **)(top - sizeof(FkRt *)) = r;
   if (size > ((size_t)64 << 20)) core_dump(mem, size - ((size_t)64 << 20), false); /* a core keeps the top 64 MiB of stack */
-  guard_lo = mem;
-  guard_hi = mem + guard;
-  fk_stack_base = mem + size;
+  r->guard_lo = mem;
+  r->guard_hi = mem + guard;
+  r->fk_stack_base = mem + size;
+#ifdef FK_SESSIONS
+  r->sh.stack_limit = mem + guard + ((size_t)1 << 20);
+  atomic_store(&last_rt, r);
+#else
   fk_stack_limit = mem + guard + ((size_t)1 << 20);
+#endif
   pthread_attr_t attr;
-  start_task = (Task){fn, arg};
+  start_task = (Task){fn, arg, r};
   pthread_attr_init(&attr);
   pthread_attr_setstack(&attr, mem, size);
-  if (pthread_create(th, &attr, task_main, &start_task)) { perror("funk: pthread_create"); return false; }
-  return true;
+  if (pthread_create(th, &attr, task_main, &start_task)) { perror("funk: pthread_create"); return NULL; }
+  return r;
 }
 
 void fk_stop(pthread_t th) {
@@ -2166,7 +2332,7 @@ void fk_stop(pthread_t th) {
 
 int fk_run(void (*fn)(void *), void *arg) {
   pthread_t th;
-  if (!fk_start(fn, arg, &th)) return 1;
+  if (!fk_start(fn, arg, &th, 0, 0, 0)) return 1;
   fk_stop(th);
   return 0;
 }

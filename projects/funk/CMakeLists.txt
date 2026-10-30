@@ -27,7 +27,9 @@ set_target_properties(libfunk PROPERTIES OUTPUT_NAME funk C_VISIBILITY_PRESET hi
   POSITION_INDEPENDENT_CODE ON PUBLIC_HEADER src/libfunk.h)
 target_include_directories(libfunk INTERFACE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<INSTALL_INTERFACE:include>)
-target_compile_definitions(libfunk PRIVATE FUNK_VERSION="${PROJECT_VERSION}")
+# FK_SESSIONS: the runtime's state per session, found from the stack (src/rt.h);
+# compiled programs paste src/rt.c without it, as one session
+target_compile_definitions(libfunk PRIVATE FUNK_VERSION="${PROJECT_VERSION}" FK_SESSIONS)
 target_compile_options(libfunk PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(libfunk PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
 

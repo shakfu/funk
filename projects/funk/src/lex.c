@@ -23,7 +23,7 @@ typedef struct {
 } Lexer;
 
 const char *tok_name(TokKind k) {
-  static const char *names[] = {
+  static const char *const names[] = {
       "end of input", "identifier", "constructor", "operator", "operator", "integer", "float",
       "character", "string", "'('", "')'", "'['", "']'", "','", "';' or new line", "'`'",
       "'{'", "'}'", "start of block", "end of block (check indentation)", "'='", "'|'", "'->'",

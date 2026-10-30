@@ -42,14 +42,14 @@ static int gref(Expr *e, Nm *loc) {
 }
 
 static Bind *gbind(int g) {
-  Bind *b = g >= 0 ? globals.a[g].bind : NULL;
+  Bind *b = g >= 0 ? CS->globals.a[g].bind : NULL;
   if (b && b->own_of) b = b->own_of; /* a reuse copy computes what it copies: fusion sees concat, not concat@reuse0 */
   return b && b->e->k == E_LAM && b->e->lam->ptypes ? b : NULL;
 }
 
 /* ---------------------------------------------- effects and failure */
 
-static bool impure_prim(int g) { return type_acts(globals.a[g].type); }
+static bool impure_prim(int g) { return type_acts(CS->globals.a[g].type); }
 
 static bool divides(const char *n) {
   return !strcmp(n, "div") || !strcmp(n, "mod") || !strcmp(n, "quot") || !strcmp(n, "rem");
@@ -68,7 +68,7 @@ static bool partial_prim(const char *n) {
 }
 
 bool prim_call_total(Expr *e) {
-  const char *n = globals.a[e->fn->idx].name;
+  const char *n = CS->globals.a[e->fn->idx].name;
   if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
   if (shifts(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival >= 0;
   return !partial_prim(n);
@@ -78,10 +78,10 @@ bool prim_call_total(Expr *e) {
    failing; otherwise: without effects. */
 static bool gval_ok(int g, bool tot) {
   if (g < 0) return false;
-  if (globals.a[g].prim >= 0) return tot ? !partial_prim(globals.a[g].name) : !impure_prim(g);
-  if (globals.a[g].ffi) return !tot && globals.a[g].ffi->pure; /* C may fail in ways funk cannot see */
-  Bind *b = globals.a[g].bind;
-  if (!b) return !globals.a[g].lam; /* a value, evaluated at startup, or an unanalyzed function */
+  if (CS->globals.a[g].prim >= 0) return tot ? !partial_prim(CS->globals.a[g].name) : !impure_prim(g);
+  if (CS->globals.a[g].ffi) return !tot && CS->globals.a[g].ffi->pure; /* C may fail in ways funk cannot see */
+  Bind *b = CS->globals.a[g].bind;
+  if (!b) return !CS->globals.a[g].lam; /* a value, evaluated at startup, or an unanalyzed function */
   if (b->e->k != E_LAM) return true;
   return tot ? b->total : b->pure;
 }
@@ -119,15 +119,15 @@ static bool ok_e(Expr *e, Nm *loc, Nm *call, bool tot) {
     if (f->k != E_VAR) return false;
     int g = gref(f, loc);
     if (g < 0) return in(loc, f->name) && in(call, f->name);
-    if (globals.a[g].prim >= 0) {
-      const char *n = globals.a[g].name;
-      if (e->n > fk_prims[globals.a[g].prim].arity) return false; /* applies an unknown result */
+    if (CS->globals.a[g].prim >= 0) {
+      const char *n = CS->globals.a[g].name;
+      if (e->n > fk_prims[CS->globals.a[g].prim].arity) return false; /* applies an unknown result */
       if (!tot) return !impure_prim(g);
       if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
       if (shifts(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival >= 0;
       return !partial_prim(n);
     }
-    if (globals.a[g].ffi) return e->n <= globals.a[g].ffi->arity && gval_ok(g, tot);
+    if (CS->globals.a[g].ffi) return e->n <= CS->globals.a[g].ffi->arity && gval_ok(g, tot);
     Bind *b = gbind(g);
     if (!b || e->n > b->e->lam->n) return false;
     return tot ? b->total : b->pure;
@@ -173,7 +173,7 @@ static bool fn_ok(Expr *f, Nm *loc, bool tot) {
     for (int i = 0; i < f->n; i++)
       if (!ok_e(f->args[i], loc, NULL, tot)) return false;
     int g = gref(f->fn, loc);
-    if (g >= 0 && globals.a[g].prim >= 0) return f->n < fk_prims[globals.a[g].prim].arity && gval_ok(g, tot);
+    if (g >= 0 && CS->globals.a[g].prim >= 0) return f->n < fk_prims[CS->globals.a[g].prim].arity && gval_ok(g, tot);
     Bind *b = gbind(g);
     return b && f->n < b->e->lam->n && (tot ? b->total : b->pure);
   }
@@ -207,18 +207,36 @@ static void analyze(Bind **bs, int n) {
 
 /* ------------------------------------------------------ expressions */
 
-static int fline, fcol, nfresh;
+enum { F_NONE, F_MAP, F_FILTER, F_TAKE, F_TAKEWHILE, F_CONCAT, F_FOLDL, F_ANY, F_ALL, F_RANGE, F_REPLICATE, F_N };
+
+/* fuse.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  int fline, fcol, nfresh;
+  Bind *core[F_N];
+  Nm *floc, *flazy;
+  bool changed;
+} FuseState;
+static const FuseState fuse_init = {0};
+#define ST ((FuseState *)fk_here()->cc[CC_FUSE])
+
+void *fuse_state_new(void) {
+  FuseState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = fuse_init;
+  return s;
+}
+
 
 static Expr *mk(int k, Type *t) {
   Expr *e = NEW(Expr);
   e->k = k;
-  e->line = fline;
-  e->col = fcol;
+  e->line = ST->fline;
+  e->col = ST->fcol;
   e->ty = t;
   return e;
 }
 
-static const char *fresh(void) { return intern(xsprintf("$f%d", nfresh++)); }
+static const char *fresh(void) { return intern(xsprintf("$f%d", ST->nfresh++)); }
 
 static Type *t_int(void) { return tcon_new("Int", 0, NULL); }
 static Type *t_bool(void) { return tcon_new("Bool", 0, NULL); }
@@ -282,7 +300,7 @@ static Expr *eif(Expr *c, Expr *t, Expr *f, Type *ty) {
 
 static Pat *pvar(const char *name, Type *t) {
   Pat *p = NEW(Pat);
-  *p = (Pat){.k = P_VAR, .line = fline, .col = fcol, .name = name, .ty = t};
+  *p = (Pat){.k = P_VAR, .line = ST->fline, .col = ST->fcol, .name = name, .ty = t};
   return p;
 }
 
@@ -300,7 +318,7 @@ static Alt *alt1(Pat *p, Expr *body) {
 
 static Expr *ecase(Expr *s, int na, Alt **alts, Type *t) {
   Expr *e = mk(E_CASE, t);
-  e->name = cur_file;
+  e->name = CS->cur_file;
   e->ns = 1;
   e->scruts = xmalloc(sizeof *e->scruts);
   e->scruts[0] = s;
@@ -319,8 +337,8 @@ static Expr *ebind(Expr *s, const char *x, Expr *body) {
 static Expr *ematch(Expr *l, Expr *nil, const char *x, const char *rest, Expr *cons) {
   Type *lt = l->ty, *et = elem_of(lt);
   Pat *pn = NEW(Pat), *pc = NEW(Pat);
-  *pn = (Pat){.k = P_CON, .line = fline, .col = fcol, .name = intern("[]"), .con = FK_C_NIL, .ty = lt};
-  *pc = (Pat){.k = P_CON, .line = fline, .col = fcol, .name = intern(":"), .con = FK_C_CONS, .n = 2, .ty = lt};
+  *pn = (Pat){.k = P_CON, .line = ST->fline, .col = ST->fcol, .name = intern("[]"), .con = FK_C_NIL, .ty = lt};
+  *pc = (Pat){.k = P_CON, .line = ST->fline, .col = ST->fcol, .name = intern(":"), .con = FK_C_CONS, .n = 2, .ty = lt};
   pc->args = xmalloc(2 * sizeof *pc->args);
   pc->args[0] = pvar(x, et);
   pc->args[1] = pvar(rest, lt);
@@ -556,7 +574,7 @@ static bool is_value(Expr *e, Nm *loc, Nm *lazy) {
       if (!is_value(e->args[i], loc, lazy)) return false;
     if (e->fn->k == E_CON) return true;
     int g = gref(e->fn, loc);
-    if (g >= 0 && globals.a[g].prim >= 0) return e->n < fk_prims[globals.a[g].prim].arity;
+    if (g >= 0 && CS->globals.a[g].prim >= 0) return e->n < fk_prims[CS->globals.a[g].prim].arity;
     Bind *b = gbind(g);
     return b && e->n < b->e->lam->n;
   }
@@ -567,15 +585,13 @@ static bool is_value(Expr *e, Nm *loc, Nm *lazy) {
 
 /* -------------------------------------------------------- pipelines */
 
-enum { F_NONE, F_MAP, F_FILTER, F_TAKE, F_TAKEWHILE, F_CONCAT, F_FOLDL, F_ANY, F_ALL, F_RANGE, F_REPLICATE, F_N };
 static const char *const core_name[F_N] = {"", "map", "filter", "take", "takeWhile", "concat", "foldl", "any", "all",
                                             "enumFromTo", "replicate"};
-static Bind *core[F_N];
 
 static int core_kind(Bind *b) {
   if (b->from) b = b->from;
   for (int k = 1; k < F_N; k++)
-    if (core[k] == b) return k;
+    if (ST->core[k] == b) return k;
   return F_NONE;
 }
 
@@ -867,11 +883,9 @@ static Expr *flow(Gen *g, int lv, int j, Expr *y, Expr **cur) {
 typedef struct { Expr *fn; bool expr; int at; } Item;
 typedef VEC(Expr *) Exprs; /* per-element work, in flow order */
 
-static Nm *floc, *flazy;
-
 /* A template for e: e itself if a value, else a setup variable. */
 static Expr *setup(Gen *g, Expr *e, int level, Exprs *s1) {
-  if (is_value(e, floc, flazy)) return e;
+  if (is_value(e, ST->floc, ST->flazy)) return e;
   if (level == 0) {
     const char *x = fresh();
     VPUSH(g->sn, x);
@@ -954,8 +968,8 @@ static bool fuse_at(Expr *e, Nm *loc, Nm *lazy) {
       if (!total[i]) return false;
   /* Parameters and their values at entry, setup in evaluation order:
      outermost stage first, producer last. */
-  floc = loc;
-  flazy = lazy;
+  ST->floc = loc;
+  ST->flazy = lazy;
   VEC(Expr *) init = {0};
   g.loop = fresh();
   g.res = e->ty;
@@ -988,7 +1002,7 @@ static bool fuse_at(Expr *e, Nm *loc, Nm *lazy) {
     }
   if (g.cm) {
     Pipe *in = g.cm->inner;
-    floc = iloc;
+    ST->floc = iloc;
     g.iv = param(&g, g.cm->v, g.nA ? g.A[g.nA - 1]->out : top->elem); /* the outer elements' type */
     /* Per outer element, in evaluation order: outermost stage first. */
     Exprs s1 = {0};
@@ -1018,7 +1032,7 @@ static bool fuse_at(Expr *e, Nm *loc, Nm *lazy) {
     if (in->kind == F_RANGE) g.hi1 = param(&g, fresh(), t_int());
     for (int i = 0; i < g.nB; i++)
       if (g.B[i]->kind == F_TAKE) g.B[i]->cnt = param(&g, fresh(), t_int());
-    floc = loc;
+    ST->floc = loc;
   }
   if (g.cons && g.cons->kind == F_FOLDL) {
     g.iacc = param(&g, fresh(), g.cons->out);
@@ -1054,12 +1068,12 @@ static bool fuse_at(Expr *e, Nm *loc, Nm *lazy) {
   L->params = g.pn.a;
   L->ptypes = g.pt.a;
   L->body = body;
-  L->line = fline;
-  L->col = fcol;
+  L->line = ST->fline;
+  L->col = ST->fcol;
   Expr *lam = mk(E_LAM, loop_type(&g));
   lam->lam = L;
   Bind *lb = NEW(Bind);
-  *lb = (Bind){.name = g.loop, .e = lam, .line = fline, .col = fcol, .type = lam->ty};
+  *lb = (Bind){.name = g.loop, .e = lam, .line = ST->fline, .col = ST->fcol, .type = lam->ty};
   Expr *let = mk(E_LET, g.res);
   let->g.b = xmalloc(sizeof *let->g.b);
   let->g.b[0] = lb;
@@ -1088,13 +1102,12 @@ static void fuse_rhs(Rhs *r, Nm *loc, Nm *lazy) {
   }
 }
 
-static bool changed;
 
 static void fuse_expr(Expr *e, Nm *loc, Nm *lazy) {
   if (e->k == E_APP) {
-    fline = e->line;
-    fcol = e->col;
-    if (fuse_at(e, loc, lazy)) changed = true;
+    ST->fline = e->line;
+    ST->fcol = e->col;
+    if (fuse_at(e, loc, lazy)) ST->changed = true;
   }
   switch (e->k) {
   case E_APP:
@@ -1132,27 +1145,27 @@ static void fuse_expr(Expr *e, Nm *loc, Nm *lazy) {
 /* Fuse pipelines in the chunk's bindings; returns how many were changed
    and moves them to the front of all, for lift_locals. */
 int fuse_lists(Bind **all, int n) {
-  bool prelude = !strcmp(cur_file, "<prelude>");
+  bool prelude = !strcmp(CS->cur_file, "<prelude>");
   VEC(Bind *) fns = {0};
   for (int i = 0; i < n; i++) {
     Bind *b = all[i];
-    if (b->e->k == E_LAM && !globals.a[b->gidx].bind) globals.a[b->gidx].bind = b; /* type-class clones */
+    if (b->e->k == E_LAM && !CS->globals.a[b->gidx].bind) CS->globals.a[b->gidx].bind = b; /* type-class clones */
     b->prelude = prelude;
     if (prelude)
       for (int k = 1; k < F_N; k++)
-        if (b->name == intern(core_name[k])) core[k] = b;
+        if (b->name == intern(core_name[k])) ST->core[k] = b;
     if (b->e->k == E_LAM && b->e->lam->ptypes) VPUSH(fns, b);
   }
   analyze(fns.a, fns.n);
   if (getenv("FK_NOFUSE")) return 0;
   int nc = 0;
   for (int i = 0; i < n; i++) {
-    changed = false;
+    ST->changed = false;
     Nm *loc = NULL;
     if (all[i]->e->k == E_LAM)
       for (int j = 0; j < all[i]->e->lam->n; j++) loc = nm(loc, all[i]->e->lam->params[j]);
     fuse_expr(all[i]->e->k == E_LAM ? all[i]->e->lam->body : all[i]->e, loc, NULL);
-    if (changed) {
+    if (ST->changed) {
       Bind *t = all[nc];
       all[nc++] = all[i];
       all[i] = t;

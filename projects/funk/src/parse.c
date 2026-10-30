@@ -72,8 +72,24 @@ static Token *expect(P *p, TokKind k, const char *what) {
   return next(p);
 }
 
-static int fresh_counter;
-static const char *fresh(const char *prefix) { return intern(xsprintf("$%s%d", prefix, fresh_counter++)); }
+/* parse.c's state, one per session (embedding.md, phase 2) */
+typedef struct {
+  int fresh_counter;
+  /* Declared fixities, as prec * 3 + index in "lrn". Kept across inputs so
+     that later REPL inputs see them; main.c rolls them back with a failed input. */
+  Map user_fixities;
+} ParseState;
+static const ParseState parse_init = {0};
+#define ST ((ParseState *)fk_here()->cc[CC_PARSE])
+
+void *parse_state_new(void) {
+  ParseState *s = malloc(sizeof *s);
+  if (!s) fk_fatal("out of memory");
+  *s = parse_init;
+  return s;
+}
+
+static const char *fresh(const char *prefix) { return intern(xsprintf("$%s%d", prefix, ST->fresh_counter++)); }
 
 /* Type.name: a constructor token directly followed by a field token. */
 static bool qual_start(P *p, int off) { return ahead(p, off)->k == T_CONID && ahead(p, off + 1)->k == T_FIELD; }
@@ -95,14 +111,10 @@ static const Fixity fixities[] = {
     {">>>", 1, 'r'}, {"$", 0, 'r'},   {"shiftL", 8, 'l'}, {"shiftR", 8, 'l'}, {".&.", 7, 'l'},
     {"xor", 6, 'l'}, {".|.", 5, 'l'}}; /* Data.Bits */
 
-/* Declared fixities, as prec * 3 + index in "lrn". Global so that later
-   REPL inputs see them; main.c rolls them back with a failed input. */
-static Map user_fixities;
-
 static Fixity fixity(const char *op) {
   const char *dot = islower((unsigned char)op[0]) ? strchr(op, '.') : NULL;
   if (dot && dot[1]) op = intern(dot + 1); /* q.op: an import's operator has its own fixity */
-  int v = map_get(&user_fixities, op);
+  int v = map_get(&ST->user_fixities, op);
   if (v >= 0) return (Fixity){op, v / 3, "lrn"[v % 3]};
   for (size_t i = 0; i < sizeof fixities / sizeof fixities[0]; i++)
     if (strcmp(fixities[i].op, op) == 0) return fixities[i];
@@ -147,7 +159,7 @@ static void parse_fixity(P *p, bool reg, Names *names) {
     for (int i = 0; i < names->n; i++)
       if (names->a[i] == op->s) cerror(op->line, op->col, "duplicate fixity declaration for `%s`", op->s);
     VPUSH(*names, op->s);
-    if (reg) map_put(&user_fixities, op->s, prec * 3 + assoc);
+    if (reg) map_put(&ST->user_fixities, op->s, prec * 3 + assoc);
   } while (accept(p, T_COMMA));
 }
 
@@ -277,7 +289,7 @@ static Rhs simple_rhs(Expr *body) {
 
 static Expr *mkcase(int ns, Expr **scruts, int na, Alt **alts, int line, int col) {
   Expr *e = mk(E_CASE, line, col);
-  e->name = cur_file; /* for match-failure messages */
+  e->name = CS->cur_file; /* for match-failure messages */
   e->ns = ns;
   e->scruts = scruts;
   e->na = na;
