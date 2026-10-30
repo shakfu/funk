@@ -30,9 +30,16 @@ skip p n = if n <= 0 then () else do
   frames p (min n 64)
   skip p (n - 64)
 
--- s's first n frames on a fresh graph
+-- s's first n frames on a fresh graph: after silence, no state carries over
 first :: g.Player -> Int -> g.Sig ->> [Int]
 first p n s = do
+  g.play p g.Silence
+  frames p 0
+  next p n s
+
+-- s's next n frames: its nodes keep the states of the graph before's
+next :: g.Player -> Int -> g.Sig ->> [Int]
+next p n s = do
   g.play p s
   frames p n
 
@@ -69,14 +76,21 @@ main = do
   q <- g.player [k] 1000.0 64
   env <- \gate -> g.named "env" (dsp.adsr (dsp.dc 0.01) (dsp.dc 0.01) (dsp.dc 0.5) (dsp.dc 0.01) gate)
   print (first q 30 (env 1))
-  print (first q 8 (env 0))
-  -- a frequency changed: the named saw keeps its phase, 3/8 of a cycle,
-  -- and steps by 1/4 from there; unnamed, it starts again at 0
+  print (next q 8 (env 0))
+  -- a frequency changed: the saw keeps its phase, 3/8 of a cycle, and
+  -- steps by 1/4 from there, named or not; unnamed, also inside a new node,
+  -- as when a filter is put around it; after silence it starts again at 0
   osc <- \f -> g.named "osc" (dsp.saw f)
   first p 3 (osc 1000)
-  print (first p 3 (osc 2000))
+  print (next p 3 (osc 2000))
   first p 3 (dsp.saw 1000)
+  print (next p 3 (dsp.saw 2000))
+  first p 3 (dsp.saw 1000)
+  print (next p 3 (dsp.saw 2000 * 1))
   print (first p 3 (dsp.saw 2000))
+  -- two of one shape keep theirs in order: 1/8 and 1/4 of a cycle a frame
+  first p 3 (dsp.saw 1000 + dsp.saw 2000 * 0)
+  print (next p 1 (dsp.saw 1000 + dsp.saw 2000 * 0))
   -- a control: a gate on at frame 5 and off at 10, at 1000 frames a
   -- second; the envelope rises over 3 frames from frame 5 and falls over 2
   -- from frame 10

@@ -5,7 +5,8 @@
 -- first, finding each kernel in the player's libraries, and swaps it in
 -- from the audio thread's next block. A named node is one node however
 -- often the tree uses it, and keeps its state across plays while its
--- kernel and initial state stay the same. A control's output is a value
+-- kernel and initial state stay the same; an unnamed one keeps it too,
+-- matched by its shape (funk_graph_name in graph.h). A control's output is a value
 -- that send changes from a given frame, such as a note's gate. Channels
 -- is a signal of several channels: a node with such an input becomes one
 -- node per channel, so stereo builds from mono kernels, as SuperCollider's

@@ -14,8 +14,8 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] The plugin compiled graph.fk's imports with `$CC` at load. Its glue is now linked in (`funk emit-c --glue`, `funk_glue`), so it runs no C compiler ([docs/dev/plugin.md](docs/dev/plugin.md#linked-glue)).
 
-- [ ] A live evaluation that compiles for more than the 50 ms lookahead starts its first note late. gh:5
-  - It plays at a block's start. `tests/hosts/clap`'s real-time check failed 3 runs in 12 under `ctest -j 10`, and now runs serially.
+- [x] A live evaluation that compiles for more than the 50 ms lookahead starts its first note late. gh:5
+  - Its notes now start when the evaluation ends, whole (`[slow_note]` in `tests/hosts/clap.txt`). `tests/hosts/clap` still runs serially: under `ctest -j 10`, the evaluator thread can wait more than 50 ms to run.
 
 ## High
 
@@ -39,7 +39,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Several outputs per kernel, for kernels whose channels share state, such as a stereo reverb.
 
-- [ ] Unnamed nodes restart at every `play`, so a graph without names clicks on each edit. Name nodes by default, such as by their path in the tree.
+- [x] Unnamed nodes restart at every `play`, so a graph without names clicks on each edit. Now named by shape ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time), item 4).
 
 - [x] **The C runner**, `projects/funkgraph/graph.h`, the CMake library `funkgraph`: graphs swapped at a block boundary and freed on the host's thread after an epoch.
 
@@ -63,7 +63,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Run `funk-midi --audio` on Linux, and listen to it.
 
-- [ ] Measure the cost per node and per voice, how many voices fit in 1.33 ms (64 frames at 48 kHz), and a kernel's compile time. Log the friction of writing kernels in the export style.
+- [x] Measure the cost per node and per voice, how many voices fit in 1.33 ms (64 frames at 48 kHz), and a kernel's compile time. Log the friction of writing kernels in the export style. About 1,600 voices per M1 core, 5 ns per node; rerun 2026-10-30 within 5% ([docs/dev/261029-dsp-measurements.md](docs/dev/261029-dsp-measurements.md)).
 
 - [ ] `foreign struct`: C arrays inside structs (voice blocks; Core Audio's `AudioBufferList`), and several fields per line, as `data` records accept.
 

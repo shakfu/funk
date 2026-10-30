@@ -26,6 +26,9 @@ typedef struct midi_sink {
     void (*wait)(void* user, double ms);
     /* Nonzero when the running script should stop; interpreters poll it. */
     int (*cancelled)(void* user);
+    /* The earliest script time a message sent now still plays on time; NULL when
+       script time is all virtual. */
+    double (*now)(void* user);
 } midi_sink;
 
 /* NULL removes the sink. The sink is copied. */
@@ -37,6 +40,9 @@ double midi_clock_ms(void);
 void midi_clock_set_ms(double ms);
 /* Sets script time to ms if later, then waits on the sink. */
 void midi_clock_wait_until(double ms);
+/* Sets script time to the sink's now if later: after work of unknown length, such as
+   compiling, which the host's time has passed. */
+void midi_clock_catch_up(void);
 int midi_clock_cancelled(void);
 
 /* libremidi_midi_out_send_message, or the sink's send when one is installed. */

@@ -254,7 +254,7 @@ What it needs:
    Limits:
    - State is a list of `Float`s, so a struct with other field types cannot be given.
 
-   - Unnamed nodes restart at every `play`.
+   **Unnamed nodes**, 2026-10-30: named by their shape, so they keep their state as named nodes do. A node's shape is a hash of its kernel and its inputs' shapes, or their names, without initial states; the kth unnamed node of a shape, in the order added, is named by the shape and k. So a changed constant, or a filter put around an oscillator, keeps its phase; a changed kernel restarts the nodes that read it. Over a node's path in the tree: putting a filter around a signal, or adding a term to a sum, changes every path below, and those are the common live edits. `funk_player_play` names them, on the host's thread, in C: built in funk, the names of a 128-voice graph made each `play` 50 ms slower, and 150 ms hashed there. Playing silence first starts a graph from fresh states. Tests `kernels/graph`, `kernels/build`, `kernels/ugens`.
 
    **Controls and events**, 2026-10-29: a control is a node without a kernel, whose output the runner writes: a value that an event changes from its frame. A host sends `(frame, name, value)` on the player's queue, 4,096 events, single producer; each block the runner applies those before its end to the current graph's controls of that name, and leaves later ones queued. A late event takes the block's first frame. The block is not split: a control writes a stepped buffer, so every kernel downstream sees the change at its frame. A control's value carries across swaps as a named node's state does. In funk, `g.control "gate" 0.0`, `g.send` and `g.frames`; test `kernels/ugens` starts an envelope at frame 5 and releases it at frame 10.
 

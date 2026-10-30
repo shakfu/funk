@@ -4,6 +4,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Unnamed graph nodes keep their state across `play`, as named ones do, so editing a graph without names no longer restarts its oscillators and clicks. `funk_player_play` names each by its shape, a hash of its kernel and its inputs, without initial states, and its order among nodes of that shape. A changed constant or a filter put around an oscillator keeps its phase; a changed kernel restarts the nodes above it. A node's path in the tree was the alternative; wrapping a signal or adding a term to a sum changes every path below. Playing silence first gives fresh states ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time), item 4).
+
+### Fixed
+
+- In the CLAP plugin, a live evaluation that runs longer than the 50 ms lookahead plays its notes whole, starting when it ends. Its start time was taken before compiling, so its first note-on reached the audio thread late and played at a block's start, while its note-off stayed on time: in `tests/hosts/clap`, a 0.4 s evaluation's note lasted zero frames. `midi_clock_catch_up` moves script time to where a message still plays on time. Dropping the notes already late was the alternative; it loses a pattern's first note. (gh:5)
+
 ## [0.8.0] - 2026-10-30
 
 ### Changed

@@ -146,7 +146,11 @@ int main(int argc, char **argv) {
   printf("named states continue: %s\n", same(out, want));
   funk_player_play(player, chain(5, 0, 1000.0));
   funk_player_render(player, out, N);
-  printf("unnamed states restart: %s\n", same(out, restart));
+  printf("named states do not reach unnamed nodes: %s\n", same(out, restart));
+  /* unnamed nodes are named by shape: the same chain again continues */
+  funk_player_play(player, chain(5, 0, 1000.0));
+  funk_player_render(player, out, N);
+  printf("unnamed states continue: %s\n", same(out, want));
   /* a sine times a saw: a new saw frequency restarts the saw alone */
   float sw[N], sn[N], prod[N];
   funk_player *q = funk_player_new();

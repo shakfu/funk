@@ -65,8 +65,8 @@ if(TARGET funk_midi_clap)
   add_test(NAME hosts/clap COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap>
     ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt 57291)
   set_tests_properties(hosts/clap_units PROPERTIES LABELS "hosts;clap")
-  # serial: its real-time check needs a live evaluation compiled within the 50 ms
-  # lookahead, which a loaded machine misses (1 to 2 runs in 6 under ctest -j 10)
+  # serial: its real-time checks need the evaluator thread to run within the 50 ms
+  # lookahead, which a loaded machine misses: under ctest -j 10, a note 3 ms late
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
   # graph.fk's glue is linked in: with no C compiler, audio still plays and no glue is compiled

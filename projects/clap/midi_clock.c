@@ -38,6 +38,15 @@ void midi_clock_wait_until(double ms) {
     }
 }
 
+void midi_clock_catch_up(void) {
+    if (g_sink_active && g_sink.now) {
+        double ms = g_sink.now(g_sink.user);
+        if (ms > g_now_ms) {
+            g_now_ms = ms;
+        }
+    }
+}
+
 int midi_clock_cancelled(void) {
     return g_sink_active && g_sink.cancelled(g_sink.user);
 }

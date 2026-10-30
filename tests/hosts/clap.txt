@@ -6,6 +6,9 @@
 nosuch 1
 [note]
 p.fastcat [p.atom 60, p.silence, p.silence, p.silence]
+[slow_note]
+-- [note], evaluated for about 0.4 s: eight times the plugin's lookahead
+p.fastcat [p.atom (let go i acc = if i == 0 then acc else go (i - 1) (acc + 0 * i) in go 5000000 60), p.silence, p.silence, p.silence]
 [voices]
 p.stack [p.fastcat [p.atom 60, p.silence, p.silence, p.silence], p.fastcat [p.atom 64, p.silence]]
 [forever]

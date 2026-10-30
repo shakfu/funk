@@ -1,7 +1,7 @@
 -- lib/graph.fk over the kernels of chain.fk: host.c's chain as a Sig, in
 -- blocks of 8 frames, must equal host.c's clip rows. Played again, a chain
--- with named nodes continues and one without starts again. $KERNELS names
--- the kernel library.
+-- continues, its nodes named or not; after silence it starts again.
+-- $KERNELS names the kernel library.
 import graph as g
 
 foreign import ccall "stdlib.h getenv" getenv :: String ->> Ptr CChar
@@ -39,7 +39,11 @@ main = do
   block p out "block 0"
   block p out "block 1"
   g.play p (chain False)
-  block p out "unnamed, played again: block 0"
+  block p out "unnamed, played again: block 2"
+  g.play p g.Silence
+  g.render p out 0
+  g.play p (chain False)
+  block p out "after silence: block 0"
   g.play p (chain True)
   block p out "named: block 0"
   g.play p (chain True)

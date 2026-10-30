@@ -571,18 +571,31 @@ void CheckLive(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 	SetOffline(plugin, false);
 
 	// In real time the evaluator runs ahead by the lookahead, so events still land on their frames.
-	Udp rt;
-	rt.send(cases["note"]);
-	Events paced;
-	auto due = std::chrono::steady_clock::now();
-	for (int b = 0; b < (int)(1.5 * kBeatFrames / kBlock); ++b) {
-		Process(plugin, paced, -1., false);
-		due += std::chrono::microseconds((long long)(kBlock * 1e6 / kRate));
-		std::this_thread::sleep_until(due);
-	}
-	check(rt.receive(1000) == "ok\n", "real-time live evaluation replies");
-	check(paced.list.size() == 2 && paced.list[1].frame - paced.list[0].frame == kBeatFrames,
-	      "real-time live note lasts one beat to the frame:" + Describe(paced));
+	// An evaluation longer than the lookahead starts its notes later, whole.
+	// The reply comes once the note-off is sent: then a beat and a half more, so it plays.
+	auto paced = [&](const std::string& code, const std::string& what) {
+		Udp rt;
+		rt.send(code);
+		Events ev;
+		std::string reply;
+		const long tail = (long)(1.5 * kBeatFrames / kBlock);
+		long after = -1; // blocks since the reply
+		auto due = std::chrono::steady_clock::now();
+		const auto give_up = due + std::chrono::seconds(30);
+		while (after < tail && due < give_up) {
+			Process(plugin, ev, -1., false);
+			if (after >= 0) ++after;
+			else if ((reply = rt.receive(1)) != "") after = 0;
+			due += std::chrono::microseconds((long long)(kBlock * 1e6 / kRate));
+			std::this_thread::sleep_until(due);
+		}
+		check(reply == "ok\n", what + " replies: " + reply);
+		check(ev.list.size() == 2 && ev.list[1].frame - ev.list[0].frame == kBeatFrames,
+		      what + ": its note lasts one beat to the frame:" + Describe(ev));
+	};
+	paced(cases["note"], "real-time live evaluation");
+	if (cases.count("slow_note")) paced(cases["slow_note"], "real-time live evaluation longer than the lookahead");
+	else printf("SKIP: a live evaluation longer than the lookahead (no [slow_note] case)\n");
 }
 
 } // namespace

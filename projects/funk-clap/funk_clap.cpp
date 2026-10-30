@@ -306,7 +306,6 @@ public:
 	void eval(const std::string& code, std::string& out) override
 	{
 		Session& s = session_;
-		const double start = midi_clock_ms();
 		// An expression of type Pattern Int becomes `once`; anything else fails here quietly.
 		std::string ignored;
 		bool once = false;
@@ -326,6 +325,9 @@ public:
 			}, &out);
 			if (interrupted) out += "stopped\n";
 		}
+		// Compiling may outlast the lookahead: the notes start where they still play on time.
+		midi_clock_catch_up();
+		const double start = midi_clock_ms();
 		if (pat && live_) {
 			if (!looping_) grid_ = start;
 			looping_ = true;

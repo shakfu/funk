@@ -16,8 +16,9 @@ typedef struct {
   float **in; /* the inputs' buffers */
   int nin;
   float *out;
-  uint64_t key; /* the name's hash, or 0 */
-  void *init;   /* a named node's initial state */
+  uint64_t key;   /* the name's hash, or 0 */
+  uint64_t shape; /* its kernel's and inputs', without states */
+  void *init;     /* a named node's initial state */
   size_t size;
 } Node;
 
@@ -59,6 +60,11 @@ struct funk_player {
   Event audio[EVENTS];
 };
 
+static uint64_t mix(uint64_t h, uint64_t v) {
+  h = (h ^ v) * 0x9e3779b97f4a7c15u;
+  return h ^ (h >> 32);
+}
+
 funk_graph *funk_graph_new(int max_block, double rate) {
   if (max_block < 1 || !(rate > 0)) return NULL;
   funk_graph *g = calloc(1, sizeof *g);
@@ -84,7 +90,7 @@ int funk_graph_add(funk_graph *g, funk_kernel k, const void *state, size_t size,
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {k, NULL, NULL, nin, NULL, 0, NULL, size};
+  Node x = {k, NULL, NULL, nin, NULL, 0, mix(1, (uint64_t)(uintptr_t)k), NULL, size};
   x.state = size ? calloc(1, size) : NULL;
   x.in = calloc((size_t)(nin ? nin : 1), sizeof *x.in);
   x.out = calloc((size_t)g->max_block, sizeof(float));
@@ -95,7 +101,11 @@ int funk_graph_add(funk_graph *g, funk_kernel k, const void *state, size_t size,
     return -1;
   }
   if (state && size) memcpy(x.state, state, size);
-  for (int i = 0; i < nin; i++) x.in[i] = inputs[i] < 0 ? g->silence : g->nodes[inputs[i]].out;
+  for (int i = 0; i < nin; i++) {
+    const Node *y = inputs[i] < 0 ? NULL : &g->nodes[inputs[i]];
+    x.in[i] = y ? y->out : g->silence;
+    x.shape = mix(x.shape, !y ? 2 : y->key ? y->key : y->shape); /* a named input by its name */
+  }
   g->nodes[g->n] = x;
   return g->n++;
 }
@@ -107,9 +117,9 @@ static uint64_t hash(const char *s) {
   return h ? h : 1;
 }
 
-/* the first name whose key is at least key */
-static int lower(const funk_graph *g, uint64_t key) {
-  int lo = 0, hi = g->nnames;
+/* the first of g's first n names whose key is at least key */
+static int lower_n(const funk_graph *g, int n, uint64_t key) {
+  int lo = 0, hi = n;
   while (lo < hi) {
     int mid = (lo + hi) / 2;
     if (g->names[mid].key < key) lo = mid + 1;
@@ -117,6 +127,8 @@ static int lower(const funk_graph *g, uint64_t key) {
   }
   return lo;
 }
+
+static int lower(const funk_graph *g, uint64_t key) { return lower_n(g, g->nnames, key); }
 
 int funk_graph_name(funk_graph *g, int node, const char *name) {
   if (node < 0 || node >= g->n || g->nodes[node].key || !name) return -1;
@@ -134,6 +146,49 @@ int funk_graph_name(funk_graph *g, int node, const char *name) {
   g->nnames++;
   x->key = key;
   return 0;
+}
+
+static int by_shape(const void *a, const void *b) {
+  const Name *x = a, *y = b;
+  if (x->key != y->key) return x->key < y->key ? -1 : 1;
+  return x->node - y->node;
+}
+
+static int by_key(const void *a, const void *b) {
+  const Name *x = a, *y = b;
+  return x->key < y->key ? -1 : x->key > y->key;
+}
+
+/* Names g's unnamed kernel nodes by shape: the kth of a shape, in the
+   order added, by its shape and k. Without memory, they stay unnamed. */
+static void name_shapes(funk_graph *g) {
+  int n = 0;
+  for (int i = 0; i < g->n; i++) n += g->nodes[i].k && !g->nodes[i].key;
+  if (!n) return;
+  Name *a = realloc(g->names, (size_t)(g->nnames + n) * sizeof *a), *u = malloc((size_t)n * sizeof *u);
+  if (a) g->names = a;
+  if (!a || !u) {
+    free(u);
+    return;
+  }
+  n = 0;
+  for (int i = 0; i < g->n; i++)
+    if (g->nodes[i].k && !g->nodes[i].key) u[n++] = (Name){g->nodes[i].shape, i};
+  qsort(u, (size_t)n, sizeof *u, by_shape);
+  int named = g->nnames;
+  for (int i = 0, k = 0; i < n; i++) {
+    k = i && u[i].key == u[i - 1].key ? k + 1 : 0;
+    Node *x = &g->nodes[u[i].node];
+    uint64_t key = mix(u[i].key, (uint64_t)k + 1);
+    key = key ? key : 1;
+    int at = lower_n(g, named, key); /* the given names, still sorted */
+    if ((at < named && g->names[at].key == key) || (x->size && !(x->init = malloc(x->size)))) continue;
+    if (x->size) memcpy(x->init, x->state, x->size);
+    x->key = key;
+    g->names[g->nnames++] = (Name){key, u[i].node};
+  }
+  free(u);
+  qsort(g->names, (size_t)g->nnames, sizeof *g->names, by_key);
 }
 
 /* The audio thread, at g's first block: the states of old's nodes with a
@@ -156,7 +211,7 @@ int funk_graph_control(funk_graph *g, float value) {
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, NULL, sizeof value};
+  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, 3, NULL, sizeof value};
   if (!x.state || !x.out) {
     free(x.state);
     free(x.out);
@@ -216,6 +271,7 @@ void funk_player_reclaim(funk_player *p) {
 }
 
 void funk_player_play(funk_player *p, funk_graph *g) {
+  if (g) name_shapes(g);
   funk_graph *old = atomic_exchange(&p->current, g);
   if (old) {
     old->retired = atomic_load(&p->epoch); /* read after the exchange */

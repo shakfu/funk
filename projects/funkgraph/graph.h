@@ -53,7 +53,11 @@ int funk_graph_control(funk_graph *g, float value);
    node starts from the state of the node of its name in the graph the
    player rendered before, if that has the same kernel and initial state:
    an oscillator then keeps its phase across a swap, and a node whose
-   parameters changed starts again. Not after the graph is played. */
+   initial state changed starts again. funk_player_play names the other
+   kernel nodes by shape, their kernels' and inputs' without states, and
+   their order among nodes of that shape: an oscillator keeps its phase
+   when its frequency's constant changes or a filter is put around it.
+   Not after the graph is played. */
 int funk_graph_name(funk_graph *g, int node, const char *name);
 
 /* Makes node the output of the graph's next channel; the channel, or -1

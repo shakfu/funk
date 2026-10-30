@@ -176,7 +176,7 @@ private:
 
 	void loop(std::promise<bool>& started)
 	{
-		midi_sink sink = {this, &Evaluator::Send, &Evaluator::Wait, &Evaluator::Cancelled};
+		midi_sink sink = {this, &Evaluator::Send, &Evaluator::Wait, &Evaluator::Cancelled, &Evaluator::Now};
 		midi_sink_install(&sink);
 		lang_ = kLanguage.create();
 		started.set_value(lang_ != nullptr);
@@ -306,6 +306,13 @@ private:
 		while (beat > self->tl_.horizon && !Cancelled(user)) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
+	}
+
+	// Live, where run starts new code; a clip's time is all virtual.
+	static double Now(void* user)
+	{
+		auto* self = static_cast<Evaluator*>(user);
+		return self->tl_.live ? self->tl_.horizon * kScriptMsPerBeat : 0.;
 	}
 
 	static int Cancelled(void* user)
