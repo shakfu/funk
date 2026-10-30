@@ -64,8 +64,7 @@ static void report(const char *fmt, const char *arg) { fk_message("funk: ", fmt,
 const char *funk_version(void) { return FUNK_VERSION; }
 
 /* A session (libfunk.h): its thread runs funk_run's jobs, one at a time,
-   until funk_free. One per process until the globals move into it
-   (embedding.md, phase 2). */
+   until funk_free (embedding.md, phase 2). */
 struct funk {
   FkRt *rt;
   pthread_t th;
@@ -78,13 +77,11 @@ struct funk {
   const char *const *cc_args; /* funk_config's, for the session's thread */
   int ncc_args;
 };
-static funk session;
-static bool session_made;
 
 /* The api's functions but funk_run, funk_free, funk_interrupt, funk_output
    and funk_on_fatal run on the session's thread. */
 static bool on_thread(funk *f, const char *fn) {
-  if (f == &session && fk_current() == f->rt) return true;
+  if (fk_current() == f->rt) return true;
   fk_message_rt(f->rt, "funk: ", "%s: not on its session's thread; call it inside funk_run", fn);
   return false;
 }
@@ -135,13 +132,16 @@ static void session_main(void *p) {
   fflush(stdout);
 }
 
+static void session_free(funk *f) {
+  pthread_mutex_destroy(&f->mu);
+  pthread_mutex_destroy(&f->run);
+  pthread_cond_destroy(&f->cv);
+  free(f);
+}
+
 funk *funk_new(const funk_config *c) {
-  if (session_made) {
-    report("%s", "funk_new: one session per process, for now");
-    return NULL;
-  }
-  session_made = true;
-  funk *f = &session;
+  funk *f = calloc(1, sizeof *f);
+  if (!f) return NULL;
   if (c) {
     f->cc_args = c->cc_args;
     f->ncc_args = c->ncc_args;
@@ -149,17 +149,21 @@ funk *funk_new(const funk_config *c) {
   pthread_mutex_init(&f->mu, NULL);
   pthread_mutex_init(&f->run, NULL);
   pthread_cond_init(&f->cv, NULL);
-  if (!(f->rt = fk_start(session_main, f, &f->th, c ? c->heap : 0, c ? c->threshold : 0, c ? c->stack : 0))) return NULL;
+  if (!(f->rt = fk_start(session_main, f, &f->th, c ? c->heap : 0, c ? c->threshold : 0, c ? c->stack : 0))) {
+    session_free(f);
+    return NULL;
+  }
   pthread_mutex_lock(&f->mu);
   while (!f->ready) pthread_cond_wait(&f->cv, &f->mu);
   pthread_mutex_unlock(&f->mu);
   if (f->ok) return f;
-  fk_stop(f->th); /* the thread has left its loop */
+  fk_stop(f->rt, f->th); /* the thread has left its loop */
+  session_free(f);
   return NULL;
 }
 
 int funk_run(funk *f, int (*fn)(funk *, void *), void *arg) {
-  if (fk_on_funk_thread()) return fn(f, arg);
+  if (fk_current() == f->rt) return fn(f, arg); /* another session's thread queues, as any other thread */
   pthread_mutex_lock(&f->run);
   pthread_mutex_lock(&f->mu);
   f->fn = fn;
@@ -175,7 +179,7 @@ int funk_run(funk *f, int (*fn)(funk *, void *), void *arg) {
 
 void funk_free(funk *f) {
   if (!f) return;
-  if (fk_on_funk_thread()) {
+  if (fk_current() == f->rt) {
     report("%s", "funk_free: on its session's thread; call it from another");
     return;
   }
@@ -183,7 +187,8 @@ void funk_free(funk *f) {
   f->stop = true;
   pthread_cond_broadcast(&f->cv);
   pthread_mutex_unlock(&f->mu);
-  fk_stop(f->th);
+  fk_stop(f->rt, f->th);
+  session_free(f);
 }
 
 /* Parse with compile errors caught; NULL on error (already reported). */

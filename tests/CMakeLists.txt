@@ -115,7 +115,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory session)
+foreach(n signals output interrupt memory session sessions)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -137,6 +137,26 @@ add_test(NAME embed/session
   COMMAND sh -c "\"$<TARGET_FILE:embed_session>\" | diff tests/embed/session.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(embed/session PROPERTIES LABELS embed TIMEOUT 300)
+add_test(NAME embed/sessions
+  COMMAND sh -c "\"$<TARGET_FILE:embed_sessions>\" | diff tests/embed/sessions.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+add_test(NAME embed/sessions/stress
+  COMMAND sh -c "\"$<TARGET_FILE:embed_sessions>\" | diff tests/embed/sessions.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/sessions embed/sessions/stress PROPERTIES LABELS embed TIMEOUT 300)
+set_tests_properties(embed/sessions/stress PROPERTIES ENVIRONMENT FUNK_GCSTRESS=1 LABELS "embed;stress")
+# libfunk's writable variables against an allow-list; its sources again at -O0,
+# where clang merges no globals into one symbol
+set(FUNK_SRC ${PROJECT_SOURCE_DIR}/projects/funk/src)
+add_library(libfunk_globals OBJECT ${FUNK_SRC}/driver.c ${FUNK_SRC}/util.c ${FUNK_SRC}/lex.c ${FUNK_SRC}/parse.c
+  ${FUNK_SRC}/check.c ${FUNK_SRC}/elab.c ${FUNK_SRC}/fuse.c ${FUNK_SRC}/resolve.c ${FUNK_SRC}/qualify.c ${FUNK_SRC}/interp.c
+  ${FUNK_SRC}/cgen.c ${FUNK_SRC}/ffi.c ${FUNK_SRC}/rt.c)
+target_compile_definitions(libfunk_globals PRIVATE FUNK_VERSION="${PROJECT_VERSION}" FK_SESSIONS)
+target_compile_options(libfunk_globals PRIVATE -O0)
+add_test(NAME embed/globals
+  COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/embed/globals.sh ${CMAKE_CURRENT_SOURCE_DIR}/embed/globals.allow $<TARGET_OBJECTS:libfunk_globals>
+  COMMAND_EXPAND_LISTS)
+set_tests_properties(embed/globals PROPERTIES LABELS embed TIMEOUT 60)
 add_test(NAME embed/interrupt
   COMMAND sh -c "\"$<TARGET_FILE:embed_interrupt>\" 2>/dev/null | diff tests/embed/interrupt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

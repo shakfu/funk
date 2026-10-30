@@ -5,9 +5,9 @@
    A session, funk, owns a thread on the large stack the runtime needs;
    funk_run runs a host's function there. The other functions taking a
    funk run on that thread, inside funk_run, but for funk_free,
-   funk_interrupt, funk_output and funk_on_fatal. One session per process
-   for now: the compiler's tables and the heap are still global
-   (docs/dev/embedding.md, phase 2). Errors are reported on stderr;
+   funk_interrupt, funk_output and funk_on_fatal. Sessions share nothing
+   but the process: each has its own heap, compiler and thread, up to 256
+   at once (docs/dev/embedding.md, phase 2). Errors are reported on stderr;
    functions return false (or NULL) after one, and never exit. */
 #ifndef LIBFUNK_H
 #define LIBFUNK_H
@@ -36,8 +36,7 @@ typedef struct {
 } funk_config;
 
 /* A session: starts its thread and compiles the prelude there. c may be
-   NULL, for the defaults. NULL on error, or if the process made a session
-   before. */
+   NULL, for the defaults. NULL on error. */
 funk *funk_new(const funk_config *c);
 
 /* Run fn(f, arg) on f's thread and return what it returns. From another

@@ -14,7 +14,7 @@
 //   evaluator - owns the interpreter; runs jobs in order, and between jobs, live voices
 //   udp       - receives datagrams, waits for the evaluator, replies with the output
 //
-// Interpreters keep process-wide state, so only one instance can exist per process.
+// Each instance has its own Language, so its own interpreter.
 
 #include "editor.hpp"
 #include "language.hpp"
@@ -50,7 +50,6 @@ const double kLiveLookaheadSeconds = 0.05; // how far live code runs ahead of th
 const auto kOfflineWaitLimit = std::chrono::seconds(10);
 const double kNever = std::numeric_limits<double>::infinity();
 
-std::atomic<bool> gInstanceExists{false};
 
 const char* const kFeatures[] = {
 	CLAP_PLUGIN_FEATURE_NOTE_EFFECT,
@@ -140,6 +139,7 @@ public:
 	}
 
 	bool ok() const { return ok_; }
+	Language* language() const { return lang_.get(); } // made before the constructor returns
 
 	void eval(std::string code, Reply reply = nullptr)
 	{
@@ -338,10 +338,10 @@ public:
 		plugin_.destroy = [](const clap_plugin_t* p) { delete self(p); };
 		plugin_.activate = [](const clap_plugin_t* p, double rate, uint32_t, uint32_t maxFrames) {
 			self(p)->sampleRate_ = rate;
-			return !kLanguage.audio || kLanguage.audio->activate(rate, maxFrames);
+			return !kLanguage.audioChannels || self(p)->evaluator_->language()->audioActivate(rate, maxFrames);
 		};
-		plugin_.deactivate = [](const clap_plugin_t*) {
-			if (kLanguage.audio) kLanguage.audio->deactivate();
+		plugin_.deactivate = [](const clap_plugin_t* p) {
+			if (kLanguage.audioChannels) self(p)->evaluator_->language()->audioDeactivate();
 		};
 		plugin_.start_processing = [](const clap_plugin_t*) { return true; };
 		plugin_.stop_processing = [](const clap_plugin_t*) {};
@@ -357,7 +357,6 @@ public:
 		destroyEditor();
 		evaluator_.reset();
 		delete clip_;
-		gInstanceExists = false;
 	}
 
 	const clap_plugin_t* clapPlugin() const { return &plugin_; }
@@ -396,7 +395,7 @@ private:
 	{
 		const clap_output_events_t* out = process->out_events;
 		const uint32_t frames = process->frames_count;
-		const AudioOutput* audio = kLanguage.audio;
+		Language* audio = kLanguage.audioChannels ? evaluator_->language() : nullptr;
 		if ((!out && !audio) || frames == 0 || sampleRate_ <= 0.) return CLAP_PROCESS_CONTINUE;
 		// An instrument's notes, the host's and its own, go to audio in time order once all are known.
 		notes_.clear();
@@ -459,11 +458,11 @@ private:
 
 		if (audio) {
 			notes_.sort();
-			for (uint32_t i = 0; i < notes_.n; ++i) audio->note(notes_.a[i].offset, notes_.a[i].data);
+			for (uint32_t i = 0; i < notes_.n; ++i) audio->audioNote(notes_.a[i].offset, notes_.a[i].data);
 		}
 		if (audio && process->audio_outputs_count > 0 && process->audio_outputs[0].data32) {
 			const clap_audio_buffer_t& port = process->audio_outputs[0];
-			audio->render(port.data32, port.channel_count, frames);
+			audio->audioRender(port.data32, port.channel_count, frames);
 			process->audio_outputs[0].constant_mask = 0;
 		}
 		return CLAP_PROCESS_CONTINUE;
@@ -685,7 +684,7 @@ private:
 	double freeBeat_ = 0.;
 	double liveBeat_ = 0.;
 	ClipPlayer clipPlayer_;
-	// A block's note-ons and note-offs for AudioOutput::note; ones past the capacity are dropped.
+	// A block's note-ons and note-offs for Language::audioNote; ones past the capacity are dropped.
 	struct Notes {
 		struct Note {
 			uint32_t offset;
@@ -714,9 +713,9 @@ private:
 
 // One MIDI output; an instrument also takes notes, which play its audio.
 const clap_plugin_note_ports_t Plugin::kNotePorts = {
-	[](const clap_plugin_t*, bool isInput) -> uint32_t { return isInput ? (kLanguage.audio ? 1 : 0) : 1; },
+	[](const clap_plugin_t*, bool isInput) -> uint32_t { return isInput ? (kLanguage.audioChannels ? 1 : 0) : 1; },
 	[](const clap_plugin_t*, uint32_t index, bool isInput, clap_note_port_info_t* info) {
-		if (index != 0 || (isInput && !kLanguage.audio)) return false;
+		if (index != 0 || (isInput && !kLanguage.audioChannels)) return false;
 		info->id = isInput ? 1 : 0;
 		info->supported_dialects = isInput ? CLAP_NOTE_DIALECT_CLAP | CLAP_NOTE_DIALECT_MIDI : CLAP_NOTE_DIALECT_MIDI;
 		info->preferred_dialect = isInput ? CLAP_NOTE_DIALECT_CLAP : CLAP_NOTE_DIALECT_MIDI;
@@ -727,10 +726,10 @@ const clap_plugin_note_ports_t Plugin::kNotePorts = {
 
 // One output port when the language renders audio; none for a note effect.
 const clap_plugin_audio_ports_t Plugin::kAudioPorts = {
-	[](const clap_plugin_t*, bool isInput) -> uint32_t { return !isInput && kLanguage.audio ? 1 : 0; },
+	[](const clap_plugin_t*, bool isInput) -> uint32_t { return !isInput && kLanguage.audioChannels ? 1 : 0; },
 	[](const clap_plugin_t*, uint32_t index, bool isInput, clap_audio_port_info_t* info) {
-		if (isInput || index != 0 || !kLanguage.audio) return false;
-		const uint32_t channels = kLanguage.audio->channels;
+		if (isInput || index != 0 || !kLanguage.audioChannels) return false;
+		const uint32_t channels = kLanguage.audioChannels;
 		info->id = 0;
 		snprintf(info->name, sizeof(info->name), "%s", "main");
 		info->flags = CLAP_AUDIO_PORT_IS_MAIN;
@@ -842,10 +841,6 @@ const clap_plugin_factory_t kFactory = {
 	},
 	[](const clap_plugin_factory_t*, const clap_host_t* host, const char* id) -> const clap_plugin_t* {
 		if (!clap_version_is_compatible(host->clap_version) || strcmp(id, gDescriptor.id)) return nullptr;
-		if (gInstanceExists.exchange(true)) {
-			fprintf(stderr, "%s: only one instance per process is supported\n", kLanguage.name);
-			return nullptr;
-		}
 		return (new Plugin(host))->clapPlugin();
 	},
 };
@@ -858,7 +853,7 @@ extern "C" CLAP_EXPORT const clap_plugin_entry_t clap_entry = {
 		gDescriptor.id = kLanguage.id;
 		gDescriptor.name = kLanguage.name;
 		gDescriptor.description = kLanguage.description;
-		if (kLanguage.audio) gDescriptor.features = kInstrumentFeatures;
+		if (kLanguage.audioChannels) gDescriptor.features = kInstrumentFeatures;
 		return true;
 	},
 	[]() {},

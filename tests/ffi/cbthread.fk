@@ -1,4 +1,4 @@
--- expect: callback `cb` was called on a thread other than funk's
+-- expect: callback `cb` was called on a thread other than its session's
 -- A direct callback called from another thread ends the program.
 foreign import ccall "fkt.h fkt_other_thread" other :: Ptr () -> FunPtr (Ptr () -> CInt ->> ()) ->> ()
 foreign import ccall "callback" cb :: FunPtr (Ptr () -> CInt ->> ())

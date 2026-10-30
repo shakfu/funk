@@ -1,7 +1,7 @@
 /* funk_new, funk_run and funk_free (libfunk.h). Jobs from two threads run
    on the session's thread, one at a time; a job's own funk_run runs at
-   once. A call off the session's thread, funk_free inside a job and a
-   second funk_new fail with a message. ctest compares the output with
+   once. A call off the session's thread and funk_free inside a job fail
+   with a message; a second session works beside the first. ctest compares the output with
    session.expected. */
 #include <pthread.h>
 #include <stdio.h>
@@ -62,7 +62,10 @@ int main(void) {
   funk_run(f, show, "sum [1 .. 10]");
   char *shown = NULL;
   printf("off its thread: %s\n", funk_eval(f, "1", "<test>", &shown) ? "ok" : "fail");
-  printf("second funk_new: %s\n", funk_new(NULL) ? "made" : "NULL");
+  funk *g = funk_new(NULL);
+  printf("second session: ");
+  if (g) funk_run(g, show, "sum [1 .. 4]");
+  funk_free(g);
   printf("nested: ");
   funk_run(f, nested, "1 + 5");
   printf("inc defined: ");

@@ -2,9 +2,10 @@
 
 #include "midi_clock.h"
 
-static midi_sink g_sink;
-static int g_sink_active = 0;
-static double g_now_ms = 0.0;
+/* Per thread: each plugin instance's evaluator thread has its own */
+static _Thread_local midi_sink g_sink;
+static _Thread_local int g_sink_active = 0;
+static _Thread_local double g_now_ms = 0.0;
 
 void midi_sink_install(const midi_sink* sink) {
     if (sink) {

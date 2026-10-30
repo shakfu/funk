@@ -89,8 +89,8 @@ typedef struct {
   void *cc[FK_NCC]; /* libfunk's compiler (funk.h, CompilerShared and each file's state) */
 } FkShared;
 FkRt *fk_current(void);
+#define FK_SLOT ((uintptr_t)1 << 33) /* each session's stack's slot of address space */
 #ifdef FK_SESSIONS
-#define FK_SLOT ((uintptr_t)1 << 33)
 static inline __attribute__((pure, unused)) FkShared *fk_here(void) {
   uintptr_t sp;
 #if defined __aarch64__
@@ -133,6 +133,7 @@ V fk_cstr_result(const void *p, const char *fn); /* a C string copied into a Str
 /* Callbacks (ffi.md, phase 3) */
 V fk_stable_deref(void *p);
 bool fk_on_funk_thread(void);
+bool fk_callback_here(void *stable); /* on the stable pointer's session's thread and stack */
 __attribute__((noreturn)) void fk_callback_thread(const char *name); /* not _Noreturn: glue renames it to a pointer (ffi.c, GLUE_NAMES) */
 void fk_snapshot_release(char *sp);
 void fk_snapshot_enter(char *frame);
@@ -158,7 +159,7 @@ typedef struct FkEvent {
   void *ctx;
   _Alignas(16) unsigned char data[FK_EVENT_DATA];
 } FkEvent;
-FkEvent *fk_event_claim(void);     /* any thread: a slot, or NULL if the ring is full (counted) */
+FkEvent *fk_event_claim(void *stable);     /* any thread: a slot, or NULL if the ring is full (counted) */
 void fk_event_publish(FkEvent *e); /* any thread */
 void fk_event_release(FkEvent *e); /* funk's thread, once the arguments are read */
 void *fk_event_copy(FkEvent *e, size_t *used, const void *p, size_t n); /* into data if it fits; NULL if p is or malloc fails */
@@ -360,7 +361,7 @@ int fk_run(void (*fn)(void *), void *arg); /* run fn on a large stack */
    and fk_stop to join it. heap, threshold and stack as funk_config's, 0 for
    a default; NULL if the stack cannot be made. */
 FkRt *fk_start(void (*fn)(void *), void *arg, pthread_t *th, size_t heap, size_t threshold, size_t stack);
-void fk_stop(pthread_t th);
+void fk_stop(FkRt *r, pthread_t th); /* joins, then frees the session (libfunk) */
 void fk_add_roots(V **base, size_t *count);
 
 V fk_alloc(size_t words, int kind, int n, uint32_t aux);

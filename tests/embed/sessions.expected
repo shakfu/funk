@@ -1,0 +1,12 @@
+a: x 1, work 20000 = 200010000, 20 of 20 rounds agree
+b: x 2, work 20000 = 400020000, 20 of 20 rounds agree
+a's output "from a", b's "from b"
+a's own StablePtr:
+  42
+a's StablePtr in b: refused
+b's messages: runtime error: 0x10000000001 is not a StablePtr of this session
+after a's end, b:
+  12
+d, in a's place:
+  400
+all freed

@@ -27,7 +27,7 @@ Line counts below are measured; costs are estimates from reading the code, not f
 
 ## Constraints on every option
 
-1. **One funk instance per process.** A DAW track count of one, per plugin binary, until embedding.md's phase 1. Two binaries (a note effect and an instrument) can coexist.
+1. **One funk instance per process.** A DAW track count of one, per plugin binary, until embedding.md's phase 1. Two binaries (a note effect and an instrument) can coexist. Lifted 2026-10-30: [instances](#instances).
 
 2. **The audio thread runs C only.** Rendering is `funk_player_render_channels`, which allocates nothing; funk never runs there. This holds today in `funk-midi`.
 
@@ -206,6 +206,15 @@ Done, 2026-10-30: an instrument plugin has a note input port, in the CLAP and MI
 - **Order**: `process()` collects a block's notes, the host's and those `emit` sends, sorts them by frame, and only then gives them to `AudioOutput::note`. The voices take events in time order and move an earlier one up to the last frame sent, so a clip's note at frame 0 handled after a host's at frame 300 started at 300. The sort is an insertion sort: `std::stable_sort` may allocate, on the audio thread.
 - **Capacity**: 1024 notes per block; more are dropped.
 - **Tests**: `tests/hosts/clap` sends a CLAP note ended by MIDI and a MIDI note ended by a CLAP note, each sounding from its frame at its velocity, and a host's note at frame 300 in the block of a clip's note at frame 0. Without the sort, the last check fails.
+
+## Instances
+
+Done, 2026-10-30, once `libfunk` ran sessions side by side ([embedding.md](embedding.md#phase-2-sessions)): each plugin instance has its own funk session, player, voices and kernels handle, so a DAW may put the plugin on as many tracks as it likes, up to `libfunk`'s 256 sessions.
+
+- `Language` gained the audio calls as virtual methods (`audioActivate`, `audioNote`, `audioRender`), so they reach their instance; `LanguageInfo` gives only the output's channel count, 0 for a note effect. Free functions in a table could not tell instances apart.
+- `midi_clock.c`'s sink and clock are per thread: each instance's evaluator thread installs its own.
+- funk's library files are written to the cache directory once per process: two instances would have raced on one temporary name, which carries only the pid.
+- One UDP port serves one instance; a second one's bind fails, and the editor shows it. Test `hosts/clap` passes the port between two instances through their state's flag: a definition in one is not in scope in the other, and one note sounds through each one's own `sig`.
 
 ## Open questions
 

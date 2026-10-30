@@ -138,14 +138,14 @@ static void trampoline(SB *b, ForeignDecl *f, int id, bool exported) {
     sb_printf(b, "static void fk_evrun_%d(FkEvent *e) {\n  struct fk_ev_%d *d = (struct fk_ev_%d *)e->data;\n%s  V a[%d] = {%s};\n%s"
                  "  void *ctx = e->ctx;\n  fk_event_release(e);\n  fk_apply(fk_stable_deref(ctx), %d, a);\n}\n",
               id, id, id, null_check, na, args.s, frees.s, na);
-    sb_printf(b, "static void fk_cb_%d(%s) { /* %s */\n  FkEvent *e = fk_event_claim();\n  if (!e) return; /* the ring is full: dropped, and counted */\n"
+    sb_printf(b, "static void fk_cb_%d(%s) { /* %s */\n  FkEvent *e = fk_event_claim(ctx);\n  if (!e) return; /* the ring is full: dropped, and counted */\n"
                  "  struct fk_ev_%d *d = (struct fk_ev_%d *)e->data;\n  size_t used = sizeof *d;\n  (void)used;\n  e->run = fk_evrun_%d;\n  e->ctx = ctx;\n%s"
                  "  fk_event_publish(e);\n}\n",
               id, params.s, f->name, id, id, id, fill.s);
   } else {
     int rk = ffi_kind(r);
     const char *ret = rk == 'v' ? "return;" : "return 0;"; /* C gets 0 while a failure is pending */
-    sb_printf(b, "static %s fk_cb_%d(%s) { /* %s */\n  if (!fk_on_funk_thread()) fk_callback_thread(\"%s\");\n  if (fk_cb_failed) %s\n"
+    sb_printf(b, "static %s fk_cb_%d(%s) { /* %s */\n  if (!fk_callback_here(ctx)) fk_callback_thread(\"%s\");\n  if (fk_cb_failed) %s\n"
                  "  jmp_buf jb, *saved = fk_error_jmp;\n  if (setjmp(jb)) {\n    fk_error_jmp = saved;\n    fk_cb_failed = 1;\n    fk_callback_depth--;\n    %s\n  }\n"
                  "  fk_error_jmp = &jb;\n  fk_callback_depth++;\n  V a[%d] = {%s};\n  V r = fk_apply(fk_stable_deref(ctx), %d, a);\n  fk_callback_depth--;\n  fk_error_jmp = saved;\n",
               rt, id, params.s, f->name, f->name, ret, ret, na, args.s, na);
@@ -291,7 +291,7 @@ static uint64_t hash_libraries(uint64_t h) {
    symbol would bind whichever runtime was loaded first. */
 #define GLUE_NAMES(X)                                                                                           \
   X(fk_int64_box) X(fk_float) X(fk_ptr) X(fk_str) X(fk_cstr) X(fk_cstr_result) X(fk_apply) X(fk_stable_deref)   \
-  X(fk_error) X(fk_on_funk_thread) X(fk_callback_thread) X(fk_cb_rethrow) X(fk_snapshot_release)                \
+  X(fk_error) X(fk_on_funk_thread) X(fk_callback_here) X(fk_callback_thread) X(fk_cb_rethrow) X(fk_snapshot_release)                \
   X(fk_snapshot_enter) X(fk_event_claim) X(fk_event_publish) X(fk_event_release) X(fk_event_copy)               \
   X(fk_event_uncopy) X(fk_true) X(fk_false) X(fk_unit)
 #define GLUE_NAME(n) #n,

@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static char g_last_error[256];
+static _Thread_local char g_last_error[256];
 
 static void capture_error(void* ctx, const char* err, size_t len, const void* loc) {
     (void)ctx;

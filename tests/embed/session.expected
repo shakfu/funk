@@ -1,6 +1,6 @@
 first: 55
 off its thread: fail
-second funk_new: NULL
+second session: 10
 nested: 6
 inc defined: ok
 2 threads x 1000 jobs: 2000, all on one thread: yes

@@ -13,10 +13,9 @@
 // compiled into funkdsp.so, which the build puts in the bundle's Resources (beside the
 // .clap on Linux). graph.fk's imports use glue.c, linked in (funk_glue), so no C compiler runs.
 //
-// libfunk.h allows one session per process, on funk's own thread: the Session starts it
-// with the first instance and keeps it until the plugin is unloaded. Every funk call is
-// queued to that thread from the evaluator thread, which sends the MIDI, or from the
-// host's main thread at activation.
+// Each instance has its own funk session (libfunk.h), on funk's own thread, with its own
+// player and voices. Every funk call is queued to that thread from the instance's evaluator
+// thread, which sends the MIDI, or from the host's main thread at activation.
 
 #include "language.hpp"
 
@@ -78,12 +77,79 @@ const char* const kDefaultCode =
 	"\n"
 	"p.fastcat [p.atom 60, p.atom 64, p.atom 67, p.atom 72]\n";
 
+// kFunkLib's directory, named by a hash of its files and kept across loads: graph.fk's
+// glue is cached by its compiler arguments, which name this directory, so a fresh
+// directory per load compiled the glue again on every load. "" if it cannot be made. Its
+// files are written once per process: instances would race on one temporary name.
+std::string LibDir()
+{
+	static std::once_flag once;
+	static std::string dir;
+	std::call_once(once, [] {
+		uint64_t h = 14695981039346656037u; // FNV-1a
+		for (const auto& m : kFunkLib)
+			for (const char* p : {m.name, "", m.source, ""})
+				for (const char* c = p;; c++) {
+					h = (h ^ (unsigned char)*c) * 1099511628211u;
+					if (!*c) break;
+				}
+		const char *x = getenv("XDG_CACHE_HOME"), *home = getenv("HOME");
+		const std::string base = x && *x ? x : std::string(home && *home ? home : "/tmp") + "/.cache";
+		char name[32];
+		snprintf(name, sizeof name, "%016llx", (unsigned long long)h);
+		const std::string d = base + "/funk/plugin/" + name;
+		for (const std::string& part : {base, base + "/funk", base + "/funk/plugin", d})
+			if (mkdir(part.c_str(), 0755) != 0 && errno != EEXIST) return;
+		for (const auto& m : kFunkLib) {
+			const std::string path = d + "/" + m.name;
+			if (access(path.c_str(), F_OK) == 0) continue; // same content: the directory is named by it
+			const std::string tmp = path + "." + std::to_string(getpid());
+			FILE* f = fopen(tmp.c_str(), "w");
+			if (!f) return;
+			const bool written = fputs(m.source, f) >= 0;
+			if (fclose(f) != 0 || !written || rename(tmp.c_str(), path.c_str()) != 0) {
+				unlink(tmp.c_str());
+				return;
+			}
+		}
+		dir = d;
+	});
+	return dir;
+}
+
 class Session {
 public:
-	static Session& get()
+	Session()
 	{
-		static Session session;
-		return session;
+		dir_ = LibDir();
+		if (dir_.empty()) return;
+		Start start{this, {}};
+		std::future<bool> ok = start.started.get_future();
+		thread_ = std::thread([this, &start] {
+			// A runaway pattern meets a limit, as a runtime error, before it takes the host's memory.
+			// graph.h, for glue compiled if the linked glue does not match.
+			cc_args_[0] = "-I";
+			cc_args_[1] = dir_.c_str();
+			const funk_config config{kHeapLimit, 0, kStackSize, cc_args_, 2};
+			funk_ = funk_new(&config);
+			if (!funk_) {
+				start.started.set_value(false);
+				return;
+			}
+			funk_run(funk_, &Session::Main, &start);
+			funk_free(funk_);
+		});
+		ok_ = ok.get();
+	}
+
+	~Session()
+	{
+		{
+			std::lock_guard<std::mutex> lock(mutex_);
+			quit_ = true;
+		}
+		cv_.notify_one();
+		if (thread_.joinable()) thread_.join();
 	}
 
 	bool ok() const { return ok_; }
@@ -116,76 +182,19 @@ public:
 		return interrupted;
 	}
 
+	// On funk's thread: evaluates src, its value appended to out.
+	bool eval(const std::string& src, std::string& out)
+	{
+		char* shown = nullptr;
+		const bool ok = funk_eval(funk_, src.c_str(), "<eval>", &shown);
+		if (shown) out += std::string(shown) + "\n";
+		free(shown);
+		return ok;
+	}
+
 private:
-	Session()
-	{
-		dir_ = LibDir();
-		if (dir_.empty()) return;
-		for (const auto& m : kFunkLib) {
-			const std::string path = dir_ + "/" + m.name;
-			if (access(path.c_str(), F_OK) == 0) continue; // same content: the directory is named by it
-			const std::string tmp = path + "." + std::to_string(getpid());
-			FILE* f = fopen(tmp.c_str(), "w");
-			if (!f) return;
-			const bool written = fputs(m.source, f) >= 0;
-			if (fclose(f) != 0 || !written || rename(tmp.c_str(), path.c_str()) != 0) {
-				unlink(tmp.c_str());
-				return;
-			}
-		}
-		Start start{this, {}};
-		std::future<bool> ok = start.started.get_future();
-		thread_ = std::thread([this, &start] {
-			// A runaway pattern meets a limit, as a runtime error, before it takes the host's memory.
-			// graph.h, for glue compiled if the linked glue does not match.
-			cc_args_[0] = "-I";
-			cc_args_[1] = dir_.c_str();
-			const funk_config config{kHeapLimit, 0, kStackSize, cc_args_, 2};
-			funk_ = funk_new(&config);
-			if (!funk_) {
-				start.started.set_value(false);
-				return;
-			}
-			funk_run(funk_, &Session::Main, &start);
-			funk_free(funk_); // restores the signal handlers it replaced
-		});
-		ok_ = ok.get();
-	}
-
-	~Session()
-	{
-		{
-			std::lock_guard<std::mutex> lock(mutex_);
-			quit_ = true;
-		}
-		cv_.notify_one();
-		if (thread_.joinable()) thread_.join();
-	}
-
-	// kFunkLib's directory, named by a hash of its files and kept across loads: graph.fk's
-	// glue is cached by its compiler arguments, which name this directory, so a fresh
-	// directory per load compiled the glue again on every load. "" if it cannot be made.
-	static std::string LibDir()
-	{
-		uint64_t h = 14695981039346656037u; // FNV-1a
-		for (const auto& m : kFunkLib)
-			for (const char* p : {m.name, "", m.source, ""})
-				for (const char* c = p;; c++) {
-					h = (h ^ (unsigned char)*c) * 1099511628211u;
-					if (!*c) break;
-				}
-		const char *x = getenv("XDG_CACHE_HOME"), *home = getenv("HOME");
-		const std::string base = x && *x ? x : std::string(home && *home ? home : "/tmp") + "/.cache";
-		char name[32];
-		snprintf(name, sizeof name, "%016llx", (unsigned long long)h);
-		const std::string dir = base + "/funk/plugin/" + name;
-		for (const std::string& d : {base, base + "/funk", base + "/funk/plugin", dir})
-			if (mkdir(d.c_str(), 0755) != 0 && errno != EEXIST) return "";
-		return dir;
-	}
-
 	struct Start {
-		Session* session; // not get(): it is still being constructed
+		Session* session;
 		std::promise<bool> started;
 	};
 
@@ -244,16 +253,6 @@ private:
 	std::thread thread_;
 };
 
-// On funk's thread: evaluates src, its value appended to out.
-bool Eval(const std::string& src, std::string& out)
-{
-	char* shown = nullptr;
-	const bool ok = funk_eval(Session::get().handle(), src.c_str(), "<eval>", &shown);
-	if (shown) out += std::string(shown) + "\n";
-	free(shown);
-	return ok;
-}
-
 // A paragraph line that defines name, of three letters.
 bool Defines(const std::string& code, const char* name)
 {
@@ -265,16 +264,6 @@ bool Defines(const std::string& code, const char* name)
 }
 
 // --- audio ------------------------------------------------------------------
-
-// The player, built at the first activation; voices and player are the audio thread's
-// from then on. The rest is funk's thread's.
-struct Audio {
-	funk_player* player = nullptr;
-	funk_voices* voices = nullptr;
-	void* kernels = nullptr;
-	bool ready = false;   // audioPlayer and playsig are defined
-	bool haveSig = false; // sig is defined, and plays once ready
-} gAudio;
 
 // funkdsp.so: in the bundle's Resources on macOS, beside the .clap elsewhere.
 std::string KernelsPath()
@@ -290,74 +279,6 @@ std::string KernelsPath()
 #endif
 }
 
-// On funk's thread: compiled again after sig changes, so it names the new sig.
-void PlaySig(std::string& out)
-{
-	gAudio.haveSig = true;
-	if (!gAudio.ready) return;
-	long arg = 0, r = 0;
-	if (!Eval("playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }", out) || !funk_call(Session::get().handle(), "playsig", 1, &arg, &r))
-		out += "funk-midi: sig is not playing: it must be a g.Sig of funkdsp.so's kernels\n";
-}
-
-// False only if funk did not start; without audio, MIDI still plays and the output is silent.
-bool AudioActivate(double rate, uint32_t maxFrames)
-{
-	if (!Session::get().ok()) return false;
-	if (!Session::get().graphs()) return true;
-	if (!gAudio.kernels) {
-		const std::string path = KernelsPath();
-		gAudio.kernels = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
-		if (!gAudio.kernels) {
-			fprintf(stderr, "funk-midi: no audio: cannot load the kernels: %s\n", dlerror());
-			return true;
-		}
-	}
-	if (!gAudio.player) {
-		gAudio.player = funk_player_new();
-		gAudio.voices = gAudio.player ? funk_voices_new(gAudio.player, kVoices, true) : nullptr;
-		if (!gAudio.voices) return false;
-	}
-	// A new rate needs graphs built for it: audioPlayer is defined again, and sig played.
-	char src[256];
-	snprintf(src, sizeof src, "audioPlayer = g.Player (plusPtr nullPtr %ld) [plusPtr nullPtr %ld] %.17g %u",
-	         (long)gAudio.player, (long)gAudio.kernels, rate, maxFrames);
-	bool ok = false;
-	std::string out;
-	Session::get().call([&] {
-		char voices[256];
-		snprintf(voices, sizeof voices,
-		         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\n"
-		         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
-		         kVoices, kVoices);
-		ok = Eval(src, out) && Eval(voices, out);
-		gAudio.ready = ok;
-		if (ok && gAudio.haveSig) PlaySig(out);
-	}, &out, false);
-	if (!out.empty()) fputs(out.c_str(), stderr);
-	return ok;
-}
-
-void AudioDeactivate() {}
-
-// The audio thread: a note at its frame, on its channel's voices or the shared ones.
-void AudioNote(uint32_t offset, const uint8_t* data)
-{
-	if (!gAudio.voices) return;
-	const int64_t frame = funk_player_frames(gAudio.player) + offset;
-	if ((data[0] & 0xF0) == 0x90 && data[2]) funk_voices_on(gAudio.voices, frame, INT64_MAX, data[0] & 15, data[1], data[2]);
-	else funk_voices_off(gAudio.voices, frame, data[0] & 15, data[1]);
-}
-
-void AudioRender(float* const* out, uint32_t channels, uint32_t frames)
-{
-	if (gAudio.player) funk_player_render_channels(gAudio.player, out, (int)channels, (int)frames);
-	else
-		for (uint32_t c = 0; c < channels; c++) memset(out[c], 0, frames * sizeof(float));
-}
-
-const AudioOutput kAudio = {kChannels, AudioActivate, AudioDeactivate, AudioNote, AudioRender};
-
 // code as the body of `once`, indented, so that its lines continue the definition
 std::string AsOnce(const std::string& code)
 {
@@ -371,29 +292,36 @@ std::string AsOnce(const std::string& code)
 
 class FunkLanguage : public Language {
 public:
-	bool ok() const { return Session::get().ok(); }
+	~FunkLanguage() override
+	{
+		funk_voices_free(audio_.voices);
+		funk_player_free(audio_.player); // the host deactivated: the audio thread is done with it
+		if (audio_.kernels) dlclose(audio_.kernels);
+	}
+
+	bool ok() const { return session_.ok(); }
 
 	void setLive(bool live) override { live_ = live; }
 
 	void eval(const std::string& code, std::string& out) override
 	{
-		Session& s = Session::get();
+		Session& s = session_;
 		const double start = midi_clock_ms();
 		// An expression of type Pattern Int becomes `once`; anything else fails here quietly.
 		std::string ignored;
 		bool once = false;
-		if (s.call([&] { once = Eval(AsOnce(code), ignored) && Eval(kStepOnce, ignored); }, &ignored)) {
+		if (s.call([&] { once = s.eval(AsOnce(code), ignored) && s.eval(kStepOnce, ignored); }, &ignored)) {
 			out += "stopped\n"; // a pattern whose evaluation does not end
 			return;
 		}
 		bool pat = false;
 		if (!once) {
 			const bool interrupted = s.call([&] {
-				if (!Eval(code, out)) return;
-				if (Defines(code, "sig")) PlaySig(out);
+				if (!s.eval(code, out)) return;
+				if (Defines(code, "sig")) playSig(out);
 				if (!Defines(code, "pat")) return;
 				// Compiled again, so that it names the new pat; as a clip, pat plays once.
-				pat = Eval(kStep, out) && (live_ || (Eval("once = pat", out) && Eval(kStepOnce, out)));
+				pat = s.eval(kStep, out) && (live_ || (s.eval("once = pat", out) && s.eval(kStepOnce, out)));
 				if (!pat) out += "funk-midi: pat is not playing: it must be a Pattern Int\n";
 			}, &out);
 			if (interrupted) out += "stopped\n";
@@ -447,7 +375,71 @@ public:
 		pending_ = {};
 	}
 
+	// False only if funk did not start; without audio, MIDI still plays and the output is silent.
+	bool audioActivate(double rate, uint32_t maxFrames) override
+	{
+		if (!session_.ok()) return false;
+		if (!session_.graphs()) return true;
+		if (!audio_.kernels) {
+			const std::string path = KernelsPath();
+			audio_.kernels = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+			if (!audio_.kernels) {
+				fprintf(stderr, "funk-midi: no audio: cannot load the kernels: %s\n", dlerror());
+				return true;
+			}
+		}
+		if (!audio_.player) {
+			audio_.player = funk_player_new();
+			audio_.voices = audio_.player ? funk_voices_new(audio_.player, kVoices, true) : nullptr;
+			if (!audio_.voices) return false;
+		}
+		// A new rate needs graphs built for it: audioPlayer is defined again, and sig played.
+		char src[256];
+		snprintf(src, sizeof src, "audioPlayer = g.Player (plusPtr nullPtr %ld) [plusPtr nullPtr %ld] %.17g %u",
+		         (long)audio_.player, (long)audio_.kernels, rate, maxFrames);
+		bool ok = false;
+		std::string out;
+		session_.call([&] {
+			char voices[256];
+			snprintf(voices, sizeof voices,
+			         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\n"
+			         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
+			         kVoices, kVoices);
+			ok = session_.eval(src, out) && session_.eval(voices, out);
+			audio_.ready = ok;
+			if (ok && audio_.haveSig) playSig(out);
+		}, &out, false);
+		if (!out.empty()) fputs(out.c_str(), stderr);
+		return ok;
+	}
+
+	// The audio thread: a note at its frame, on its channel's voices or the shared ones.
+	void audioNote(uint32_t offset, const uint8_t* data) override
+	{
+		if (!audio_.voices) return;
+		const int64_t frame = funk_player_frames(audio_.player) + offset;
+		if ((data[0] & 0xF0) == 0x90 && data[2]) funk_voices_on(audio_.voices, frame, INT64_MAX, data[0] & 15, data[1], data[2]);
+		else funk_voices_off(audio_.voices, frame, data[0] & 15, data[1]);
+	}
+
+	void audioRender(float* const* out, uint32_t channels, uint32_t frames) override
+	{
+		if (audio_.player) funk_player_render_channels(audio_.player, out, (int)channels, (int)frames);
+		else Language::audioRender(out, channels, frames);
+	}
+
 private:
+	// On funk's thread: compiled again after sig changes, so it names the new sig.
+	void playSig(std::string& out)
+	{
+		audio_.haveSig = true;
+		if (!audio_.ready) return;
+		long arg = 0, r = 0;
+		if (!session_.eval("playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }", out) ||
+		    !funk_call(session_.handle(), "playsig", 1, &arg, &r))
+			out += "funk-midi: sig is not playing: it must be a g.Sig of funkdsp.so's kernels\n";
+	}
+
 	struct Msg {
 		double ms;
 		uint64_t seq;
@@ -469,7 +461,7 @@ private:
 	{
 		long args[3] = {(long)buf_, std::lround(a * 1000), std::lround(b * 1000)}, n = 0;
 		bool ok = false;
-		Session::get().call([&] { ok = funk_call(Session::get().handle(), step, 3, args, &n); }, &out);
+		session_.call([&] { ok = funk_call(session_.handle(), step, 3, args, &n); }, &out);
 		if (!ok) {
 			out += "funk-midi: the pattern failed; it stops until it is evaluated again\n";
 			return false;
@@ -491,6 +483,16 @@ private:
 		return true;
 	}
 
+	Session session_;
+	// The player, built at the first activation; voices and player are the audio thread's
+	// from then on. The rest is funk's thread's.
+	struct {
+		funk_player* player = nullptr;
+		funk_voices* voices = nullptr;
+		void* kernels = nullptr;
+		bool ready = false;   // audioPlayer and playsig are defined
+		bool haveSig = false; // sig is defined, and plays once ready
+	} audio_;
 	bool live_ = false, looping_ = false;
 	double grid_ = 0.; // pat's next window, in script ms
 	uint64_t seq_ = 0;
@@ -514,5 +516,5 @@ const LanguageInfo kLanguage = {
 		if (!lang->ok()) return nullptr;
 		return lang;
 	},
-	&kAudio,
+	kChannels,
 };

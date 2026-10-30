@@ -4,7 +4,8 @@
  * With a sink installed (by a plugin host), script time is virtual:
  * midi_out_send stamps each message with it, midi_sleep advances it, and
  * the sink decides how long each advance waits. Script time is in ms.
- * The sink and the clock belong to the one thread that runs scripts. */
+ * The sink and the clock belong to the thread that installs the sink: each
+ * plugin instance's evaluator thread has its own. */
 
 #ifndef MIDI_CLOCK_H
 #define MIDI_CLOCK_H

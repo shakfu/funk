@@ -102,13 +102,13 @@ static void skip_space(Lexer *L) {
 }
 
 static void raw_lex(Lexer *L) {
-  static struct { const char *s; TokKind k; } kws[] = {
+  static const struct { const char *s; TokKind k; } kws[] = {
       {"case", T_CASE}, {"of", T_OF},       {"let", T_LET},   {"in", T_IN},
       {"where", T_WHERE}, {"if", T_IF},     {"then", T_THEN}, {"else", T_ELSE},
       {"data", T_DATA}, {"deriving", T_DERIVING}, {"infixl", T_INFIXL}, {"infixr", T_INFIXR},
       {"infix", T_INFIX}, {"class", T_CLASS}, {"instance", T_INSTANCE},
       {"do", T_DO}};
-  static struct { const char *s; TokKind k; } rops[] = {
+  static const struct { const char *s; TokKind k; } rops[] = {
       {"=", T_EQ},     {"|", T_BAR},     {"->", T_ARROW},  {"\\", T_LAMBDA},
       {"::", T_DCOLON}, {"..", T_DOTDOT}, {"=>", T_DARROW}, {"<-", T_LARROW}};
   for (;;) {

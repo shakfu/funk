@@ -587,6 +587,39 @@ void CheckLive(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 
 } // namespace
 
+// Instances share no interpreter. One UDP port serves one instance at a time, so the port
+// passes between them through their state's UDP flag.
+void CheckInstances(const clap_plugin_factory_t* factory, const char* id, const clap_plugin_t* first)
+{
+	const clap_plugin_t* second = factory->create_plugin(factory, &kHost, id);
+	check(second != nullptr && second->init(second), "a second instance beside the first");
+	if (!second) return;
+	Eval("inst = 1"); // the first holds the port
+	check(LoadState(first, EmptyState(0)) && LoadState(second, EmptyState(1)), "the UDP port passes to the second");
+	std::string reply = Eval("inst");
+	check(reply.find("error") != std::string::npos, "the second does not see the first's definition: " + reply);
+	Eval("inst = 2");
+	reply = Eval("inst");
+	check(reply.find('2') != std::string::npos && reply.find("error") == std::string::npos, "the second has its own: " + reply);
+	// and its own player: the same note sounds through each one's sig
+	if (gAudioChannels) {
+		check(second->activate(second, kRate, 32, 4096), "the second activates, with a player of its own");
+		reply = Eval("sig = voices (\\gate freq -> gate * d.dc 2.0)");
+		const clap_event_midi_t on = Midi(10, 0x90, 60, 127), off = Midi(20, 0x80, 60, 0);
+		const Input notes{{&on.header, &off.header}};
+		Events a, b;
+		Process(first, a, -1., false, &notes);
+		Process(second, b, -1., false, &notes);
+		check(a.audio[10] == 1.f && b.audio[10] == 2.f && a.audio[20] == 0.f && b.audio[20] == 0.f,
+		      "each instance plays its own sig: " + std::to_string(a.audio[10]) + ", " + std::to_string(b.audio[10]) + " " + reply);
+		second->deactivate(second);
+	}
+	check(LoadState(second, EmptyState(0)) && LoadState(first, EmptyState(1)), "the port passes back");
+	reply = Eval("inst");
+	check(reply.find('1') != std::string::npos && reply.find('2') == std::string::npos, "the first keeps its own: " + reply);
+	second->destroy(second);
+}
+
 int main(int argc, char** argv)
 {
 	if (argc < 4) {
@@ -617,7 +650,6 @@ int main(int argc, char** argv)
 
 	const clap_plugin_t* plugin = factory->create_plugin(factory, &kHost, id);
 	check(plugin != nullptr, "create plugin");
-	check(factory->create_plugin(factory, &kHost, id) == nullptr, "second instance refused");
 	check(plugin->init(plugin), "plugin init");
 	CheckPorts(plugin);
 	check(plugin->activate(plugin, kRate, 32, 4096), "activate");
@@ -630,6 +662,7 @@ int main(int argc, char** argv)
 	std::string saved;
 	CheckState(plugin, cases, saved);
 	CheckLive(plugin, cases);
+	CheckInstances(factory, id, plugin);
 
 	plugin->stop_processing(plugin);
 	plugin->deactivate(plugin);

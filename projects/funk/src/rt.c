@@ -256,6 +256,15 @@ struct FkRt {
   sem_t ring_sem;
 #endif
   uint32_t capcons; /* fk_cons's */
+  int id;              /* in the registry, from 1; stable pointers carry it */
+  char *slot;          /* the stack's FK_SLOT of address space */
+  char *heap_map;      /* the heap's reservation, as mapped, and its size */
+  size_t heap_map_size;
+  struct { void (*fn)(void *); void *arg; } task; /* for task_main */
+  char *getline_line;  /* fk_p_getline's buffer, reused */
+  size_t getline_cap;
+  V **verify_st;       /* verify_marks's stack */
+  size_t verify_cap;
 #ifdef FK_SESSIONS
   V *freelist[MAX_SMALL + 1];
   V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
@@ -271,8 +280,6 @@ struct FkRt {
 #ifdef FK_SESSIONS
 #define RT ((FkRt *)fk_here())
 static _Thread_local FkRt *thread_rt; /* the session whose thread this is, or NULL */
-static FkRt *_Atomic last_rt;         /* the session started last: until a registry (embedding.md, step 6) */
-#define ANY_RT atomic_load(&last_rt)
 #define freelist (RT->freelist)
 #define bump (RT->bump)
 #define bump_end (RT->bump_end)
@@ -281,11 +288,25 @@ static FkRt *_Atomic last_rt;         /* the session started last: until a regis
 #else
 static FkRt fk_rt;
 #define RT (&fk_rt)
-#define ANY_RT (&fk_rt)
 static V *freelist[MAX_SMALL + 1];
 static V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
 static size_t alloc_since_gc, gc_threshold = (size_t)128 << 20; /* gc_min below */
 #endif
+
+/* The live sessions, by id - 1 (embedding.md, step 6): the signal handler
+   finds a fault's session by address, and a callback its session by its
+   stable pointer, on any thread. Writes are under registry_lock. */
+enum { MAX_SESSIONS = 256 };
+static FkRt *_Atomic sessions[MAX_SESSIONS];
+static pthread_mutex_t registry_lock = PTHREAD_MUTEX_INITIALIZER;
+static int nlive; /* the handlers are installed while it is not 0 */
+
+/* A stable pointer's session: its id is in the pointer's high bits. */
+#define STABLE_SHIFT 40
+static FkRt *session_of(void *stable) {
+  uintptr_t id = (uintptr_t)stable >> STABLE_SHIFT;
+  return id >= 1 && id <= MAX_SESSIONS ? atomic_load(&sessions[id - 1]) : NULL;
+}
 
 FkRt *fk_current(void) {
 #ifdef FK_SESSIONS
@@ -405,6 +426,8 @@ static bool new_chunk(size_t words) {
              RT->heap_reserve / 2 >= ((size_t)256 << 20))
         RT->heap_reserve /= 2;
       if (r == MAP_FAILED) fk_fatal("cannot reserve address space for the heap");
+      RT->heap_map = r;
+      RT->heap_map_size = RT->heap_reserve + CHUNK_SIZE;
       core_dump(r, RT->heap_reserve + CHUNK_SIZE, false); /* chunks in use are added below */
       RT->heap_base = (char *)(((uintptr_t)r + CHUNK_SIZE - 1) & ~(uintptr_t)(CHUNK_SIZE - 1));
       RT->heap_lo = (uintptr_t)RT->heap_base;
@@ -823,8 +846,6 @@ static _Unwind_Reason_Code find_caller(struct _Unwind_Context *ctx, void *arg) {
 #endif
 
 static __attribute__((noinline)) void verify_marks(void) {
-  static V **st;
-  static size_t cap;
   size_t n = 0;
   RT->verify_from = NULL;
 #ifdef VERIFY_UNWIND
@@ -835,7 +856,7 @@ static __attribute__((noinline)) void verify_marks(void) {
     abort();
   }
   RT->verify_reg = true;
-  for (size_t i = 0; i < NSAVED; i++) verify_word(c.regs[i], &st, &n, &cap);
+  for (size_t i = 0; i < NSAVED; i++) verify_word(c.regs[i], &RT->verify_st, &n, &RT->verify_cap);
   RT->verify_reg = false;
   V *sp = (V *)c.sp;
 #else
@@ -844,14 +865,14 @@ static __attribute__((noinline)) void verify_marks(void) {
   __asm__ volatile("" : : "r"(&regs) : "memory");
   V *sp = (V *)__builtin_frame_address(0);
 #endif
-  for (V *p = sp; p < (V *)RT->fk_stack_base; p++) verify_word(*(RT->verify_slot = p), &st, &n, &cap);
+  for (V *p = sp; p < (V *)RT->fk_stack_base; p++) verify_word(*(RT->verify_slot = p), &RT->verify_st, &n, &RT->verify_cap);
   for (size_t i = 0; i < RT->nroots; i++)
-    for (V *p = *RT->roots[i].base; p < *RT->roots[i].base + *RT->roots[i].count; p++) verify_word(*(RT->verify_slot = p), &st, &n, &cap);
+    for (V *p = *RT->roots[i].base; p < *RT->roots[i].base + *RT->roots[i].count; p++) verify_word(*(RT->verify_slot = p), &RT->verify_st, &n, &RT->verify_cap);
   while (n) {
-    size_t words = (size_t)(uintptr_t)st[--n];
-    V *o = st[--n];
+    size_t words = (size_t)(uintptr_t)RT->verify_st[--n];
+    V *o = RT->verify_st[--n];
     RT->verify_from = o;
-    for (V *p = o + 1; p < o + words; p++) verify_word(*(RT->verify_slot = p), &st, &n, &cap);
+    for (V *p = o + 1; p < o + words; p++) verify_word(*(RT->verify_slot = p), &RT->verify_st, &n, &RT->verify_cap);
   }
 }
 
@@ -1803,13 +1824,24 @@ V fk_p_newstable(V self, V *a) {
   }
   RT->stables[i] = a[0];
   RT->stable_live[i] = true;
-  return fk_ptr((void *)(uintptr_t)(i + 1));
+  return fk_ptr((void *)((uintptr_t)RT->id << STABLE_SHIFT | (i + 1)));
 }
 
 static size_t stable_index(void *p) {
-  size_t i = (size_t)(uintptr_t)p;
+  if (session_of(p) != RT) fk_error("%p is not a StablePtr of this session", p);
+  size_t i = (size_t)((uintptr_t)p & (((uintptr_t)1 << STABLE_SHIFT) - 1));
   if (i == 0 || i > RT->nstables || !RT->stable_live[i - 1]) fk_error("%p is not a live StablePtr; was it freed?", p);
   return i - 1;
+}
+
+/* A direct callback runs on its session's thread and on its stack: a C
+   library that switched stacks before calling back would make fk_here
+   read a wrong pointer. */
+bool fk_callback_here(void *stable) {
+  FkRt *r = session_of(stable);
+  if (!r || fk_current() != r) return false;
+  char *sp = (char *)__builtin_frame_address(0);
+  return sp >= r->slot && sp < r->slot + FK_SLOT;
 }
 
 V fk_stable_deref(void *p) { return RT->stables[stable_index(p)]; }
@@ -1832,7 +1864,7 @@ bool fk_on_funk_thread(void) {
 }
 
 _Noreturn void fk_callback_thread(const char *name) {
-  fprintf(stderr, "funk: callback `%s` was called on a thread other than funk's; declare it \"queue\" instead of \"callback\"\n", name);
+  fprintf(stderr, "funk: callback `%s` was called on a thread other than its session's, or on another stack; declare it \"queue\" instead of \"callback\"\n", name);
   abort();
 }
 
@@ -1869,8 +1901,9 @@ static void ring_init(void) {
 #endif
 }
 
-FkEvent *fk_event_claim(void) { /* any thread */
-  FkRt *r = ANY_RT;
+FkEvent *fk_event_claim(void *stable) { /* any thread: the ring of the stable pointer's session */
+  FkRt *r = session_of(stable);
+  if (!r) return NULL; /* its session has ended */
   size_t pos = atomic_load_explicit(&r->ring_head, memory_order_relaxed);
   for (;;) {
     FkEvent *e = &r->ring[pos % RING_SLOTS];
@@ -1889,7 +1922,7 @@ FkEvent *fk_event_claim(void) { /* any thread */
 
 void fk_event_publish(FkEvent *e) { /* any thread */
   atomic_store_explicit(&e->seq, atomic_load_explicit(&e->seq, memory_order_relaxed) + 1, memory_order_release);
-  SEM_POST(ANY_RT);
+  SEM_POST(session_of(e->ctx)); /* the trampoline set ctx */
 }
 
 void fk_event_release(FkEvent *e) { /* the slot is free once its arguments are read */
@@ -2078,14 +2111,12 @@ V fk_p_iseof(V self, V *a) {
   return fk_false;
 }
 
-V fk_p_getline(V self, V *a) {
-  static char *line; /* getline's buffer, reused: it reads a line at a time, not a character */
-  static size_t cap;
+V fk_p_getline(V self, V *a) { /* a line at a time, not a character */
   fflush(stdout);
-  ssize_t n = getline(&line, &cap, stdin);
+  ssize_t n = getline(&RT->getline_line, &RT->getline_cap, stdin);
   if (n < 0) fk_error("getLine: end of file");
-  if (n > 0 && line[n - 1] == '\n') n--;
-  return fk_str(line, (size_t)n);
+  if (n > 0 && RT->getline_line[n - 1] == '\n') n--;
+  return fk_str(RT->getline_line, (size_t)n);
 }
 
 V fk_p_readint(V self, V *a) {
@@ -2131,27 +2162,39 @@ const FkPrim fk_prims[] = {
 const int fk_nprims = sizeof fk_prims / sizeof fk_prims[0];
 static V prim_values[sizeof fk_prims / sizeof fk_prims[0]];
 
-V fk_prim_value(int i) {
-  if (!prim_values[i]) {
-    prim_values[i] = static_obj(3, K_CLOSURE, 0, (uint32_t)fk_prims[i].arity);
-    FK_W(prim_values[i])[1] = (V)fk_prims[i].code;
-  }
-  return prim_values[i];
-}
+/* Filled once per process (init_once): the same in every session. */
+V fk_prim_value(int i) { return prim_values[i]; }
 
 /* ------------------------------------------------------------------ init */
 
-void fk_init(void) {
-  static const char *const tuples[] = {"(,)", "(,,)", "(,,,)", "(,,,,)", "(,,,,,)", "(,,,,,,)"};
-  if (fk_ncons) return;
-  ring_init();
+/* What every session shares: set once, read-only afterwards. */
+static void init_once(void) {
+  page_size = (size_t)sysconf(_SC_PAGESIZE);
   const char *s = getenv("FUNK_GCSTATS");
   gcstats = s && *s && strcmp(s, "0") != 0;
 #ifndef FK_SESSIONS
   if (gcstats) atexit(gc_summary); /* libfunk: when the session's thread ends */
 #endif
   s = getenv("FUNK_GCSTRESS");
-  if ((gcstress = s && *s && strcmp(s, "0") != 0)) {
+  gcstress = s && *s && strcmp(s, "0") != 0;
+  const FkNullary *t = nullary_n ? nullary_table : builtin_nullaries; /* a compiled program's own */
+  fk_false = (V)&t[FK_C_FALSE];
+  fk_true = (V)&t[FK_C_TRUE];
+  fk_unit = (V)&t[FK_C_UNIT];
+  fk_nil = (V)&t[FK_C_NIL];
+  for (size_t i = 0; i < sizeof fk_prims / sizeof fk_prims[0]; i++) {
+    prim_values[i] = static_obj(3, K_CLOSURE, 0, (uint32_t)fk_prims[i].arity);
+    FK_W(prim_values[i])[1] = (V)fk_prims[i].code;
+  }
+}
+
+void fk_init(void) {
+  static const char *const tuples[] = {"(,)", "(,,)", "(,,,)", "(,,,,)", "(,,,,,)", "(,,,,,,)"};
+  static pthread_once_t once = PTHREAD_ONCE_INIT;
+  pthread_once(&once, init_once);
+  if (fk_ncons) return;
+  ring_init();
+  if (gcstress) {
     RT->gc_min = (size_t)64 << 10;
     RT->step_bytes = (size_t)16 << 10;
   }
@@ -2162,13 +2205,7 @@ void fk_init(void) {
   fk_register_con("[]", 0);
   fk_register_con(":", 2);
   for (int i = 0; i < FK_MAXTUPLE - 1; i++) fk_register_con(tuples[i], i + 2);
-  fk_false = fk_cons[FK_C_FALSE].nullary;
-  fk_true = fk_cons[FK_C_TRUE].nullary;
-  fk_unit = fk_cons[FK_C_UNIT].nullary;
-  fk_nil = fk_cons[FK_C_NIL].nullary;
 }
-
-typedef struct { void (*fn)(void *); void *arg; FkRt *rt; } Task;
 
 /* Generated code has no stack check: overflowing reaches the guard
    region below the stack and faults. The handler runs on its own stack. */
@@ -2177,7 +2214,6 @@ typedef struct { void (*fn)(void *); void *arg; FkRt *rt; } Task;
 /* The handlers funk's replaced. A fault that is not funk's goes to them, so
    a host's handler still runs: a crash reporter, or its own guard pages. */
 static struct sigaction prev_segv, prev_bus;
-static bool handlers_installed; /* once: a second install would record funk's own handler as the previous one */
 
 static void pass_on(int sig, siginfo_t *si, void *ctx) {
   struct sigaction *p = sig == SIGBUS ? &prev_bus : &prev_segv;
@@ -2198,15 +2234,21 @@ static void pass_on(int sig, siginfo_t *si, void *ctx) {
 #define SNAP_LO(r) fk_snap_lo
 #endif
 
-/* On the signal stack, so not RT: the session by address, which another
-   thread's write to a snapshot page has too. */
+/* On the signal stack, so not RT: the session whose stack's slot holds the
+   address, where its snapshot and guard lie. Another thread's write to a
+   snapshot page has one too. */
 static void on_fault(int sig, siginfo_t *si, void *ctx) {
-  FkRt *r = ANY_RT;
+  char *a = si->si_addr, *lo;
+  FkRt *r = NULL;
+  for (int k = 0; k < MAX_SESSIONS && !r; k++) {
+    FkRt *x = atomic_load(&sessions[k]);
+    if (x && a >= x->slot && a < x->slot + FK_SLOT) r = x;
+  }
   if (!r) {
     pass_on(sig, si, ctx);
     return;
   }
-  char *a = si->si_addr, *lo = __atomic_load_n(&SNAP_LO(r), __ATOMIC_RELAXED); /* the fault may be another thread's */
+  lo = __atomic_load_n(&SNAP_LO(r), __ATOMIC_RELAXED); /* the fault may be another thread's */
   if (lo && a >= lo && a < r->snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
     char *pg = (char *)((uintptr_t)a & ~(uintptr_t)(page_size - 1));
     size_t i = (size_t)(pg - lo) / page_size;
@@ -2227,29 +2269,46 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
 }
 
 static void *task_main(void *p) {
-  Task *t = p;
+  FkRt *r = p;
 #ifdef FK_SESSIONS
-  thread_rt = t->rt;
+  thread_rt = r;
 #endif
   fk_init(); /* on the session's stack: RT is found through it */
   RT->stack_top = __builtin_frame_address(0);
   RT->funk_thread = pthread_self();
-  stack_t ss = {.ss_sp = malloc(1 << 16), .ss_size = 1 << 16};
-  struct sigaction sa = {0};
-  sa.sa_sigaction = on_fault;
-  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
-  sigemptyset(&sa.sa_mask);
-  if (ss.ss_sp && sigaltstack(&ss, NULL) == 0 && !handlers_installed) {
-    sigaction(SIGSEGV, &sa, &prev_segv);
-    sigaction(SIGBUS, &sa, &prev_bus);
-    handlers_installed = true;
+  stack_t ss = {.ss_sp = malloc(1 << 16), .ss_size = 1 << 16}, off = {.ss_flags = SS_DISABLE};
+  if (ss.ss_sp && sigaltstack(&ss, NULL) != 0) {
+    free(ss.ss_sp);
+    ss.ss_sp = NULL;
   }
-  t->fn(t->arg);
+  r->task.fn(r->task.arg);
 #ifdef FK_SESSIONS
   if (gcstats) gc_summary();
 #endif
   fflush(stdout);
+  if (ss.ss_sp) {
+    sigaltstack(&off, NULL);
+    free(ss.ss_sp);
+  }
   return NULL;
+}
+
+/* Under registry_lock: funk's handlers while any session lives. One
+   installed after funk's must pass funk's faults on (embedding.md). */
+static void handlers_on(void) {
+  if (nlive++) return;
+  struct sigaction sa = {0};
+  sa.sa_sigaction = on_fault;
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+  sigemptyset(&sa.sa_mask);
+  sigaction(SIGSEGV, &sa, &prev_segv);
+  sigaction(SIGBUS, &sa, &prev_bus);
+}
+
+static void handlers_off(void) { /* a plugin may be unloaded next: no handler may point into it */
+  if (--nlive) return;
+  sigaction(SIGSEGV, &prev_segv, NULL);
+  sigaction(SIGBUS, &prev_bus, NULL);
 }
 
 /* Deep non-tail recursion (map, foldr) is normal in this language, so
@@ -2269,12 +2328,6 @@ static void set_sizes(FkRt *r, size_t heap, size_t threshold, size_t stack) {
   if (r->gc_min > r->heap_reserve / 4) r->gc_min = r->heap_reserve / 4;
   if (stack) r->stack_size = stack < ((size_t)32 << 20) ? (size_t)32 << 20 : stack;
 }
-
-#ifndef FK_SLOT
-#define FK_SLOT ((uintptr_t)1 << 33)
-#endif
-
-static Task start_task; /* fk_start's; task_main reads it before fk_start returns */
 
 /* The stack lies at the top of an FK_SLOT-aligned slot of address space,
    below a page whose last word points to the session (rt.h, fk_here). The
@@ -2309,30 +2362,73 @@ FkRt *fk_start(void (*fn)(void *), void *arg, pthread_t *th, size_t heap, size_t
   r->fk_stack_base = mem + size;
 #ifdef FK_SESSIONS
   r->sh.stack_limit = mem + guard + ((size_t)1 << 20);
-  atomic_store(&last_rt, r);
 #else
   fk_stack_limit = mem + guard + ((size_t)1 << 20);
 #endif
+  r->slot = slot;
+  r->task.fn = fn;
+  r->task.arg = arg;
+  pthread_mutex_lock(&registry_lock);
+  int k = 0;
+  while (k < MAX_SESSIONS && atomic_load(&sessions[k])) k++;
+  if (k == MAX_SESSIONS) {
+    pthread_mutex_unlock(&registry_lock);
+    fprintf(stderr, "funk: more than %d sessions\n", MAX_SESSIONS);
+    munmap(slot, FK_SLOT);
+    return NULL;
+  }
+  r->id = k + 1;
+  atomic_store(&sessions[k], r);
+  handlers_on();
+  pthread_mutex_unlock(&registry_lock);
   pthread_attr_t attr;
-  start_task = (Task){fn, arg, r};
   pthread_attr_init(&attr);
   pthread_attr_setstack(&attr, mem, size);
-  if (pthread_create(th, &attr, task_main, &start_task)) { perror("funk: pthread_create"); return NULL; }
+  if (pthread_create(th, &attr, task_main, r)) {
+    perror("funk: pthread_create");
+    pthread_mutex_lock(&registry_lock);
+    atomic_store(&sessions[k], NULL);
+    handlers_off();
+    pthread_mutex_unlock(&registry_lock);
+    munmap(slot, FK_SLOT);
+    return NULL;
+  }
   return r;
 }
 
-void fk_stop(pthread_t th) {
+void fk_stop(FkRt *r, pthread_t th) {
   pthread_join(th, NULL);
-  if (handlers_installed) { /* a plugin may be unloaded next: no handler may point into it */
-    sigaction(SIGSEGV, &prev_segv, NULL);
-    sigaction(SIGBUS, &prev_bus, NULL);
-    handlers_installed = false;
-  }
+  pthread_mutex_lock(&registry_lock);
+  atomic_store(&sessions[r->id - 1], NULL);
+  handlers_off();
+  pthread_mutex_unlock(&registry_lock);
+#ifdef FK_SESSIONS /* the runtime's memory; the compiler's tables stay (embedding.md) */
+  if (r->heap_map) munmap(r->heap_map, r->heap_map_size);
+  for (size_t i = 0; i < r->nlarge; i++) free(r->larges[i].p);
+  free(r->larges);
+  free(r->mstack);
+  free(r->stack_copy);
+  if (r->snap_area) munmap(r->snap_area, r->snap_pages * page_size);
+  free(r->snap_copied);
+  free(r->stables);
+  free(r->stable_live);
+  free(r->ring);
+#ifdef __APPLE__
+  dispatch_release(r->ring_sem);
+#else
+  sem_destroy(&r->ring_sem);
+#endif
+  free(r->getline_line);
+  free(r->verify_st);
+  munmap(r->slot, FK_SLOT);
+  free(r);
+#endif
 }
 
 int fk_run(void (*fn)(void *), void *arg) {
   pthread_t th;
-  if (!fk_start(fn, arg, &th, 0, 0, 0)) return 1;
-  fk_stop(th);
+  FkRt *r = fk_start(fn, arg, &th, 0, 0, 0);
+  if (!r) return 1;
+  fk_stop(r, th);
   return 0;
 }
