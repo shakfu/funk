@@ -2,12 +2,18 @@
    define x differently and evaluate at once on two threads, collecting as
    they go; each one's output reaches its own callback; a StablePtr of one
    is refused by the other; they are freed out of order, and a session made
-   afterwards takes a freed one's id. ctest compares the output with
+   afterwards takes a freed one's id. Sessions made and freed in turn keep
+   the process's memory flat. ctest compares the output with
    sessions.expected, also under FUNK_GCSTRESS=1. */
+#define _DEFAULT_SOURCE
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 
 #include "libfunk.h"
 
@@ -21,6 +27,22 @@ typedef struct {
 } Side;
 
 static Side a, b, c, d;
+
+/* resident now, not the peak */
+static long resident_mib(void) {
+#ifdef __APPLE__
+  mach_task_basic_info_data_t info;
+  mach_msg_type_number_t n = MACH_TASK_BASIC_INFO_COUNT;
+  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, (task_info_t)&info, &n) != KERN_SUCCESS) return -1;
+  return (long)(info.resident_size >> 20);
+#else
+  long pages = 0;
+  FILE *f = fopen("/proc/self/statm", "r");
+  if (!f || fscanf(f, "%*ld %ld", &pages) != 1) pages = -1;
+  if (f) fclose(f);
+  return pages < 0 ? -1 : pages * sysconf(_SC_PAGESIZE) / (1 << 20);
+#endif
+}
 
 static void collect(void *ctx, int stream, const char *s, size_t n) {
   char *o = ((Side *)ctx)->out[stream == 2];
@@ -93,5 +115,14 @@ int main(void) {
   funk_free(b.f);
   funk_free(d.f);
   printf("all freed\n");
+  /* each session's compiler holds about 10 MB: kept after funk_free, 30 would hold 300 */
+  long before = resident_mib();
+  for (int i = 0; i < 30; i++) {
+    make(&a, i);
+    funk_run(a.f, eval, "ys = show (map (\\i -> i * x) [1 .. 1000])"); /* a declaration: nothing shown */
+    funk_free(a.f);
+  }
+  long grew = resident_mib() - before;
+  printf("30 sessions made and freed: resident grew under 30 MiB: %s\n", before >= 0 && grew < 30 ? "yes" : "no");
   return 0;
 }

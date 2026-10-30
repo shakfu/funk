@@ -172,7 +172,7 @@ static void prescan_fixities(P p) {
   Names names = {0};
   for (p.pos = 0; p.pos < p.n - 1; p.pos++)
     if (is_fixity(&p)) parse_fixity(&p, true, &names);
-  free(names.a);
+  xfree(names.a);
 }
 
 /* ----------------------------------------------------------------- nodes */
@@ -1676,12 +1676,12 @@ static int qual_len(P *p, int i, const char *q, int *end) {
     sb_puts(&b, t->s);
     *end = t->col + (int)strlen(t->s);
     if ((j - i) % 2 == 0 && !strcmp(b.s, q)) {
-      free(b.s);
+      xfree(b.s);
       return j - i + 1;
     }
     if (strncmp(q, b.s, b.n)) break;
   }
-  free(b.s);
+  xfree(b.s);
   return 0;
 }
 

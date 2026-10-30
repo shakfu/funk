@@ -223,7 +223,7 @@ static void lambda(Lambda *L, Fn *parent, Scope *sc) {
   L->nfree = fn.free.n;
   L->free = xmalloc((size_t)fn.free.n * sizeof *L->free + 1);
   for (int i = 0; i < fn.free.n; i++) L->free[i] = fn.free.a[i].src;
-  free(fn.free.a);
+  xfree(fn.free.a);
 }
 
 void resolve_top(Bind *b) {

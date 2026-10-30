@@ -108,6 +108,17 @@ static void states_new(void) {
   for (int i = 0; i < CC_N; i++) fk_here()->cc[i] = make[i]();
 }
 
+/* A string of the compiler's for the host, which frees it with free(). */
+static char *plain(char *x) {
+  if (!x) return NULL;
+  size_t n = strlen(x) + 1;
+  char *p = malloc(n);
+  if (!p) fk_fatal("out of memory");
+  memcpy(p, x, n);
+  xfree(x);
+  return p;
+}
+
 static void session_main(void *p) {
   funk *f = p;
   states_new();
@@ -130,6 +141,11 @@ static void session_main(void *p) {
   }
   pthread_mutex_unlock(&f->mu);
   fflush(stdout);
+  compiler_free_all(); /* the runtime's memory goes in fk_stop */
+  for (int i = 0; i < CC_N; i++) {
+    free(fk_here()->cc[i]);
+    fk_here()->cc[i] = NULL;
+  }
 }
 
 static void session_free(funk *f) {
@@ -295,11 +311,11 @@ static const char *find_module(const char *path, const char *from, const char **
     char *real = access(cand, R_OK) == 0 ? realpath(cand, NULL) : NULL;
     if (real) {
       *found = cand;
-      free(dirs.a);
+      xfree(dirs.a);
       return intern(real);
     }
   }
-  free(dirs.a);
+  xfree(dirs.a);
   return NULL;
 }
 
@@ -484,7 +500,7 @@ char *funk_emit_c(funk *f, const char *path) {
   all[0] = ST->prelude;
   copy_n(all + 1, ST->mod_chunks.a, (size_t)ST->mod_chunks.n * sizeof *all);
   all[n - 1] = c;
-  return cgen_program(all, n);
+  return plain(cgen_program(all, n));
 }
 
 char *funk_emit_kernels(funk *f, const char *path) {
@@ -499,7 +515,7 @@ char *funk_emit_kernels(funk *f, const char *path) {
   const char *err = NULL;
   char *src = cgen_kernels(all, n, &err);
   if (!src) report("%s", xsprintf("%s: %s", path, err));
-  return src;
+  return plain(src);
 }
 
 char *funk_emit_glue(funk *f, const char *path) {
@@ -509,7 +525,7 @@ char *funk_emit_glue(funk *f, const char *path) {
   VEC(ForeignDecl *) fs = {0};
   for (int i = 0; i < CS->globals.n; i++)
     if (CS->globals.a[i].ffi) VPUSH(fs, CS->globals.a[i].ffi);
-  return ffi_linked_glue(fs.a, fs.n);
+  return plain(ffi_linked_glue(fs.a, fs.n));
 }
 
 static int run_cc(const char *csrc, const char *exe, const char *opt) {
@@ -539,10 +555,12 @@ int funk_build(funk *f, const char *path, const char *exe, const char *opt) {
   FILE *out = fd < 0 ? NULL : fdopen(fd, "w");
   if (!out) {
     report("cannot create %s", tmp);
+    free(c);
     return -1;
   }
   fputs(c, out);
   fclose(out);
+  free(c);
   int rc = run_cc(tmp, exe, opt);
   unlink(tmp);
   return rc;
@@ -594,7 +612,7 @@ static char *show_result(Bind *it) {
   }
   V v = interp_global(it->gidx);
   if (FK_ISPTR(v) && FK_HDR(v)->kind != K_CON && FK_HDR(v)->kind != K_FLOAT)
-    return xsprintf("<function> :: %s", type_str(CS->globals.a[it->gidx].type));
+    return plain(xsprintf("<function> :: %s", type_str(CS->globals.a[it->gidx].type)));
   return fk_show_cstr(v);
 }
 
@@ -666,7 +684,7 @@ char *funk_type_of(funk *f, const char *src, const char *name) {
   Expr *e = parse_expr_caught(src, strlen(src));
   const char *t = e ? infer_type_text(e) : NULL;
   CS->cur_file = file;
-  return t ? xsprintf("%s", t) : NULL;
+  return t ? plain(xsprintf("%s", t)) : NULL;
 }
 
 /* The type funk_call accepts for n arguments: every arrow `->` or `->>`. */

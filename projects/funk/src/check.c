@@ -507,17 +507,17 @@ static Type *inst_rec(Type *t, Subst *s, bool skolem) {
   }
   Type *eff = t->eff ? inst_rec(t->eff, s, skolem) : NULL;
   same &= eff == t->eff;
-  if (same) { free(args); return t; }
+  if (same) { xfree(args); return t; }
   Type *r = tcon(t->name, t->n, args);
   r->eff = eff;
-  free(args);
+  xfree(args);
   return r;
 }
 
 static Type *inst(Type *t, bool skolem) {
   Subst s = {0};
   Type *r = inst_rec(t, &s, skolem);
-  free(s.a);
+  xfree(s.a);
   return r;
 }
 
@@ -545,7 +545,7 @@ int preds_of(Type *scheme, Pred **out) {
     for (int c = 0; c < CS->classes.n; c++)
       if (m & BIT(c)) VPUSH(ps, ((Pred){vs.a[i], c}));
   }
-  free(vs.a);
+  xfree(vs.a);
   *out = ps.a;
   return ps.n;
 }
@@ -565,7 +565,7 @@ static Type *inst_var(Type *scheme, Expr *e) {
       ps[i].t->col = e->col;
     }
   }
-  free(s.a);
+  xfree(s.a);
   e->preds = ps;
   e->npreds = n;
   return t;
@@ -709,7 +709,7 @@ static void register_datas(Module *m) {
       VPUSH(CS->condefs, ((ConDef){cd->name, cd->nfields, t, map_get(&ST->tmap, d->name), cd->labels}));
       map_put(&ST->cmap, cd->name, (int)id);
     }
-    free(seen.a);
+    xfree(seen.a);
   }
 }
 
@@ -856,11 +856,11 @@ static Group *scc(Bind **b, int n, int *ng) {
   for (int i = 0; i < n; i++) T.index[i] = -1;
   for (int i = 0; i < n; i++)
     if (T.index[i] < 0) strong(&T, i);
-  free(d.adj);
-  free(T.index);
-  free(T.low);
-  free(T.stack);
-  free(T.on);
+  xfree(d.adj);
+  xfree(T.index);
+  xfree(T.low);
+  xfree(T.stack);
+  xfree(T.on);
   *ng = T.out.n;
   return T.out.a;
 }
@@ -1235,7 +1235,7 @@ static void lower_update(Pending *pd, int ti) {
     cs = let;
   }
   *e = *cs;
-  free(missing);
+  xfree(missing);
 }
 
 /* p.x where x is not a field: a function Type.x applied to p. */
@@ -1425,7 +1425,7 @@ static Type *infer_case(Expr *e, Env *env, Type *res) {
       unify(ts[i], infer_pat(alt->pats[i], &ae, env), alt->pats[i]->line, alt->pats[i]->col);
     infer_rhs(&alt->rhs, ae, res);
   }
-  free(ts);
+  xfree(ts);
   return res;
 }
 
@@ -1504,7 +1504,7 @@ static void check(Expr *e, Env *env, Type *expected) {
     }
     unify(expected, t, e->line, e->col);
     for (int i = 0; i < e->n; i++) check(e->args[i], env, ps[i]);
-    free(ps);
+    xfree(ps);
     return;
   }
   default: break;
@@ -1747,8 +1747,8 @@ static void infer_group(Group *g, Env **env, bool top) {
       if (acts_by(ST->local_effs.a[i].eff, &ST->local_effs.a[i].params)) effectful_binding(ST->local_effs.a[i].b, ST->local_effs.a[i].in);
     ST->local_effs.n = nlocal;
   }
-  free(mono);
-  free(sch);
+  xfree(mono);
+  xfree(sch);
 }
 
 /* A Num variable left open at the end of the chunk becomes Int; any other
@@ -1895,7 +1895,7 @@ static void check_case(Expr *e, const char *fn) {
     if (total) VPUSH(rows, e->alts[a]->pats);
   }
   Pat **w = missing(rows.a, rows.n, e->ns);
-  free(rows.a);
+  xfree(rows.a);
   if (!w || (e->line == ST->warn_line && e->col == ST->warn_col)) return;
   ST->warn_line = e->line;
   ST->warn_col = e->col;
@@ -1924,7 +1924,7 @@ bool case_covers(Expr *e, bool otherwise_true) {
     if (total) VPUSH(rows, e->alts[a]->pats);
   }
   Pat **w = missing(rows.a, rows.n, e->ns);
-  free(rows.a);
+  xfree(rows.a);
   return !w;
 }
 

@@ -8,22 +8,58 @@
 
 extern char **environ;
 
-void *xmalloc(size_t n) {
-  void *p = malloc(n ? n : 1);
-  if (!p) fk_fatal("out of memory");
-  return p;
+/* The compiler's memory: each block is on its session's list, so the
+   session's end frees what is left (compiler_free_all). A header per block,
+   16 bytes, keeps malloc's alignment; an arena would need one too, for
+   xrealloc's old size, and could not free. */
+typedef struct Block {
+  struct Block *prev, *next;
+} Block;
+_Static_assert(sizeof(Block) == 16, "a block's data stays 16-byte aligned");
+#define BLOCKS (*(Block **)&fk_here()->cc_blocks)
+
+static void *track(Block *b) {
+  if (!b) fk_fatal("out of memory");
+  b->prev = NULL;
+  b->next = BLOCKS;
+  if (b->next) b->next->prev = b;
+  BLOCKS = b;
+  return b + 1;
 }
 
+static void untrack(Block *b) {
+  if (b->prev) b->prev->next = b->next;
+  else BLOCKS = b->next;
+  if (b->next) b->next->prev = b->prev;
+}
+
+void *xmalloc(size_t n) { return track(malloc(sizeof(Block) + n)); }
+
 void *xcalloc(size_t n, size_t size) {
-  void *p = calloc(n ? n : 1, size ? size : 1);
-  if (!p) fk_fatal("out of memory");
-  return p;
+  if (size && n > (SIZE_MAX - sizeof(Block)) / size) fk_fatal("out of memory");
+  return track(calloc(1, sizeof(Block) + n * size));
 }
 
 void *xrealloc(void *p, size_t n) {
-  p = realloc(p, n ? n : 1);
-  if (!p) fk_fatal("out of memory");
-  return p;
+  if (!p) return xmalloc(n);
+  Block *b = (Block *)p - 1;
+  untrack(b);
+  return track(realloc(b, sizeof(Block) + n));
+}
+
+void xfree(void *p) {
+  if (!p) return;
+  Block *b = (Block *)p - 1;
+  untrack(b);
+  free(b);
+}
+
+void compiler_free_all(void) {
+  for (Block *b = BLOCKS, *next; b; b = next) {
+    next = b->next;
+    free(b);
+  }
+  BLOCKS = NULL;
 }
 
 static char *vxsprintf(const char *fmt, va_list ap) {
@@ -102,7 +138,7 @@ const char *intern_n(const char *s, size_t n) {
         while (nt[j]) j = (j + 1) & (ncap - 1);
         nt[j] = ST->itab[i];
       }
-    free(ST->itab);
+    xfree(ST->itab);
     ST->itab = nt;
     ST->icap = ncap;
   }
@@ -139,7 +175,7 @@ void sb_printf(SB *b, const char *fmt, ...) {
   char *s = vxsprintf(fmt, ap);
   va_end(ap);
   sb_puts(b, s);
-  free(s);
+  xfree(s);
 }
 
 /* ------------------------------------------------------------------- map */
@@ -168,8 +204,8 @@ static void map_set(Map *m, const char *key, int val) {
         nm.vals[j] = m->vals[i];
         nm.n++;
       }
-    free(m->keys);
-    free(m->vals);
+    xfree(m->keys);
+    xfree(m->vals);
     *m = nm;
   }
   int j = map_slot(m, key);
@@ -196,13 +232,19 @@ void undo_to(int mark) {
 
 _Noreturn void cerror(int line, int col, const char *fmt, ...) {
   va_list ap;
-  if (CS->cerr_quiet && CS->cerr_jmp) longjmp(*CS->cerr_jmp, 1);
+  if (CS->cerr_quiet && CS->cerr_jmp) {
+    fk_unwinding();
+    longjmp(*CS->cerr_jmp, 1);
+  }
   char *prefix = xsprintf("%s:%d:%d: error: ", CS->cur_file, line, col);
   va_start(ap, fmt);
   fk_vmessage(prefix, fmt, ap);
   va_end(ap);
-  free(prefix);
-  if (CS->cerr_jmp) longjmp(*CS->cerr_jmp, 1);
+  xfree(prefix);
+  if (CS->cerr_jmp) {
+    fk_unwinding();
+    longjmp(*CS->cerr_jmp, 1);
+  }
   exit(1);
 }
 
@@ -212,7 +254,7 @@ void cwarning(int line, int col, const char *fmt, ...) {
   va_start(ap, fmt);
   fk_vmessage(prefix, fmt, ap);
   va_end(ap);
-  free(prefix);
+  xfree(prefix);
 }
 
 Argv cc_argv(void) {

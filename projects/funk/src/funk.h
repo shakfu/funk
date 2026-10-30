@@ -18,6 +18,8 @@
 void *xmalloc(size_t n);
 void *xcalloc(size_t n, size_t size);
 void *xrealloc(void *p, size_t n);
+void xfree(void *p);            /* of xmalloc, xcalloc, xrealloc and xsprintf only */
+void compiler_free_all(void);   /* every block above of this session: at its end */
 char *xsprintf(const char *fmt, ...);
 const char *intern(const char *s);
 const char *intern_n(const char *s, size_t n);

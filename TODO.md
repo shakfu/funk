@@ -135,7 +135,7 @@ Rewiring a graph needs no compiler; a new kernel does. Desktop only for now: plu
 
 ### Other
 
-- [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): a `funk *` on every call, state passed explicitly, a thread per session. Measured 2026-10-30: a thread-local pointer costs the interpreter 27%, an explicit one nothing ([docs/dev/261030-session-measurements.md](docs/dev/261030-session-measurements.md)). Done 2026-10-30: any number of sessions, up to 256, side by side; tests `embed/sessions`, `embed/globals`. Left: free the compiler's tables in `funk_free` (about 10 MB a session); glue shared by path binds the last session's `funk_provide`d addresses; a TSan job in CI.
+- [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): a `funk *` on every call, state passed explicitly, a thread per session. Measured 2026-10-30: a thread-local pointer costs the interpreter 27%, an explicit one nothing ([docs/dev/261030-session-measurements.md](docs/dev/261030-session-measurements.md)). Done 2026-10-30: any number of sessions, up to 256, side by side; tests `embed/sessions`, `embed/globals`. Left: glue shared by path binds the last session's `funk_provide`d addresses; a TSan job in CI.
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`, `Monad`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases). Only if the friction log shows a need: with one `Pattern` type, monomorphic functions suffice ([docs/dev/patterns.md](docs/dev/patterns.md)).
 

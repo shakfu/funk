@@ -413,11 +413,11 @@ Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nim
     s->name = ren_type(&q, s->name, s->line, s->col);
     for (int j = 0; j < s->nf; j++) q_type(&q, s->fields[j].type);
   }
-  free(q.values.a);
-  free(q.types.a);
-  free(q.cons.a);
-  free(q.classes.a);
-  free(q.unq.a);
-  free(q.scope.a);
+  xfree(q.values.a);
+  xfree(q.types.a);
+  xfree(q.cons.a);
+  xfree(q.classes.a);
+  xfree(q.unq.a);
+  xfree(q.scope.a);
   return ex;
 }

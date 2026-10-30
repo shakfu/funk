@@ -87,6 +87,7 @@ typedef struct {
   struct FkCon *cons;
   uint32_t ncons;
   void *cc[FK_NCC]; /* libfunk's compiler (funk.h, CompilerShared and each file's state) */
+  void *cc_blocks;  /* the compiler's memory, all of it, freed with the session (util.c) */
 } FkShared;
 FkRt *fk_current(void);
 #define FK_SLOT ((uintptr_t)1 << 33) /* each session's stack's slot of address space */
@@ -390,6 +391,7 @@ __attribute__((noreturn)) void fk_error(const char *fmt, ...);
 extern void (*fk_fatal_hook)(void *ctx, const char *msg);
 extern void *fk_fatal_ctx;
 _Noreturn void fk_fatal(const char *msg);
+void fk_unwinding(void); /* before a longjmp out of funk code (rt.c) */
 void fk_recover(void); /* after a runtime error has unwound: a full heap's memory collected */
 /* Output: stream 1 the program's, 2 messages. To the session's out if set
    (libfunk.h, funk_output), else stdout and stderr. A message is one write,

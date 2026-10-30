@@ -159,7 +159,7 @@ static void raw_lex(Lexer *L) {
         t.ival = strtoll(num, NULL, 10);
         if (errno) cerror(t.line, t.col, "integer literal too large");
       }
-      free(num);
+      xfree(num);
     } else if (c == '\'') {
       adv(L);
       int ch = peekc(L, 0);
@@ -345,9 +345,9 @@ Token *lex(const char *src, size_t len, int *ntok) {
       open_let = t->k == T_LET;
     }
   }
-  free(L.out.a);
-  free(Y.st.a);
-  free(Y.braces.a);
+  xfree(L.out.a);
+  xfree(Y.st.a);
+  xfree(Y.braces.a);
   *ntok = Y.out.n;
   return Y.out.a;
 }

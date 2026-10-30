@@ -263,7 +263,7 @@ static bool headers_newer(const char *so) {
   bool newer = false;
   for (char *w = strtok(d, " \t\n\\"); w && !newer; w = strtok(NULL, " \t\n\\"))
     if (w[strlen(w) - 1] != ':') newer = stat(w, &hs) != 0 || hs.st_mtime > ss.st_mtime;
-  free(d);
+  xfree(d);
   return newer;
 }
 

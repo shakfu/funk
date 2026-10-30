@@ -32,6 +32,19 @@
 
 /* ---------------------------------------------------------------- errors */
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define FK_ASAN 1
+#endif
+#endif
+#ifdef __SANITIZE_ADDRESS__
+#define FK_ASAN 1
+#endif
+#ifdef FK_ASAN
+#include <sanitizer/asan_interface.h>
+#endif
+
+
 #ifndef FK_SESSIONS /* libfunk: FkShared's fields (rt.h) */
 jmp_buf *fk_error_jmp;
 char *fk_stack_limit;
@@ -145,7 +158,10 @@ _Noreturn void fk_error(const char *fmt, ...) {
   }
   va_end(ap);
   if (!fk_on_funk_thread()) abort(); /* a foreign export on another thread: funk's handlers are not on this stack */
-  if (fk_error_jmp) longjmp(*fk_error_jmp, 1);
+  if (fk_error_jmp) {
+    fk_unwinding();
+    longjmp(*fk_error_jmp, 1);
+  }
   exit(1);
 }
 
@@ -265,6 +281,8 @@ struct FkRt {
   size_t getline_cap;
   V **verify_st;       /* verify_marks's stack */
   size_t verify_cap;
+  V *statics;          /* static_obj's, by the session; nstatics in use */
+  size_t nstatics, capstatics;
 #ifdef FK_SESSIONS
   V *freelist[MAX_SMALL + 1];
   V *bump[MAX_SMALL + 1], *bump_end[MAX_SMALL + 1];
@@ -306,6 +324,17 @@ static int nlive; /* the handlers are installed while it is not 0 */
 static FkRt *session_of(void *stable) {
   uintptr_t id = (uintptr_t)stable >> STABLE_SHIFT;
   return id >= 1 && id <= MAX_SESSIONS ? atomic_load(&sessions[id - 1]) : NULL;
+}
+
+/* Before a longjmp out of funk code. AddressSanitizer clears the frames a
+   longjmp abandons only on stacks under 64 MiB; on funk's, their stale
+   redzones then report overflows that are not. This clears them, and the
+   live frames above, up to the stack's top. */
+void fk_unwinding(void) {
+#ifdef FK_ASAN
+  char *sp = (char *)__builtin_frame_address(0);
+  if (RT->stack_top > sp) __asan_unpoison_memory_region(sp, (size_t)(RT->stack_top - sp));
+#endif
 }
 
 FkRt *fk_current(void) {
@@ -498,7 +527,16 @@ static void mark_word(uintptr_t w) {
   RT->mstack[RT->msp++] = (V *)(uintptr_t)words;
 }
 
-static void scan_range(V *lo, V *hi) {
+/* The collector reads the stack conservatively, beyond live frames, as
+   AddressSanitizer forbids: its stack readers are not instrumented, and copy
+   word by word, since ASan checks memcpy wherever it is called. */
+#define NO_ASAN __attribute__((no_sanitize_address))
+
+static NO_ASAN void copy_raw(V *to, const V *from, size_t n) {
+  for (size_t i = 0; i < n; i++) to[i] = from[i];
+}
+
+static NO_ASAN void scan_range(V *lo, V *hi) { /* a stack page, too */
   for (V *p = lo; p < hi; p++) mark_word(*p);
 }
 
@@ -559,7 +597,7 @@ static void copy_words(V *from, size_t n) {
     RT->stack_copy = malloc(RT->stack_cap * sizeof(V));
     if (!RT->stack_copy) fk_fatal("out of memory");
   }
-  memcpy(RT->stack_copy, from, n * sizeof(V));
+  copy_raw(RT->stack_copy, from, n);
   RT->stack_words = n;
   RT->stack_scanned = 0;
 }
@@ -573,7 +611,7 @@ static void copy_more(V *from, size_t n) { /* appended to the copy */
     RT->stack_copy = realloc(RT->stack_copy, RT->stack_cap * sizeof(V));
     if (!RT->stack_copy) fk_fatal("out of memory");
   }
-  memcpy(RT->stack_copy + at, from, n * sizeof(V));
+  copy_raw(RT->stack_copy + at, from, n);
   RT->stack_words = at + n;
 }
 
@@ -637,7 +675,7 @@ void fk_snapshot_release(char *sp) {
   for (char *pg = RT->snap_next; pg < top; pg += page_size) {
     size_t i = (size_t)(pg - fk_snap_lo) / page_size;
     if (!RT->snap_copied[i]) {
-      memcpy(RT->snap_area + i * page_size, pg, page_size);
+      copy_raw((V *)(RT->snap_area + i * page_size), (V *)pg, page_size / sizeof(V));
       RT->snap_copied[i] = 1;
     }
   }
@@ -845,7 +883,7 @@ static _Unwind_Reason_Code find_caller(struct _Unwind_Context *ctx, void *arg) {
 }
 #endif
 
-static __attribute__((noinline)) void verify_marks(void) {
+static NO_ASAN __attribute__((noinline)) void verify_marks(void) {
   size_t n = 0;
   RT->verify_from = NULL;
 #ifdef VERIFY_UNWIND
@@ -1065,7 +1103,7 @@ V fk_alloc(size_t words, int kind, int n, uint32_t aux) { return alloc(words, ki
 
 V fk_true, fk_false, fk_unit, fk_nil;
 
-static V static_obj(size_t words, int kind, int n, uint32_t aux) {
+static V static_alloc(size_t words, int kind, int n, uint32_t aux) {
   V *o = calloc(words < 2 ? 2 : words, sizeof(V));
   if (!o) fk_fatal("out of memory");
   FkHdr *h = (FkHdr *)o;
@@ -1073,6 +1111,19 @@ static V static_obj(size_t words, int kind, int n, uint32_t aux) {
   h->n = (uint16_t)n;
   h->aux = aux;
   return (V)o;
+}
+
+/* Outside the heap, never collected: the session's, freed with it (fk_stop). */
+static V static_obj(size_t words, int kind, int n, uint32_t aux) {
+  V o = static_alloc(words, kind, n, aux);
+#ifdef FK_SESSIONS
+  if (RT->nstatics == RT->capstatics) {
+    RT->capstatics = RT->capstatics ? 2 * RT->capstatics : 64;
+    RT->statics = rt_realloc(RT->statics, RT->capstatics * sizeof *RT->statics);
+  }
+  RT->statics[RT->nstatics++] = o;
+#endif
+  return o;
 }
 
 static const FkNullary *nullary_table;
@@ -1872,7 +1923,10 @@ _Noreturn void fk_callback_thread(const char *name) {
    returns to C; the foreign call that led to it raises it again. */
 _Noreturn void fk_cb_rethrow(void) {
   fk_cb_failed = 0;
-  if (fk_error_jmp) longjmp(*fk_error_jmp, 1);
+  if (fk_error_jmp) {
+    fk_unwinding();
+    longjmp(*fk_error_jmp, 1);
+  }
   exit(1);
 }
 
@@ -2183,7 +2237,7 @@ static void init_once(void) {
   fk_unit = (V)&t[FK_C_UNIT];
   fk_nil = (V)&t[FK_C_NIL];
   for (size_t i = 0; i < sizeof fk_prims / sizeof fk_prims[0]; i++) {
-    prim_values[i] = static_obj(3, K_CLOSURE, 0, (uint32_t)fk_prims[i].arity);
+    prim_values[i] = static_alloc(3, K_CLOSURE, 0, (uint32_t)fk_prims[i].arity); /* the process's: no session's */
     FK_W(prim_values[i])[1] = (V)fk_prims[i].code;
   }
 }
@@ -2253,7 +2307,7 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
     char *pg = (char *)((uintptr_t)a & ~(uintptr_t)(page_size - 1));
     size_t i = (size_t)(pg - lo) / page_size;
     if (!r->snap_copied[i]) {
-      memcpy(r->snap_area + i * page_size, pg, page_size);
+      copy_raw((V *)(r->snap_area + i * page_size), (V *)pg, page_size / sizeof(V));
       r->snap_copied[i] = 1;
     }
     mprotect(pg, page_size, PROT_READ | PROT_WRITE);
@@ -2276,10 +2330,17 @@ static void *task_main(void *p) {
   fk_init(); /* on the session's stack: RT is found through it */
   RT->stack_top = __builtin_frame_address(0);
   RT->funk_thread = pthread_self();
-  stack_t ss = {.ss_sp = malloc(1 << 16), .ss_size = 1 << 16}, off = {.ss_flags = SS_DISABLE};
-  if (ss.ss_sp && sigaltstack(&ss, NULL) != 0) {
-    free(ss.ss_sp);
-    ss.ss_sp = NULL;
+  /* the handler's stack: the thread's own if it has one, as under AddressSanitizer, which
+     unmaps it when the thread ends; else ours, freed here */
+  stack_t ss = {0}, off = {.ss_flags = SS_DISABLE};
+  if (sigaltstack(NULL, &ss) != 0 || (ss.ss_flags & SS_DISABLE)) {
+    ss = (stack_t){.ss_sp = malloc(1 << 16), .ss_size = 1 << 16};
+    if (ss.ss_sp && sigaltstack(&ss, NULL) != 0) {
+      free(ss.ss_sp);
+      ss.ss_sp = NULL;
+    }
+  } else {
+    ss.ss_sp = NULL; /* not ours */
   }
   r->task.fn(r->task.arg);
 #ifdef FK_SESSIONS
@@ -2402,7 +2463,7 @@ void fk_stop(FkRt *r, pthread_t th) {
   atomic_store(&sessions[r->id - 1], NULL);
   handlers_off();
   pthread_mutex_unlock(&registry_lock);
-#ifdef FK_SESSIONS /* the runtime's memory; the compiler's tables stay (embedding.md) */
+#ifdef FK_SESSIONS /* the runtime's memory; the compiler's went as the session's thread ended */
   if (r->heap_map) munmap(r->heap_map, r->heap_map_size);
   for (size_t i = 0; i < r->nlarge; i++) free(r->larges[i].p);
   free(r->larges);
@@ -2420,6 +2481,10 @@ void fk_stop(FkRt *r, pthread_t th) {
 #endif
   free(r->getline_line);
   free(r->verify_st);
+  free(r->roots);
+  for (size_t i = 0; i < r->nstatics; i++) free((void *)r->statics[i]);
+  free(r->statics);
+  free(r->sh.cons);
   munmap(r->slot, FK_SLOT);
   free(r);
 #endif
