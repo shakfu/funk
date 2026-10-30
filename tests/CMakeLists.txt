@@ -108,6 +108,10 @@ target_link_libraries(embed_exports PRIVATE libfunk)
 funk_test(embed/exports embed exports $<TARGET_FILE:embed_exports>)
 add_executable(embed_plugins embed/plugins.c)
 target_link_libraries(embed_plugins PRIVATE ${CMAKE_DL_LIBS})
+if(FUNK_SANITIZE) # the modules carry the sanitizer's runtime: macOS wants it in the host from the start
+  target_compile_options(embed_plugins PRIVATE -fsanitize=${FUNK_SANITIZE})
+  target_link_options(embed_plugins PRIVATE -fsanitize=${FUNK_SANITIZE})
+endif()
 funk_test(embed/plugin "embed;ffi" plugins $<TARGET_FILE:embed_plugins> $<TARGET_FILE:embed_plugin_a> $<TARGET_FILE:embed_plugin_b>
   tests/embed/plugin.fk -Itests/ffi -Itests/embed -L$<TARGET_FILE_DIR:fkt> -lfkt)
 # installed, then found by a host's CMake
@@ -323,3 +327,15 @@ foreach(c ${clis})
   math(EXPR i "${i} + 1")
   funk_test(cli/${i}${first} cli cli ${status} ${out} ${c})
 endforeach()
+
+# Under AddressSanitizer (FUNK_SANITIZE=address), what ASan itself changes:
+# - run/overflow/interp: ASan prints a warning when a longjmp leaves funk's large stack
+#   (rt.c, fk_unwinding), into the output the test compares;
+# - embed/memory: its limits are of resident memory, which ASan's shadow memory exceeds;
+# - embed/sessions: freed memory waits in ASan's quarantine, so it measures without one.
+# LeakSanitizer is off: funk frees a session's memory, not the process's at exit.
+if(FUNK_SANITIZE MATCHES "address")
+  set_tests_properties(run/overflow/interp embed/memory embed/memory/stress PROPERTIES DISABLED TRUE)
+  set_tests_properties(embed/sessions PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:quarantine_size_mb=0")
+  set_tests_properties(embed/sessions/stress PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:quarantine_size_mb=0;FUNK_GCSTRESS=1")
+endif()

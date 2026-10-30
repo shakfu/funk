@@ -405,7 +405,7 @@ static Exports *prepare(Module *m, const char *file, const char *prefix) {
 static bool prepare_caught(Module *m, const char *file) {
   jmp_buf jb, *saved = CS->cerr_jmp;
   const char *cf = CS->cur_file;
-  int n0 = ST->mods.n;
+  volatile int n0 = ST->mods.n; /* set before setjmp: GCC cannot tell it is not clobbered */
   volatile bool ok = false;
   if (!setjmp(jb)) {
     CS->cerr_jmp = &jb;

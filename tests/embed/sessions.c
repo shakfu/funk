@@ -38,7 +38,7 @@ static long resident_mib(void) {
 #else
   long pages = 0;
   FILE *f = fopen("/proc/self/statm", "r");
-  if (!f || fscanf(f, "%*ld %ld", &pages) != 1) pages = -1;
+  if (!f || fscanf(f, "%*s %ld", &pages) != 1) pages = -1;
   if (f) fclose(f);
   return pages < 0 ? -1 : pages * sysconf(_SC_PAGESIZE) / (1 << 20);
 #endif

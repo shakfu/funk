@@ -1,6 +1,7 @@
 # Build funk and run the test suite on Linux and macOS, plain and with
-# funk built under UBSan. The sqlite, PCRE2 and GMP tests run where their
-# headers are installed and are skipped otherwise (tests/CMakeLists.txt).
+# funk built under UBSan and under ASan. The sqlite, PCRE2 and GMP tests run
+# where their headers are installed and are skipped otherwise; under ASan, the
+# tests ASan itself changes are disabled (tests/CMakeLists.txt, at its end).
 name: CI
 
 on:
@@ -15,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        sanitize: ["", undefined]
+        sanitize: ["", undefined, address]
     steps:
       - uses: actions/checkout@v5
 
@@ -36,5 +37,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install ninja gmp pcre2
 
+      # LeakSanitizer, on with ASan on Linux: funk frees a session's memory, not the
+      # process's at exit
       - name: Build and test
+        env:
+          ASAN_OPTIONS: ${{ matrix.sanitize == 'address' && 'detect_leaks=0' || '' }}
         run: make SANITIZE=${{ matrix.sanitize }} test

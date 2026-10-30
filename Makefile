@@ -6,6 +6,7 @@
 #   make test                      run the test suite in parallel; ARGS go to ctest,
 #                                  e.g. make test ARGS="-R gcdeep" or ARGS="-L ffi"
 #   make SANITIZE=undefined test   the same with funk built under UBSan
+#   make SANITIZE=address test     under ASan; set ASAN_OPTIONS=detect_leaks=0 on Linux
 #   make bench | bench-report      time funk against C; see bench/README.md
 #   make install PREFIX=DIR        install funk into DIR/bin
 #   make clap                      build build/clap/funk-midi.clap (FUNK_CLAP)

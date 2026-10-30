@@ -92,5 +92,14 @@ if(WIN32)
     target_link_libraries(test_clap_host PRIVATE ws2_32)
 endif()
 
+# The plugin links libfunk, which carries FUNK_SANITIZE's runtime: macOS wants it in the
+# host that loads the plugin from the start.
+if(FUNK_SANITIZE)
+    foreach(t test_clap_host clap_dev_host)
+        target_compile_options(${t} PRIVATE -fsanitize=${FUNK_SANITIZE})
+        target_link_options(${t} PRIVATE -fsanitize=${FUNK_SANITIZE})
+    endforeach()
+endif()
+
 add_executable(test_clap_units test_clap_units.cpp)
 target_link_libraries(test_clap_units PRIVATE midi_langs_clap)
