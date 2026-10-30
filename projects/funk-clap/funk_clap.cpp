@@ -67,7 +67,8 @@ const int kVoices = 8;
 const uint32_t kChannels = 2;
 
 const char* const kDefaultCode =
-	"-- Ctrl+Return evaluates the paragraph around the caret, Ctrl+. stops.\n"
+	"-- Ctrl+Return (Cmd+Return on macOS) evaluates the paragraph around the caret, Ctrl+. stops.\n"
+	"-- To hear it, evaluate `sig` first, the instrument, then a pattern, its notes.\n"
 	"-- With Live on, `pat` loops; an expression of type Pattern Int plays once.\n"
 	"-- A cycle is one bar. Values: note + 128 * velocity + 16384 * (channel - 1).\n"
 	"-- `sig` plays on the plugin's output; `voices f` plays each note it sends.\n"

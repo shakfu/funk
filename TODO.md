@@ -8,62 +8,25 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
-- [x] **Audio ports for the plugin.** funk's own plugin, on a copy of `midi-langs`' framework (`projects/clap`, `projects/funk-clap`), with a stereo output: `sig` plays there, and `pat`'s notes go out as MIDI and play its voices ([docs/dev/plugin.md](docs/dev/plugin.md#the-plugins-audio)). gh:3
-
 - [ ] Run the plugin in a DAW, and listen to it; only the test host has run it. gh:4
-
-- [x] The plugin compiled graph.fk's imports with `$CC` at load. Its glue is now linked in (`funk emit-c --glue`, `funk_glue`), so it runs no C compiler ([docs/dev/plugin.md](docs/dev/plugin.md#linked-glue)).
-
-- [x] A live evaluation that compiles for more than the 50 ms lookahead starts its first note late. gh:5
-  - Its notes now start when the evaluation ends, whole (`[slow_note]` in `tests/hosts/clap.txt`). `tests/hosts/clap` still runs serially: under `ctest -j 10`, the evaluator thread can wait more than 50 ms to run.
 
 ## High
 
 - [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Recovery by `siglongjmp` is unsafe inside libc or the collector. Not due for the plugin: it runs interpreted code and kernels, which cannot recurse but by a tail call of themselves ([docs/dev/plugin.md](docs/dev/plugin.md)). gh:2
 
-- [x] **libfunk symbol isolation in plugin hosts** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 5). `libfunk` exports only `funk_*`; glue reaches the runtime, and a host's functions through `funk_provide`, without symbols. `funk build --shared` is deferred there. gh:1
-
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
-
-- [x] **Kernels without the runtime.** `funk emit-c --kernels`: 10 ms in funk and 70 ms in `cc -O2` for four kernels ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time)).
-
-- [x] **Byte-offset access without integer casts.** `peekByteOff`, `pokeByteOff` (`primByteAddr`) and `fieldPtr` (`primFieldAddr`, null-safe) add through `char *`; the test kernels now equal hand-written C without FMA contraction.
 
 - [ ] Decide on fused multiply-add: an explicit `fma`, or contraction in kernels only. Clang's default contraction makes the C one-pole and filter 1.4x faster, but changes results against the interpreter.
 
-- [x] **The kernel signature**: parameters as inputs, a context with the sample rate, one output ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 3).
-
-- [x] `lib/dsp.fk` and `lib/kernels.fk`: sine, saw, square, pulse, one-pole and state-variable filters, ADSR, arithmetic.
-
-- [x] A stereo graph: `g.Channels`, expanded per node as SuperCollider does; `d.stereo`, `d.pan`.
-
 - [ ] Several outputs per kernel, for kernels whose channels share state, such as a stereo reverb.
-
-- [x] Unnamed nodes restart at every `play`, so a graph without names clicks on each edit. Now named by shape ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time), item 4).
-
-- [x] **The C runner**, `projects/funkgraph/graph.h`, the CMake library `funkgraph`: graphs swapped at a block boundary and freed on the host's thread after an epoch.
-
-- [x] **The graph builder** in funk: `lib/graph.fk`, a tree of nodes that `play` writes into a C graph.
-
-- [x] Named nodes: shared by name, and their state kept across swaps while kernel and initial state are unchanged.
 
 - [ ] Node state other than `Float`s ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).
 
-- [x] Voices: a pool of controls per voice (`d.poly`), filled from `pat`'s notes by `funk-midi --audio --voices N`.
-
-- [x] Voices per MIDI channel: `d.polyOn c n f`, `voicesOn c f` in the hosts.
-
-- [x] Wider events, for graphs: controls, set at a frame by events on the player's own queue (`funk_player_send`), a 64-bit frame, a name and a `float` each.
-
 - [ ] funk's `Ring Int` still carries 16-bit values (`pattern.pushOnsets`); only a hand-written export reading it, option A, needs more.
-
-- [x] `funk-midi --audio`: plays `sig` through the vendored miniaudio (`FUNK_MINIAUDIO`, on by default); on the virtual clock without it.
 
 - [ ] Notes from `pat` to the graph: voices, as controls, scheduled against the player's frame count rather than the host's clock.
 
 - [ ] Run `funk-midi --audio` on Linux, and listen to it.
-
-- [x] Measure the cost per node and per voice, how many voices fit in 1.33 ms (64 frames at 48 kHz), and a kernel's compile time. Log the friction of writing kernels in the export style. About 1,600 voices per M1 core, 5 ns per node; rerun 2026-10-30 within 5% ([docs/dev/261029-dsp-measurements.md](docs/dev/261029-dsp-measurements.md)).
 
 - [ ] `foreign struct`: C arrays inside structs (voice blocks; Core Audio's `AudioBufferList`), and several fields per line, as `data` records accept.
 
@@ -85,7 +48,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Visibility
 
-- [ ] Publish `projects/tree-sitter-funk` for editors to fetch. Helix builds from a committed `src/parser.c`, 20 MB and regenerated by each grammar change, so a separate repository would keep it out of funk's history. Until then its README installs it by hand, and the plugin colours its editor only where `make tree-sitter` has run.
+- [x] Where `projects/tree-sitter-funk` lives: in this repository, its sources only. `src/parser.c` and the other generated files are not committed; `make tree-sitter` makes them, its README installs the grammar in Helix and Neovim, and the plugin colours its editor where it has run. A separate repository with `parser.c` committed, for Helix to fetch, was the alternative.
 
 - [ ] **Report which optimizations applied to a function**: fusion, reuse, TRMC, typed worker. Fusion matches prelude names, reuse needs linear use and TRMC a given recursion shape, so a small change can lose one with no sign; `queens` lost 18.7% and `bst` 8.6% during 0.5 and 0.6 ([docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md), weakness 3).
 

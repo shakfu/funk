@@ -11,7 +11,7 @@
 #   make install PREFIX=DIR        install funk into DIR/bin
 #   make clap                      build build/clap/funk-midi.clap (FUNK_CLAP)
 #   make clap-dev                  run the plugin's editor in a minimal host,
-#                                  MIDI to the first port
+#                                  MIDI to the first port, its audio's peak each second
 #   make tree-sitter               generate projects/tree-sitter-funk's parser and
 #                                  parse every .fk file with it (tree-sitter CLI)
 #   make clean                     remove build/ and ./funk
@@ -55,7 +55,7 @@ else
 CLAP_BIN = $(BUILD)/clap/funk-midi.clap
 endif
 clap-dev: clap
-	./$(BUILD)/clap_dev_host $(CLAP_BIN)
+	./$(BUILD)/clap_dev_host $(CLAP_BIN) --meter
 
 tree-sitter:
 	$(MAKE) -C projects/tree-sitter-funk check

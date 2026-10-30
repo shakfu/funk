@@ -12,6 +12,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `make clap-dev` prints the plugin's audio peak each second (`--meter`), and the editor's default code says to evaluate `sig`, the instrument, before a pattern: the plugin is silent until both are evaluated.
+
 - Unnamed graph nodes keep their state across `play`, as named ones do, so editing a graph without names no longer restarts its oscillators and clicks. `funk_player_play` names each by its shape, a hash of its kernel and its inputs, without initial states, and its order among nodes of that shape. A changed constant or a filter put around an oscillator keeps its phase; a changed kernel restarts the nodes above it. A node's path in the tree was the alternative; wrapping a signal or adding a term to a sum changes every path below. Playing silence first gives fresh states ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time), item 4).
 
 ### Fixed
