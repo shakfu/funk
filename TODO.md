@@ -8,17 +8,18 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
-- [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Recovery by `siglongjmp` is unsafe inside libc or the collector. Not due for the plugin: it runs interpreted code and kernels, which cannot recurse but by a tail call of themselves ([docs/dev/plugin.md](docs/dev/plugin.md)). gh:2
-
 - [x] **Audio ports for the plugin.** funk's own plugin, on a copy of `midi-langs`' framework (`projects/clap`, `projects/funk-clap`), with a stereo output: `sig` plays there, and `pat`'s notes go out as MIDI and play its voices ([docs/dev/plugin.md](docs/dev/plugin.md#the-plugins-audio)). gh:3
 
-- [ ] Run the plugin in a DAW, and listen to it; only the test host has run it.
+- [ ] Run the plugin in a DAW, and listen to it; only the test host has run it. gh:4
 
 - [x] The plugin compiled graph.fk's imports with `$CC` at load. Its glue is now linked in (`funk emit-c --glue`, `funk_glue`), so it runs no C compiler ([docs/dev/plugin.md](docs/dev/plugin.md#linked-glue)).
 
-- [ ] A live evaluation compiled in more than the 50 ms lookahead starts its first note late, at a block's start: `tests/hosts/clap`'s real-time check failed 3 runs in 12 under `ctest -j 10`, and now runs serially.
+- [ ] A live evaluation that compiles for more than the 50 ms lookahead starts its first note late. gh:5
+  - It plays at a block's start. `tests/hosts/clap`'s real-time check failed 3 runs in 12 under `ctest -j 10`, and now runs serially.
 
 ## High
+
+- [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Recovery by `siglongjmp` is unsafe inside libc or the collector. Not due for the plugin: it runs interpreted code and kernels, which cannot recurse but by a tail call of themselves ([docs/dev/plugin.md](docs/dev/plugin.md)). gh:2
 
 - [x] **libfunk symbol isolation in plugin hosts** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 5). `libfunk` exports only `funk_*`; glue reaches the runtime, and a host's functions through `funk_provide`, without symbols. `funk build --shared` is deferred there. gh:1
 
@@ -126,8 +127,6 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 ## Low
 
 ### Kernels compiled while playing (desktop live coding)
-
-Rewiring a graph needs no compiler; a new kernel does. Desktop only for now: plugins use kernels built ahead of time.
 
 - [ ] **Compile and load a kernel on demand** with `$CC` and `dlopen`, as foreign-import glue does (`ffi.c`). A kernel that fails the allocation check or the C compiler leaves the old graph playing. Set an edit-latency target from the measured compile time; the optimization level trades it against the cost per node.
 
