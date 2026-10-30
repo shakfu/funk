@@ -56,8 +56,16 @@ pan :: g.Sig -> g.Sig -> g.Sig
 pan pos x = x * stereo ((1 - pos) * dc 0.5) ((1 + pos) * dc 0.5)
 
 -- n voices of f gate freq, summed; voice k reads the controls "vk.gate"
--- and "vk.freq", which projects/funk-midi sends from pat's notes
+-- and "vk.freq", which the hosts send notes to (funk_voices in graph.h)
 poly :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
-poly n f = case map (\k -> f (g.control ("v" ++ show k ++ ".gate") 0.0) (g.control ("v" ++ show k ++ ".freq") 440.0)) (enumFromTo 1 n) of
+poly n f = voicesAt "v" n f
+
+-- poly for MIDI channel c, 1 to 16, reading "cc.vk.gate" and "cc.vk.freq";
+-- that channel's notes play these instead of poly's
+polyOn :: Int -> Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
+polyOn c n f = voicesAt ("c" ++ show c ++ ".v") n f
+
+voicesAt :: String -> Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
+voicesAt pre n f = case map (\k -> f (g.control (pre ++ show k ++ ".gate") 0.0) (g.control (pre ++ show k ++ ".freq") 440.0)) (enumFromTo 1 n) of
   [] -> g.Silence
   v : vs -> foldl (+) v vs

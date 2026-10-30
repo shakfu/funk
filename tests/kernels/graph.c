@@ -201,12 +201,12 @@ int main(int argc, char **argv) {
   funk_player_play(vp, g);
   printf("voices out of range rejected: %s\n", funk_voices_new(vp, 0, true) || funk_voices_new(vp, 65, true) ? "no" : "yes");
   funk_voices *vs = funk_voices_new(vp, 2, true);
-  funk_voices_on(vs, 1, INT64_MAX, 60, 127);
-  funk_voices_on(vs, 3, INT64_MAX, 64, 127);
-  funk_voices_off(vs, 5, 60);
-  funk_voices_off(vs, 5, 61); /* not playing: nothing */
-  funk_voices_on(vs, 6, INT64_MAX, 67, 127);
-  funk_voices_on(vs, 7, INT64_MAX, 72, 127);
+  funk_voices_on(vs, 1, INT64_MAX, 0, 60, 127);
+  funk_voices_on(vs, 3, INT64_MAX, 0, 64, 127);
+  funk_voices_off(vs, 5, 0, 60);
+  funk_voices_off(vs, 5, 0, 61); /* not playing: nothing */
+  funk_voices_on(vs, 6, INT64_MAX, 0, 67, 127);
+  funk_voices_on(vs, 7, INT64_MAX, 0, 72, 127);
   float vl[N], vr[N], *vo[2] = {vl, vr};
   for (int b = 0; b < 2; b++) {
     if (b) funk_voices_hush(vs, 12);
@@ -215,6 +215,33 @@ int main(int argc, char **argv) {
     for (int i = 0; i < N; i++) printf(" %g/%g", vl[i], vr[i]);
     printf("\n");
   }
+  funk_voices_free(vs);
+  funk_player_free(vp);
+
+  /* channels: channel 10 (9 here) has its own voices, channel 2 shares;
+     an off ends its own channel's note, not the oldest of its pitch */
+  vp = funk_player_new();
+  g = funk_graph_new(8, 8000.0);
+  const char *cnames[] = {"v1.gate", "v2.gate", "c10.v1.gate"};
+  for (int i = 0; i < 3; i++) {
+    funk_graph_output(g, funk_graph_control(g, 0.0f));
+    funk_graph_name(g, i, cnames[i]);
+  }
+  funk_player_play(vp, g);
+  printf("player has c10.v1.gate: %s, c2.v1.gate: %s\n", funk_player_has(vp, "c10.v1.gate") ? "yes" : "no",
+         funk_player_has(vp, "c2.v1.gate") ? "yes" : "no");
+  vs = funk_voices_new(vp, 2, true);
+  funk_voices_on(vs, 1, INT64_MAX, 0, 60, 127);
+  funk_voices_on(vs, 2, INT64_MAX, 1, 60, 127);
+  funk_voices_on(vs, 3, INT64_MAX, 9, 60, 127);
+  funk_voices_off(vs, 5, 1, 60);
+  funk_voices_off(vs, 6, 0, 61);
+  funk_voices_off(vs, 7, 9, 60);
+  float c0[N], c1[N], c2[N], *co[3] = {c0, c1, c2};
+  funk_player_render_channels(vp, co, 3, N);
+  printf("channels");
+  for (int i = 0; i < N; i++) printf(" %g/%g/%g", c0[i], c1[i], c2[i]);
+  printf("\n");
   funk_voices_free(vs);
   funk_player_free(vp);
 

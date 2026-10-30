@@ -162,7 +162,7 @@ Steps, all done:
 
 ## The plugin's audio
 
-- **`sig`** plays on the output from the next block, as in `funk-midi --audio`; `voices f` is `d.poly` of 8 voices. Notes on every MIDI channel share them.
+- **`sig`** plays on the output from the next block, as in `funk-midi --audio`; `voices f` is `d.poly` of 8 voices, and `voicesOn c f` is `d.polyOn c` of 8 for MIDI channel `c`. A channel's notes play its own voices if the graph now playing has them, else the shared ones. The check is per note-on, not per definition, so a channel with `voicesOn` in a replaced `sig` falls back as the new graph plays. A note-off searches every pool for its channel and pitch, so a note still ends after the graph changed which pool its channel uses.
 
 - **Kernels**: `funkdsp.so` is copied into the bundle's `Resources` (beside the `.clap` on Linux) and loaded at the first activation, since the plugin's own symbols are not exported (constraint 3).
 

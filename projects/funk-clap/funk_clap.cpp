@@ -315,8 +315,11 @@ bool AudioActivate(double rate, uint32_t maxFrames)
 	bool ok = false;
 	std::string out;
 	Session::get().call([&] {
-		char voices[96];
-		snprintf(voices, sizeof voices, "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f", kVoices);
+		char voices[256];
+		snprintf(voices, sizeof voices,
+		         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\n"
+		         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
+		         kVoices, kVoices);
 		ok = Eval(src, out) && Eval(voices, out);
 		gAudio.ready = ok;
 		if (ok && gAudio.haveSig) PlaySig(out);
@@ -327,13 +330,13 @@ bool AudioActivate(double rate, uint32_t maxFrames)
 
 void AudioDeactivate() {}
 
-// The audio thread: a note at its frame, on any channel.
+// The audio thread: a note at its frame, on its channel's voices or the shared ones.
 void AudioNote(uint32_t offset, const uint8_t* data)
 {
 	if (!gAudio.voices) return;
 	const int64_t frame = funk_player_frames(gAudio.player) + offset;
-	if ((data[0] & 0xF0) == 0x90 && data[2]) funk_voices_on(gAudio.voices, frame, INT64_MAX, data[1], data[2]);
-	else funk_voices_off(gAudio.voices, frame, data[1]);
+	if ((data[0] & 0xF0) == 0x90 && data[2]) funk_voices_on(gAudio.voices, frame, INT64_MAX, data[0] & 15, data[1], data[2]);
+	else funk_voices_off(gAudio.voices, frame, data[0] & 15, data[1]);
 }
 
 void AudioRender(float* const* out, uint32_t channels, uint32_t frames)

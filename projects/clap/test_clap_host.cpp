@@ -436,6 +436,19 @@ void CheckAudio(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 	          + std::to_string(mixed.audio[300]) + ", " + std::to_string(mixed.audio[kBlock]));
 	Events released; // a stopped transport releases the clip's held note
 	Process(plugin, released, 2 * kBlock / (double)kBeatFrames, false);
+
+	// Channel 10's notes play voicesOn 10; an off ends the note of its own channel.
+	if (!cases.count("channels")) return;
+	reply = Eval(cases["channels"]);
+	check(reply.find("error") == std::string::npos, "the [channels] case evaluates: " + reply);
+	Events ch;
+	const clap_event_midi_t on10 = Midi(20, 0x99, 60, 127), on1 = Midi(40, 0x90, 60, 127), off1 = Midi(60, 0x80, 60, 0),
+	                        off10 = Midi(80, 0x89, 60, 0);
+	const Input notes{{&on10.header, &on1.header, &off1.header, &off10.header}};
+	Process(plugin, ch, -1., false, &notes);
+	check(ch.audio[20] == 2.f && ch.audio[40] == 3.f && ch.audio[60] == 2.f && ch.audio[80] == 0.f,
+	      "channel 10 plays its own voices, and each off ends its channel's note: " + std::to_string(ch.audio[20]) + ", "
+	          + std::to_string(ch.audio[40]) + ", " + std::to_string(ch.audio[60]) + ", " + std::to_string(ch.audio[80]));
 }
 
 void CheckEval(std::map<std::string, std::string>& cases)

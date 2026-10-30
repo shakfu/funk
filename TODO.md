@@ -50,7 +50,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] Voices: a pool of controls per voice (`d.poly`), filled from `pat`'s notes by `funk-midi --audio --voices N`.
 
-- [ ] Voices per MIDI channel; every note now shares one pool.
+- [x] Voices per MIDI channel: `d.polyOn c n f`, `voicesOn c f` in the hosts.
 
 - [x] Wider events, for graphs: controls, set at a frame by events on the player's own queue (`funk_player_send`), a 64-bit frame, a name and a `float` each.
 

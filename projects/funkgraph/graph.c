@@ -239,6 +239,14 @@ bool funk_player_send_audio(funk_player *p, int64_t frame, const char *name, flo
   return true;
 }
 
+bool funk_player_has(funk_player *p, const char *name) {
+  const funk_graph *g = atomic_load(&p->current);
+  if (!g) return false;
+  uint64_t key = hash(name);
+  int at = lower(g, key);
+  return at < g->nnames && g->names[at].key == key && !g->nodes[g->names[at].node].k;
+}
+
 int64_t funk_player_frames(funk_player *p) { return atomic_load_explicit(&p->frames, memory_order_acquire); }
 
 /* g's controls for the m frames from start: each holds its value until

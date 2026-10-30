@@ -393,7 +393,7 @@ static void voice_notes(long n) {
   for (long i = 0; i < n; i++) {
     int64_t at = origin_us + buf[3 * i], dur = buf[3 * i + 1] > 0 ? buf[3 * i + 1] : 1;
     long v = buf[3 * i + 2], vel = (v >> 7) & 127;
-    voice_check(funk_voices_on(voices, frame_at(at), frame_at(at + dur), (int)(v & 127), vel ? (int)vel : 100));
+    voice_check(funk_voices_on(voices, frame_at(at), frame_at(at + dur), (int)((v >> 14) & 15), (int)(v & 127), vel ? (int)vel : 100));
   }
 }
 
@@ -448,7 +448,10 @@ static bool start_audio(const char *kernels_path) {
     return false;
   bool ok = eval(src) && eval("hushsig :: Int ->> Int\nhushsig u = do { g.play audioPlayer g.Silence ; 0 }");
   free(src);
-  if (!ok || asprintf(&src, "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f", nvoices) < 0) return false;
+  if (!ok || asprintf(&src,
+                       "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\n"
+                       "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
+                       nvoices, nvoices) < 0) return false;
   ok = eval(src);
   free(src);
   if (!ok || !(voices = funk_voices_new(player, nvoices, false))) return false;
