@@ -6,17 +6,25 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `lib/dsp.fk` gains four kernels: `noise`, `saturate` (`tanh`), `compress` with `limit`, and `adsrExp`. `limit` is `compress` at an infinite ratio and instant attack, and holds its ceiling with no lookahead by distorting each peak within its frame; lookahead needs delay memory ([docs/dev/dsp.md](docs/dev/dsp.md)).
+
 - The CLAP plugin's editor colours funk's syntax, from `projects/tree-sitter-funk`'s parser and highlight query, as Helix and Neovim do. ImGui's text field cannot colour its text, so the field draws it transparent and the plugin draws it over in colour, repeating ImGui's layout; a test compares every glyph with ImGui's own. A code-editor widget was the alternative, without the field's word wrap. Built when the generated parser and the tree-sitter runtime are present; otherwise the text is plain ([docs/dev/plugin.md](docs/dev/plugin.md#syntax-colours)).
 
 - `projects/tree-sitter-funk`: a tree-sitter grammar for highlighting funk in Helix and Neovim, forked from tree-sitter-haskell 0.24.1, whose layout scanner handled funk's layout in every file. The fork adds funk's syntax: lowercase module names and qualifiers, definitions in a type's namespace, `foreign library`, `foreign struct` and `->>`. `make tree-sitter` parses every `.fk` file in the repository, 238, without errors; upstream parsed 166 of them. A new grammar would have needed its own layout scanner ([projects/tree-sitter-funk/README.md](projects/tree-sitter-funk/README.md)).
 
 ### Changed
 
+- `pipeline` runs interpreted at n = 1,000,000 instead of 100,000,000 (`INTERP_SIZES` in `bench/bench.py`), which takes `make bench` from about 30 minutes to about 3. Interpreted time per element is unchanged; the larger size, chosen so C's vectorized loop is measurable, broke the benchmarks' 3 s rule.
+
 - `make clap-dev` prints the plugin's audio peak each second (`--meter`), and the editor's default code says to evaluate `sig`, the instrument, before a pattern: the plugin is silent until both are evaluated.
 
 - Unnamed graph nodes keep their state across `play`, as named ones do, so editing a graph without names no longer restarts its oscillators and clicks. `funk_player_play` names each by its shape, a hash of its kernel and its inputs, without initial states, and its order among nodes of that shape. A changed constant or a filter put around an oscillator keeps its phase; a changed kernel restarts the nodes above it. A node's path in the tree was the alternative; wrapping a signal or adding a term to a sum changes every path below. Playing silence first gives fresh states ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time), item 4).
 
 ### Fixed
+
+- Compiling a recursive function that passes itself a growing lambda, such as `nest n f = nest (n - 1) (\x -> f (x + 1))`, no longer takes over 20 GiB. Each specialized copy specialized its own recursive call again; the size limit measured each argument, which stayed short, while the chain of copies grew. The limit now covers the copy's whole name. One `compile_chunk` may also allocate at most 2 GiB (`FK_COMPILE_LIMIT`, in bytes), then the compile fails with an error and the session continues: four such compiles under `make test` ran a 16 GiB machine out of memory, faster than a test timeout could stop them.
+
+- A signature may now take a function its body keeps in a pure data field: `mapP :: (a -> b) -> Pattern a -> Pattern b` was rejected with "functions whose effects differ", because a signature's `->` arrows share an effect that callers choose. Such a body now makes those arrows pure, so passing an effectful function is an error at the call. A marker for pure arguments was the alternative; it would add syntax for what the body already shows.
 
 - In the CLAP plugin, a live evaluation that runs longer than the 50 ms lookahead plays its notes whole, starting when it ends. Its start time was taken before compiling, so its first note-on reached the audio thread late and played at a block's start, while its note-off stayed on time: in `tests/hosts/clap`, a 0.4 s evaluation's note lasted zero frames. `midi_clock_catch_up` moves script time to where a message still plays on time. Dropping the notes already late was the alternative; it loses a pattern's first note. (gh:5)
 

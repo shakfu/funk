@@ -292,7 +292,7 @@ pat = p.stack [bass]   -- now 40, from the next cycle
 
 **A field read needs a signature.** A helper such as `startOf e = e.whole.start` needs `startOf :: p.Event a -> Int`.
 
-**A function that passes a function parameter to `mapP` cannot have a signature.** `up :: Int -> p.Pattern Int -> p.Pattern Int` with `up n pat = p.mapP (+ n) pat` compiles. `each :: (Int -> Int) -> p.Pattern Int -> p.Pattern Int` with `each f pat = p.mapP f pat` fails with "functions whose effects differ": the signature's `Int -> Int` cannot promise that `f` is pure, which `Pattern` needs ([dev/typed-effects.md](dev/typed-effects.md)). Leave that signature out; `mapP` itself has none for this reason.
+**A function given to `mapP` must be pure.** `p.mapP print pat` is an error: a pattern may be queried at any time, so its query cannot act ([dev/typed-effects.md](dev/typed-effects.md)). The same holds for a function that passes its parameter to `mapP`, such as `each :: (Int -> Int) -> p.Pattern Int -> p.Pattern Int`.
 
 ## Using patterns from your own program
 

@@ -31,6 +31,12 @@ pulse freq width = g.Node "dsp_square" [0.0] [freq, width]
 square :: g.Sig -> g.Sig
 square freq = pulse freq (dc 0.5)
 
+-- white noise, uniform in (-1, 1). Nodes with one seed play one signal, so
+-- give each channel or voice its own; the seed picks a start, and an affine
+-- map keeps two seeds' sequences from being multiples of each other.
+noise :: Int -> g.Sig
+noise seed = g.Node "dsp_noise" [toFloat (1 + (abs seed * 48271 + 11) `mod` 2147483646)] []
+
 -- filters: cutoff in Hz, read once per block, then the signal
 lowpass1 :: g.Sig -> g.Sig -> g.Sig
 lowpass1 cutoff x = g.Node "dsp_lowpass1" [0.0] [x, cutoff]
@@ -45,6 +51,26 @@ highpass cutoff q x = g.Node "dsp_highpass" [0.0, 0.0] [x, cutoff, q]
 -- is on); times in seconds, read once per block
 adsr :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
 adsr a d s r gate = g.Node "dsp_adsr" [0.0, 0.0, 0.0] [gate, a, d, s, r]
+
+-- adsr with exponential segments: attack reaches 1 in its time, decay and
+-- release get within 60 dB in theirs
+adsrExp :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+adsrExp a d s r gate = g.Node "dsp_adsr_exp" [0.0, 0.0, 0.0] [gate, a, d, s, r]
+
+-- tanh (drive * x), within (-1, 1)
+saturate :: g.Sig -> g.Sig -> g.Sig
+saturate drive x = g.Node "dsp_saturate" [] [x, drive]
+
+-- threshold in dB, ratio from 1 up, attack and release time constants in
+-- seconds, read once per block. A multichannel x compresses each channel
+-- on its own level, which can move a stereo image.
+compress :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+compress threshold ratio attack release x = g.Node "dsp_compress" [0.0] [x, threshold, ratio, attack, release]
+
+-- x held to at most ceiling, in dB, with no lookahead: an instant attack
+-- turns each peak down within its frame, which distorts it
+limit :: g.Sig -> g.Sig -> g.Sig -> g.Sig
+limit ceiling release x = compress ceiling (dc (1.0 / 0.0)) 0 release x
 
 -- two channels, left and right
 stereo :: g.Sig -> g.Sig -> g.Sig

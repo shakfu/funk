@@ -1,0 +1,11 @@
+-- expect: an effectful function (`->>`) where a pure one (`->`) is required
+-- A signature whose body keeps its parameter in a pure field takes no effectful function.
+data Box = Box (Int -> Int)
+box :: (Int -> Int) -> Box
+box f = Box f
+noisy :: Int ->> Int
+noisy x = do
+  print x
+  x
+r = box noisy
+main = ()

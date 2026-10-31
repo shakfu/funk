@@ -268,11 +268,11 @@ Pure Haskell code parses and checks unchanged, because its `->` signatures are h
 
 Two things E's syntax, as designed, cannot say:
 
-- **A pure argument, regardless.** `(a -> b) -> c` means the function acts when its argument does. Requiring the argument itself to be pure needs another marker. Data fields have that rigidity; signatures do not.
+- **A pure argument, regardless.** `(a -> b) -> c` means the function acts when its argument does. No marker says the argument must be pure. A body that needs it pure, by keeping it in a data field declared `->`, makes the signature's `->` arrows pure, for callers too (2026-10-31). A signature cannot state this alone, and a separate effect variable per argument would still need new syntax.
 
 - **Independent effects for two arguments.** All arrows of one signature share one variable, so a function taking two callbacks acts if either does. That is sound, and no program in the prototype's corpus needed more.
 
-Both would need an explicit effect variable in the syntax, as Koka writes it. Neither came up in the prototype.
+An explicit effect variable in the syntax, as Koka writes it, would state both. Neither came up in the prototype.
 
 ### Semantics
 

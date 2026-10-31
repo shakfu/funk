@@ -23,7 +23,7 @@ Line counts below are measured; costs are estimates from reading the code, not f
 
 - **What `funk-midi --audio` already does** (`projects/funk-midi/main.c`, 787 lines): owns a `funkgraph` player, loads `funkdsp.so`, has funk build graphs with `g.play`, renders on the audio thread through `funk_player_render_channels` alone, and turns `pat`'s notes into voice controls (`voice_*`, about 80 lines).
 
-- **`libfunk`**: one session per process ([embedding.md](embedding.md), phase 1 not done). Since gh:1, two different plugins that each embed `libfunk` run side by side, and their foreign imports bind their own runtimes.
+- **`libfunk`**: up to 256 sessions per process ([embedding.md](embedding.md#phase-2-sessions)). Since gh:1, two different plugins that each embed `libfunk` run side by side, and their foreign imports bind their own runtimes.
 
 ## Constraints on every option
 

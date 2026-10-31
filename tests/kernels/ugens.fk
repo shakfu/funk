@@ -50,6 +50,49 @@ peak p skipped n s = do
   skip p skipped
   maximum (map abs (frames p n))
 
+-- frame n of noise from seed 1, a state dsp.noise's map would not choose
+noiseAt :: g.Player -> Int ->> Int
+noiseAt p n = do
+  g.play p g.Silence
+  frames p 0
+  g.play p (g.Node "dsp_noise" [1.0] [])
+  skip p (n - 1)
+  head (frames p 1)
+
+-- [largest magnitude, mean, variance, correlation of two seeds, correlation
+-- of neighbouring frames] over 6400 frames
+noiseStats :: g.Player ->> [Int]
+noiseStats p = do
+  g.play p g.Silence
+  frames p 0
+  xs <- concat (map (\i -> both p 64 (dsp.stereo (dsp.noise 1) (dsp.noise 2))) (enumFromTo 1 100))
+  ls <- concat (evens xs)
+  rs <- concat (evens (drop 1 xs))
+  n <- toFloat (length ls)
+  u <- map (\x -> toFloat x / 10000.0) ls
+  v <- map (\x -> toFloat x / 10000.0) rs
+  dot <- \a b -> sum (zipWith (*) a b) / n
+  scaled <- \x -> round (x * 10000.0)
+  [maximum (map abs ls), scaled (sum u / n), scaled (dot u u), scaled (dot u v), scaled (dot u (drop 1 u ++ [0.0]))]
+
+evens :: [a] -> [a]
+evens xs = case xs of
+  [] -> []
+  x : rest -> x : evens (drop 1 rest)
+
+-- 8 frames after a loud frame, with a 1 ms release at 8000 Hz: the level is
+-- 1/e. At infinite ratio the gain is threshold / level, so 0.2 comes out
+-- as 0.2 * 0.1 / 0.3679.
+followed :: g.Player ->> Int
+followed p = do
+  g.play p g.Silence
+  frames p 0
+  c <- \x -> g.named "cmp" (dsp.compress (dsp.dc (-20.0)) (dsp.dc (1.0 / 0.0)) 0 (dsp.dc 0.001) x)
+  g.play p (c 1)
+  frames p 1
+  g.play p (c (dsp.dc 0.2))
+  head (drop 7 (frames p 8))
+
 main = do
   k <- peekCString (getenv "KERNELS")
   p <- g.player [k] 8000.0 64
@@ -110,6 +153,31 @@ main = do
   first p 3 (oscs 1)
   print (both p 2 (oscs (dsp.dc 1.0)))
   print (channels p 3 1 (dsp.stereo 1 2))
+  -- noise: MINSTD's published 10,000th value from seed 1, 1043618065, in
+  -- units of the output
+  print (noiseAt p 10000)
+  -- noise: within (-1, 1), mean near 0, variance near 1/3, and seeds and
+  -- neighbouring frames uncorrelated; each in units of 1e-4
+  print (noiseStats p)
+  -- a saturator: tanh of 0, 0.5 and 100
+  print (map (\x -> head (first p 1 (dsp.saturate 1 (dsp.dc x)))) [0.0, 0.5, 100.0, -100.0])
+  -- 1 at threshold -20 dB, ratio 2, instant attack: 20 dB over goes in, 10 dB
+  -- over comes out, 0.3162, on every frame; below the threshold, unchanged
+  print (first p 2 (dsp.compress (dsp.dc (-20.0)) 2 0 (dsp.dc 0.1) 1))
+  print (first p 2 (dsp.compress (dsp.dc (-20.0)) 2 0 (dsp.dc 0.1) (dsp.dc 0.05)))
+  -- attack: one time constant, 8 frames at 8000 Hz, puts the level at
+  -- 1 - 1/e, so at infinite ratio 1 comes out as 0.1 / 0.6321; release
+  -- falls the same way
+  print (head (drop 7 (first p 8 (dsp.compress (dsp.dc (-20.0)) (dsp.dc (1.0 / 0.0)) (dsp.dc 0.001) 0 1))))
+  print (followed p)
+  -- a limiter at -6 dB, 0.5012, of a full-scale sine and one at twice that
+  -- and of that with a release too short to span one frame
+  print (map (peak p 4000 64) [dsp.limit (dsp.dc (-6.0)) (dsp.dc 0.05) (dsp.sine 440), dsp.limit (dsp.dc (-6.0)) (dsp.dc 0.05) (dsp.sine 440 * 2), dsp.limit (dsp.dc (-6.0)) (dsp.dc 0.00005) (dsp.sine 440 * 2)])
+  -- an exponential envelope at 1000 frames a second: attack in 5 frames to
+  -- 1, then 60 dB of the way to 0.5 in 5, then release from 0.5
+  envx <- \gate -> g.named "envx" (dsp.adsrExp (dsp.dc 0.005) (dsp.dc 0.005) (dsp.dc 0.5) (dsp.dc 0.005) gate)
+  print (first q 12 (envx 1))
+  print (next q 6 (envx 0))
   g.close p
   g.close q
   g.close r

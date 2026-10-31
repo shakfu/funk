@@ -1007,6 +1007,7 @@ static void ho_call(Expr *e, Nm *locals) {
     sb_printf(&k, "%s%d=%s", c++ ? ";" : "", i, a.s);
   }
   sb_puts(&k, "}");
+  if (k.n > 512) return; /* a copy of a copy of ...: each argument is short, the chain is not */
   if (ts.n) { /* the types are part of the copy: `map id` differs at [Int] and [Char] */
     TS *saved = ST->tsub;
     int nsaved = ST->ntsub;
@@ -1196,6 +1197,16 @@ static void ho_expr(Expr *e, Nm *s) {
   case E_ANN: ho_expr(e->body, s); return;
   default: return;
   }
+}
+
+void elab_abort(void) {
+  ST->tsub = NULL;
+  ST->ntsub = 0;
+  ST->key_fv = NULL;
+  ST->keep_locals = NULL;
+  ST->ho_work.n = 0;
+  ST->lifted.n = 0;
+  ST->own_work.n = 0;
 }
 
 void ho_specialize(Bind **bs, int n) {

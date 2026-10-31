@@ -1,0 +1,6 @@
+-- A recursive call that passes a growing lambda: each specialized copy of nest
+-- specialized its own call again, until compiling took over 20 GiB.
+nest :: Int -> (Int -> Int) -> Int
+nest n f = if n == 0 then f 1 else nest (n - 1) (\x -> f (x + 1))
+
+main = print (nest 3 (* 2))

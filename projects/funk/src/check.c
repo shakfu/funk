@@ -47,6 +47,10 @@ typedef struct { Bind *b; Type *eff; Types params; const char *in; } LocalEff;
 
 typedef struct { Expr *e; Type *rec, *res; Type **vals; } Pending;
 
+/* An instantiation of a generic variable g as v, kept so that a use checked
+   before its signature's effect became Pure still sees it. */
+typedef struct { Type *g, *v; int line, col; } SchemeUse;
+
 /* foreign struct (realtime.md): an opaque type T, a constant T.f :: Field T a
    per field, its offset, and T.size :: Int. They are C values, computed by
    the glue with offsetof and sizeof, so C lays the struct out: the header's
@@ -71,6 +75,7 @@ typedef struct {
   int uline, ucol;
   Type *outer_exp, *outer_act;
   VEC(Deferred) deferred;
+  VEC(SchemeUse) scheme_uses; /* this top-level group's */
   VEC(LocalEff) local_effs;
   Types param_stack; /* parameter types of the lambdas being checked */
   VEC(Pending) pending;
@@ -409,6 +414,9 @@ static void unify_eff(Type *a, Type *b) {
     a->link = b;
     return;
   }
+  /* A body that needs a signature's `->` pure makes it pure (typed-effects.md). */
+  if (a == ST->eff_pure && b->refine) { b->link = a; return; }
+  if (b == ST->eff_pure && a->refine) { a->link = b; return; }
   if ((a == ST->eff_eff && b->skolem) || (b == ST->eff_eff && a->skolem))
     eff_error("an effectful function (`->>`) where its signature has `->`");
   if (a == ST->eff_eff || b == ST->eff_eff) eff_error("an effectful function (`->>`) where a pure one (`->`) is required");
@@ -557,6 +565,7 @@ static Type *inst_var(Type *scheme, Expr *e) {
   int n = preds_of(scheme, &ps);
   Subst s = {0};
   Type *t = inst_rec(scheme, &s, false);
+  for (int k = 0; k < s.n; k += 2) VPUSH(ST->scheme_uses, ((SchemeUse){s.a[k], s.a[k + 1], e->line, e->col}));
   for (int i = 0; i < n; i++) {
     for (int k = 0; k < s.n; k += 2)
       if (s.a[k] == ps[i].t) ps[i].t = s.a[k + 1];
@@ -1665,9 +1674,38 @@ static bool acts_by(Type *e, Types *params) {
   return false;
 }
 
+/* A signature's effect made Pure while checking its body: its scheme says so
+   from here on, and uses already checked must agree. Those may be other
+   signatures of the group, so repeat until nothing changes. */
+static void refine_schemes(Group *g) {
+  for (bool again = true; again;) {
+    again = false;
+    for (int i = 0; i < g->n; i++) {
+      Bind *b = g->b[i];
+      if (!b->sig || b->scheme) continue;
+      for (int k = 0; k < b->nskolem; k++) {
+        Type *key = b->skolem[2 * k];
+        if (repr(key) != ST->eff_pure && repr(b->skolem[2 * k + 1]) == ST->eff_pure) {
+          key->link = ST->eff_pure;
+          again = true;
+        }
+      }
+    }
+    if (!again) break;
+    for (int i = 0; i < ST->scheme_uses.n; i++) {
+      SchemeUse *u = &ST->scheme_uses.a[i];
+      if (repr(u->g) != ST->eff_pure) continue;
+      ST->uline = u->line;
+      ST->ucol = u->col;
+      unify_eff(u->v, ST->eff_pure);
+    }
+  }
+}
+
 static void infer_group(Group *g, Env **env, bool top) {
   Env *none = NULL;
   if (!env) env = &none;
+  if (top) ST->scheme_uses.n = 0;
   ST->level++;
   int ndeferred = ST->deferred.n; /* this group's calls of functions not yet known */
   int nlocal = ST->local_effs.n;
@@ -1693,6 +1731,7 @@ static void infer_group(Group *g, Env **env, bool top) {
       Type *rigid = inst_rec(sch[i], &s, true);
       b->skolem = s.a;
       b->nskolem = s.n / 2;
+      for (int k = 0; k < s.n; k += 2) s.a[k + 1]->refine = !b->scheme;
       Type *saved_sig = ST->cur_sig;
       ST->cur_sig = rigid;
       check(b->e, *env, rigid);
@@ -1705,6 +1744,7 @@ static void infer_group(Group *g, Env **env, bool top) {
   default_receivers(g, mono, sch);
   resolve_fields(false);
   settle_deferred(ndeferred); /* before generalization: a merged effect must be in the scheme */
+  refine_schemes(g);
   for (int i = 0; i < g->n; i++) {
     Bind *b = g->b[i];
     bool value = b->e->k != E_LAM;
@@ -2601,6 +2641,8 @@ bool compile_chunk(Module *m, Chunk *out) {
   ST->cvars.n = 0;
   ST->level = 0;
   if (setjmp(jb)) {
+    compile_budget(false);
+    elab_abort();
     CS->cerr_jmp = saved;
     undo_to(mark);
     CS->globals.n = ng0;
@@ -2618,6 +2660,7 @@ bool compile_chunk(Module *m, Chunk *out) {
     return false;
   }
   CS->cerr_jmp = &jb;
+  compile_budget(true);
   ST->pending.n = 0;
   register_struct_names(m);
   register_datas(m);
@@ -2716,6 +2759,7 @@ bool compile_chunk(Module *m, Chunk *out) {
     for (int j = 0; j < CS->ffi_libs.n; j++) seen |= !strcmp(CS->ffi_libs.a[j], m->libs[i]);
     if (!seen) VPUSH(CS->ffi_libs, m->libs[i]);
   }
+  compile_budget(false);
   CS->cerr_jmp = saved;
   return true;
 }

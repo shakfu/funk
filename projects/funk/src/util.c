@@ -33,15 +33,38 @@ static void untrack(Block *b) {
   if (b->next) b->next->prev = b->prev;
 }
 
-void *xmalloc(size_t n) { return track(malloc(sizeof(Block) + n)); }
+/* A runaway pass reaches 4 GiB/s, too fast for a timeout. Going over is a
+   compile error, so a REPL or plugin session survives; what was allocated
+   stays until the session ends. Counts bytes allocated, not live. */
+void compile_budget(bool on) {
+  const char *s = on ? getenv("FK_COMPILE_LIMIT") : NULL;
+  fk_here()->cc_budget = !on ? 0 : s ? strtoull(s, NULL, 10) : (size_t)2 << 30;
+}
+
+static void charge(size_t n) {
+  size_t *left = &fk_here()->cc_budget;
+  if (!*left) return;
+  if (n >= *left) {
+    *left = 0;
+    cerror(0, 0, "the compiler exceeded its memory limit (FK_COMPILE_LIMIT, default 2 GiB)");
+  }
+  *left -= n;
+}
+
+void *xmalloc(size_t n) {
+  charge(n);
+  return track(malloc(sizeof(Block) + n));
+}
 
 void *xcalloc(size_t n, size_t size) {
   if (size && n > (SIZE_MAX - sizeof(Block)) / size) fk_fatal("out of memory");
+  charge(n * size);
   return track(calloc(1, sizeof(Block) + n * size));
 }
 
 void *xrealloc(void *p, size_t n) {
   if (!p) return xmalloc(n);
+  charge(n);
   Block *b = (Block *)p - 1;
   untrack(b);
   return track(realloc(b, sizeof(Block) + n));
@@ -162,8 +185,9 @@ const char *intern(const char *s) { return intern_n(s, strlen(s)); }
 void sb_puts(SB *b, const char *s) {
   size_t n = strlen(s);
   if (b->n + n + 1 > b->cap) {
-    b->cap = (b->n + n + 1) * 2;
-    b->s = xrealloc(b->s, b->cap);
+    size_t cap = (b->n + n + 1) * 2;
+    b->s = xrealloc(b->s, cap);
+    b->cap = cap;
   }
   memcpy(b->s + b->n, s, n + 1);
   b->n += n;

@@ -8,8 +8,6 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
-- [ ] Run the plugin in a DAW, and listen to it; only the test host has run it. gh:4
-
 ## High
 
 - [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Recovery by `siglongjmp` is unsafe inside libc or the collector. Not due for the plugin: it runs interpreted code and kernels, which cannot recurse but by a tail call of themselves ([docs/dev/plugin.md](docs/dev/plugin.md)). gh:2
@@ -30,9 +28,21 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] `foreign struct`: C arrays inside structs (voice blocks; Core Audio's `AudioBufferList`), and several fields per line, as `data` records accept.
 
-### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
+### DSP ([docs/dev/dsp.md](docs/dev/dsp.md#proposed-roadmap))
 
-- [ ] #1: `mapP :: (a -> b) -> Pattern a -> Pattern b` is rejected, and "functions whose effects differ" names neither the field nor the parameter.
+Phase 2, delay memory:
+
+- [ ] Delay memory in node state, kept across a graph swap without copying it on the audio thread. This is the first use of "Node state other than `Float`s", under Compiled DSP graph.
+
+- [ ] Delay, comb and allpass.
+
+- [ ] Interpolated delay reads, then chorus and flanger.
+
+- [ ] A mono reverb from combs and allpasses, one per channel.
+
+Phases 3 and 4 are under Medium.
+
+### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 
 - [ ] #3: a field read on a parameter needs a signature; infer the record type when one type has the field.
 
@@ -40,7 +50,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] #6: every `funk_eval` input stays compiled, about 16 KB each. Roll back an expression's chunk after it runs.
 
-- [ ] #7: a signature on a function that calls an effectful parameter inside a constructor's argument is rejected; see the log.
+- [ ] #12: a local signature cannot call an enclosing function's parameter; see the log.
 
 ### Runtime
 
@@ -53,6 +63,22 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 - [ ] **Report which optimizations applied to a function**: fusion, reuse, TRMC, typed worker. Fusion matches prelude names, reuse needs linear use and TRMC a given recursion shape, so a small change can lose one with no sign; `queens` lost 18.7% and `bst` 8.6% during 0.5 and 0.6 ([docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md), weakness 3).
 
 ## Medium
+
+### DSP, after phase 2 ([docs/dev/dsp.md](docs/dev/dsp.md#proposed-roadmap))
+
+Phase 3, several outputs per kernel, only if the per-channel reverb is not good enough:
+
+- [ ] Several outputs, listed under Compiled DSP graph.
+
+- [ ] A stereo reverb.
+
+Phase 4, loaded data:
+
+- [ ] Shared read-only buffers, kept alive until the last graph that reads them is freed. Use a read-only type over phase 2's allocation and freeing.
+
+- [ ] A wavetable oscillator.
+
+- [ ] Reading audio files, and a sampler.
 
 ### Embedding
 

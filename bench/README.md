@@ -48,7 +48,7 @@ All backends must print the same output. A benchmark whose outputs differ is not
 | `wordfreq` | build text, split it into words, merge sort, count runs: `String` comparison and `++` | words |
 | `printing` | one `putStrLn` per line, with `show` and `++`: an effect-heavy loop | lines |
 
-Sizes are in `SIZES` in `bench.py`. Each size keeps the interpreter under about 3 s. On an M1, C times are therefore 5-75 ms, so `x C` ratios carry several percent of noise. Changing a size makes older rows incomparable, and `report` skips rows whose `n` differs.
+Sizes are in `SIZES` in `bench.py`. Each size keeps the interpreter under about 3 s, with `INTERP_SIZES` for `pipeline`, whose C needs a size that would take the interpreter 270 s. On an M1, C times are therefore 5-75 ms, so `x C` ratios carry several percent of noise. Changing a size makes older rows incomparable, and `report` skips rows whose `n` differs.
 
 ## Benchmarks Game suite
 

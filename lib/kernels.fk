@@ -14,9 +14,16 @@ foreign export ccall "dsp_lowpass" lowpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr
 foreign export ccall "dsp_bandpass" bandpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_highpass" highpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_adsr" adsrK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_noise" noiseK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_saturate" saturateK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_compress" compressK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_adsr_exp" adsrExpK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign import ccall "math.h sin" csin :: Float -> Float
 foreign import ccall "math.h tan" ctan :: Float -> Float
 foreign import ccall "math.h exp" cexp :: Float -> Float
+foreign import ccall "math.h tanh" ctanh :: Float -> Float
+foreign import ccall "math.h pow" cpow :: Float -> Float -> Float
+foreign import ccall "math.h floor" cfloor :: Float -> Float
 
 -- projects/funkgraph's funk_context
 foreign struct Context { rate :: Float }
@@ -24,6 +31,8 @@ foreign struct Context { rate :: Float }
 foreign struct Phase { phase :: Float }
 foreign struct Const { value :: Float }
 foreign struct Pole { y :: Float }
+foreign struct Noise { seed :: Float }
+foreign struct Follower { level :: Float }
 foreign struct Svf { ic1 :: Float, ic2 :: Float }
 -- stage: 0 idle, 1 attack, 2 decay or sustain, 3 release
 foreign struct Env { stage :: Float, level :: Float, gate :: Float }
@@ -189,13 +198,18 @@ envStep s stage level up down sus rel = do
   writeField s Env.level l2
   l2
 
+-- the stage after the gate's change, if any; records the gate
+gateStage :: Ptr Env -> Float ->> Float
+gateStage s g = do
+  was <- readField s Env.gate
+  stage <- readField s Env.stage
+  writeField s Env.gate g
+  if g > 0.0 && was <= 0.0 then 1.0 else if g <= 0.0 && was > 0.0 then 3.0 else stage
+
 envLoop :: Ptr Env -> Ptr CFloat -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
 envLoop s gate up down sus rel out i n = if i == n then () else do
   g <- at gate i
-  was <- readField s Env.gate
-  stage <- readField s Env.stage
-  st <- if g > 0.0 && was <= 0.0 then 1.0 else if g <= 0.0 && was > 0.0 then 3.0 else stage
-  writeField s Env.gate g
+  st <- gateStage s g
   put out i (envStep s st (readField s Env.level) up down sus rel)
   envLoop s gate up down sus rel out (i + 1) n
 
@@ -215,3 +229,98 @@ adsrK st ins out n cx = do
   down <- perFrame (1.0 - sus) (at (input ins 2) 0) rate
   rel <- perFrame 1.0 (at (input ins 4) 0) rate
   envLoop (castPtr st) (input ins 0) up down sus rel out 0 (fromIntegral n)
+
+-- how far an exponential segment gets in its time: to within 1/1000 of its
+-- span, 60 dB
+expEnd :: Float
+expEnd = 0.001
+
+-- below this a decaying level is 0, so it never reaches subnormal numbers
+tiny :: Float
+tiny = 1.0e-20
+
+-- one frame's factor for a segment of secs seconds to within end of its span
+expCoef :: Float -> Float -> Float -> Float
+expCoef end secs rate = if secs <= 0.0 then 0.0 else cpow end (1.0 / (secs * rate))
+
+-- as envStep; c* is the distance left after one frame
+expStep :: Ptr Env -> Float -> Float -> Float -> Float -> Float -> Float ->> Float
+expStep s stage level cup cdown sus crel = do
+  top <- 1.0 / (1.0 - expEnd)
+  up <- top + (level - top) * cup
+  rel <- level * crel
+  st2 <- if stage == 1.0 then (if up >= 1.0 then 2.0 else 1.0)
+         else if stage == 3.0 then (if rel <= expEnd then 0.0 else 3.0)
+         else stage
+  l2 <- if stage == 1.0 then min 1.0 up
+        else if stage == 2.0 then (let d = (level - sus) * cdown in if d < tiny then sus else sus + d)
+        else if stage == 3.0 then (if rel <= expEnd then 0.0 else rel)
+        else 0.0
+  writeField s Env.stage st2
+  writeField s Env.level l2
+  l2
+
+expLoop :: Ptr Env -> Ptr CFloat -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+expLoop s gate cup cdown sus crel out i n = if i == n then () else do
+  st <- gateStage s (at gate i)
+  put out i (expStep s st (readField s Env.level) cup cdown sus crel)
+  expLoop s gate cup cdown sus crel out (i + 1) n
+
+-- adsr's state and inputs, with exponential segments: attack reaches 1 in
+-- its time, decay and release get within 60 dB in theirs, and release then
+-- drops to 0
+adsrExpK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+adsrExpK st ins out n cx = do
+  rate <- rateOf cx
+  sus <- min 1.0 (max 0.0 (at (input ins 3) 0))
+  cup <- expCoef expEnd (at (input ins 1) 0) rate
+  cdown <- expCoef expEnd (at (input ins 2) 0) rate
+  crel <- expCoef expEnd (at (input ins 4) 0) rate
+  expLoop (castPtr st) (input ins 0) cup cdown sus crel out 0 (fromIntegral n)
+
+noiseLoop :: Ptr Noise -> Ptr CFloat -> Int -> Int ->> ()
+noiseLoop s out i n = if i == n then () else do
+  p <- readField s Noise.seed * 16807.0
+  x <- p - 2147483647.0 * cfloor (p / 2147483647.0)
+  writeField s Noise.seed x
+  put out i (x / 1073741823.5 - 1.0)
+  noiseLoop s out (i + 1) n
+
+-- white, uniform in (-1, 1): MINSTD, x' = 16807 x mod (2^31 - 1), whose
+-- products stay below 2^46, exact in a Float; state: seed, from 1 to 2^31 - 2
+noiseK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+noiseK st ins out n cx = noiseLoop (castPtr st) out 0 (fromIntegral n)
+
+saturateLoop :: Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+saturateLoop x drive out i n = if i == n then () else do
+  put out i (ctanh (at drive i * at x i))
+  saturateLoop x drive out (i + 1) n
+
+-- tanh (drive * signal), within (-1, 1); inputs: signal, drive
+saturateK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+saturateK st ins out n cx = saturateLoop (input ins 0) (input ins 1) out 0 (fromIntegral n)
+
+compressLoop :: Ptr Follower -> Ptr CFloat -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+compressLoop s x thr slope cup cdown out i n = if i == n then () else do
+  v <- at x i
+  a <- abs v
+  was <- readField s Follower.level
+  fall <- was * cdown
+  -- never below a at an instant attack, which is limit's ceiling
+  l <- if a > fall then a + (was - a) * cup else fall
+  l2 <- if l < tiny then 0.0 else l
+  writeField s Follower.level l2
+  put out i (if l2 > thr then v * cpow (l2 / thr) slope else v)
+  compressLoop s x thr slope cup cdown out (i + 1) n
+
+-- a feedforward compressor of a peak level; state: level; inputs: signal,
+-- threshold in dB, ratio, attack and release time constants in seconds (the
+-- last four per call)
+compressK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+compressK st ins out n cx = do
+  rate <- rateOf cx
+  thr <- cpow 10.0 (at (input ins 1) 0 / 20.0)
+  slope <- 1.0 / max (at (input ins 2) 0) 1.0 - 1.0
+  cup <- expCoef 0.36787944117144233 (at (input ins 3) 0) rate
+  cdown <- expCoef 0.36787944117144233 (at (input ins 4) 0) rate
+  compressLoop (castPtr st) (input ins 0) thr slope cup cdown out 0 (fromIntegral n)

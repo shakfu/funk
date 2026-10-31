@@ -129,7 +129,7 @@ typedef struct {
   funk_context cx;
 } Call;
 
-static float ones[MAX_BLOCK], freqs[MAX_BLOCK], noise[MAX_BLOCK], gate[MAX_BLOCK], tiny[MAX_BLOCK];
+static float ones[MAX_BLOCK], freqs[MAX_BLOCK], noise[MAX_BLOCK], gate[MAX_BLOCK], tiny[MAX_BLOCK], below[MAX_BLOCK], fours[MAX_BLOCK];
 
 static void call(void *arg) {
   Call *c = arg;
@@ -147,6 +147,10 @@ static void kernels(void) {
       {"dsp_lowpass1", {noise, freqs}},
       {"dsp_lowpass", {noise, freqs, ones}},
       {"dsp_adsr", {gate, tiny, tiny, ones, tiny}},
+      {"dsp_adsr_exp", {gate, tiny, tiny, ones, tiny}},
+      {"dsp_noise", {0}},
+      {"dsp_saturate", {noise, ones}},
+      {"dsp_compress", {noise, below, fours, tiny, tiny}},
   };
   printf("one kernel, ns per block:\n");
   for (size_t i = 0; i < sizeof ks / sizeof *ks; i++) {
@@ -270,7 +274,7 @@ int main(int argc, char **argv) {
     return 1;
   }
   for (int i = 0; i < MAX_BLOCK; i++) {
-    ones[i] = 1, freqs[i] = 220, gate[i] = 1, tiny[i] = 0.01f;
+    ones[i] = 1, freqs[i] = 220, gate[i] = 1, tiny[i] = 0.01f, below[i] = -60, fours[i] = 4;
     noise[i] = (float)((i * 7919 % 2003) / 1001.5 - 1);
   }
   printf("block %d frames at %.0f Hz\n", block, RATE);

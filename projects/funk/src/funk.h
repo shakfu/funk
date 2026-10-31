@@ -20,6 +20,7 @@ void *xcalloc(size_t n, size_t size);
 void *xrealloc(void *p, size_t n);
 void xfree(void *p);            /* of xmalloc, xcalloc, xrealloc and xsprintf only */
 void compiler_free_all(void);   /* every block above of this session: at its end */
+void compile_budget(bool on);   /* limit the allocations of one compile_chunk */
 char *xsprintf(const char *fmt, ...);
 const char *intern(const char *s);
 const char *intern_n(const char *s, size_t n);
@@ -39,8 +40,9 @@ int spawn_wait(Argv *a); /* runs a, which it NULL-terminates; the exit status, o
 #define VPUSH(v, x)                                                     \
   do {                                                                  \
     if ((v).n == (v).cap) {                                             \
-      (v).cap = (v).cap ? 2 * (v).cap : 8;                              \
-      (v).a = xrealloc((v).a, (size_t)(v).cap * sizeof *(v).a);         \
+      int cap_ = (v).cap ? 2 * (v).cap : 8;                             \
+      (v).a = xrealloc((v).a, (size_t)cap_ * sizeof *(v).a);            \
+      (v).cap = cap_;                                                   \
     }                                                                   \
     (v).a[(v).n++] = (x);                                               \
   } while (0)
@@ -348,6 +350,7 @@ struct Type {
   int level, id;
   uint64_t cls; /* classes a variable must be an instance of, closed under superclasses */
   bool skolem;
+  bool refine; /* a skolem of a binding's own signature: as an effect, it may become Pure */
   int line, col; /* where a constrained variable arose, for ambiguity errors */
   const char *vname; /* signature variable: its name, for messages */
   const char *name;
@@ -403,6 +406,7 @@ typedef VEC(ForeignDecl *) Foreigns;
 
 void compiler_init(void);
 bool compile_chunk(Module *m, Chunk *out);
+void elab_abort(void); /* a compile error left elab.c's passes unfinished */
 const char *infer_type_text(Expr *e);
 int global_lookup(const char *name);
 void global_alias(const char *name, int gidx);

@@ -1,0 +1,10 @@
+-- expect: an effectful function (`->>`) where a pure one (`->`) is required
+-- A recursive call, checked before the field makes the signature's effect pure.
+data Box = Box (Int -> Int)
+noisy :: Int ->> Int
+noisy x = do
+  print x
+  x
+box :: Int -> (Int -> Int) ->> Box
+box n f = if n == 0 then box 0 noisy else Box f
+main = ()

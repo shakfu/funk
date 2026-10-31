@@ -1,0 +1,43 @@
+-- A body that needs a signature's `->` pure makes it pure: a parameter kept
+-- in a pure field, a `->` inside FunPtr, through a recursive call and through
+-- another signature of the group.
+data Box = Box (Int -> Int)
+data Code = Code (FunPtr (Int -> Int ->> ()))
+
+box :: (Int -> Int) -> Box
+box f = Box (\x -> f x)
+
+run :: Box -> Int -> Int
+run (Box f) x = f x
+
+-- the outer signature's `->` is shared with the one inside FunPtr
+code :: (String ->> FunPtr (Int -> Int ->> ())) -> Bool ->> Code
+code k named = Code (k "name")
+
+nest :: Int -> (Int -> Int) -> Box
+nest n f = if n == 0 then box f else nest (n - 1) (\x -> f (x + 1))
+
+evens, odds :: Int -> (Int -> Int) -> Box
+evens n f = if n == 0 then Box f else odds (n - 1) f
+odds n f = if n == 0 then box f else evens (n - 1) f
+
+-- a function that merely passes its parameter to one of these
+each :: (Int -> Int) -> Box -> Box
+each f b = box (\x -> f (run b x))
+
+-- a signature no body restricts still takes an effectful argument
+apply :: (Int -> Int) -> Int -> Int
+apply f x = f x
+
+noisy :: Int ->> Int
+noisy x = do
+  print x
+  x
+
+main = do
+  print (run (box (+ 1)) 1)
+  print (run (nest 3 (* 2)) 1)
+  print (run (evens 5 (+ 10)) 1)
+  print (run (each (* 3) (box (+ 1))) 1)
+  r <- apply noisy 7
+  print r

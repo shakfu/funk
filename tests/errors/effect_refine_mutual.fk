@@ -1,0 +1,12 @@
+-- expect: an effectful function (`->>`) where a pure one (`->`) is required
+-- As effect_refine_recursive, through another binding of the group.
+data Box = Box (Int -> Int)
+noisy :: Int ->> Int
+noisy x = do
+  print x
+  x
+first :: Int ->> Box
+first n = second n noisy
+second :: Int -> (Int -> Int) ->> Box
+second n f = if n == 0 then Box f else first (n - 1)
+main = ()

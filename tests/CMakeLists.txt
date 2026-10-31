@@ -127,7 +127,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory session sessions)
+foreach(n signals output interrupt memory session sessions compile_limit)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -169,6 +169,9 @@ add_test(NAME embed/globals
   COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/embed/globals.sh ${CMAKE_CURRENT_SOURCE_DIR}/embed/globals.allow $<TARGET_OBJECTS:libfunk_globals>
   COMMAND_EXPAND_LISTS)
 set_tests_properties(embed/globals PROPERTIES LABELS embed TIMEOUT 60)
+add_test(NAME embed/compile_limit
+  COMMAND sh -c "\"$<TARGET_FILE:embed_compile_limit>\" 2>/dev/null")
+set_tests_properties(embed/compile_limit PROPERTIES LABELS embed TIMEOUT 120 PASS_REGULAR_EXPRESSION "^ok\n$")
 add_test(NAME embed/interrupt
   COMMAND sh -c "\"$<TARGET_FILE:embed_interrupt>\" 2>/dev/null | diff tests/embed/interrupt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
@@ -335,6 +338,9 @@ foreach(c ${clis})
   math(EXPR i "${i} + 1")
   funk_test(cli/${i}${first} cli cli ${status} ${out} ${c})
 endforeach()
+
+funk_test(cli/compile_limit cli cli 1 "<prelude>:0:0: error: the compiler exceeded its memory limit (FK_COMPILE_LIMIT, default 2 GiB)" check tests/run/ho_chain.fk)
+set_property(TEST cli/compile_limit APPEND PROPERTY ENVIRONMENT FK_COMPILE_LIMIT=1000)
 
 # Under AddressSanitizer (FUNK_SANITIZE=address), what ASan itself changes:
 # - run/overflow/interp: ASan prints a warning when a longjmp leaves funk's large stack

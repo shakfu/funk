@@ -60,6 +60,12 @@ CORE_SIZES = {
     "printing": 1000000,
 }
 
+# The interpreter's size, where CORE_SIZES would take it far past 3 s. A
+# benchmark's time must be linear in n, since `x C` scales by n.
+INTERP_SIZES = {
+    "pipeline": 1000000,  # C needs 100000000 to measure: it vectorizes this loop
+}
+
 # C takes 0.4-2.8 s at each on an M1, below the Game's own sizes.
 GAME_SIZES = {
     "nbody": 10000000,
@@ -191,16 +197,22 @@ def cmd_run(args):
     meta = run_meta(args.note)
     rows = []
     for bench in names:
-        n = SIZES[bench]
-        stdin = stdin_for(bench, n)
         outputs = {}
+        checked = {}  # another backend's command, to check a smaller size against
         for backend in backends:
+            n = INTERP_SIZES.get(bench, SIZES[bench]) if backend == "interp" else SIZES[bench]
+            stdin = stdin_for(bench, n)
             try:
                 cmd, build_s = build(bench, backend)
                 if backend == "c":
                     cmd = cmd + [str(n)]  # the Game's C reads n from argv; the core suite's ignores it
                 out = measure(cmd, stdin)[0]  # warm-up, also the output check
-                outputs[backend] = hashlib.sha256(out.encode("latin-1")).hexdigest()  # fasta prints 100 MB
+                digest = hashlib.sha256(out.encode("latin-1")).hexdigest()  # fasta prints 100 MB
+                if n == SIZES[bench]:
+                    outputs[backend] = digest
+                    checked[backend] = cmd
+                elif any(measure(c, stdin)[0] != out for c in checked.values()):
+                    outputs[backend] = digest  # differs from the others, whose size is larger
                 samples = [measure(cmd, stdin) for _ in range(args.repeat)]
             except RuntimeError as e:
                 print(f"{bench:13} {backend:9} FAILED: {e}", file=sys.stderr)
@@ -264,7 +276,7 @@ def cmd_report(args):
     for (bench, backend), r in sorted(cur.items(), key=lambda kv: (list(SIZES).index(kv[0][0]) if kv[0][0] in SIZES else 99, BACKENDS.index(kv[0][1]))):
         t = min(r["wall"])
         c = cur.get((bench, "c"))
-        ratio = f"{t / min(c['wall']):6.1f}x" if c and backend != "c" else ""
+        ratio = f"{x_c(r, c):6.1f}x" if c and backend != "c" else ""
         line = f"{bench:13} {backend:9} {t:7.3f}s {ratio:>7}"
         b = base.get((bench, backend))
         if b and b["n"] == r["n"]:
@@ -280,6 +292,11 @@ def cmd_report(args):
             print(f"\ngeomean compiled/C ({title}): {g:.2f}x over {g_count(run)} benchmarks{target}", end="")
     print()
     sys.exit(1 if regressed else 0)
+
+
+def x_c(r, c):
+    """r's time over C's, per unit of n: the two may have run at different sizes."""
+    return (min(r["wall"]) / r["n"]) / (min(c["wall"]) / c["n"])
 
 
 def g_count(run):
@@ -360,7 +377,7 @@ def cmd_history(args):
         if not r:
             continue
         c = rs.get((args.name, "c"))
-        ratio = f"{min(r['wall']) / min(c['wall']):6.1f}x" if c and args.backend != "c" else ""
+        ratio = f"{x_c(r, c):6.1f}x" if c and args.backend != "c" else ""
         print(f"{rid:25} {label(r):9} {r['n']:9} {min(r['wall']):7.3f}s {ratio:>7} {r['maxrss_kb'] // 1024:6}")
 
 

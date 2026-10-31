@@ -88,6 +88,7 @@ typedef struct {
   uint32_t ncons;
   void *cc[FK_NCC]; /* libfunk's compiler (funk.h, CompilerShared and each file's state) */
   void *cc_blocks;  /* the compiler's memory, all of it, freed with the session (util.c) */
+  size_t cc_budget; /* bytes compile_chunk may still allocate; 0: no limit (util.c) */
 } FkShared;
 FkRt *fk_current(void);
 #define FK_SLOT ((uintptr_t)1 << 33) /* each session's stack's slot of address space */

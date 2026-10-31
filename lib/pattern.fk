@@ -33,8 +33,8 @@ silence = Pattern (\_ -> [])
 atom :: a -> Pattern a
 atom v = Pattern (\q -> map (\s -> Event (cycleOf s.start) s v) (cycleSpans q))
 
--- No signature: `(a -> b) -> ...` cannot say f is pure, which Pattern's
--- field needs (typed-effects.md, "A pure argument, regardless").
+-- f must be pure: Pattern's field holds a pure function
+mapP :: (a -> b) -> Pattern a -> Pattern b
 mapP f p = Pattern (\q -> map (\e -> Event e.whole e.part (f e.value)) (query p q))
 
 -- all at once
