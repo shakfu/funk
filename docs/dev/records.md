@@ -70,13 +70,15 @@ The lexer separates field access from composition by whitespace, as GHC's `Overl
 2. Before each binding group is generalized, the checker retries every pending entry. When `t` resolves to `T args`, it finds field `x` of `T`, instantiates the field's type with `args`, unifies it with `a`, and records the field's position for the backends. One success can fix the type of another entry (`p.pos.x`), so it repeats until nothing changes.
 
 3. An entry whose `t` is still a variable is either:
-   - an error, if `t` would be generalized in this group: `cannot infer the record type for .x; add a type signature`;
+   - resolved to `T`, if `t` would be generalized in this group and `T` is the only loaded type with field `x`;
+
+   - otherwise, if `t` would be generalized in this group, an error: `cannot infer the record type for .x; add a type signature`;
 
    - carried to the enclosing group, if `t` belongs to an outer level.
 
 4. If `T` has no field `x`: `type Shape has no field radius2`.
 
-A signature is unified before the group is generalized, so `getX :: Point -> Float; getX p = p.x` resolves. `let f q = q.x in f p` fails without a signature for `f`, because `q`'s type would be generalized.
+A signature is unified before the group is generalized, so `getX :: Point -> Float; getX p = p.x` resolves. `let f q = q.x in f p` needs a signature for `f` only if several types have `x`, because `q`'s type would be generalized.
 
 Two defaults apply before step 3 reports an error, because each depends only on the binding itself:
 

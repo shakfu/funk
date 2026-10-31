@@ -406,11 +406,11 @@ public:
 		bool ok = false;
 		std::string out;
 		session_.call([&] {
-			char voices[256];
+			char voices[512];
 			snprintf(voices, sizeof voices,
-			         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\n"
+			         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\nvoicesIx :: (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesIx f = d.polyIx %d f\n"
 			         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
-			         kVoices, kVoices);
+			         kVoices, kVoices, kVoices);
 			ok = session_.eval(src, out) && session_.eval(voices, out);
 			audio_.ready = ok;
 			if (ok && audio_.haveSig) playSig(out);

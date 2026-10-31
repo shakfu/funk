@@ -283,6 +283,10 @@ main = do
   print (first p 1 (0.5 + 0.25 * dsp.dc 1.0))
   print (first p 1 (let z = 0.125 in z * 2))
   print (first p 1 topLevelLiteral)
+  -- polyIx numbers voices from 1, so 1 + 2 and each voice's noise its own:
+  -- two seeds do not sum to twice one seed
+  print (first p 1 (dsp.polyIx 2 (\k gate freq -> dsp.dc (toFloat k))))
+  print (first p 2 (dsp.polyIx 2 (\k gate freq -> dsp.noise k)) /= first p 2 (dsp.poly 2 (\gate freq -> dsp.noise 1)))
   g.close p
   g.close q
   g.close r

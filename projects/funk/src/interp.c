@@ -33,6 +33,11 @@ static V interp_entry(V self, V *args) { return run(FK_INFO(self), self, args); 
 
 V interp_global(int gidx) { return ST->gvals[gidx]; }
 
+void interp_truncate(int nglobals) {
+  memset(ST->gvals + nglobals, 0, (ST->ngvals - (size_t)nglobals) * sizeof(V));
+  ST->ngvals = (size_t)nglobals;
+}
+
 static V load(Expr *e, V *fr, V self) {
   V v;
   switch (e->vk) {
@@ -172,19 +177,28 @@ static V run(Lambda *L, V self, V *args) {
   }
 }
 
+static void reserve_globals(void) {
+  if ((size_t)CS->globals.n <= ST->capgvals) return;
+  size_t ncap = ST->capgvals ? ST->capgvals : 256;
+  while (ncap < (size_t)CS->globals.n) ncap *= 2;
+  ST->gvals = xrealloc(ST->gvals, ncap * sizeof(V));
+  memset(ST->gvals + ST->capgvals, 0, (ncap - ST->capgvals) * sizeof(V));
+  if (!ST->capgvals) fk_add_roots(&ST->gvals, &ST->ngvals);
+  ST->capgvals = ncap;
+}
+
+void interp_set_global(int gidx, V v) {
+  reserve_globals();
+  ST->gvals[gidx] = v;
+  if ((size_t)gidx >= ST->ngvals) ST->ngvals = (size_t)gidx + 1;
+}
+
 void interp_install(Chunk *c) {
   if (CS->ffi_exports.n > ST->interp_install_nexports) {
     ST->interp_install_nexports = CS->ffi_exports.n;
     fk_error("foreign export `%s` needs compiled code: use funk build", CS->ffi_exports.a[CS->ffi_exports.n - 1]->name);
   }
-  if ((size_t)CS->globals.n > ST->capgvals) {
-    size_t ncap = ST->capgvals ? ST->capgvals : 256;
-    while (ncap < (size_t)CS->globals.n) ncap *= 2;
-    ST->gvals = xrealloc(ST->gvals, ncap * sizeof(V));
-    memset(ST->gvals + ST->capgvals, 0, (ncap - ST->capgvals) * sizeof(V));
-    if (!ST->capgvals) fk_add_roots(&ST->gvals, &ST->ngvals);
-    ST->capgvals = ncap;
-  }
+  reserve_globals();
   VEC(ForeignDecl *) fs = {0};
   for (size_t i = ST->ngvals; i < (size_t)CS->globals.n; i++) {
     if (CS->globals.a[i].prim >= 0) ST->gvals[i] = fk_prim_value(CS->globals.a[i].prim);

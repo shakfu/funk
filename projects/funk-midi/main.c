@@ -451,9 +451,9 @@ static bool start_audio(const char *kernels_path) {
   bool ok = eval(src) && eval("hushsig :: Int ->> Int\nhushsig u = do { g.play audioPlayer g.Silence ; 0 }");
   free(src);
   if (!ok || asprintf(&src,
-                       "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\n"
+                       "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\nvoicesIx :: (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesIx f = d.polyIx %d f\n"
                        "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
-                       nvoices, nvoices) < 0) return false;
+                       nvoices, nvoices, nvoices) < 0) return false;
   ok = eval(src);
   free(src);
   if (!ok || !(voices = funk_voices_new(player, nvoices, false))) return false;

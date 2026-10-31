@@ -1,0 +1,5 @@
+-- expect: type mismatch: expected `P`, found `Q`
+data P = P { x :: Int }
+data Q = Q { y :: Int }
+getX p = p.x
+main = print (getX (Q 1))

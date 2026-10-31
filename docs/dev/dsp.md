@@ -32,7 +32,7 @@ polyBLEP is a correction near an oscillator's jump that reduces aliasing.
 These add no kernels:
 
 - **Channels:** `stereo`, `pan`.
-- **Voices:** `poly`, `polyOn`.
+- **Voices:** `poly`, `polyIx`, `polyOn`.
 - **Graph nodes:** `g.control`, a value set by events, and `g.named`.
 
 ## Implementation
@@ -53,7 +53,7 @@ These add no kernels:
 - **Some parameters are per block.** Filter cutoffs, envelope times and compressor settings are read once per block.
 - **`limit` has no lookahead.** It holds its ceiling by turning each peak down within its frame, which distorts it.
 - **Channels compress separately.** A stereo `compress` or `limit` follows each channel's own level, which can move the stereo image.
-- **Noise needs a seed per voice.** `poly` gives a voice no index, so noise inside it plays one signal in every voice unless the seed comes from elsewhere.
+- **Noise needs a seed per voice.** Nodes with one seed play one signal. `polyIx` passes the voice's number, for a seed. Two instruments that both seed from it still match.
 
 ## Missing
 

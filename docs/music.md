@@ -258,6 +258,8 @@ In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. 
 sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq)
 ```
 
+`voicesIx f` is `voices` with the voice's number, from 1, as `f`'s first argument, for a noise seed per voice: `voicesIx (\k gate freq -> d.adsr 0.001 0.1 0 0.1 gate * d.noise k)`.
+
 A channel's notes play `voicesOn c f` instead, for MIDI channel `c` from 1 to 16, if `sig` has it:
 
 ```haskell

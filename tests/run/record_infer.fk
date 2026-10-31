@@ -1,0 +1,21 @@
+-- a field read on a parameter needs no signature when one type has the field
+data Span = Span { start :: Int, stop :: Int }
+data Event a = Event { whole :: Span, value :: a }
+data Shape = Circle { radius :: Float } | Rect { w :: Float, h :: Float }
+
+len s = s.stop - s.start
+-- the first read fixes the second's record
+begin e = e.whole.start
+-- a type's parameter stays general
+val e = e.value
+area c = c.radius * c.radius
+
+main = do
+  let e = Event (Span 2 5) "note"
+  print (len e.whole)
+  print (begin e)
+  putStrLn (val e)
+  print (val (Event (Span 0 0) 7))
+  print (area (Circle 2.0))
+  -- a local function
+  let f q = q.stop in print (f e.whole)

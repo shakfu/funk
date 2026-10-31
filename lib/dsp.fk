@@ -125,14 +125,19 @@ pan pos x = x * stereo ((1 - pos) * dc 0.5) ((1 + pos) * dc 0.5)
 -- n voices of f gate freq, summed; voice k reads the controls "vk.gate"
 -- and "vk.freq", which the hosts send notes to (funk_voices in graph.h)
 poly :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
-poly n f = voicesAt "v" n f
+poly n f = voicesAt "v" n (\k -> f)
 
 -- poly for MIDI channel c, 1 to 16, reading "cc.vk.gate" and "cc.vk.freq";
 -- that channel's notes play these instead of poly's
 polyOn :: Int -> Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
-polyOn c n f = voicesAt ("c" ++ show c ++ ".v") n f
+polyOn c n f = voicesAt ("c" ++ show c ++ ".v") n (\k -> f)
 
-voicesAt :: String -> Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
-voicesAt pre n f = case map (\k -> f (g.control (pre ++ show k ++ ".gate") 0.0) (g.control (pre ++ show k ++ ".freq") 440.0)) (enumFromTo 1 n) of
+-- poly whose f also takes the voice's number, from 1 to n, to give each voice
+-- its own noise seed or detune
+polyIx :: Int -> (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig
+polyIx n f = voicesAt "v" n f
+
+voicesAt :: String -> Int -> (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig
+voicesAt pre n f = case map (\k -> f k (g.control (pre ++ show k ++ ".gate") 0.0) (g.control (pre ++ show k ++ ".freq") 440.0)) (enumFromTo 1 n) of
   [] -> g.Silence
   v : vs -> foldl (+) v vs

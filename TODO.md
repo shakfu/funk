@@ -26,11 +26,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 
-- [ ] #3: a field read on a parameter needs a signature; infer the record type when one type has the field.
-
 - [ ] #4: a file that imports a module of its own name reports "import cycle: pattern -> pattern"; say "imports itself".
 
-- [ ] #6: every `funk_eval` input stays compiled, about 16 KB each. Roll back an expression's chunk after it runs.
+- [ ] #6: `funk_eval` keeps 2.6 KB per simple input, and all of any other input. Hosts use `funk_call` per window, so this waits for a host that needs more.
 
 - [ ] #12: a local signature cannot call an enclosing function's parameter; see the log.
 
@@ -62,7 +60,7 @@ Phase 4, loaded data:
 
 - [ ] `fk_cb_failed` is a plain global written on funk's thread and read on an export's; TSan never observed the write, so it is untested, not shown race-free ([docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md)).
 
-- [ ] The CLAP tests (`tests/hosts/clap`, `-DFUNK_CLAP=ON`) have not run on Linux, and CI does not build the plugin.
+- [ ] Confirm the new `plugin` CI job passes on Linux: the CLAP tests (`tests/hosts/clap`) have not run there.
 
 ### Real time ([docs/dev/realtime.md](docs/dev/realtime.md))
 
