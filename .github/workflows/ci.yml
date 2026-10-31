@@ -59,7 +59,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libx11-dev libgl-dev libasound2-dev libudev-dev
+          sudo apt-get install -y ninja-build libx11-dev libgl-dev libopengl-dev libasound2-dev libudev-dev
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
@@ -68,4 +68,4 @@ jobs:
       - name: Build and test
         run: |
           make clap
-          ctest --test-dir build -L clap --output-on-failure
+          ctest --test-dir build -L clap --no-tests=error --output-on-failure

@@ -26,8 +26,9 @@ option(FUNK_CLAP "the funk-midi CLAP plugin, with thirdparty/{clap,pugl,imgui,li
 if(FUNK_CLAP AND UNIX AND NOT APPLE)
   find_package(X11)
   find_package(OpenGL COMPONENTS OpenGL GLX)
-  if(NOT X11_FOUND OR NOT OpenGL_OpenGL_FOUND OR NOT OpenGL_GLX_FOUND)
-    message(WARNING "FUNK_CLAP off: the plugin needs X11 and OpenGL headers (libx11-dev libgl-dev)")
+  # without libOpenGL, FindOpenGL reports GLX as found but makes no OpenGL::GLX, which pugl links
+  if(NOT X11_FOUND OR NOT TARGET OpenGL::GLX)
+    message(WARNING "FUNK_CLAP off: the plugin needs X11 and OpenGL development files (libx11-dev libgl-dev libopengl-dev)")
     set(FUNK_CLAP OFF)
   endif()
 endif()
