@@ -88,8 +88,6 @@ typedef struct {
   uint32_t ncons;
   void *cc[FK_NCC]; /* libfunk's compiler (funk.h, CompilerShared and each file's state) */
   void *cc_blocks;  /* the compiler's memory, all of it, freed with the session (util.c) */
-  void *cc_region;  /* new blocks of an expression that may be rolled back (util.c) */
-  bool cc_region_on;
   size_t cc_budget; /* bytes compile_chunk may still allocate; 0: no limit (util.c) */
 } FkShared;
 FkRt *fk_current(void);

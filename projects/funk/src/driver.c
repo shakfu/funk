@@ -624,16 +624,10 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
   const char *file = CS->cur_file;
   *shown = NULL;
   CS->cur_file = name;
-  void *volatile region = NULL;
-  volatile bool in_region = false;
-  CATCH_RUNTIME(if (in_region) compile_region_end(region, true); CS->cur_file = file; return false);
+  CATCH_RUNTIME(CS->cur_file = file; return false);
   install_prelude();
   bool ok = false;
-  region = compile_region_begin();
-  in_region = true;
   int decl = is_decl_caught(src, len);
-  compile_region_end(region, false); /* it only looked */
-  in_region = false;
   Chunk c;
   const char *s = src + strspn(src, " \t");
   if (!strncmp(s, "import", 6) && (s[6] == ' ' || s[6] == '\t')) { /* modules.md, phase 3 */
@@ -662,14 +656,7 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
       undo_to(mark);
     }
   } else if (decl == 0) {
-    /* A simple expression's compiled form is freed once it has run, if its
-       result is a scalar (patterns.md, friction 6): nothing can still refer to it. */
-    int mark = undo_mark(), ng0 = CS->globals.n, nl0 = CS->all_lambdas.n;
-    region = compile_region_begin();
-    in_region = true;
     Expr *e = parse_expr_caught(src, len);
-    bool simple = expr_may_roll_back(e);
-    if (!simple) compile_region(false); /* keep what it parsed, and everything after */
     Bind *b = NEW(Bind); /* bound as $it so `it` in e means the previous result */
     b->name = intern("$it");
     b->e = e;
@@ -679,25 +666,11 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
       b->col = e->col;
     }
     if (e && compile_chunk(&m, &c)) {
-      compile_region(false); /* what the program allocates stays */
-      int ng1 = CS->globals.n;
       interp_install(&c);
       global_alias(intern("it"), b->gidx);
-      if (interp_global(b->gidx) != fk_unit) {
-        compile_region(simple);
-        ng1++; /* show_result's $shown */
-        *shown = show_result(b);
-        compile_region(false);
-      }
-      if (simple && expr_can_roll_back(b->gidx, ng0, ng1, nl0)) {
-        expr_roll_back(b->gidx, ng0, nl0, mark);
-        compile_region_end(region, false);
-        in_region = false;
-      }
+      if (interp_global(b->gidx) != fk_unit) *shown = show_result(b);
       ok = true;
     }
-    if (in_region) compile_region_end(region, true);
-    in_region = false;
   }
   fk_error_jmp = NULL;
   CS->cur_file = file;

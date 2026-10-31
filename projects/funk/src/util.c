@@ -17,53 +17,20 @@ typedef struct Block {
 } Block;
 _Static_assert(sizeof(Block) == 16, "a block's data stays 16-byte aligned");
 #define BLOCKS (*(Block **)&fk_here()->cc_blocks)
-#define REGION (*(Block **)&fk_here()->cc_region)
 
-static void *track_on(Block **head, Block *b) {
+static void *track(Block *b) {
   if (!b) fk_fatal("out of memory");
   b->prev = NULL;
-  b->next = *head;
+  b->next = BLOCKS;
   if (b->next) b->next->prev = b;
-  *head = b;
+  BLOCKS = b;
   return b + 1;
 }
 
-/* Only xmalloc and xcalloc use the region: a growing vector stays permanent,
-   so state that keeps its capacity across chunks never points into a region. */
-static void *track(Block *b) { return track_on(fk_here()->cc_region_on ? &REGION : &BLOCKS, b); }
-
 static void untrack(Block *b) {
   if (b->prev) b->prev->next = b->next;
-  else if (BLOCKS == b) BLOCKS = b->next;
-  else REGION = b->next;
+  else BLOCKS = b->next;
   if (b->next) b->next->prev = b->prev;
-}
-
-void *compile_region_begin(void) {
-  void *outer = REGION;
-  REGION = NULL;
-  fk_here()->cc_region_on = true;
-  return outer;
-}
-
-void compile_region(bool on) { fk_here()->cc_region_on = on; }
-
-static void free_list(Block *b) {
-  for (Block *next; b; b = next) {
-    next = b->next;
-    free(b);
-  }
-}
-
-void compile_region_end(void *outer, bool keep) {
-  fk_here()->cc_region_on = false;
-  while (keep && REGION) {
-    Block *b = REGION;
-    untrack(b);
-    track_on(&BLOCKS, b);
-  }
-  free_list(REGION);
-  REGION = outer;
 }
 
 /* A runaway pass reaches 4 GiB/s, too fast for a timeout. Going over is a
@@ -96,17 +63,11 @@ void *xcalloc(size_t n, size_t size) {
 }
 
 void *xrealloc(void *p, size_t n) {
+  if (!p) return xmalloc(n);
   charge(n);
-  if (!p) return track_on(&BLOCKS, malloc(sizeof(Block) + n));
-  Block *b = (Block *)p - 1; /* keeps its place on its list */
-  bool heads_blocks = BLOCKS == b, heads_region = REGION == b;
-  Block *nb = realloc(b, sizeof(Block) + n);
-  if (!nb) fk_fatal("out of memory");
-  if (nb->prev) nb->prev->next = nb;
-  if (nb->next) nb->next->prev = nb;
-  if (heads_blocks) BLOCKS = nb;
-  if (heads_region) REGION = nb;
-  return nb + 1;
+  Block *b = (Block *)p - 1;
+  untrack(b);
+  return track(realloc(b, sizeof(Block) + n));
 }
 
 void xfree(void *p) {
@@ -117,9 +78,11 @@ void xfree(void *p) {
 }
 
 void compiler_free_all(void) {
-  free_list(BLOCKS);
-  free_list(REGION);
-  BLOCKS = REGION = NULL;
+  for (Block *b = BLOCKS, *next; b; b = next) {
+    next = b->next;
+    free(b);
+  }
+  BLOCKS = NULL;
 }
 
 static char *vxsprintf(const char *fmt, va_list ap) {
@@ -189,8 +152,6 @@ static uint64_t hash(const char *s, size_t n) {
 }
 
 const char *intern_n(const char *s, size_t n) {
-  bool region = fk_here()->cc_region_on; /* names and the table are permanent */
-  fk_here()->cc_region_on = false;
   if (ST->icount * 2 >= ST->icap) {
     size_t ncap = ST->icap ? ST->icap * 2 : 1024;
     const char **nt = xcalloc(ncap, sizeof *nt);
@@ -206,10 +167,7 @@ const char *intern_n(const char *s, size_t n) {
   }
   size_t j = hash(s, n) & (ST->icap - 1);
   while (ST->itab[j]) {
-    if (strlen(ST->itab[j]) == n && memcmp(ST->itab[j], s, n) == 0) {
-      fk_here()->cc_region_on = region;
-      return ST->itab[j];
-    }
+    if (strlen(ST->itab[j]) == n && memcmp(ST->itab[j], s, n) == 0) return ST->itab[j];
     j = (j + 1) & (ST->icap - 1);
   }
   char *p = xmalloc(n + 1);
@@ -217,7 +175,6 @@ const char *intern_n(const char *s, size_t n) {
   p[n] = 0;
   ST->itab[j] = p;
   ST->icount++;
-  fk_here()->cc_region_on = region;
   return p;
 }
 
@@ -261,8 +218,6 @@ int map_get(Map *m, const char *key) {
 
 static void map_set(Map *m, const char *key, int val) {
   if (m->n * 2 >= m->cap) {
-    bool region = fk_here()->cc_region_on; /* a map is permanent */
-    fk_here()->cc_region_on = false;
     Map nm = {xcalloc((size_t)(m->cap ? 2 * m->cap : 256), sizeof(char *)), NULL,
               m->cap ? 2 * m->cap : 256, 0};
     nm.vals = xcalloc((size_t)nm.cap, sizeof(int));
@@ -276,7 +231,6 @@ static void map_set(Map *m, const char *key, int val) {
     xfree(m->keys);
     xfree(m->vals);
     *m = nm;
-    fk_here()->cc_region_on = region;
   }
   int j = map_slot(m, key);
   if (!m->keys[j]) { m->keys[j] = key; m->n++; }

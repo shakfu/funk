@@ -10,8 +10,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A field read on a parameter needs no signature when one loaded type has the field: `begin e = e.whole.start`. With several such types it is still an error, so loading another module can turn this code into an error, never into a different type.
 
-- `funk_eval` frees an input made only of variables, literals and calls once it has run, if its result is an `Int`, `Float`, `Char`, `Bool` or `()`: 2.6 KB stays per input, from 7.4. Any other input can leave a closure or string pointing at its code, so it stays compiled ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log), row 6).
-
 - CI builds the CLAP plugin and runs its tests on Linux and macOS.
 
 - Generated kernels use fused multiply-add where the target has it: a voice is 8% faster and `dsp_lowpass` 22%, on an M1. Other generated C stays uncontracted. Contraction over an explicit `fma`, which would need every kernel rewritten ([docs/dev/dsp.md](docs/dev/dsp.md#decisions)).

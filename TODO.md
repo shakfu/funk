@@ -28,7 +28,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] #4: a file that imports a module of its own name reports "import cycle: pattern -> pattern"; say "imports itself".
 
-- [ ] #6: `funk_eval` keeps 2.6 KB per simple input, and all of any other input. Hosts use `funk_call` per window, so this waits for a host that needs more.
+- [ ] #6: every `funk_eval` input stays compiled, about 16 KB each. Hosts use `funk_call` per window, so this waits for a host that needs more. A partial rollback was tried and reverted 2026-11-01: it saved 4.8 of 7.4 KB per simple input, and freeing compiler memory risks dangling pointers.
 
 - [ ] #12: a local signature cannot call an enclosing function's parameter; see the log.
 

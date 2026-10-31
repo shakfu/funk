@@ -20,9 +20,6 @@ void *xcalloc(size_t n, size_t size);
 void *xrealloc(void *p, size_t n);
 void xfree(void *p);            /* of xmalloc, xcalloc, xrealloc and xsprintf only */
 void compiler_free_all(void);   /* every block above of this session: at its end */
-void *compile_region_begin(void); /* new blocks go on a list of their own; returns the outer list */
-void compile_region(bool on);     /* off: new blocks are permanent again, as a running program's are */
-void compile_region_end(void *outer, bool keep); /* keep the list's blocks, or free them */
 void compile_budget(bool on);   /* limit the allocations of one compile_chunk */
 char *xsprintf(const char *fmt, ...);
 const char *intern(const char *s);
@@ -412,9 +409,6 @@ bool compile_chunk(Module *m, Chunk *out);
 void elab_abort(void); /* a compile error left elab.c's passes unfinished */
 const char *infer_type_text(Expr *e);
 int global_lookup(const char *name);
-bool expr_may_roll_back(Expr *e);
-bool expr_can_roll_back(int gidx, int ng0, int ng1, int nl0);
-void expr_roll_back(int gidx, int ng0, int nl0, int mark);
 void global_alias(const char *name, int gidx);
 Type *repr(Type *t);
 const char *type_str(Type *t);
@@ -444,9 +438,6 @@ const char *prim_cname(int i);
 
 void interp_install(Chunk *c);
 V interp_global(int gidx);
-void resolve_forget_globals(int n); /* a rolled-back chunk's memo entries name its freed binds */
-void interp_truncate(int nglobals); /* forget the values of later globals */
-void interp_set_global(int gidx, V v); /* a global added without a chunk */
 
 char *cgen_program(Chunk *chunks, int nchunks);
 char *cgen_kernels(Chunk *chunks, int nchunks, const char **err); /* the exports alone, without the runtime; NULL and *err on error */
@@ -492,7 +483,6 @@ typedef struct {
   int num_class;
   int float_class;
   Type *dict_type; /* type of dictionary arguments: represented as V */
-  bool open_globals; /* some global's type can still change, so chunks are kept */
   VEC(Bind *) specialized; /* clones made by elab_bind, to install */
 } CompilerShared;
 #define CS ((CompilerShared *)fk_here()->cc[CC_SHARED])

@@ -127,7 +127,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory rollback session sessions compile_limit)
+foreach(n signals output interrupt memory session sessions compile_limit)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -176,10 +176,6 @@ add_test(NAME embed/interrupt
   COMMAND sh -c "\"$<TARGET_FILE:embed_interrupt>\" 2>/dev/null | diff tests/embed/interrupt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(embed/interrupt PROPERTIES LABELS embed TIMEOUT 300)
-add_test(NAME embed/rollback
-  COMMAND sh -c "\"$<TARGET_FILE:embed_rollback>\" 2>&1 | diff tests/embed/rollback.expected -"
-  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-set_tests_properties(embed/rollback PROPERTIES LABELS embed TIMEOUT 300)
 add_test(NAME embed/memory
   COMMAND sh -c "\"$<TARGET_FILE:embed_memory>\" 2>&1 | diff tests/embed/memory.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

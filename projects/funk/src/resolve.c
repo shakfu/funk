@@ -32,10 +32,6 @@ typedef struct {
 static const ResolveState resolve_init = {0};
 #define ST ((ResolveState *)fk_here()->cc[CC_RESOLVE])
 
-void resolve_forget_globals(int n) {
-  if (ST->eager_fn_memo.n > n) ST->eager_fn_memo.n = n;
-}
-
 void *resolve_state_new(void) {
   ResolveState *s = malloc(sizeof *s);
   if (!s) fk_fatal("out of memory");

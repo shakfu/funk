@@ -84,9 +84,8 @@ typedef struct {
   int warn_line, warn_col; /* pattern bindings share one case location */
   int untyped;
   VEC(CStruct) cstructs; /* foreign structs so far, for fields of their types */
-  int it_slot; /* the global holding `it` after a rollback, or -1 */
 } CheckState;
-static const CheckState check_init = {.nprelude_types = NBUILTIN_TYPES, .nprelude_cons = FK_NBUILTIN_CONS, .it_slot = -1};
+static const CheckState check_init = {.nprelude_types = NBUILTIN_TYPES, .nprelude_cons = FK_NBUILTIN_CONS};
 #define ST ((CheckState *)fk_here()->cc[CC_CHECK])
 
 void *check_state_new(void) {
@@ -2694,8 +2693,6 @@ static void check_export_code(Module *m) {
   }
 }
 
-static bool type_open(Type *t);
-
 bool compile_chunk(Module *m, Chunk *out) {
   jmp_buf jb, *saved = CS->cerr_jmp;
   int mark = undo_mark(), ng0 = CS->globals.n, nc0 = CS->condefs.n, nt0 = CS->tydefs.n, ncl0 = CS->classes.n, ni0 = CS->insts.n, ns0 = ST->cstructs.n;
@@ -2824,55 +2821,9 @@ bool compile_chunk(Module *m, Chunk *out) {
     for (int j = 0; j < CS->ffi_libs.n; j++) seen |= !strcmp(CS->ffi_libs.a[j], m->libs[i]);
     if (!seen) VPUSH(CS->ffi_libs, m->libs[i]);
   }
-  for (int i = ng0; i < CS->globals.n && !CS->open_globals; i++)
-    CS->open_globals = type_open(CS->globals.a[i].type);
   compile_budget(false);
   CS->cerr_jmp = saved;
   return true;
-}
-
-/* A type a later chunk's unification could still write to. */
-static bool type_open(Type *t) {
-  if (!t) return false;
-  t = repr(t);
-  if (t->k == TY_VAR) return t->level != GENERIC;
-  for (int i = 0; i < t->n; i++)
-    if (type_open(t->args[i])) return true;
-  return t->eff && type_open(t->eff);
-}
-
-static bool expr_simple(Expr *e) {
-  if (e->k == E_VAR || e->k == E_CON || e->k == E_INT || e->k == E_FLOAT || e->k == E_CHAR) return true;
-  if (e->k != E_APP || !expr_simple(e->fn)) return false;
-  for (int i = 0; i < e->n; i++)
-    if (!expr_simple(e->args[i])) return false;
-  return true;
-}
-
-bool expr_may_roll_back(Expr *e) { return e && !CS->open_globals && expr_simple(e); }
-
-/* Whether a chunk's work ended with gidx, a scalar, in the chunk's own globals
-   ng0 to ng1, and made no lambda but each global's initializer, which has run,
-   so no function a value could keep. */
-bool expr_can_roll_back(int gidx, int ng0, int ng1, int nl0) {
-  Type *t = repr(CS->globals.a[gidx].type);
-  if (CS->open_globals || CS->globals.n != ng1 || ng1 - ng0 > 2 || CS->all_lambdas.n - nl0 > ng1 - ng0) return false;
-  return t->k == TY_CON && !t->n && (t->name == ST->s_int || t->name == ST->s_float || t->name == ST->s_char || t->name == ST->s_bool || t->name == ST->s_unit);
-}
-
-/* Forgets globals from ng0 on, after copying gidx's scalar to `it`'s own slot. */
-void expr_roll_back(int gidx, int ng0, int nl0, int mark) {
-  V v = interp_global(gidx);
-  const char *tn = repr(CS->globals.a[gidx].type)->name, *it = intern("it");
-  undo_to(mark);
-  CS->globals.n = ng0;
-  CS->all_lambdas.n = nl0;
-  interp_truncate(ng0);
-  resolve_forget_globals(ng0);
-  if (ST->it_slot < 0) ST->it_slot = global_add(intern("$it.scalar"), tcon0(tn), NULL);
-  if (CS->globals.a[ST->it_slot].type->name != tn) CS->globals.a[ST->it_slot].type = tcon0(tn);
-  interp_set_global(ST->it_slot, v);
-  if (global_lookup(it) != ST->it_slot) global_alias(it, ST->it_slot);
 }
 
 const char *infer_type_text(Expr *e) {
