@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Generated kernels use fused multiply-add where the target has it: a voice is 8% faster and `dsp_lowpass` 22%, on an M1. Other generated C stays uncontracted. Contraction over an explicit `fma`, which would need every kernel rewritten ([docs/dev/dsp.md](docs/dev/dsp.md#decisions)).
+
 - A float literal can now be any `FromFloat` type: `Float` by default, `CFloat`, or `g.Sig`, so `d.saw 440.5` needs no `d.dc`. A literal in a top-level function that nothing else fixes is `Float`, so `f x = x * 0.5` stays `Float -> Float` and existing programs compile to the same code. Haskell's `Fractional` would have made `f` overloaded and passed a dictionary at run time. A function meant to take a signal without using one needs a signature ([docs/dev/type-classes.md](docs/dev/type-classes.md)).
 
 - `lib/dsp.fk` gains delay effects: `delay`, `comb`, `allpass`, `chorus`, `flanger` and `reverb`, on delay memory from `funk_graph_memory`. A graph swap that keeps a node exchanges its buffer by pointer on the audio thread; copying, as other state does, would cost time in proportion to the delay. `reverb` runs Freeverb's structure once per channel, tuned apart, over one kernel with several outputs, which would change every kernel's signature ([docs/dev/dsp.md](docs/dev/dsp.md#phase-2-delay-memory)).

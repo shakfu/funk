@@ -14,10 +14,6 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 
-- [ ] Decide on fused multiply-add: an explicit `fma`, or contraction in kernels only. Clang's default contraction makes the C one-pole and filter 1.4x faster, but changes results against the interpreter.
-
-- [ ] Several outputs per kernel, for kernels whose channels share state, such as a stereo reverb.
-
 - [ ] Node state other than `Float`s and one delay buffer ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).
 
 - [ ] funk's `Ring Int` still carries 16-bit values (`pattern.pushOnsets`); only a hand-written export reading it, option A, needs more.
@@ -27,14 +23,6 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 - [ ] Run `funk-midi --audio` on Linux, and listen to it.
 
 - [ ] `foreign struct`: C arrays inside structs (voice blocks; Core Audio's `AudioBufferList`), and several fields per line, as `data` records accept.
-
-### DSP ([docs/dev/dsp.md](docs/dev/dsp.md#proposed-roadmap))
-
-Phase 2's delay memory and kernels are in. Remaining:
-
-- [ ] Play `delay`, `chorus`, `flanger` and `reverb` in a DAW, and listen. This also decides phase 3.
-
-Phases 3 and 4 are under Medium.
 
 ### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 
@@ -58,13 +46,7 @@ Phases 3 and 4 are under Medium.
 
 ## Medium
 
-### DSP, after phase 2 ([docs/dev/dsp.md](docs/dev/dsp.md#proposed-roadmap))
-
-Phase 3, several outputs per kernel, only if the per-channel reverb is not good enough:
-
-- [ ] Several outputs, listed under Compiled DSP graph.
-
-- [ ] A stereo reverb.
+### DSP ([docs/dev/dsp.md](docs/dev/dsp.md#proposed-roadmap))
 
 Phase 4, loaded data:
 
@@ -118,6 +100,8 @@ Phase 4, loaded data:
 - [ ] **LLVM, as Faust uses it**, only if `$CC` proves too slow for kernels without the runtime: about 60 ms per edit at `-O2`, of which 22 ms is clang's start-up and about 20 ms linking. An IR emitter for the export subset alone would be much smaller than `cgen.c`, since that subset has no allocation, closures or constructors. libtcc compiles faster but does not optimize, and its support for the runtime's `__atomic_*` builtins is unverified.
 
 ### Other
+
+- [ ] DSP phase 3, deferred until a patch needs it: several outputs per kernel, then a stereo reverb whose channels share state ([docs/dev/dsp.md](docs/dev/dsp.md#phase-3-several-outputs-per-kernel)).
 
 - [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): a `funk *` on every call, state passed explicitly, a thread per session. Measured 2026-10-30: a thread-local pointer costs the interpreter 27%, an explicit one nothing ([docs/dev/261030-session-measurements.md](docs/dev/261030-session-measurements.md)). Done 2026-10-30: any number of sessions, up to 256, side by side; tests `embed/sessions`, `embed/globals`. Left: glue shared by path binds the last session's `funk_provide`d addresses; a TSan job in CI.
 

@@ -1430,7 +1430,8 @@ char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
   sb_puts(&out, ffi_headers(fs.a, fs.n));
   for (int i = 0; i < CS->ffi_exports.n; i++)
     sb_printf(&out, "__attribute__((visibility(\"default\"))) %s;\n", export_head(CS->ffi_exports.a[i]));
-  sb_puts(&out, "\n/* ---- generated kernels ---- */\n\n#ifdef __clang__\n#pragma clang diagnostic ignored \"-Wunknown-warning-option\"\n#endif\n"
+  /* contract across statements, which clang's default does not; docs/dev/dsp.md, Decisions */
+  sb_puts(&out, "\n/* ---- generated kernels ---- */\n\n#ifdef __clang__\n#pragma clang diagnostic ignored \"-Wunknown-warning-option\"\n#pragma clang fp contract(fast)\n#endif\n"
                 "#pragma GCC diagnostic ignored \"-Wunused-variable\"\n#pragma GCC diagnostic ignored \"-Wunused-but-set-variable\"\n\n");
   cg_functions(&out, &r);
   for (int i = 0; i < CS->ffi_exports.n; i++) export_body(&out, CS->ffi_exports.a[i]);

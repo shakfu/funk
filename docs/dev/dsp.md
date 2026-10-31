@@ -6,23 +6,23 @@ funk has 18 unit generators. [roadmap.md](roadmap.md) lists none to add, and `TO
 
 ## Unit generators
 
-All 18 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 2 from `build/dspbench` on 2026-10-31 (M1, `-O2`). A 64-frame block at 48 kHz lasts 1.33 ms.
+All 18 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 2 and the kernels fused multiply-add changed from `build/dspbench` on 2026-10-31 (M1, `-O2`). A 64-frame block at 48 kHz lasts 1.33 ms.
 
 | Group | Kernel | In `lib/dsp.fk` | Method | ns per 64 frames |
 |-|-|-|-|-|
 | Oscillator | `dsp_sine` | `sine` | C `sin` of a phase | 300 |
 | | `dsp_saw` | `saw` | polyBLEP | 210 |
 | | `dsp_square` | `pulse`, `square` | polyBLEP, variable width | 280 |
-| | `dsp_noise` | `noise` | MINSTD generator, uniform in (-1, 1) | 480 |
-| Filter | `dsp_lowpass1` | `lowpass1` | one-pole | 210 |
-| | `dsp_lowpass`, `dsp_bandpass`, `dsp_highpass` | `lowpass`, `bandpass`, `highpass` | Cytomic trapezoidal state-variable filter, 12 dB/octave | 340 |
+| | `dsp_noise` | `noise` | MINSTD generator, uniform in (-1, 1) | 425 |
+| Filter | `dsp_lowpass1` | `lowpass1` | one-pole | 147 |
+| | `dsp_lowpass`, `dsp_bandpass`, `dsp_highpass` | `lowpass`, `bandpass`, `highpass` | Cytomic trapezoidal state-variable filter, 12 dB/octave | 280 |
 | Envelope | `dsp_adsr` | `adsr` | linear segments, restarted by a rising gate | 210 |
 | | `dsp_adsr_exp` | `adsrExp` | exponential segments, restarted by a rising gate | 345 |
 | Nonlinear | `dsp_saturate` | `saturate` | C `tanh` | 250 |
 | Dynamics | `dsp_compress` | `compress`, `limit` | feedforward, peak level, C `pow` when over the threshold | 790 |
 | Delay | `dsp_delay` | `delay`, `chorus` | memory, read between frames by linear interpolation | 125 |
-| | `dsp_comb` | `comb`, `flanger`, `reverb` | feedback comb, with a one-pole low-pass in the loop | 270 |
-| | `dsp_allpass` | `allpass`, `reverb` | Schroeder allpass | 195 |
+| | `dsp_comb` | `comb`, `flanger`, `reverb` | feedback comb, with a one-pole low-pass in the loop | 230 |
+| | `dsp_allpass` | `allpass`, `reverb` | Schroeder allpass | 170 |
 | Utility | `dsp_const` | `dc`, numeric literals | constant | 4-6 |
 | | `dsp_add` | `+`, `-` | sample-wise | not listed |
 | | `dsp_mul` | `*`, `negate` | sample-wise | 4-6 |
@@ -92,16 +92,16 @@ Node state grows beyond a list of `Float`s, to a zeroed buffer of a given size. 
 
 A swap exchanges the buffers' pointers on the audio thread. `dspbench` measures the worst block with a swap of a 1 s delay at about 1 us, its clock's resolution, the same as without a swap. `kernels/graph` passes under AddressSanitizer and ThreadSanitizer.
 
-Implemented 2026-10-31. Done when: `delay`, `chorus`, `flanger` and `reverb` play in a DAW and sound right. That listen is outstanding, and it also decides phase 3.
+Done 2026-10-31: `delay`, `comb`, `chorus`, `flanger`, `reverb` and all of them in series played in the plugin with no problems found.
 
 ### Phase 3: several outputs per kernel
+
+Deferred 2026-10-31: the listen of phase 2 found no problem with the per-channel reverb. Start it only if a patch needs channels that share state.
 
 A kernel writes several buffers, so channels can share state. The kernel signature changes, which affects every kernel and `projects/funkgraph`.
 
 - Several outputs, in the signature and in graph expansion.
 - A stereo reverb.
-
-Skip this phase if the per-channel reverb of phase 2 sounds good enough.
 
 ### Phase 4: loaded data
 
@@ -123,6 +123,15 @@ Done when: a sampler plays a file in a DAW, and replacing the file during playba
 
 Delay memory and loaded data share allocation and freeing, and have separate language-level types. One type would let a node write to a sample other nodes read, and the compiler could not reject it. The alternative for loaded data is compile-time constants: simpler lifetimes, but replacing a file needs a recompile, and large samples pass through the compiler. Reconsider that if phase 4 needs only wavetables and short samples. This design is not prototyped.
 
-### Open decisions
+Generated kernels contract multiply-adds across statements; other generated C does not. Measured 2026-10-31 (M1, clang 21, best of 3, ns per 64 frames, off to fast):
 
-- Whether to allow fused multiply-add in kernels (`TODO.md`). It affects every new filter's speed and its results against the interpreter.
+| Kernel | Off | Fast | Ratio |
+|-|-|-|-|
+| `dsp_lowpass1` | 204.5 | 144.5 | 1.42 |
+| `dsp_lowpass` | 335.6 | 275.4 | 1.22 |
+| `dsp_comb` | 267.9 | 226.9 | 1.18 |
+| `dsp_allpass` | 193.3 | 168.3 | 1.15 |
+| `dsp_noise` | 482.9 | 422.5 | 1.14 |
+| one voice, 12 nodes | 795.5 | 736.7 | 1.08 |
+
+Over 10 s of filtered saw and noise, 1 of 480,000 output samples differed, by 3.6e-15, in `dsp_bandpass`; `dsp_lowpass1`, `dsp_lowpass` and `dsp_highpass` matched exactly. Kernels never run in the interpreter, so no compiled-against-interpreted comparison changes. Results can differ between targets: x86-64 builds without FMA instructions do not contract. An explicit `fma` was the alternative: it needs every kernel's arithmetic rewritten, and on such a target it calls a slow library function (inferred from the x86-64 baseline; not measured).
