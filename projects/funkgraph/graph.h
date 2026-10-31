@@ -45,6 +45,15 @@ funk_graph *funk_graph_new(int max_block, double rate);
    memory runs out. Not after the graph is played. */
 int funk_graph_add(funk_graph *g, funk_kernel k, const void *state, size_t size, const int *inputs, int nin);
 
+/* Gives kernel node `node` zeroed memory for seconds of floats, plus 2
+   frames. When played, the first 16 bytes of its state become the pointer
+   and the frame count, an int64_t; its initial state should hold zeros there.
+   A node that keeps its state across a swap keeps its memory, by swapping
+   pointers on the audio thread, if the frame count is unchanged. 0, or -1 if
+   node is a control, has memory or has under 16 bytes of state, or memory
+   runs out. Not after the graph is played. */
+int funk_graph_memory(funk_graph *g, int node, double seconds);
+
 /* Adds a control, whose output starts at value; its index, or -1 if
    memory runs out. Events reach it once it is named. */
 int funk_graph_control(funk_graph *g, float value);

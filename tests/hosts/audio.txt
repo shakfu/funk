@@ -1,7 +1,8 @@
 -- funk-midi --audio --no-sleep --script (tests/CMakeLists.txt): the peak
 -- every 250 ms of a sine at half scale; a saw through an envelope (up in
 -- 0.1 s, down to 0.25 by 0.2 s); stop and play; a sig of the wrong type
--- and one naming no kernel, which leave the last graph playing
+-- and one naming no kernel, which leave the last graph playing; a sine
+-- through a delay; float literals as signals
 sig = d.sine 1000 * d.dc 0.5
 :wait 500
 sig = d.saw 100 * d.adsr (d.dc 0.1) (d.dc 0.1) (d.dc 0.25) (d.dc 0.1) 1
@@ -14,3 +15,7 @@ sig = 3
 :wait 250
 sig = g.Node "no_such_kernel" [] []
 :wait 250
+sig = d.delay 0.5 (d.dc 0.1) (d.sine 1000 * d.dc 0.5)
+:wait 500
+sig = d.adsr 0.001 0.001 0.5 0.001 1 * d.sine 1000 * 0.5
+:wait 500

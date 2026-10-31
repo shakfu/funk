@@ -93,6 +93,82 @@ followed p = do
   g.play p (c (dsp.dc 0.2))
   head (drop 7 (frames p 8))
 
+-- a player at 8000 Hz with a control "in", 1 for the first frame, through f
+withImpulse :: (g.Sig -> g.Sig) -> (g.Player ->> a) ->> a
+withImpulse f k = do
+  a <- g.player [getKernels ()] 8000.0 64
+  g.play a (f (g.control "in" 0.0))
+  g.send a 0 "in" 1.0
+  g.send a 1 "in" 0.0
+  r <- k a
+  g.close a
+  r
+
+getKernels :: () ->> String
+getKernels u = peekCString (getenv "KERNELS")
+
+impulse :: (g.Sig -> g.Sig) -> Int ->> [Int]
+impulse f n = withImpulse f (\a -> frames a n)
+
+-- the largest magnitude over 64 frames of an impulse's response
+peak2 :: (g.Sig -> g.Sig) -> Int ->> Int
+peak2 f n = maximum (map abs (impulse f n))
+
+-- the sum of squares of an impulse's response over 64 frames, in 1e-4
+energy :: (g.Sig -> g.Sig) ->> Int
+energy f = round (sum (map (\x -> toFloat x * toFloat x) (impulse f 64)) / 10000.0)
+
+-- see main
+delayKept :: Int ->> [Int]
+delayKept n = do
+  d <- \t -> g.named "dly" (dsp.delay 0.01 (dsp.dc t) (g.control "in" 0.0))
+  a <- g.player [getKernels ()] 8000.0 64
+  g.play a (d 0.000625)
+  g.send a 0 "in" 1.0
+  g.send a 1 "in" 0.0
+  xs <- frames a 2
+  g.play a (d 0.0005)
+  ys <- frames a (n - 2)
+  g.play a g.Silence
+  frames a 1
+  g.play a (d 0.000625)
+  zs <- frames a 8
+  g.close a
+  xs ++ ys ++ zs
+
+reverbTail :: () ->> (Bool, Int)
+reverbTail u = withImpulse (dsp.reverb (dsp.dc 0.5) (dsp.dc 0.5) 1) (\a -> do
+  skip a 800
+  early <- maximum (map abs (frames a 64))
+  skip a 160000
+  (early > 0, maximum (map abs (frames a 64))))
+
+-- whether a stereo signal's channels differ after 2 s, and its peak under 2
+spreadOf :: g.Sig ->> (Int, Bool, Bool)
+spreadOf s = do
+  a <- g.player [getKernels ()] 8000.0 64
+  g.play a s
+  skip a 16000
+  cs <- allocaBytes 512 (\out -> do
+    bufs <- map (\c -> plusPtr out (256 * c)) [0, 1]
+    g.renderChannels a bufs 64
+    map (\b -> map (\i -> round (10000.0 * fromCFloat (peekByteOff b (4 * i) :: CFloat))) (enumFromTo 0 63)) bufs)
+  g.close a
+  (g.width s, head cs /= head (drop 1 cs), maximum (map abs (concat cs)) < 20000)
+
+-- the peak of s after 2 s is under 2
+peakOf :: g.Sig ->> Bool
+peakOf s = do
+  a <- g.player [getKernels ()] 8000.0 64
+  g.play a s
+  skip a 16000
+  r <- maximum (map abs (frames a 64))
+  g.close a
+  r < 20000
+
+topLevelLiteral :: g.Sig
+topLevelLiteral = 0.375
+
 main = do
   k <- peekCString (getenv "KERNELS")
   p <- g.player [k] 8000.0 64
@@ -178,6 +254,35 @@ main = do
   envx <- \gate -> g.named "envx" (dsp.adsrExp (dsp.dc 0.005) (dsp.dc 0.005) (dsp.dc 0.5) (dsp.dc 0.005) gate)
   print (first q 12 (envx 1))
   print (next q 6 (envx 0))
+  -- a delay of 3 frames, of 2.5 (between frames, halves), then a time past
+  -- its memory, 0.001 s at 8000 Hz, held to the 8 frames it holds
+  print (impulse (\x -> dsp.delay 0.01 (dsp.dc 0.000375) x) 6)
+  print (impulse (\x -> dsp.delay 0.01 (dsp.dc 0.0003125) x) 6)
+  print (impulse (\x -> dsp.delay 0.001 (dsp.dc 1.0) x) 12)
+  -- a comb of 2 frames: gain 0.5 per echo; then damped by 0.5, which spreads
+  -- each echo over later frames; a feedback of 5 is held below 1, so the
+  -- impulse does not grow
+  print (impulse (\x -> dsp.comb 0.01 (dsp.dc 0.00025) (dsp.dc 0.5) 0 x) 7)
+  print (impulse (\x -> dsp.comb 0.01 (dsp.dc 0.00025) (dsp.dc 0.5) (dsp.dc 0.5) x) 7)
+  print (peak2 (\x -> dsp.comb 0.01 (dsp.dc 0.00025) 5 0 x) 64)
+  -- an allpass of 2 frames, gain 0.5: -0.5, then 0.75 and its echoes at
+  -- 0.5 per 2 frames. Its energy stays 1, shown over 64 frames in 1e-4.
+  print (impulse (\x -> dsp.allpass 0.01 (dsp.dc 0.00025) (dsp.dc 0.5) x) 6)
+  print (energy (\x -> dsp.allpass 0.01 (dsp.dc 0.00025) (dsp.dc 0.5) x))
+  -- memory kept across a play: an impulse in a delay of 5 frames, whose time
+  -- becomes 4 before it comes out, so it comes out at frame 4; after silence
+  -- the memory starts empty
+  print (delayKept 8)
+  -- chorus and reverb: two channels that differ, bounded; flanger of one
+  print (spreadOf (dsp.chorus (dsp.dc 2.0) (dsp.dc 0.005) (dsp.dc 0.5) (dsp.sine 440)))
+  print (spreadOf (dsp.reverb (dsp.dc 0.5) (dsp.dc 0.5) (dsp.dc 0.5) (dsp.sine 440)))
+  print (g.width (dsp.flanger (dsp.dc 0.5) (dsp.dc 0.002) (dsp.dc 0.5) (dsp.sine 440)), peakOf (dsp.flanger (dsp.dc 0.5) (dsp.dc 0.002) (dsp.dc 0.5) (dsp.sine 440)))
+  -- a reverb's tail, wet alone: sounding after 0.1 s, gone after 20 s
+  print (reverbTail ())
+  -- float literals as signals, also through a local and a top-level value
+  print (first p 1 (0.5 + 0.25 * dsp.dc 1.0))
+  print (first p 1 (let z = 0.125 in z * 2))
+  print (first p 1 topLevelLiteral)
   g.close p
   g.close q
   g.close r

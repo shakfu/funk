@@ -20,6 +20,7 @@ foreign import ccall "graph.h funk_graph_control" graphControl :: Ptr () -> CFlo
 foreign import ccall "graph.h funk_player_send" playerSend :: Ptr () -> CLLong -> String -> CFloat ->> CBool
 foreign import ccall "graph.h funk_player_frames" playerFrames :: Ptr () ->> CLLong
 foreign import ccall "graph.h funk_graph_name" graphName :: Ptr () -> CInt -> String ->> CInt
+foreign import ccall "graph.h funk_graph_memory" graphMemory :: Ptr () -> CInt -> Float ->> CInt
 foreign import ccall "graph.h funk_player_new" playerNew :: () ->> Ptr ()
 foreign import ccall "graph.h funk_player_play" playerPlay :: Ptr () -> Ptr () ->> ()
 foreign import ccall "graph.h funk_graph_output" graphOutput :: Ptr () -> CInt ->> CInt
@@ -29,7 +30,9 @@ foreign import ccall "dlfcn.h dlopen" dlopen :: String -> CInt ->> Ptr ()
 foreign import ccall "dlfcn.h dlsym" dlsym :: Ptr () -> String ->> Ptr ()
 foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
 
-data Sig = Silence | Node String [Float] [Sig] | Named String Sig | Control Float | Channels [Sig]
+-- Delay k secs st ins: a Node with memory for secs seconds in each channel;
+-- its state starts with two zeros, which become the pointer and the size
+data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Named String Sig | Control Float | Channels [Sig]
 
 -- a C player, its kernel libraries, frames per second, and the most
 -- frames per kernel call
@@ -45,6 +48,7 @@ control n v = Named n (Control v)
 same :: Sig -> Sig -> Bool
 same Silence Silence = True
 same (Node k st ins) (Node k2 st2 ins2) = k == k2 && st == st2 && length ins == length ins2 && and (zipWith same ins ins2)
+same (Delay k m st ins) (Delay k2 m2 st2 ins2) = m == m2 && same (Node k st ins) (Node k2 st2 ins2)
 same (Named n s) (Named n2 s2) = n == n2 && same s s2
 same (Control v) (Control v2) = v == v2
 same (Channels ss) (Channels ss2) = length ss == length ss2 && and (zipWith same ss ss2)
@@ -58,6 +62,7 @@ width (Named n s) = width s
 width (Node k st ins) = case map width ins of
   ws -> case maximum (1 : ws) of
     w -> if any (\x -> x /= 1 && x /= w) ws then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else w
+width (Delay k m st ins) = width (Node k st ins)
 width s = 1
 
 -- libraries of kernels, such as `funk emit-c --kernels` output compiled
@@ -95,6 +100,7 @@ names ns (Named n s) = case lookup n ns of
   Just s2 -> if same s s2 then ns else error ("graph: two different nodes named " ++ n)
   Nothing -> names ((n, s) : ns) s
 names ns (Node k st ins) = foldl names ns ins
+names ns (Delay k m st ins) = names ns (Node k st ins)
 names ns (Control v) = ns
 names ns (Channels ss) = foldl names ns ss
 
@@ -103,6 +109,7 @@ kernels libs Silence = ()
 kernels libs (Named n s) = kernels libs s
 kernels libs (Control v) = ()
 kernels libs (Channels ss) = mapM_ (kernels libs) ss
+kernels libs (Delay k m st ins) = kernels libs (Node k st ins)
 kernels libs (Node k st ins) = do
   kernel libs k
   mapM_ (kernels libs) ins
@@ -130,6 +137,10 @@ add g libs ns (Node k st ins) = do
   (iss, ns2) <- addAll g libs ns ins
   kp <- kernel libs k
   (nodes g kp st iss 0 (maximum (1 : map length iss)), ns2)
+add g libs ns (Delay k m st ins) = do
+  (is, ns2) <- add g libs ns (Node k st ins)
+  mapM_ (\i -> if graphMemory g (fromIntegral i) m < 0 then error ("graph: no memory for " ++ k) else ()) is
+  (is, ns2)
 
 -- channels c to w - 1 of a node: each reads its inputs' channel c, or their only one
 nodes :: Ptr () -> Ptr () -> [Float] -> [[Int]] -> Int -> Int ->> [Int]

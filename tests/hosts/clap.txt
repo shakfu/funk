@@ -22,6 +22,9 @@ pat = p.fast 4 (p.fastcat [p.atom 72, p.silence])
 [audio]
 -- every voice's gate, so a note sounds exactly while it is held
 sig = voices (\gate freq -> gate)
+[delay]
+-- delay memory reaches the plugin, whose foreign imports are linked in
+sig = d.reverb (d.dc 0.5) (d.dc 0.5) (d.dc 0.5) (d.sine 440)
 [channels]
 -- channel 10 has its own voices, at twice the gate; other channels share voices
 sig = voices (\gate freq -> gate) + voicesOn 10 (\gate freq -> gate * d.dc 2.0)

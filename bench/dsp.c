@@ -123,17 +123,46 @@ static void c_adsr(void *st, float **in, float *out, int n, const funk_context *
 
 typedef struct {
   funk_kernel k;
-  double state[3];
+  double state[4];
   float *in[5];
   float out[MAX_BLOCK];
   funk_context cx;
 } Call;
 
-static float ones[MAX_BLOCK], freqs[MAX_BLOCK], noise[MAX_BLOCK], gate[MAX_BLOCK], tiny[MAX_BLOCK], below[MAX_BLOCK], fours[MAX_BLOCK];
+static float ones[MAX_BLOCK], freqs[MAX_BLOCK], noise[MAX_BLOCK], gate[MAX_BLOCK], tiny[MAX_BLOCK], below[MAX_BLOCK], fours[MAX_BLOCK], half[MAX_BLOCK];
 
 static void call(void *arg) {
   Call *c = arg;
   c->k(c->state, c->in, c->out, block, &c->cx);
+}
+
+static float line[48002];
+
+/* Worst of 200 blocks that each start a swap keeping a 1 s delay, against
+   blocks without one. The delay kernel is the graph's only node. */
+static void swap_cost(void) {
+  funk_kernel k = kernel("dsp_delay"), cst = kernel("dsp_const");
+  funk_player *p = funk_player_new();
+  float out[MAX_BLOCK];
+  double worst[2] = {0, 0};
+  for (int i = 0; i < 400; i++) {
+    if (i % 2 == 0) {
+      funk_graph *g = funk_graph_new(MAX_BLOCK, RATE);
+      double st[4] = {0}, v = 0.5;
+      int ins[2] = {funk_graph_add(g, cst, &v, sizeof v, NULL, 0), funk_graph_add(g, cst, &v, sizeof v, NULL, 0)};
+      int d = funk_graph_add(g, k, st, sizeof st, ins, 2);
+      if (funk_graph_memory(g, d, 1.0) < 0 || funk_graph_name(g, d, "d") < 0) exit(1);
+      funk_player_play(p, g);
+    }
+    struct timespec a, b;
+    clock_gettime(CLOCK_MONOTONIC, &a);
+    funk_player_render(p, out, block);
+    clock_gettime(CLOCK_MONOTONIC, &b);
+    double ns = (double)(b.tv_sec - a.tv_sec) * 1e9 + (double)(b.tv_nsec - a.tv_nsec);
+    if (i > 1 && ns > worst[i % 2]) worst[i % 2] = ns;
+  }
+  funk_player_free(p);
+  printf("a 1 s delay, worst block, ns: with a swap %.0f, without %.0f\n", worst[0], worst[1]);
 }
 
 static void kernels(void) {
@@ -157,6 +186,20 @@ static void kernels(void) {
     Call c = {kernel(ks[i].name), {0.5}, {0}, {0}, {RATE}};
     memcpy(c.in, ks[i].in, sizeof c.in);
     printf("  %-13s %7.1f\n", ks[i].name, best(call, &c));
+  }
+  struct { const char *name; float *in[5]; } ds[] = {
+      {"dsp_delay", {noise, tiny}},
+      {"dsp_comb", {noise, tiny, half, half}},
+      {"dsp_allpass", {noise, tiny, half}},
+  };
+  for (size_t i = 0; i < sizeof ds / sizeof *ds; i++) {
+    Call c = {kernel(ds[i].name), {0}, {0}, {0}, {RATE}};
+    float *mem = line;
+    int64_t frames = sizeof line / sizeof *line;
+    memcpy(&c.state[0], &mem, sizeof mem);
+    memcpy(&c.state[1], &frames, sizeof frames);
+    memcpy(c.in, ds[i].in, sizeof c.in);
+    printf("  %-13s %7.1f\n", ds[i].name, best(call, &c));
   }
 }
 
@@ -274,11 +317,12 @@ int main(int argc, char **argv) {
     return 1;
   }
   for (int i = 0; i < MAX_BLOCK; i++) {
-    ones[i] = 1, freqs[i] = 220, gate[i] = 1, tiny[i] = 0.01f, below[i] = -60, fours[i] = 4;
+    ones[i] = 1, freqs[i] = 220, gate[i] = 1, tiny[i] = 0.01f, below[i] = -60, fours[i] = 4, half[i] = 0.5f;
     noise[i] = (float)((i * 7919 % 2003) / 1001.5 - 1);
   }
   printf("block %d frames at %.0f Hz\n", block, RATE);
   kernels();
+  swap_cost();
   per_node();
   voices();
   return 0;

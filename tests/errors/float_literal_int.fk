@@ -1,0 +1,5 @@
+-- expect: no instance `FromFloat Int`
+-- a float literal cannot be an Int
+n :: Int
+n = 1
+main = print (n + 0.5)

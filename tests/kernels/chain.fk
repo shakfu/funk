@@ -10,10 +10,12 @@ foreign export ccall "k_onepole" onepole :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CF
 foreign export ccall "k_sine" sine :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
 foreign export ccall "k_clip" clip :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
 foreign export ccall "k_voice" voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+foreign export ccall "k_echo" echo :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
 foreign import ccall "math.h sin" csin :: Float -> Float
 
 foreign struct Osc { phase :: Float, freq :: Float }
 foreign struct Pole { y :: Float, coef :: Float }
+foreign struct Line { mem :: Ptr CFloat, frames :: Int, pos :: Int }
 foreign struct Voice { osc :: Osc, lp :: Pole }
 
 sampleRate :: Float
@@ -104,3 +106,17 @@ voiceLoop v out i n = if i == n then () else do
 
 voice :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
 voice st ins out n cx = voiceLoop (castPtr st) out 0 (fromIntegral n)
+
+echoLoop :: Ptr Line -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+echoLoop s x out i n = if i == n then () else do
+  mem <- readField s Line.mem
+  pos <- readField s Line.pos
+  size <- readField s Line.frames
+  pokeByteOff out (4 * i) (peekByteOff mem (4 * pos) :: CFloat)
+  pokeByteOff mem (4 * pos) (peekByteOff x (4 * i) :: CFloat)
+  writeField s Line.pos (if pos + 1 == size then 0 else pos + 1)
+  echoLoop s x out (i + 1) n
+
+-- its input, the memory's size in frames later
+echo :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+echo st ins out n cx = echoLoop (castPtr st) (peekByteOff ins 0) out 0 (fromIntegral n)

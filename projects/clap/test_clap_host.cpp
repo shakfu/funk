@@ -438,6 +438,12 @@ void CheckAudio(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 	Process(plugin, released, 2 * kBlock / (double)kBeatFrames, false);
 
 	// Channel 10's notes play voicesOn 10; an off ends the note of its own channel.
+	if (cases.count("delay")) {
+		reply = Eval(cases["delay"]);
+		check(reply.find("error") == std::string::npos, "the [delay] case evaluates: " + reply);
+		Events wet = Play(plugin, 0., 16);
+		check(FirstWhere(wet.audio, 0, true) >= 0, "the [delay] case sounds");
+	}
 	if (!cases.count("channels")) return;
 	reply = Eval(cases["channels"]);
 	check(reply.find("error") == std::string::npos, "the [channels] case evaluates: " + reply);

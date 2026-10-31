@@ -20,6 +20,8 @@ typedef struct {
   uint64_t shape; /* its kernel's and inputs', without states */
   void *init;     /* a named node's initial state */
   size_t size;
+  float *mem;     /* its delay memory, or NULL */
+  int64_t frames;
 } Node;
 
 typedef struct {
@@ -90,7 +92,7 @@ int funk_graph_add(funk_graph *g, funk_kernel k, const void *state, size_t size,
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {k, NULL, NULL, nin, NULL, 0, mix(1, (uint64_t)(uintptr_t)k), NULL, size};
+  Node x = {k, NULL, NULL, nin, NULL, 0, mix(1, (uint64_t)(uintptr_t)k), NULL, size, NULL, 0};
   x.state = size ? calloc(1, size) : NULL;
   x.in = calloc((size_t)(nin ? nin : 1), sizeof *x.in);
   x.out = calloc((size_t)g->max_block, sizeof(float));
@@ -193,14 +195,35 @@ static void name_shapes(funk_graph *g) {
 
 /* The audio thread, at g's first block: the states of old's nodes with a
    name, kernel and initial state that g's have. */
-static void carry(funk_graph *g, const funk_graph *old) {
+static void carry(funk_graph *g, funk_graph *old) {
   for (int i = 0; i < g->nnames; i++) {
     int at = lower(old, g->names[i].key);
     if (at == old->nnames || old->names[at].key != g->names[i].key) continue;
     Node *x = &g->nodes[g->names[i].node];
-    const Node *y = &old->nodes[old->names[at].node];
-    if (x->k == y->k && x->size == y->size && (!x->size || !memcmp(x->init, y->init, x->size))) memcpy(x->state, y->state, x->size);
+    Node *y = &old->nodes[old->names[at].node];
+    if (x->k != y->k || x->size != y->size || x->frames != y->frames || (x->size && memcmp(x->init, y->init, x->size))) continue;
+    if (x->size) memcpy(x->state, y->state, x->size);
+    if (x->mem) { /* by pointer: copying a second of delay would take a block's time. old frees x's. */
+      float *m = x->mem;
+      x->mem = y->mem;
+      y->mem = m;
+      memcpy(x->state, &x->mem, sizeof x->mem);
+    }
   }
+}
+
+int funk_graph_memory(funk_graph *g, int node, double seconds) {
+  if (node < 0 || node >= g->n || !(seconds >= 0)) return -1;
+  Node *x = &g->nodes[node];
+  double whole = seconds * g->cx.rate;
+  if (!x->k || x->mem || x->size < 2 * sizeof(void *) || whole > INT32_MAX) return -1;
+  int64_t frames = (int64_t)whole;
+  frames += (frames < whole) + 2;
+  x->mem = malloc((size_t)frames * sizeof(float));
+  if (!x->mem) return -1;
+  memset(x->mem, 0, (size_t)frames * sizeof(float)); /* over calloc: the audio thread must not fault its pages in */
+  x->frames = frames;
+  return 0;
 }
 
 int funk_graph_control(funk_graph *g, float value) {
@@ -211,7 +234,7 @@ int funk_graph_control(funk_graph *g, float value) {
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, 3, NULL, sizeof value};
+  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, 3, NULL, sizeof value, NULL, 0};
   if (!x.state || !x.out) {
     free(x.state);
     free(x.out);
@@ -238,6 +261,7 @@ void funk_graph_free(funk_graph *g) {
     free(g->nodes[i].state);
     free(g->nodes[i].in);
     free(g->nodes[i].out);
+    free(g->nodes[i].mem);
   }
   free(g->nodes);
   free(g->names);
@@ -271,7 +295,14 @@ void funk_player_reclaim(funk_player *p) {
 }
 
 void funk_player_play(funk_player *p, funk_graph *g) {
-  if (g) name_shapes(g);
+  if (g) {
+    name_shapes(g);
+    for (int i = 0; i < g->n; i++) /* after names, so initial states compare without their pointers */
+      if (g->nodes[i].mem) {
+        memcpy(g->nodes[i].state, &g->nodes[i].mem, sizeof(void *));
+        memcpy((char *)g->nodes[i].state + sizeof(void *), &g->nodes[i].frames, sizeof(int64_t));
+      }
+  }
   funk_graph *old = atomic_exchange(&p->current, g);
   if (old) {
     old->retired = atomic_load(&p->epoch); /* read after the exchange */

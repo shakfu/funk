@@ -2,11 +2,11 @@
 
 Status on 2026-10-31. Design and measurements: [audio.md](audio.md), option D, and [261029-dsp-measurements.md](261029-dsp-measurements.md).
 
-funk has 15 unit generators. [roadmap.md](roadmap.md) lists none to add, and `TODO.md` and `audio.md` mention only a stereo reverb, as an example. [Proposed roadmap](#proposed-roadmap) below is a proposal; its tasks are in `TODO.md`, under DSP.
+funk has 18 unit generators. [roadmap.md](roadmap.md) lists none to add, and `TODO.md` and `audio.md` mention only a stereo reverb, as an example. [Proposed roadmap](#proposed-roadmap) below is a proposal; its tasks are in `TODO.md`, under DSP.
 
 ## Unit generators
 
-All 15 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phase 1's four from `build/dspbench` on 2026-10-31 (M1, `-O2`). A 64-frame block at 48 kHz lasts 1.33 ms.
+All 18 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 2 from `build/dspbench` on 2026-10-31 (M1, `-O2`). A 64-frame block at 48 kHz lasts 1.33 ms.
 
 | Group | Kernel | In `lib/dsp.fk` | Method | ns per 64 frames |
 |-|-|-|-|-|
@@ -20,7 +20,10 @@ All 15 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phase 1's fou
 | | `dsp_adsr_exp` | `adsrExp` | exponential segments, restarted by a rising gate | 345 |
 | Nonlinear | `dsp_saturate` | `saturate` | C `tanh` | 250 |
 | Dynamics | `dsp_compress` | `compress`, `limit` | feedforward, peak level, C `pow` when over the threshold | 790 |
-| Utility | `dsp_const` | `dc`, integer literals | constant | 4-6 |
+| Delay | `dsp_delay` | `delay`, `chorus` | memory, read between frames by linear interpolation | 125 |
+| | `dsp_comb` | `comb`, `flanger`, `reverb` | feedback comb, with a one-pole low-pass in the loop | 270 |
+| | `dsp_allpass` | `allpass`, `reverb` | Schroeder allpass | 195 |
+| Utility | `dsp_const` | `dc`, numeric literals | constant | 4-6 |
 | | `dsp_add` | `+`, `-` | sample-wise | not listed |
 | | `dsp_mul` | `*`, `negate` | sample-wise | 4-6 |
 
@@ -42,8 +45,9 @@ These add no kernels:
 
 ## Limits
 
-- **State is a list of `Float`s.** One second of delay at 48 kHz needs 48,000 elements, copied on each graph swap that keeps it. Not measured.
-- **One output per kernel.** A stereo reverb whose channels share state cannot be written (`TODO.md`).
+- **One buffer per node.** A kernel gets one block of delay memory.
+- **One output per kernel.** A stereo reverb whose channels share state cannot be written (`TODO.md`). `reverb` instead runs two separate reverbs, tuned 23 frames at 44.1 kHz apart.
+- **A changed maximum restarts a delay.** Changing `delay`'s first argument zeroes its memory; changing the time input does not.
 - **Feedback between nodes is one block late.** Feedback within a sample needs one kernel.
 - **Separate kernels cost more.** A voice of separate kernels costs 2.7x a fused loop.
 - **Some parameters are per block.** Filter cutoffs, envelope times and compressor settings are read once per block.
@@ -58,7 +62,6 @@ This is an assessment of the code, not a roadmap.
 | Missing | Examples | Needs |
 |-|-|-|
 | Sources | wavetable, sampler | a way to load data into a kernel |
-| Delay effects | delay, comb, allpass, chorus, flanger, reverb | delay memory |
 | Envelopes | multi-segment | a new kernel |
 | Spectral, granular | FFT, granular | large state and buffers; FFT also needs its own block size |
 
@@ -87,7 +90,9 @@ Node state grows beyond a list of `Float`s, to a zeroed buffer of a given size. 
 - Interpolated reads, then chorus and flanger.
 - A mono reverb from combs and allpasses, one per channel through multichannel expansion.
 
-Done when: a graph swap that keeps a 1 s delay misses no block at 64 frames, and `kernels/graph` passes under AddressSanitizer and ThreadSanitizer.
+A swap exchanges the buffers' pointers on the audio thread. `dspbench` measures the worst block with a swap of a 1 s delay at about 1 us, its clock's resolution, the same as without a swap. `kernels/graph` passes under AddressSanitizer and ThreadSanitizer.
+
+Implemented 2026-10-31. Done when: `delay`, `chorus`, `flanger` and `reverb` play in a DAW and sound right. That listen is outstanding, and it also decides phase 3.
 
 ### Phase 3: several outputs per kernel
 

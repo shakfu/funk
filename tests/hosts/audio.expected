@@ -10,3 +10,7 @@ funk-midi: sig is not playing: it must be a g.Sig
 runtime error: graph: no kernel no_such_kernel
 funk-midi: sig failed; the last graph plays on until sig is defined again
  2000.000 audio peak 2490
+ 2250.000 audio peak 5000
+ 2500.000 audio peak 5000
+ 2750.000 audio peak 4389
+ 3000.000 audio peak 2500

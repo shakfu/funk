@@ -32,6 +32,10 @@ class Num a where
   negate, abs :: a -> a
   fromInt :: Int -> a
 
+-- what a float literal can be: Float unless its uses fix another type
+class FromFloat a where
+  fromFloat :: Float -> a
+
 -- Int, and the C integer types of foreign imports (CInt, CSize, ...)
 class Num a => Integral a where
   toInt :: a -> Int
@@ -73,6 +77,8 @@ instance Num Float where
   negate = primNegateFloat
   abs = primAbsFloat
   fromInt = toFloat
+instance FromFloat Float where
+  fromFloat x = x
 
 instance Eq Char where
   (==) = primEqChar

@@ -1,0 +1,9 @@
+-- expect: type mismatch
+-- a top-level function of a literal is Float, so this needs a signature to take another type
+data T = T Int
+instance FromFloat T where
+  fromFloat x = T 0
+f x = [x, 0.5]
+main = do
+  f (T 1)
+  print 1

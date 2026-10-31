@@ -1,0 +1,33 @@
+-- a float literal is Float unless its uses fix another type (FromFloat)
+half x = x * 0.5
+
+k = 0.25
+
+c :: CFloat
+c = 1.5
+
+data Twice = Twice Float deriving Show
+
+instance FromFloat Twice where
+  fromFloat x = Twice (x * 2.0)
+
+t :: Twice
+t = 1.5
+
+over :: FromFloat a => a
+over = 2.5
+
+main = do
+  print (half 3.0)
+  print k
+  print (1 + 0.5)
+  print [0.5, 1]
+  print (-0.5)
+  print (fromCFloat c)
+  print t
+  print [Twice 1.0, 0.75]
+  print (over :: Float)
+  print (over :: Twice)
+  print (fromCFloat over)
+  print (let z = 0.75 in z + 1.0)
+  print (let z = 0.75 in [Twice 0.0, z])

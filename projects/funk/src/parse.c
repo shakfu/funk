@@ -1160,8 +1160,9 @@ char *builtin_instances_src(void) {
                     "instance Storable %s where\n  sizeOf _ = 4\n  peek p = toCFloat (primPeekFloat 4 p)\n  poke p x = primPokeFloat 4 p (fromCFloat x)\n"
                     "instance Atomic %s where\n  atomicPeek p = toCFloat (primAtomicPeekFloat 4 p)\n  atomicPoke p x = primAtomicPokeFloat 4 p (fromCFloat x)\n"
                     "  atomicAdd p x = toCFloat (primAtomicAddFloat 4 p (fromCFloat x))\n"
-                    "  atomicCompareSwap p old x = primAtomicCasFloat 4 p (fromCFloat old) (fromCFloat x)\n",
-                t, t, t, t, t, t);
+                    "  atomicCompareSwap p old x = primAtomicCasFloat 4 p (fromCFloat old) (fromCFloat x)\n"
+                    "instance FromFloat %s where\n  fromFloat x = toCFloat x\n",
+                t, t, t, t, t, t, t);
       continue;
     }
     bool word = !strcmp(t, "CULong") || !strcmp(t, "CSize"), sign = t[1] != 'U' && !word;

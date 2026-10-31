@@ -36,7 +36,7 @@ Each was run through `funk -e` or as a file:
 | `let xs = 1 : map (* 2) xs` | rejected: "defined recursively but is not a function (evaluation is strict)" | laziness | no |
 | `newtype Age = Age Int` | rejected: no `newtype` | syntax | no |
 | `type Name = String` | rejected: no type synonyms | type system | no |
-| `fromIntegral`, `Integral`, `Fractional`, `Integer` | not in scope: `Num` is the only numeric class, and `Int` the only integer type | type classes | no |
+| `fromIntegral`, `Integral`, `Fractional`, `Integer` | not in scope: `Num` is the only arithmetic class, and `Int` the only integer type; float literals use `FromFloat` | type classes | no |
 | `succ`, `minBound`, `maxBound`, `deriving (Enum, Bounded)` | not in scope; deriving is limited to `Eq`, `Ord` and `Show` | type classes | no |
 | `read "42" :: Int` | not in scope: funk has `readInt` and `readFloat` | prelude | no |
 | `divMod`, `zipWith3`, `seq`, `interact` | not in scope | prelude | no |

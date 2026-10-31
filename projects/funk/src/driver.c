@@ -90,7 +90,7 @@ static bool on_thread(funk *f, const char *fn) {
 
 static bool init(void);
 
-static const CompilerShared shared_init = {.cur_file = "<input>", .num_class = -1};
+static const CompilerShared shared_init = {.cur_file = "<input>", .num_class = -1, .float_class = -1};
 
 void *shared_state_new(void) {
   CompilerShared *s = malloc(sizeof *s);

@@ -18,12 +18,16 @@ foreign export ccall "dsp_noise" noiseK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFl
 foreign export ccall "dsp_saturate" saturateK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_compress" compressK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_adsr_exp" adsrExpK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_delay" delayK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_comb" combK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_allpass" allpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign import ccall "math.h sin" csin :: Float -> Float
 foreign import ccall "math.h tan" ctan :: Float -> Float
 foreign import ccall "math.h exp" cexp :: Float -> Float
 foreign import ccall "math.h tanh" ctanh :: Float -> Float
 foreign import ccall "math.h pow" cpow :: Float -> Float -> Float
 foreign import ccall "math.h floor" cfloor :: Float -> Float
+foreign import ccall "math.h lrint" clrint :: Float -> CLong
 
 -- projects/funkgraph's funk_context
 foreign struct Context { rate :: Float }
@@ -33,6 +37,8 @@ foreign struct Const { value :: Float }
 foreign struct Pole { y :: Float }
 foreign struct Noise { seed :: Float }
 foreign struct Follower { level :: Float }
+-- mem and frames come from funk_graph_memory (graph.h); y is comb's damping
+foreign struct Line { mem :: Ptr CFloat, frames :: Int, pos :: Int, y :: Float }
 foreign struct Svf { ic1 :: Float, ic2 :: Float }
 -- stage: 0 idle, 1 attack, 2 decay or sustain, 3 release
 foreign struct Env { stage :: Float, level :: Float, gate :: Float }
@@ -324,3 +330,77 @@ compressK st ins out n cx = do
   cup <- expCoef 0.36787944117144233 (at (input ins 3) 0) rate
   cdown <- expCoef 0.36787944117144233 (at (input ins 4) 0) rate
   compressLoop (castPtr st) (input ins 0) thr slope cup cdown out 0 (fromIntegral n)
+
+-- the line's value d frames before pos, between frames by linear
+-- interpolation; d is in [1, frames - 2], so both frames read are written ones
+tap :: Ptr CFloat -> Int -> Int -> Float ->> Float
+tap mem size pos d = do
+  -- clamped as an Int: a NaN time must not read outside the memory
+  whole <- max 1 (min (size - 2) (fromIntegral (clrint (cfloor d))))
+  f <- d - toFloat whole
+  a <- pos - whole
+  a2 <- if a < 0 then a + size else a
+  b <- if a2 == 0 then size - 1 else a2 - 1
+  at mem a2 * (1.0 - f) + at mem b * f
+
+-- seconds to frames a tap can read
+tapFrames :: Int -> Float -> Float -> Float
+tapFrames size secs rate = min (max (secs * rate) 1.0) (toFloat size - 2.0)
+
+-- x stored at pos, in the line's memory; a small value is stored as 0, so a
+-- decaying tail never reaches subnormal numbers
+store :: Ptr Line -> Ptr CFloat -> Int -> Int -> Float ->> ()
+store s mem size pos x = do
+  put mem pos (if abs x < tiny then 0.0 else x)
+  writeField s Line.pos (if pos + 1 == size then 0 else pos + 1)
+
+-- a gain that keeps feedback stable
+stable :: Float -> Float
+stable g = min (max g (-0.999)) 0.999
+
+delayLoop :: Ptr Line -> Ptr CFloat -> Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+delayLoop s x time rate out i n = if i == n then () else do
+  mem <- readField s Line.mem
+  size <- readField s Line.frames
+  pos <- readField s Line.pos
+  put out i (tap mem size pos (tapFrames size (at time i) rate))
+  store s mem size pos (at x i)
+  delayLoop s x time rate out (i + 1) n
+
+-- inputs: signal, time in seconds; at least one frame
+delayK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+delayK st ins out n cx = delayLoop (castPtr st) (input ins 0) (input ins 1) (rateOf cx) out 0 (fromIntegral n)
+
+combLoop :: Ptr Line -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+combLoop s x time fb damp rate out i n = if i == n then () else do
+  mem <- readField s Line.mem
+  size <- readField s Line.frames
+  pos <- readField s Line.pos
+  v <- tap mem size pos (tapFrames size (at time i) rate)
+  d <- min (max (at damp i) 0.0) 0.999
+  y <- v * (1.0 - d) + readField s Line.y * d
+  writeField s Line.y (if abs y < tiny then 0.0 else y)
+  put out i v
+  store s mem size pos (at x i + stable (at fb i) * y)
+  combLoop s x time fb damp rate out (i + 1) n
+
+-- a feedback comb, with a one-pole low-pass in its loop; inputs: signal,
+-- time in seconds, feedback within (-1, 1), damping in [0, 1)
+combK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+combK st ins out n cx = combLoop (castPtr st) (input ins 0) (input ins 1) (input ins 2) (input ins 3) (rateOf cx) out 0 (fromIntegral n)
+
+allpassLoop :: Ptr Line -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+allpassLoop s x time gain rate out i n = if i == n then () else do
+  mem <- readField s Line.mem
+  size <- readField s Line.frames
+  pos <- readField s Line.pos
+  z <- tap mem size pos (tapFrames size (at time i) rate)
+  g <- stable (at gain i)
+  w <- at x i + g * z
+  put out i (z - g * w)
+  store s mem size pos w
+  allpassLoop s x time gain rate out (i + 1) n
+
+-- Schroeder's allpass; inputs: signal, time in seconds, gain within (-1, 1)
+allpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+allpassK st ins out n cx = allpassLoop (castPtr st) (input ins 0) (input ins 1) (input ins 2) (rateOf cx) out 0 (fromIntegral n)

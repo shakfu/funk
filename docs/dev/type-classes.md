@@ -71,6 +71,8 @@ Inference and elaboration are the bulk of the work. My estimate is 400-600 lines
 
 - **Num.** Methods: `+`, `-`, `*`, `negate`, `abs`, `fromInt`. A literal in overloaded code becomes `fromInt d n`, which fixes the polymorphic-literal limitation. A literal at a known type stays a constant, as `resolve.c` already does for `Float`. `/` stays `Float`-only and `div` stays `Int`-only, so no `Fractional` or `Integral` yet.
 
+- **FromFloat.** One method, `fromFloat`, for float literals only. A literal is a `FromFloat` variable. A top-level function's open literals become `Float` before it generalizes, so `f x = x * 0.5` stays `Float -> Float`; an overloaded `f` would pass a dictionary where it now runs on unboxed floats. So `f` cannot take a `Sig` without a signature. Haskell's `Fractional` was the alternative, and would bring that cost.
+
 - **Eq, Ord.** Instances for `Int`, `Float`, `Char` call the existing primitives. Derived instances call `fk_compare`. Structural comparison is exact once the types match, so derived `Eq` and `Ord` need no generated code.
 
 - **Show.** A derived instance must use its fields' dictionaries, so that `Maybe Float` prints `Just 1.0` inside polymorphic code. Structural `show` cannot do that. The checker therefore generates `showsPrec` clauses per constructor, as Haskell does. `show_desc` and `desc_field` (about 100 lines) are then deleted.

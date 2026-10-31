@@ -22,4 +22,9 @@ channels 0/0/0 1/0/0 1/1/0 1/1/1 1/1/1 1/0/1 1/0/1 1/0/0
 output past the last node rejected: yes
 channels 1 2 1
 mono on both: yes
+memory rejected for a small state: yes, for a control: yes, for no time: yes, twice: yes
+echo    -0.000 -0.000 -0.000 -0.000 -0.000 -0.000 -0.000 -0.000
+kept    -0.000 -0.000 -1.000 -0.000 -0.000 -0.000 -0.000 -0.000
+again   -0.000 -0.000 -0.000 -0.000 -0.000 -0.000 -0.000 -0.000
+resized -0.000 -0.000 -0.000 -0.000 -0.000 -0.000 -0.000 -0.000
 2000 swaps, samples outside [-1, 1]: 0, blocks rendered: at least 400

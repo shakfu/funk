@@ -503,6 +503,33 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
     e->ty = t;
     return;
   }
+  case E_FLOAT: {
+    Type *t = e->ty ? apply(e->ty) : NULL;
+    if (!t || (t->k == TY_CON && !strcmp(t->name, "Float"))) {
+      e->ty = t;
+      return;
+    }
+    Expr *lit = mk(E_FLOAT, e->line, e->col);
+    lit->fval = e->fval;
+    lit->ty = tcon_new(intern("Float"), 0, NULL);
+    InstDef *in = t->k == TY_CON ? find_inst(CS->float_class, t->name) : NULL;
+    int m = in && !in->arity ? global_lookup(intern(xsprintf("$m.FromFloat.%s.fromFloat", t->name))) : -1;
+    if (m >= 0) { /* as E_INT: a known instance, without a dictionary */
+      Expr **a = xmalloc(sizeof *a);
+      a[0] = lit;
+      *e = *app(var(CS->globals.a[m].name, e->line, e->col), 1, a);
+      e->ty = t;
+      e->fn->idx = m;
+      e->fn->known = CS->globals.a[m].lam;
+      return;
+    }
+    Expr **a = xmalloc(2 * sizeof *a);
+    a[0] = dict_for(CS->float_class, t, env, e->line, e->col);
+    a[1] = lit;
+    *e = *app(var(intern("$fromFloat"), e->line, e->col), 2, a);
+    e->ty = t;
+    return;
+  }
   case E_APP: {
     if (e->fn->k == E_VAR) {
       Expr **ds;

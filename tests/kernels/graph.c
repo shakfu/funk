@@ -15,7 +15,7 @@
 
 enum { N = 8, SWAPS = 2000, VOICES = 200 };
 
-static funk_kernel saw, sine, pole, mul, clip, voice;
+static funk_kernel saw, sine, pole, mul, clip, voice, echo;
 static funk_player *player;
 static atomic_int stop, blocks;
 static int bad;
@@ -72,6 +72,19 @@ static funk_graph *gated(float value) {
   return g;
 }
 
+/* a control "in" through an echo named "echo", of memory for 8 frames at
+   8000 Hz, which is 10 with the 2 spare */
+static funk_graph *echoed(double seconds) {
+  funk_graph *g = funk_graph_new(8, 8000.0);
+  double st[3] = {0};
+  int in = funk_graph_control(g, 0.0f);
+  funk_graph_name(g, in, "in");
+  int e = funk_graph_add(g, echo, st, sizeof st, &in, 1);
+  funk_graph_memory(g, e, seconds);
+  funk_graph_name(g, e, "echo");
+  return g;
+}
+
 static void show(funk_player *p, const char *what) {
   float out[N];
   funk_player_render(p, out, N);
@@ -115,8 +128,8 @@ int main(int argc, char **argv) {
     return 1;
   }
   saw = get(lib, "k_saw"), sine = get(lib, "k_sine"), pole = get(lib, "k_onepole");
-  mul = get(lib, "k_mul"), clip = get(lib, "k_clip"), voice = get(lib, "k_voice");
-  if (!saw || !sine || !pole || !mul || !clip || !voice) return 1;
+  mul = get(lib, "k_mul"), clip = get(lib, "k_clip"), voice = get(lib, "k_voice"), echo = get(lib, "k_echo");
+  if (!saw || !sine || !pole || !mul || !clip || !voice || !echo) return 1;
 
   player = funk_player_new();
   float out[N];
@@ -265,11 +278,44 @@ int main(int argc, char **argv) {
   printf("mono on both: %s\n", same(ch[0], ch[1]));
   funk_player_free(st);
 
+  /* delay memory: 1 goes in at frame 0 and comes out 10 frames later, across
+     a swap; its memory changes hands, so the old graph's is not read; a new
+     size or silence starts empty */
+  funk_player *dp = funk_player_new();
+  g = funk_graph_new(4, 8000.0);
+  double two[2] = {0}, one_slot = 0;
+  int small = funk_graph_add(g, echo, &one_slot, sizeof one_slot, NULL, 0), big = funk_graph_add(g, echo, two, sizeof two, NULL, 0);
+  printf("memory rejected for a small state: %s, for a control: %s, for no time: %s, twice: %s\n",
+         funk_graph_memory(g, small, 1.0) < 0 ? "yes" : "no", funk_graph_memory(g, funk_graph_control(g, 0.0f), 1.0) < 0 ? "yes" : "no",
+         funk_graph_memory(g, big, -1.0) < 0 ? "yes" : "no", funk_graph_memory(g, big, 1.0) == 0 && funk_graph_memory(g, big, 1.0) < 0 ? "yes" : "no");
+  funk_graph_free(g);
+  funk_player_play(dp, echoed(0.001));
+  funk_player_send(dp, 0, "in", 1.0f);
+  funk_player_send(dp, 1, "in", 0.0f);
+  show(dp, "echo");
+  funk_player_play(dp, echoed(0.001));
+  show(dp, "kept");
+  funk_player_send(dp, funk_player_frames(dp), "in", 1.0f);
+  funk_player_send(dp, funk_player_frames(dp) + 1, "in", 0.0f);
+  show(dp, "again");
+  funk_player_play(dp, echoed(0.002));
+  show(dp, "resized");
+  funk_player_free(dp);
+
   pthread_t t;
   pthread_create(&t, NULL, audio, NULL);
   for (int i = 0; i < SWAPS; i++) {
     funk_graph *h;
-    if (i % 5) {
+    if (i % 5 == 4) { /* memory, kept by pointer across these swaps */
+      double st[3] = {0};
+      h = funk_graph_new(64, 8000.0);
+      int ab[2] = {funk_graph_control(h, 1.0f), 0};
+      funk_graph_name(h, ab[0], "gain");
+      ab[1] = funk_graph_add(h, echo, st, sizeof st, ab, 1);
+      funk_graph_memory(h, ab[1], 1.0);
+      funk_graph_name(h, ab[1], "echo");
+      funk_graph_add(h, mul, NULL, 0, ab, 2);
+    } else if (i % 5) {
       double v[4] = {0.0, 100.0 + i % 3, 0.0, 0.5};
       h = funk_graph_new(64, 8000.0);
       int ab[2];

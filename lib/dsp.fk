@@ -1,6 +1,6 @@
 -- dsp.fk -- signals built from kernels.fk's unit generators, for graph.fk
 -- (docs/dev/audio.md, D). Every parameter is a Sig, so any can be
--- modulated; an Int literal is a constant (Num), a Float one needs dc.
+-- modulated; a number is a constant.
 -- The player needs kernels.fk compiled, as CMake does into funkdsp.so:
 --   tools/kernels.sh funk lib/kernels.fk funkdsp.so
 module dsp where
@@ -16,6 +16,9 @@ instance Num g.Sig where
   negate a = g.Node "dsp_mul" [] [dc (-1.0), a]
   abs a = a
   fromInt n = dc (toFloat n)
+
+instance FromFloat g.Sig where
+  fromFloat = dc
 
 -- oscillators, from -1 to 1; frequency in Hz
 sine :: g.Sig -> g.Sig
@@ -71,6 +74,44 @@ compress threshold ratio attack release x = g.Node "dsp_compress" [0.0] [x, thre
 -- turns each peak down within its frame, which distorts it
 limit :: g.Sig -> g.Sig -> g.Sig -> g.Sig
 limit ceiling release x = compress ceiling (dc (1.0 / 0.0)) 0 release x
+
+-- x delayed: most seconds of memory per channel (changing it restarts the
+-- node), then the time in seconds, read every frame and interpolated
+delay :: Float -> g.Sig -> g.Sig -> g.Sig
+delay most time x = g.Delay "dsp_delay" most [0.0, 0.0, 0.0, 0.0] [x, time]
+
+-- a feedback comb: feedback within (-1, 1), damping in [0, 1) low-passes
+-- what is fed back
+comb :: Float -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+comb most time fb damp x = g.Delay "dsp_comb" most [0.0, 0.0, 0.0, 0.0] [x, time, fb, damp]
+
+-- gain within (-1, 1)
+allpass :: Float -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+allpass most time gain x = g.Delay "dsp_allpass" most [0.0, 0.0, 0.0, 0.0] [x, time, gain]
+
+-- x mixed with itself at a moving delay: rate in Hz, depth in seconds up to
+-- 0.02, mix from 0 to 1. Two channels, whose delays move a quarter cycle apart.
+chorus :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+chorus rate depth mix x = x * (1 - mix) + mix * delay 0.05 (dc 0.025 + depth * stereo (g.Node "dsp_sine" [0.0] [rate]) (g.Node "dsp_sine" [0.25] [rate])) x
+
+-- x plus a short comb of itself at a moving delay: rate in Hz, depth in
+-- seconds up to 0.005, feedback within (-1, 1)
+flanger :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+flanger rate depth fb x = (x + comb 0.015 (dc 0.006 + depth * sine rate) fb 0 x) * dc 0.5
+
+-- Freeverb's mono structure, in each of two channels, tuned 23 frames at
+-- 44100 Hz apart: room and damp from 0 to 1, mix from 0 to 1
+reverb :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+reverb room damp mix x = x * (1 - mix) + mix * foldl (\y f -> allpass 0.03 (spread f) (dc 0.5) y) (reverbCombs (room * dc 0.28 + dc 0.7) (damp * dc 0.4) (x * dc 0.03)) [556.0, 441.0, 341.0, 225.0]
+
+-- a time of f frames at 44100 Hz, and 23 frames more on the right
+spread :: Float -> g.Sig
+spread f = stereo (dc (f / 44100.0)) (dc ((f + 23.0) / 44100.0))
+
+reverbCombs :: g.Sig -> g.Sig -> g.Sig -> g.Sig
+reverbCombs fb damp x = case map (\f -> comb 0.04 (spread f) fb damp x) [1116.0, 1188.0, 1277.0, 1356.0, 1422.0, 1491.0, 1557.0, 1617.0] of
+  c : cs -> foldl (+) c cs
+  [] -> g.Silence
 
 -- two channels, left and right
 stereo :: g.Sig -> g.Sig -> g.Sig

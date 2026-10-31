@@ -63,7 +63,8 @@ typedef struct {
   int level;
   int tvid;
   VEC(Type *) cvars; /* variables that gained classes, for defaulting */
-  uint64_t num_bit; /* the Num class, once the prelude declares it */
+  uint64_t num_bit;
+  uint64_t float_bit; /* the Num class, once the prelude declares it */
   const char *s_int, *s_float, *s_char, *s_bool, *s_list, *s_arrow, *s_unit, *s_string, *s_otherwise;
   Type *eff_pure, *eff_eff, *cur_eff, *te_eff;
   const char *cur_bind;
@@ -166,6 +167,18 @@ static Type *numvar(int line, int col) {
   t->line = line;
   t->col = col;
   if (ST->num_bit) VPUSH(ST->cvars, t);
+  return t;
+}
+
+/* A float literal: a `FromFloat` variable, Float unless its uses fix it
+   sooner. See default_floats. */
+static Type *floatvar(int line, int col) {
+  if (!ST->float_bit) return tcon0(ST->s_float);
+  Type *t = newvar();
+  t->cls = ST->float_bit;
+  t->line = line;
+  t->col = col;
+  VPUSH(ST->cvars, t);
   return t;
 }
 
@@ -1302,6 +1315,21 @@ static void lower_known(void) {
   }
 }
 
+/* Float literals since cvars[from] still open become Float, so a function
+   of them stays monomorphic: an overloaded `f x = x * 0.5` would pass a
+   dictionary, where today it runs on unboxed floats. */
+static void default_floats(int from) {
+  for (int i = from; i < ST->cvars.n; i++) {
+    Type *r = repr(ST->cvars.a[i]);
+    if (r->k != TY_VAR || r->skolem || r->level == GENERIC || !(r->cls & ST->float_bit)) continue;
+    ST->uline = r->line;
+    ST->ucol = r->col;
+    Type *ft = tcon0(ST->s_float);
+    entail(ft, r->cls);
+    r->link = ft;
+  }
+}
+
 static bool is_pending_rec(Type *t) {
   for (int i = 0; i < ST->pending.n; i++)
     if (repr(ST->pending.a[i].rec) == t) return true;
@@ -1334,7 +1362,7 @@ static void resolve_fields(bool final) {
     if (r->k == TY_VAR && (r->cls & ST->num_bit) && !r->skolem && (final || r->level >= ST->level)) {
       ST->uline = r->line;
       ST->ucol = r->col;
-      Type *it = tcon0(ST->s_int);
+      Type *it = tcon0(r->cls & ST->float_bit ? ST->s_float : ST->s_int);
       entail(it, r->cls);
       r->link = it;
     }
@@ -1561,7 +1589,7 @@ static Type *infer0(Expr *e, Env *env) {
     e->idx = con_lookup(e->name, e->line, e->col);
     return inst(CS->condefs.a[e->idx].scheme, false);
   case E_INT: return e->ty = numvar(e->line, e->col);
-  case E_FLOAT: return tcon0(ST->s_float);
+  case E_FLOAT: return e->ty = floatvar(e->line, e->col);
   case E_CHAR: return tcon0(ST->s_char);
   case E_STR: return tcon0(ST->s_string);
   case E_APP: {
@@ -1706,6 +1734,7 @@ static void infer_group(Group *g, Env **env, bool top) {
   Env *none = NULL;
   if (!env) env = &none;
   if (top) ST->scheme_uses.n = 0;
+  int ncvars = ST->cvars.n;
   ST->level++;
   int ndeferred = ST->deferred.n; /* this group's calls of functions not yet known */
   int nlocal = ST->local_effs.n;
@@ -1773,6 +1802,9 @@ static void infer_group(Group *g, Env **env, bool top) {
   }
   ST->cur_bind = saved_bind;
   ST->cur_eff = outer;
+  if (top)
+    for (int i = 0; i < g->n; i++)
+      if (g->b[i]->e->k == E_LAM) default_floats(ncvars);
   ST->level--;
   /* Local bindings without a signature never generalize constrained
      variables: they take them from their uses, so specializing the
@@ -1791,9 +1823,10 @@ static void infer_group(Group *g, Env **env, bool top) {
   xfree(sch);
 }
 
-/* A Num variable left open at the end of the chunk becomes Int; any other
-   constrained variable is ambiguous. */
+/* A float literal's variable left open at the end of the chunk becomes
+   Float, a Num variable Int; any other constrained variable is ambiguous. */
 static void default_classes(void) {
+  default_floats(0);
   for (int i = 0; i < ST->cvars.n; i++) {
     Type *r = repr(ST->cvars.a[i]);
     if (r->k != TY_VAR || r->skolem || r->level == GENERIC || !r->cls) continue;
@@ -2147,6 +2180,10 @@ static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
       ST->num_bit = BIT(id);
       CS->num_class = id;
     }
+    if (strcmp(cd->name, "FromFloat") == 0) {
+      ST->float_bit = BIT(id);
+      CS->float_class = id;
+    }
     ClassDef *cp = &CS->classes.a[id];
     for (int i = 0; i < cp->nmeth; i++) {
       int prev = map_get(&ST->gmap, cp->meths[i]);
@@ -2159,6 +2196,7 @@ static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
       CS->globals.a[CS->globals.n - 1].mcls = id;
       CS->globals.a[CS->globals.n - 1].midx = i;
       if (CS->num_class == id && strcmp(cp->meths[i], "fromInt") == 0) map_put(&ST->gmap, intern("$fromInt"), CS->globals.n - 1);
+      if (CS->float_class == id) map_put(&ST->gmap, intern("$fromFloat"), CS->globals.n - 1);
     }
     for (int i = 0; i < cp->nsup; i++) {
       const char *n = intern(xsprintf("$sup.%s.%s", cp->name, CS->classes.a[cp->sups[i]].name));
@@ -2636,8 +2674,8 @@ static void check_export_code(Module *m) {
 bool compile_chunk(Module *m, Chunk *out) {
   jmp_buf jb, *saved = CS->cerr_jmp;
   int mark = undo_mark(), ng0 = CS->globals.n, nc0 = CS->condefs.n, nt0 = CS->tydefs.n, ncl0 = CS->classes.n, ni0 = CS->insts.n, ns0 = ST->cstructs.n;
-  uint64_t nb0 = ST->num_bit;
-  int nk0 = CS->num_class;
+  uint64_t nb0 = ST->num_bit, nf0 = ST->float_bit;
+  int nk0 = CS->num_class, nfk0 = CS->float_class;
   ST->cvars.n = 0;
   ST->level = 0;
   if (setjmp(jb)) {
@@ -2652,7 +2690,9 @@ bool compile_chunk(Module *m, Chunk *out) {
     CS->insts.n = ni0;
     ST->cstructs.n = ns0;
     ST->num_bit = nb0;
+    ST->float_bit = nf0;
     CS->num_class = nk0;
+    CS->float_class = nfk0;
     fk_truncate_cons((uint32_t)nc0);
     ST->cvars.n = 0;
     ST->pending.n = 0;
@@ -2780,6 +2820,7 @@ const char *infer_type_text(Expr *e) {
   ST->level = 1;
   Type *t = infer(e, NULL);
   resolve_fields(true);
+  default_floats(0);
   ST->level = 0;
   gen(t, false);
   ST->cvars.n = 0;

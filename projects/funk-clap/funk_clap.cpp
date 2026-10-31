@@ -73,8 +73,8 @@ const char* const kDefaultCode =
 	"-- A cycle is one bar. Values: note + 128 * velocity + 16384 * (channel - 1).\n"
 	"-- `sig` plays on the plugin's output; `voices f` plays each note it sends.\n"
 	"\n"
-	"sig = voices (\\gate freq -> d.adsr (d.dc 0.01) (d.dc 0.2) (d.dc 0.5) (d.dc 0.3) gate\n"
-	"                            * d.saw freq * d.dc 0.2)\n"
+	"sig = voices (\\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate\n"
+	"                            * d.saw freq * 0.2)\n"
 	"\n"
 	"pat = p.stack [p.fastcat [p.atom 48, p.silence, p.atom 55, p.silence],\n"
 	"               m.vel 70 (p.euclid 3 8 72)]\n"
@@ -211,7 +211,7 @@ private:
 		// graph.fk's imports: the plugin's own functions, which it does not export
 #define PROVIDE(fn) funk_provide(f, #fn, (void*)fn);
 		PROVIDE(funk_graph_new) PROVIDE(funk_graph_add) PROVIDE(funk_graph_control) PROVIDE(funk_graph_name)
-		PROVIDE(funk_graph_output) PROVIDE(funk_player_new) PROVIDE(funk_player_send) PROVIDE(funk_player_frames)
+		PROVIDE(funk_graph_output) PROVIDE(funk_graph_memory) PROVIDE(funk_player_new) PROVIDE(funk_player_send) PROVIDE(funk_player_frames)
 		PROVIDE(funk_player_play) PROVIDE(funk_player_render_channels) PROVIDE(funk_player_free)
 #undef PROVIDE
 		funk_glue(f, funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed

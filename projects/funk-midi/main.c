@@ -611,7 +611,7 @@ typedef struct { const char *lib, *file, *script, *kernels; } Opts;
 /* graph.fk's imports: this program's functions, given to funk rather than
    exported, as a plugin must */
 #define GRAPH_FUNCTIONS(X)                                                                                     \
-  X(funk_graph_new) X(funk_graph_add) X(funk_graph_control) X(funk_graph_name) X(funk_graph_output)            \
+  X(funk_graph_new) X(funk_graph_add) X(funk_graph_control) X(funk_graph_name) X(funk_graph_output) X(funk_graph_memory)            \
   X(funk_player_new) X(funk_player_send) X(funk_player_frames) X(funk_player_play)                            \
   X(funk_player_render_channels) X(funk_player_free)
 #define PROVIDE(f) funk_provide(session, #f, (void *)f);

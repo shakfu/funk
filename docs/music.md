@@ -255,7 +255,7 @@ In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. 
 `sig = ...` plays a graph on the plugin's stereo output, as `funk-midi --audio` does, and every note the plugin sends also plays `voices f`, 8 voices of `f gate freq`:
 
 ```haskell
-sig = voices (\gate freq -> d.adsr (d.dc 0.01) (d.dc 0.2) (d.dc 0.5) (d.dc 0.3) gate * d.saw freq)
+sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq)
 ```
 
 A channel's notes play `voicesOn c f` instead, for MIDI channel `c` from 1 to 16, if `sig` has it:

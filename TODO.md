@@ -18,7 +18,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Several outputs per kernel, for kernels whose channels share state, such as a stereo reverb.
 
-- [ ] Node state other than `Float`s ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).
+- [ ] Node state other than `Float`s and one delay buffer ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).
 
 - [ ] funk's `Ring Int` still carries 16-bit values (`pattern.pushOnsets`); only a hand-written export reading it, option A, needs more.
 
@@ -30,15 +30,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### DSP ([docs/dev/dsp.md](docs/dev/dsp.md#proposed-roadmap))
 
-Phase 2, delay memory:
+Phase 2's delay memory and kernels are in. Remaining:
 
-- [ ] Delay memory in node state, kept across a graph swap without copying it on the audio thread. This is the first use of "Node state other than `Float`s", under Compiled DSP graph.
-
-- [ ] Delay, comb and allpass.
-
-- [ ] Interpolated delay reads, then chorus and flanger.
-
-- [ ] A mono reverb from combs and allpasses, one per channel.
+- [ ] Play `delay`, `chorus`, `flanger` and `reverb` in a DAW, and listen. This also decides phase 3.
 
 Phases 3 and 4 are under Medium.
 

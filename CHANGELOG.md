@@ -6,6 +6,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A float literal can now be any `FromFloat` type: `Float` by default, `CFloat`, or `g.Sig`, so `d.saw 440.5` needs no `d.dc`. A literal in a top-level function that nothing else fixes is `Float`, so `f x = x * 0.5` stays `Float -> Float` and existing programs compile to the same code. Haskell's `Fractional` would have made `f` overloaded and passed a dictionary at run time. A function meant to take a signal without using one needs a signature ([docs/dev/type-classes.md](docs/dev/type-classes.md)).
+
+- `lib/dsp.fk` gains delay effects: `delay`, `comb`, `allpass`, `chorus`, `flanger` and `reverb`, on delay memory from `funk_graph_memory`. A graph swap that keeps a node exchanges its buffer by pointer on the audio thread; copying, as other state does, would cost time in proportion to the delay. `reverb` runs Freeverb's structure once per channel, tuned apart, over one kernel with several outputs, which would change every kernel's signature ([docs/dev/dsp.md](docs/dev/dsp.md#phase-2-delay-memory)).
+
 - `lib/dsp.fk` gains four kernels: `noise`, `saturate` (`tanh`), `compress` with `limit`, and `adsrExp`. `limit` is `compress` at an infinite ratio and instant attack, and holds its ceiling with no lookahead by distorting each peak within its frame; lookahead needs delay memory ([docs/dev/dsp.md](docs/dev/dsp.md)).
 
 - The CLAP plugin's editor colours funk's syntax, from `projects/tree-sitter-funk`'s parser and highlight query, as Helix and Neovim do. ImGui's text field cannot colour its text, so the field draws it transparent and the plugin draws it over in colour, repeating ImGui's layout; a test compares every glyph with ImGui's own. A code-editor widget was the alternative, without the field's word wrap. Built when the generated parser and the tree-sitter runtime are present; otherwise the text is plain ([docs/dev/plugin.md](docs/dev/plugin.md#syntax-colours)).
