@@ -8,7 +8,7 @@
 #   make SANITIZE=undefined test   the same with funk built under UBSan
 #   make SANITIZE=address test     under ASan; set ASAN_OPTIONS=detect_leaks=0 on Linux
 #   make bench | bench-report      time funk against C; see bench/README.md
-#   make install PREFIX=DIR        install funk into DIR/bin
+#   make install                   install funk into ~/.local/bin
 #   make clap                      build build/clap/funk-midi.clap (FUNK_CLAP)
 #   make clap-dev                  run the plugin's editor in a minimal host,
 #                                  MIDI to the first port, its audio's peak each second
@@ -19,7 +19,6 @@
 CMAKE ?= cmake
 BUILD_TYPE ?= RelWithDebInfo
 SANITIZE ?=
-PREFIX ?= /usr/local
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 ARGS ?=
 BUILD := build
@@ -61,7 +60,8 @@ tree-sitter:
 	$(MAKE) -C projects/tree-sitter-funk check
 
 install: funk
-	$(CMAKE) --install $(BUILD) --prefix $(PREFIX)
+	install -d $(HOME)/.local/bin
+	install -m 755 $(BUILD)/funk $(HOME)/.local/bin/funk
 
 clean:
 	rm -rf build funk

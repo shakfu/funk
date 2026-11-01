@@ -1,0 +1,9 @@
+gain: 21
+same source, same library: 1
+new source, new library: 1
+both load, each its own: 21 28
+Float primitives: 1.000
+a heap result: refused, says why
+a missing C function: refused, shows the compiler's message
+no compiler: refused, says so
+300 sessions compile: 300

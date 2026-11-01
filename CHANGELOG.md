@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The plugin compiles a kernel while playing: a paragraph with a `foreign export` becomes a library in about 90 ms, and 9 ms when unchanged, and `sig` plays it from the next block. Over `dlclose`, old libraries stay loaded until the plugin goes, since a retiring graph may still run them. The compile has its own thread and session, because a session that installs exports refuses them, and a compile on the evaluator's thread made a looping `pat`'s notes 21 ms late. `funk_compile_kernels` is the API, and `lib/ugen.fk` holds what a kernel needs. It needs `$CC`; without one, the built-in kernels still play ([docs/music.md](docs/music.md)).
+
 - A graph builds equal subtrees once, since equal kernels, states and inputs give equal samples. A signal used several times was built once per use: `d.reverb` on 16 voices made 2,628 nodes and now makes 260, and takes 21 us per block where it took 139. `d.chorus` and `d.flanger` gain too. Named nodes never merge. Across a live edit, a merge keeps the first node's state, and an unnamed node split from a shared one restarts: name both to keep their phases. A hash trie finds equal nodes, since a list scan took 152 ms to build 64 voices, against 12 ms now and 7 ms with no sharing.
 
 - `d.zita`'s parameters glide over about 50 ms, so moving them does not click. The second difference after a jump fell 137x for predelay, and 6x to 136x for the decays. Targets are smoothed per block, and coefficients ramp per frame: retuning 8 lines per frame was the alternative, and costs 8 `exp` pairs each frame. Predelay changes pitch while it glides. Unmoving parameters match Faust as before, at 2% more cost.

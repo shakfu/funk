@@ -472,3 +472,64 @@ void ffi_load(ForeignDecl **fs, int n) {
     if (!fs[i]->code) fk_error("foreign import `%s` is missing from %s", fs[i]->name, so);
   }
 }
+
+/* Adds the words of src's first line, cgen_kernels's list of libraries, to argv. */
+static void push_link_words(Argv *argv, const char *src) {
+  const char *start = "/* link: ", *eol = strchr(src, '\n');
+  if (!eol || strncmp(src, start, strlen(start))) return;
+  char *line = xsprintf("%.*s", (int)(eol - src - strlen(start)), src + strlen(start));
+  char *rest;
+  for (char *w = strtok_r(line, " ", &rest); w; w = strtok_r(NULL, " ", &rest))
+    if (strcmp(w, "*/")) VPUSH(*argv, w);
+}
+
+/* Over a glue-style cache: the same source and compiler give the same path,
+   so an unchanged kernel keeps its address, and its nodes their states. */
+char *ffi_compile_kernels(const char *src, const char **err) {
+  Argv argv = cc_argv();
+  uint64_t h = hash(14695981039346656037ULL, src);
+  for (int i = 0; i < argv.n; i++) h = hash(h, argv.a[i]);
+  const char *dir = cache_dir();
+  char *so = xsprintf("%s/k%016llx.so", dir, (unsigned long long)h);
+  if (access(so, R_OK) == 0) {
+    utimes(so, NULL);
+    return so;
+  }
+  prune(dir);
+  int pid = (int)getpid();
+  char *c = xsprintf("%s/k%016llx.%d.c", dir, (unsigned long long)h, pid), *tmp = xsprintf("%s.%d", so, pid), *log = xsprintf("%s.%d.err", so, pid);
+  FILE *out = fopen(c, "w");
+  if (!out) {
+    *err = xsprintf("cannot write %s", c);
+    return NULL;
+  }
+  fputs(src, out);
+  fclose(out);
+  const char *cc = argv.a[0];
+  const char *fixed[] = {"-O2", "-shared", "-fPIC", "-o", tmp, c};
+  for (size_t i = 0; i < sizeof fixed / sizeof fixed[0]; i++) VPUSH(argv, (char *)fixed[i]);
+  push_link_words(&argv, src);
+  int status = spawn_wait_err(&argv, log);
+  char *result = NULL;
+  if (status == 0 && rename(tmp, so) == 0) {
+    result = so;
+  } else if (status == -1) {
+    *err = xsprintf("kernels need a C compiler, and %s did not run; set $CC", cc);
+  } else {
+    SB msg = {0};
+    sb_puts(&msg, xsprintf("%s could not compile the kernels:\n", cc));
+    FILE *in = fopen(log, "r");
+    char buf[1024];
+    size_t got;
+    while (in && (got = fread(buf, 1, sizeof buf - 1, in)) > 0) {
+      buf[got] = 0;
+      sb_puts(&msg, buf);
+    }
+    if (in) fclose(in);
+    *err = msg.s;
+  }
+  unlink(c);
+  unlink(tmp);
+  unlink(log);
+  return result;
+}

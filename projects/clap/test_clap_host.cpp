@@ -462,6 +462,43 @@ void CheckAudio(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 		Events wave = Play(plugin, 0., 16);
 		check(FirstWhere(wave.audio, 0, true) >= 0, "the [zita] case sounds");
 	}
+	if (cases.count("kernel")) {
+		const char* cc = getenv("CC");
+		reply = Eval(cases["kernel"]);
+		if (cc && strstr(cc, "nonexistent")) {
+			check(reply.find("C compiler") != std::string::npos, "without a C compiler, a kernel says so: " + reply);
+		} else {
+			check(reply.find("kernels loaded") != std::string::npos, "the [kernel] case loads: " + reply);
+			reply = Eval(cases["kernel_sig"]);
+			check(reply.find("error") == std::string::npos && reply.find("not playing") == std::string::npos, "the [kernel_sig] case plays: " + reply);
+			const auto level = [&] {
+				Play(plugin, 0., 4); // the swap
+				Events e = Play(plugin, 0., 4);
+				return e.audio.back();
+			};
+			check(fabsf(level() - 0.25f) < 1e-5f, "a new kernel sounds");
+			reply = Eval(cases["kernel_new"]);
+			check(reply.find("kernels loaded") != std::string::npos, "a kernel is replaced: " + reply);
+			check(fabsf(level() - 0.125f) < 1e-5f, "sig plays the replaced kernel with no evaluation");
+			reply = Eval(cases["kernel_bad"]);
+			check(reply.find("kernels loaded") == std::string::npos && reply.find("not safe") != std::string::npos, "a kernel that allocates is refused: " + reply);
+			check(reply.find("<kernel>") != std::string::npos, "its message names the paragraph: " + reply);
+			check(fabsf(level() - 0.125f) < 1e-5f, "a refused kernel leaves the old one playing");
+			reply = Eval(cases["kernel_doc"]);
+			check(reply.find("kernels loaded") != std::string::npos, "the manual's kernel loads: " + reply);
+			reply = Eval(cases["kernel_doc_sig"]);
+			check(reply.find("error") == std::string::npos && reply.find("not playing") == std::string::npos, "the manual's sig plays: " + reply);
+			// An unchanged kernel evaluated again keeps its address, so its node keeps counting.
+			reply = Eval(cases["kernel_count"]);
+			check(reply.find("kernels loaded") != std::string::npos, "the [kernel_count] case loads: " + reply);
+			Eval(cases["kernel_count_sig"]);
+			const float before = level();
+			reply = Eval(cases["kernel_count"]);
+			check(reply.find("kernels loaded") != std::string::npos, "an unchanged kernel loads again: " + reply);
+			const float later = level();
+			check(later > before, "an unchanged kernel keeps its state: " + std::to_string(before) + " then " + std::to_string(later));
+		}
+	}
 	if (cases.count("drone")) {
 		// A host's reset leaves `sig` playing, since a host may reset at any time. The editor's
 		// Stop silences it, until it is evaluated again.
@@ -642,6 +679,48 @@ void CheckLive(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 	paced(cases["note"], "real-time live evaluation");
 	if (cases.count("slow_note")) paced(cases["slow_note"], "real-time live evaluation longer than the lookahead");
 	else printf("SKIP: a live evaluation longer than the lookahead (no [slow_note] case)\n");
+
+	// A compile takes longer than the lookahead, and a looping pat must not notice.
+	const char* cc_env = getenv("CC");
+	if (cases.count("fast_pat") && cases.count("kernel") && !(cc_env && strstr(cc_env, "nonexistent"))) {
+		Udp loop;
+		loop.send(cases["fast_pat"]);
+		// never the same source, or the cache would answer at once
+		std::string fresh = cases["kernel"];
+		fresh.replace(fresh.find("0.5 *"), 5, "0." + std::to_string(getpid()) + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() % 100000) + " *");
+		Events ev;
+		std::string reply, built;
+		auto due = std::chrono::steady_clock::now();
+		const auto give_up = due + std::chrono::seconds(20);
+		bool sent = false;
+		long sinceBuild = -1, blocks = 0;
+		Udp compile;
+		while (sinceBuild < 40 && due < give_up) {
+			Process(plugin, ev, -1., false);
+			if (!sent && ++blocks > 60) {
+				compile.send(fresh);
+				sent = true;
+			}
+			if (sent && built.empty()) built = compile.receive(1);
+			if (!built.empty()) ++sinceBuild;
+			due += std::chrono::microseconds((long long)(kBlock * 1e6 / kRate));
+			std::this_thread::sleep_until(due);
+		}
+		check(built.find("kernels loaded") != std::string::npos, "a kernel compiles while pat loops: " + built);
+		long long widest = 0, last = -1;
+		int ons = 0;
+		for (const Event& e : ev.list) {
+			if ((e.data[0] & 0xF0) != 0x90) continue;
+			if (last >= 0) widest = std::max(widest, e.frame - last);
+			last = e.frame;
+			++ons;
+		}
+		const long long spacing = kBeatFrames / 8;
+		check(ons > 10 && widest <= spacing, "pat keeps its time during a compile: " + std::to_string(ons) + " notes, widest gap " + std::to_string(widest) + " of " + std::to_string(spacing) + " frames");
+		plugin->reset(plugin);
+		Events quiet;
+		for (int b = 0; b < 20; ++b) Process(plugin, quiet, -1., false);
+	}
 }
 
 } // namespace

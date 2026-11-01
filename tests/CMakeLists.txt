@@ -127,7 +127,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory session sessions compile_limit)
+foreach(n signals output interrupt memory session sessions compile_limit kernels)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -149,6 +149,10 @@ add_test(NAME embed/session
   COMMAND sh -c "\"$<TARGET_FILE:embed_session>\" | diff tests/embed/session.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(embed/session PROPERTIES LABELS embed TIMEOUT 300)
+add_test(NAME embed/kernels
+  COMMAND sh -c "\"$<TARGET_FILE:embed_kernels>\" | diff tests/embed/kernels.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/kernels PROPERTIES LABELS "embed;kernels" TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/kernels-cache")
 add_test(NAME embed/sessions
   COMMAND sh -c "\"$<TARGET_FILE:embed_sessions>\" | diff tests/embed/sessions.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

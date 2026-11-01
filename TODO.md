@@ -85,7 +85,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Kernels compiled while playing (desktop live coding)
 
-- [ ] **Compile and load a kernel on demand** with `$CC` and `dlopen`, as foreign-import glue does (`ffi.c`). A kernel that fails the allocation check or the C compiler leaves the old graph playing. Set an edit-latency target from the measured compile time; the optimization level trades it against the cost per node.
+- [ ] Kernels compiled while playing, outside the plugin: `funk-midi --audio` has no way to evaluate one (`funk_compile_kernels`). Done in the plugin 2026-11-01.
+
+- [ ] A hardened host may refuse to `dlopen` a compiled kernel; only the test host has run one.
 
 - [ ] **LLVM, as Faust uses it**, only if `$CC` proves too slow for kernels without the runtime: about 60 ms per edit at `-O2`, of which 22 ms is clang's start-up and about 20 ms linking. An IR emitter for the export subset alone would be much smaller than `cgen.c`, since that subset has no allocation, closures or constructors. libtcc compiles faster but does not optimize, and its support for the runtime's `__atomic_*` builtins is unverified.
 

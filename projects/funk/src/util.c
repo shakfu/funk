@@ -1,4 +1,5 @@
 #define _DEFAULT_SOURCE
+#include <fcntl.h>
 #include <spawn.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -284,14 +285,22 @@ void cwarning(int line, int col, const char *fmt, ...) {
 Argv cc_argv(void) {
   const char *cc = getenv("CC");
   Argv a = {0};
-  for (char *w = strtok(xsprintf("%s", cc && *cc ? cc : "cc"), " "); w; w = strtok(NULL, " ")) VPUSH(a, w);
+  char *rest;
+  for (char *w = strtok_r(xsprintf("%s", cc && *cc ? cc : "cc"), " ", &rest); w; w = strtok_r(NULL, " ", &rest)) VPUSH(a, w);
   return a;
 }
 
-int spawn_wait(Argv *a) {
+int spawn_wait(Argv *a) { return spawn_wait_err(a, NULL); }
+
+int spawn_wait_err(Argv *a, const char *err) {
   VPUSH(*a, NULL);
   pid_t pid;
-  if (posix_spawnp(&pid, a->a[0], NULL, NULL, a->a, environ)) return -1;
+  posix_spawn_file_actions_t acts;
+  posix_spawn_file_actions_init(&acts);
+  if (err) posix_spawn_file_actions_addopen(&acts, 2, err, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  int failed = posix_spawnp(&pid, a->a[0], &acts, NULL, a->a, environ);
+  posix_spawn_file_actions_destroy(&acts);
+  if (failed) return -1;
   int status;
   waitpid(pid, &status, 0);
   return WIFEXITED(status) ? WEXITSTATUS(status) : -1;

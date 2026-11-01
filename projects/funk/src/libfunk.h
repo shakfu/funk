@@ -88,6 +88,12 @@ char *funk_emit_c(funk *f, const char *path);
    load (docs/dev/audio.md, D); path need not define `main`. NULL on error. */
 char *funk_emit_kernels(funk *f, const char *path);
 
+/* path's foreign exports compiled by $CC into a library for dlopen, cached by
+   source: its path, malloc'd, or NULL on error, with the compiler's messages in
+   funk_output. Each session compiles one file: exports cannot be installed, so a
+   host uses a new session for each, not the one it evaluates in. */
+char *funk_compile_kernels(funk *f, const char *path);
+
 /* The glue of the foreign imports of path and what it imports, as C to link
    with libfunk, defining funk_glue_table and funk_glue_count for funk_glue;
    path need not define `main`. NULL on an error, reported. */

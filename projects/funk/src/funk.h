@@ -37,6 +37,7 @@ typedef VEC(char *) Argv;
 typedef VEC(const char *) Strs;
 Argv cc_argv(void);      /* the words of $CC, or `cc` */
 int spawn_wait(Argv *a); /* runs a, which it NULL-terminates; the exit status, or -1 */
+int spawn_wait_err(Argv *a, const char *err); /* spawn_wait, with its stderr in the file err if not NULL */
 #define VPUSH(v, x)                                                     \
   do {                                                                  \
     if ((v).n == (v).cap) {                                             \
@@ -447,6 +448,7 @@ void interp_install(Chunk *c);
 V interp_global(int gidx);
 
 char *cgen_program(Chunk *chunks, int nchunks);
+char *ffi_compile_kernels(const char *src, const char **err); /* src, from cgen_kernels, as a cached library: its path; NULL and *err on error */
 char *cgen_kernels(Chunk *chunks, int nchunks, const char **err); /* the exports alone, without the runtime; NULL and *err on error */
 
 extern const char fk_rt_src[];

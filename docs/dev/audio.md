@@ -197,7 +197,7 @@ funk's thread (interpreted, live)               audio thread
   (kernels loaded on demand or ahead of time)        for each node: kernel(state, ins, out, n)
 ```
 
-- **Unit generators** are funk exports with one C signature (below). They are compiled ahead of time, or on demand while playing. The interpreter cannot run exports, so they are always compiled.
+- **Unit generators** are funk exports with one C signature (below). They are compiled ahead of time, or on demand while playing, in the plugin (`funk_compile_kernels`, 2026-11-01). The interpreter cannot run exports, so they are always compiled.
 
 - **The graph** is built in funk on funk's thread, interpreted: a pure value, such as `sinosc 800 |> mul 0.3`, that `play` writes into a table in C memory. A row holds a kernel's address, its input rows, its state and its output buffer. Buffers and state are allocated then, so the audio thread allocates nothing; sapf allocates each block (inferred from `Gen::produce` and `List`'s allocation paths, not traced).
 

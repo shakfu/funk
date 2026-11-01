@@ -518,6 +518,22 @@ char *funk_emit_kernels(funk *f, const char *path) {
   return plain(src);
 }
 
+char *funk_compile_kernels(funk *f, const char *path) {
+  ON_THREAD(f, NULL);
+  Chunk c;
+  if (!compile_file(path, &c)) return NULL;
+  int n = ST->mod_chunks.n + 2;
+  Chunk *all = xmalloc((size_t)n * sizeof *all);
+  all[0] = ST->prelude;
+  copy_n(all + 1, ST->mod_chunks.a, (size_t)ST->mod_chunks.n * sizeof *all);
+  all[n - 1] = c;
+  const char *err = NULL;
+  char *src = cgen_kernels(all, n, &err);
+  char *so = src ? ffi_compile_kernels(src, &err) : NULL;
+  if (!so) report("%s", xsprintf("%s: %s", path, err));
+  return plain(so);
+}
+
 char *funk_emit_glue(funk *f, const char *path) {
   ON_THREAD(f, NULL);
   Chunk c;

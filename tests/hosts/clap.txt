@@ -34,6 +34,62 @@ sig = d.reverb .{ mix = 0.5 } (d.sine 440 * d.adsr .{ gate = 1 })
 [zita]
 -- a kernel of two nodes that read every channel of x, in the plugin
 sig = d.zita .{ mix = 1, predelay = 0 } (d.sine 440 * d.adsr .{ gate = 1 })
+[kernel]
+-- a kernel written while playing: twice its input
+import ugen as u
+foreign export ccall "live_gain" gainK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+gainK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+gainK st ins out n cx = go (u.input ins 0) out 0 (fromIntegral n)
+go :: Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+go x out i n = if i == n then () else do
+  u.put out i (0.5 * u.at x i)
+  go x out (i + 1) n
+[kernel_sig]
+sig = g.Node "live_gain" [] [d.dc 0.5]
+[kernel_new]
+-- the same name, and a new gain: sig plays it without being evaluated
+import ugen as u
+foreign export ccall "live_gain" gainK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+gainK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+gainK st ins out n cx = go (u.input ins 0) out 0 (fromIntegral n)
+go :: Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+go x out i n = if i == n then () else do
+  u.put out i (0.25 * u.at x i)
+  go x out (i + 1) n
+[kernel_bad]
+-- allocates, so it is refused
+import ugen as u
+foreign export ccall "live_gain" gainK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+gainK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+gainK st ins out n cx = print (show n)
+[kernel_doc]
+-- docs/music.md's kernel, and its sig in the next case
+import ugen as u
+foreign export ccall "my_fold" foldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+foldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+foldK st ins out n cx = go (u.input ins 0) out 0 (fromIntegral n)
+go :: Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+go x out i n = if i == n then () else do
+  u.put out i (abs (u.at x i) * 2.0 - 1.0)
+  go x out (i + 1) n
+[kernel_doc_sig]
+sig = voices (\gate freq -> gate * g.Node "my_fold" [] [d.saw freq] * 0.2)
+[kernel_count]
+-- state: 0.001 more each frame, so a kernel that restarts shows
+import ugen as u
+foreign export ccall "live_count" countK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+countK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+countK st ins out n cx = go st out 0 (fromIntegral n)
+go :: Ptr () -> Ptr CFloat -> Int -> Int ->> ()
+go st out i n = if i == n then () else do
+  x <- u.get st 0 + 0.0001
+  u.set st 0 x
+  u.put out i x
+  go st out (i + 1) n
+[kernel_count_sig]
+sig = g.Node "live_count" [0.0] []
+[fast_pat]
+pat = p.fast 32 (p.fastcat [p.atom 72, p.silence])
 [drone]
 -- sounds with no notes
 sig = d.sine 440 * 0.5

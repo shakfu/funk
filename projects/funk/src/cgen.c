@@ -1422,6 +1422,7 @@ char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
   }
   sb_puts(&out, m ? " */\n" : " -lm */\n");
   sb_puts(&out, "/* funk kernels: foreign exports without the runtime */\n");
+  sb_puts(&out, "#include <math.h> /* Float primitives, with no import to name it */\n");
   sb_puts(&out, "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers, outside a header */\n");
   sb_puts(&out, fk_rth_src);
   VEC(ForeignDecl *) fs = {0};

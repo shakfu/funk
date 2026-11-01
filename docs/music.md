@@ -264,6 +264,23 @@ Functions with many parameters take them by name, and the rest have defaults: `d
 
 `d.zita x` is a stereo reverb, Zita-Rev1, for a mono or stereo `x`. `d.reverb` is Freeverb's structure, per channel; `d.zita` costs about 4 us per 64 frames and shares state across its channels. Its parameters can move while it plays: they glide over about 50 ms, and moving `predelay` bends the pitch of the tail's input. Its names and defaults are `predelay` 0.06 s, `crossover` 200 Hz, `damping` 6000 Hz, `lowDecay` 3 s, `midDecay` 2 s and `mix` 0.3.
 
+A paragraph with a `foreign export` is a kernel: your own unit generator, compiled to machine code and loaded while the music plays, in about 90 ms. `g.Node` plays it, with its initial state, then its inputs:
+
+```haskell
+import ugen as u
+foreign export ccall "my_fold" foldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+foldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+foldK st ins out n cx = go (u.input ins 0) out 0 (fromIntegral n)
+go :: Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+go x out i n = if i == n then () else do
+  u.put out i (abs (u.at x i) * 2.0 - 1.0)
+  go x out (i + 1) n
+
+sig = voices (\gate freq -> gate * g.Node "my_fold" [] [d.saw freq] * 0.2)
+```
+
+Evaluate the kernel again after an edit: `sig` picks it up, and the nodes that use it restart, unless its code is unchanged. The newest kernel of a name wins, so `dsp_saw` can replace `d.saw`'s. A kernel that fails to compile leaves the old one playing. A kernel's paragraph has no blank lines and stands alone: it sees `ugen`, the prelude and what it imports, not your other definitions. It must not allocate, and it needs a C compiler on this machine (`$CC`, or `cc`); without one, only the built-in kernels play.
+
 `d.sample path gate speed` plays a WAV file once at each rising gate, in two channels. `speed` 1 is its own pitch, so `freq * d.dc (1.0 / 261.63)` plays middle C at that pitch. `d.wavetable values freq` repeats one cycle of values, which `d.cycleOf n f` makes, and `d.wavetableFile path freq` reads them from a file:
 
 ```haskell

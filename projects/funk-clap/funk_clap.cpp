@@ -13,6 +13,10 @@
 // compiled into funkdsp.so, which the build puts in the bundle's Resources (beside the
 // .clap on Linux). graph.fk's imports use glue.c, linked in (funk_glue), so no C compiler runs.
 //
+// A paragraph with a `foreign export` is kernels: $CC compiles it, off funk's thread, and the
+// player looks in the newest library first, so a kernel of an old name replaces the old one.
+// Libraries stay loaded until the plugin goes: a graph swap may still run the old code.
+//
 // Each instance has its own funk session (libfunk.h), on funk's own thread, with its own
 // player and voices. Every funk call is queued to that thread from the instance's evaluator
 // thread, which sends the MIDI, or from the host's main thread at activation.
@@ -24,6 +28,8 @@
 
 #include "funk_lib.h" // kFunkLib: funk's lib modules, as {file name, source}
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -267,6 +273,63 @@ bool Defines(const std::string& code, const char* name)
 	return false;
 }
 
+// A paragraph of kernels: a line starts with `foreign export`.
+bool IsKernels(const std::string& code)
+{
+	const char* const word = "foreign export";
+	for (size_t at = 0; at < code.size(); at = code.find('\n', at) + 1) {
+		if (code.compare(at, strlen(word), word) == 0) return true;
+		if (code.find('\n', at) == std::string::npos) break;
+	}
+	return false;
+}
+
+struct KernelBuild {
+	std::string code, dir, library, messages;
+	static void Output(void* ctx, int, const char* text, size_t n) { static_cast<KernelBuild*>(ctx)->messages.append(text, n); }
+	static int Run(funk* f, void* arg)
+	{
+		auto* b = static_cast<KernelBuild*>(arg);
+		funk_output(f, &KernelBuild::Output, b);
+		funk_module_dir(f, b->dir.c_str());
+		// Named by its content: the generated C holds this path, and an unchanged kernel must hit
+		// the cache, keep its address and so keep its nodes' states. Builds is why one at a time.
+		static std::mutex builds;
+		std::lock_guard<std::mutex> lock(builds);
+		uint64_t h = 14695981039346656037u; // FNV-1a
+		for (const char c : b->code) h = (h ^ (unsigned char)c) * 1099511628211u;
+		const std::string path = b->dir + "/kernel." + std::to_string(getpid()) + "." + std::to_string(h) + ".fk";
+		FILE* file = fopen(path.c_str(), "w");
+		if (!file || fputs(b->code.c_str(), file) < 0) {
+			b->messages += "funk-midi: cannot write " + path + "\n";
+			if (file) fclose(file);
+			return 1;
+		}
+		fclose(file);
+		char* so = funk_compile_kernels(f, path.c_str());
+		if (so) b->library = so;
+		free(so);
+		unlink(path.c_str());
+		// messages name the temporary file; a reader knows the paragraph
+		for (size_t at; (at = b->messages.find(path)) != std::string::npos;) b->messages.replace(at, path.size(), "<kernel>");
+		return 0;
+	}
+};
+
+// On its own thread: a session of its own, since exports cannot be installed in one that
+// evaluates, and funk's thread stays free to query a looping pat.
+void BuildKernels(KernelBuild* b)
+{
+	const funk_config config{kHeapLimit, 0, kStackSize, nullptr, 0};
+	funk* f = funk_new(&config);
+	if (!f) {
+		b->messages += "funk-midi: cannot start a session for the kernels\n";
+		return;
+	}
+	funk_run(f, &KernelBuild::Run, b);
+	funk_free(f);
+}
+
 // --- audio ------------------------------------------------------------------
 
 // funkdsp.so: in the bundle's Resources on macOS, beside the .clap elsewhere.
@@ -301,6 +364,7 @@ public:
 		funk_voices_free(audio_.voices);
 		funk_player_free(audio_.player); // the host deactivated: the audio thread is done with it
 		if (audio_.kernels) dlclose(audio_.kernels);
+		for (void* lib : audio_.compiled) dlclose(lib);
 	}
 
 	bool ok() const { return session_.ok(); }
@@ -310,6 +374,10 @@ public:
 	void eval(const std::string& code, std::string& out) override
 	{
 		Session& s = session_;
+		if (IsKernels(code)) {
+			loadKernels(code, out);
+			return;
+		}
 		// An expression of type Pattern Int becomes `once`; anything else fails here quietly.
 		std::string ignored;
 		bool once = false;
@@ -412,9 +480,8 @@ public:
 			if (!audio_.voices) return false;
 		}
 		// A new rate needs graphs built for it: audioPlayer is defined again, and sig played.
-		char src[256];
-		snprintf(src, sizeof src, "audioPlayer = g.Player (plusPtr nullPtr %ld) [plusPtr nullPtr %ld] %.17g %u",
-		         (long)audio_.player, (long)audio_.kernels, rate, maxFrames);
+		audio_.rate = rate;
+		audio_.maxFrames = maxFrames;
 		bool ok = false;
 		std::string out;
 		session_.call([&] {
@@ -423,7 +490,7 @@ public:
 			         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\nvoicesIx :: (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesIx f = d.polyIx %d f\n"
 			         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
 			         kVoices, kVoices, kVoices);
-			ok = session_.eval(src, out) && session_.eval(voices, out);
+			ok = session_.eval(playerSource(), out) && session_.eval(voices, out);
 			audio_.ready = ok;
 			if (ok && audio_.haveSig) playSig(out);
 		}, &out, false);
@@ -447,6 +514,63 @@ public:
 	}
 
 private:
+	// audioPlayer, with the newest kernels first: graph.fk takes the first of a name.
+	std::string playerSource() const
+	{
+		std::string libs;
+		for (auto it = audio_.compiled.rbegin(); it != audio_.compiled.rend(); ++it) libs += "plusPtr nullPtr " + std::to_string((long)*it) + ", ";
+		char src[256];
+		snprintf(src, sizeof src, "plusPtr nullPtr %ld] %.17g %u", (long)audio_.kernels, audio_.rate, audio_.maxFrames);
+		return "audioPlayer = g.Player (plusPtr nullPtr " + std::to_string((long)audio_.player) + ") [" + libs + src;
+	}
+
+	// A failure leaves the old kernels and the old graph playing. $CC cannot be interrupted, so
+	// a Stop waits for it; pat's windows go on meanwhile, up to the host's clock, never past it.
+	void loadKernels(const std::string& code, std::string& out)
+	{
+		if (!session_.graphs()) {
+			out += "funk-midi: no audio, so no kernels\n";
+			return;
+		}
+		const auto started = std::chrono::steady_clock::now();
+		KernelBuild build;
+		build.code = code;
+		build.dir = LibDir();
+		std::future<void> done = std::async(std::launch::async, BuildKernels, &build);
+		while (done.wait_for(std::chrono::milliseconds(1)) != std::future_status::ready) {
+			if (midi_clock_cancelled()) continue;
+			midi_clock_catch_up();
+			double t;
+			if (looping_ && nextWake(&t) && t <= midi_clock_ms()) resume(t, out);
+		}
+		out += build.messages;
+		if (midi_clock_cancelled()) {
+			out += "stopped\n";
+			return;
+		}
+		if (build.library.empty()) {
+			if (build.messages.empty()) out += "funk-midi: the kernels did not compile\n";
+			return;
+		}
+		session_.call([&] {
+			void* lib = dlopen(build.library.c_str(), RTLD_NOW | RTLD_LOCAL);
+			if (!lib) {
+				out += std::string("funk-midi: cannot load the kernels: ") + dlerror() + "\n";
+				return;
+			}
+			// dlopen of a path already loaded gives its handle: the kernels become the newest again
+			const auto again = std::find(audio_.compiled.begin(), audio_.compiled.end(), lib);
+			if (again != audio_.compiled.end()) {
+				audio_.compiled.erase(again);
+				dlclose(lib);
+			}
+			audio_.compiled.push_back(lib);
+			if (audio_.ready && session_.eval(playerSource(), out) && audio_.haveSig) playSig(out);
+			const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+			out += "kernels loaded in " + std::to_string(ms) + " ms\n";
+		}, &out, false);
+	}
+
 	// On funk's thread: compiled again after sig changes, so it names the new sig.
 	void playSig(std::string& out)
 	{
@@ -508,6 +632,9 @@ private:
 		funk_player* player = nullptr;
 		funk_voices* voices = nullptr;
 		void* kernels = nullptr;
+		std::vector<void*> compiled; // oldest first
+		double rate = 0.;
+		uint32_t maxFrames = 0;
 		bool ready = false;   // audioPlayer and playsig are defined
 		bool haveSig = false; // sig is defined, and plays once ready
 	} audio_;

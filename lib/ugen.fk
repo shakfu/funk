@@ -1,0 +1,32 @@
+-- ugen.fk -- what a kernel needs, for one written while playing (docs/music.md):
+-- import ugen as u. Every kernel has this signature, with its own name:
+--   Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+-- for its state, its inputs, its output, the frames, and the context.
+module ugen where
+
+foreign struct Context { rate :: Float }
+
+-- input j's buffer
+input :: Ptr (Ptr CFloat) -> Int ->> Ptr CFloat
+input ins j = peekByteOff ins (8 * j)
+
+-- frame i of a buffer
+at :: Ptr CFloat -> Int ->> Float
+at buf i = fromCFloat (peekByteOff buf (4 * i))
+
+put :: Ptr CFloat -> Int -> Float ->> ()
+put out i x = pokeByteOff out (4 * i) (toCFloat x)
+
+-- frames per second
+rateOf :: Ptr Context ->> Float
+rateOf cx = readField cx Context.rate
+
+-- slot i of a state of Floats, as a node's list of initial values fills it
+get :: Ptr () -> Int ->> Float
+get st i = peekByteOff st (8 * i)
+
+set :: Ptr () -> Int -> Float ->> ()
+set st i x = pokeByteOff st (8 * i) x
+
+pi2 :: Float
+pi2 = 6.283185307179586
