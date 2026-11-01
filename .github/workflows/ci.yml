@@ -67,5 +67,6 @@ jobs:
 
       - name: Build and test
         run: |
-          make clap
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFUNK_CLAP=ON
+          cmake --build build -- -k 0
           ctest --test-dir build -L clap --no-tests=error --output-on-failure

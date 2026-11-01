@@ -28,6 +28,8 @@ function(midi_langs_add_pugl target class_prefix)
 	elseif(WIN32)
 		target_link_libraries(${target} PUBLIC opengl32 dwmapi gdi32 shell32 shlwapi user32)
 	else()
+		# x11.c calls clock_gettime and gethostname, which strict C99 headers hide
+		set_target_properties(${target} PROPERTIES C_EXTENSIONS ON)
 		find_package(X11 REQUIRED)
 		find_package(OpenGL REQUIRED COMPONENTS OpenGL GLX)
 		# Optional X extensions off: fewer system dependencies, at the cost of cursor themes and refresh-rate sync.
