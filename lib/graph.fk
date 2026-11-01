@@ -140,11 +140,21 @@ kernels libs (Node k st ins) = do
   kernel libs k
   mapM_ (kernels libs) ins
 
--- the nodes added so far: by name, and by kernel, state and inputs
-data Seen = Seen [(String, [Int])] Trie
+-- the nodes added so far: by name, and by kernel, state and inputs. The string is
+-- the name the next node takes: a named node keeps its own state, so it never merges.
+data Seen = Seen [(String, [Int])] Trie String
 
 noneSeen :: Seen
-noneSeen = Seen [] Empty
+noneSeen = Seen [] Empty ""
+
+seenNamed :: Seen -> [(String, [Int])]
+seenNamed (Seen n b o) = n
+
+seenBuilt :: Seen -> Trie
+seenBuilt (Seen n b o) = b
+
+seenOwn :: Seen -> String
+seenOwn (Seen n b o) = o
 
 -- s's nodes after those in g, and those named, with the names added
 -- before; s's indices, one per channel, -1 for silence. A node whose
@@ -154,14 +164,14 @@ noneSeen = Seen [] Empty
 add :: Ptr () -> [Ptr ()] -> Seen -> Sig ->> ([Int], Seen)
 add g libs ns Silence = ([-1], ns)
 add g libs ns (Channels ss) = do
-  (iss, ns2) <- addAll g libs ns ss
+  (iss, ns2) <- if seenOwn ns == "" then addAll g libs ns ss else addOwn g libs ns (seenOwn ns) 1 ss
   (concat iss, ns2)
-add g libs (Seen named built) (Named n s) = case lookup n named of
-  Just is -> (is, Seen named built)
+add g libs (Seen named built own) (Named n s) = case lookup n named of
+  Just is -> (is, Seen named built "")
   Nothing -> do
-    (is, Seen named2 built2) <- add g libs (Seen named built) s
+    (is, Seen named2 built2 own2) <- add g libs (Seen named built n) s
     nameAll g (if length is == 1 then [n] else map (\k -> n ++ "." ++ show k) (enumFromTo 1 (length is))) is
-    (is, Seen ((n, is) : named2) built2)
+    (is, Seen ((n, is) : named2) built2 "")
 add g libs ns (Control v) = do
   i <- graphControl g (toCFloat v)
   if i < 0 then error "graph: out of memory" else ([fromIntegral i], ns)
@@ -184,14 +194,15 @@ add g libs ns (Shared k m sts x ins) = once g libs ns (x : ins) (Shared k m sts 
 -- node with its inputs replaced by their indices, so comparing it is shallow.
 once :: Ptr () -> [Ptr ()] -> Seen -> [Sig] -> ([Sig] -> Sig) -> ([[Int]] ->> [Int]) ->> ([Int], Seen)
 once g libs ns ins key make = do
-  (iss, Seen named built) <- addAll g libs ns ins
-  k <- key (map (\is -> Channels (map (\i -> Control (toFloat i)) is)) iss)
-  h <- hashKey k
+  (iss, Seen named built own) <- addAll g libs (Seen (seenNamed ns) (seenBuilt ns) "") ins
+  k0 <- key (map (\is -> Channels (map (\i -> Control (toFloat i)) is)) iss)
+  h <- hashKey k0
+  k <- if seenOwn ns == "" then k0 else Named (seenOwn ns) k0
   case findBuilt k h built of
-    Just is -> (is, Seen named built)
+    Just is -> (is, Seen named built "")
     Nothing -> do
       is <- make iss
-      (is, Seen named (insertBuilt builtDepth h (k, is) built))
+      (is, Seen named (insertBuilt builtDepth h (k, is) built) "")
 
 -- a pure hash trie of the nodes built, so a graph of n nodes takes n log n compares.
 -- A hash only picks the bucket: same decides, so a collision cannot merge two nodes.
@@ -277,6 +288,14 @@ nameAll g (n:ns) (i:is) = do
   if i >= 0 && graphName g (fromIntegral i) n < 0 then error ("graph: cannot name a named node " ++ n) else ()
   nameAll g ns is
 nameAll g _ _ = ()
+
+-- the channels of a node named n: each owns its place, as nameAll names them
+addOwn :: Ptr () -> [Ptr ()] -> Seen -> String -> Int -> [Sig] ->> ([[Int]], Seen)
+addOwn g libs ns n k [] = ([], ns)
+addOwn g libs ns n k (s:ss) = do
+  (i, Seen a b o) <- add g libs (Seen (seenNamed ns) (seenBuilt ns) (n ++ "." ++ show k)) s
+  (is, ns3) <- addOwn g libs (Seen a b "") n (k + 1) ss
+  (i : is, ns3)
 
 addAll :: Ptr () -> [Ptr ()] -> Seen -> [Sig] ->> ([[Int]], Seen)
 addAll g libs ns [] = ([], ns)

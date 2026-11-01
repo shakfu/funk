@@ -18,7 +18,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] funk's `Ring Int` still carries 16-bit values (`pattern.pushOnsets`); only a hand-written export reading it, option A, needs more.
 
-- [ ] Notes from `pat` to the graph: voices, as controls, scheduled against the player's frame count rather than the host's clock.
+- [ ] `funk-midi --audio` estimates a note's frame from its clock; the plugin already gives `pat`'s notes to its voices at exact frames ([docs/dev/plugin.md](docs/dev/plugin.md#notes-midi-and-voices-both)).
 
 - [ ] Run `funk-midi --audio` on Linux, and listen to it.
 

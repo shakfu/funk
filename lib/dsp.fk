@@ -114,12 +114,12 @@ reverbCombs fb damp x = case map (\f -> comb 0.04 (spread f) fb damp x) [1116.0,
   [] -> g.Silence
 
 -- Zita-Rev1, a stereo feedback delay network, as Faust's re.zita_rev1_stereo plus a
--- mix from 0 to 1. Predelay up to 8191 frames, in seconds; decay to -60 dB in seconds
+-- mix from 0 to 1. Predelay up to 8190 frames, in seconds; decay to -60 dB in seconds
 -- below crossover (Hz) and between crossover and damping (Hz), and shorter above
--- damping; all but mix read once per block. x has one or two channels. Needs a rate of
+-- damping; all but mix read once per block and smoothed over about 50 ms. x has one or two channels. Needs a rate of
 -- about 31 kHz or more, and is silent below it. Costs two nodes, one per output.
 zita :: predelay:g.Sig = 0.06 -> crossover:g.Sig = 200.0 -> damping:g.Sig = 6000.0 -> lowDecay:g.Sig = 3.0 -> midDecay:g.Sig = 2.0 -> mix:g.Sig = 0.3 -> x:g.Sig -> g.Sig
-zita predelay crossover damping low mid mix x = g.Shared "dsp_zita" 4.0 (map (\c -> [0.0, 0.0, c] ++ replicate 138 0.0) [0.0, 1.0]) x [predelay, crossover, damping, low, mid, mix]
+zita predelay crossover damping low mid mix x = g.Shared "dsp_zita" 4.0 (map (\c -> [0.0, 0.0, c] ++ replicate 142 0.0) [0.0, 1.0]) x [predelay, crossover, damping, low, mid, mix]
 
 -- a wavetable oscillator over one cycle of values, from -1 to 1; no
 -- band-limiting, so a bright table aliases at high notes

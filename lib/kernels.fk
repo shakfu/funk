@@ -469,13 +469,13 @@ samplerK st ins out n cx = samplerFrom (castPtr st) (input ins 0) (input ins 1) 
 -- the channel each emits (dsp.zita).
 
 -- the state, in 8-byte slots. mem and frames come from funk_graph_memory (graph.h)
-foreign struct Zita { mem :: Ptr (), frames :: Int, channel :: Float, ready :: Float, rdel :: Float, f1 :: Float, f2 :: Float, t60dc :: Float, t60m :: Float, b :: Float, a1 :: Float, preLen :: Float, prePos :: Float }
+foreign struct Zita { mem :: Ptr (), frames :: Int, channel :: Float, ready :: Float, rdel :: Float, f1 :: Float, f2 :: Float, t60dc :: Float, t60m :: Float, b :: Float, a1 :: Float, preLen :: Float, prePos :: Float, moving :: Float, dB :: Float, dA1 :: Float, dLen :: Float }
 
--- slots of a line's fields, after Zita's 13: 16 fields per line, 8 lines
+-- slots of a line's fields, after Zita's 17: 16 fields per line, 8 lines
 zitaBase :: Int -> Int
-zitaBase i = 13 + 16 * i
+zitaBase i = 17 + 16 * i
 
-fApStart, fApLen, fApPos, fFbStart, fFbLen, fFbPos, fLpX, fLpY, fSmooth, fOut, fGm, fShelf, fP :: Int
+fApStart, fApLen, fApPos, fFbStart, fFbLen, fFbPos, fLpX, fLpY, fSmooth, fOut, fGm, fShelf, fP, fDGm, fDShelf, fDP :: Int
 fApStart = 0
 fApLen = 1
 fApPos = 2
@@ -489,6 +489,9 @@ fOut = 9
 fGm = 10
 fShelf = 11
 fP = 12
+fDGm = 13
+fDShelf = 14
+fDP = 15
 
 -- the two predelays take the memory's first 2 * zitaPreSize doubles
 zitaPreSize :: Int
@@ -530,35 +533,66 @@ zitaLayout st i used rate = if i == 8 then used else do
   setZitaField st i fFbLen (toFloat fb)
   zitaLayout st (i + 1) (used + ap + fb) rate
 
+-- coefficient f of line i moves to x: at once if steps is 0, else over steps frames
+zitaAim :: Ptr () -> Int -> Int -> Int -> Float -> Float ->> ()
+zitaAim st i f df x steps = if steps == 0.0 then do
+    setZitaField st i f x
+    setZitaField st i df 0.0
+  else setZitaField st i df ((x - zitaField st i f) / steps)
+
 -- the decay gains and filter coefficients of line i
-zitaTuneLine :: Ptr () -> Int -> Float -> Float -> Float -> Float -> Float ->> ()
-zitaTuneLine st i t60dc t60m f2 rate k = if i == 8 then () else do
+zitaTuneLine :: Ptr () -> Int -> Float -> Float -> Float -> Float -> Float -> Float ->> ()
+zitaTuneLine st i t60dc t60m f2 rate k steps = if i == 8 then () else do
   n <- zitaFrames (zitaLineSecs i) rate
   g0 <- cexp (k * n / (t60dc * rate))
   gm <- cexp (k * n / (t60m * rate))
   gs <- gm * gm
   c <- ccos (pi2 * f2 / rate)
   mbo2 <- (1.0 - gs * c) / (1.0 - gs)
-  setZitaField st i fGm gm
-  setZitaField st i fShelf (g0 / gm - 1.0)
-  setZitaField st i fP (mbo2 - csqrt (max 0.0 (mbo2 * mbo2 - 1.0)))
-  zitaTuneLine st (i + 1) t60dc t60m f2 rate k
+  zitaAim st i fGm fDGm gm steps
+  zitaAim st i fShelf fDShelf (g0 / gm - 1.0) steps
+  zitaAim st i fP fDP (mbo2 - csqrt (max 0.0 (mbo2 * mbo2 - 1.0))) steps
+  zitaTuneLine st (i + 1) t60dc t60m f2 rate k steps
 
--- parameters that changed since the last block
-zitaTune :: Ptr () -> Float -> Float -> Float -> Float -> Float -> Float ->> ()
-zitaTune st rdel f1 f2 t60dc t60m rate = do
+-- the parameters become these, and the coefficients follow over steps frames
+zitaTune :: Ptr () -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->> ()
+zitaTune st rdel f1 f2 t60dc t60m rate steps = do
   h <- castPtr st :: Ptr Zita
   c <- 1.0 / ctan (pi2 * f1 * 0.5 / rate)
   d <- 1.0 + c
+  newB <- 1.0 / d
+  newA1 <- (1.0 - c) / d
+  newLen <- toFloat (max 0 (min 8190 (roundInt (rate * rdel))))
   writeField h Zita.rdel rdel
   writeField h Zita.f1 f1
   writeField h Zita.f2 f2
   writeField h Zita.t60dc t60dc
   writeField h Zita.t60m t60m
-  writeField h Zita.b (1.0 / d)
-  writeField h Zita.a1 ((1.0 - c) / d)
-  writeField h Zita.preLen (toFloat (max 0 (min 8191 (roundInt (rate * rdel)))))
-  zitaTuneLine st 0 t60dc t60m f2 rate (0.0 - 3.0 * clog 10.0)
+  if steps == 0.0 then do
+    writeField h Zita.b newB
+    writeField h Zita.a1 newA1
+    writeField h Zita.preLen newLen
+    writeField h Zita.dB 0.0
+    writeField h Zita.dA1 0.0
+    writeField h Zita.dLen 0.0
+  else do
+    writeField h Zita.dB ((newB - readField h Zita.b) / steps)
+    writeField h Zita.dA1 ((newA1 - readField h Zita.a1) / steps)
+    writeField h Zita.dLen ((newLen - readField h Zita.preLen) / steps)
+  zitaTuneLine st 0 t60dc t60m f2 rate (0.0 - 3.0 * clog 10.0) steps
+
+-- each line's coefficients, one frame on
+zitaGlide :: Ptr () -> Int ->> ()
+zitaGlide st i = if i == 8 then () else do
+  setZitaField st i fGm (zitaField st i fGm + zitaField st i fDGm)
+  setZitaField st i fShelf (zitaField st i fShelf + zitaField st i fDShelf)
+  setZitaField st i fP (zitaField st i fP + zitaField st i fDP)
+  zitaGlide st (i + 1)
+
+-- x one block on towards its target, by a; the target itself when within 0.1%,
+-- or within 1e-5, for a target of 0
+zitaEase :: Float -> Float -> Float -> Float
+zitaEase x target a = if abs (target - x) <= 0.001 * abs target + 1.0e-5 then target else x + a * (target - x)
 
 -- one frame of line i, of input x: its filtered feedback, then its allpass
 zitaLine :: Ptr () -> Ptr () -> Int -> Float -> Float -> Float -> Float ->> Float
@@ -587,72 +621,99 @@ zitaLine st mem i x b a1 coeff = do
   setZitaField st i fApPos (toFloat (if ap + 1 == an then 0 else ap + 1))
   old + coeff * v
 
--- channel c's input, delayed; 0.3 is Faust's input gain
-zitaPre :: Ptr () -> Int -> Int -> Int -> Float ->> Float
+-- channel c's input, delayed by len frames, read between frames while len glides;
+-- 0.3 is Faust's input gain
+zitaPre :: Ptr () -> Int -> Int -> Float -> Float ->> Float
 zitaPre mem c pos len x = do
   setSlot mem (c * zitaPreSize + pos) x
-  back <- pos - len
-  0.3 * slot mem (c * zitaPreSize + (if back < 0 then back + zitaPreSize else back))
+  whole <- cfloor len
+  frac <- len - whole
+  back <- pos - roundInt whole
+  i0 <- if back < 0 then back + zitaPreSize else back
+  i1 <- if i0 == 0 then zitaPreSize - 1 else i0 - 1
+  0.3 * ((1.0 - frac) * slot mem (c * zitaPreSize + i0) + frac * slot mem (c * zitaPreSize + i1))
 
-zitaLoop :: Ptr () -> Ptr () -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Int -> Float -> Int -> Int ->> ()
-zitaLoop st mem l r mix out b a1 len chan i n = if i == n then () else do
-  h <- castPtr st :: Ptr Zita
-  pos <- roundInt (readField h Zita.prePos)
-  xl <- zitaPre mem 0 pos len (at l i)
-  xr <- zitaPre mem 1 pos len (at r i)
-  writeField h Zita.prePos (toFloat (if pos + 1 == zitaPreSize then 0 else pos + 1))
-  a0 <- zitaLine st mem 0 xl b a1 0.6
-  a1v <- zitaLine st mem 1 xr b a1 (-0.6)
-  a2 <- zitaLine st mem 2 (0.0 - xl) b a1 0.6
-  a3 <- zitaLine st mem 3 (0.0 - xr) b a1 (-0.6)
-  a4 <- zitaLine st mem 4 xl b a1 0.6
-  a5 <- zitaLine st mem 5 xr b a1 (-0.6)
-  a6 <- zitaLine st mem 6 (0.0 - xl) b a1 0.6
-  a7 <- zitaLine st mem 7 (0.0 - xr) b a1 (-0.6)
-  -- the Hadamard matrix, ro.hadamard(8)
-  b0 <- a0 + a4
-  b1 <- a1v + a5
-  b2 <- a2 + a6
-  b3 <- a3 + a7
-  b4 <- a0 - a4
-  b5 <- a1v - a5
-  b6 <- a2 - a6
-  b7 <- a3 - a7
-  c0 <- b0 + b2
-  c1 <- b1 + b3
-  c2 <- b0 - b2
-  c3 <- b1 - b3
-  c4 <- b4 + b6
-  c5 <- b5 + b7
-  c6 <- b4 - b6
-  c7 <- b5 - b7
-  o1 <- c0 - c1
-  o2 <- c2 + c3
-  setZitaField st 0 fOut (c0 + c1)
-  setZitaField st 1 fOut o1
-  setZitaField st 2 fOut o2
-  setZitaField st 3 fOut (c2 - c3)
-  setZitaField st 4 fOut (c4 + c5)
-  setZitaField st 5 fOut (c4 - c5)
-  setZitaField st 6 fOut (c6 + c7)
-  setZitaField st 7 fOut (c6 - c7)
-  m <- at mix i
-  put out i ((1.0 - m) * at (if chan == 0.0 then l else r) i + m * 0.37 * (if chan == 0.0 then o1 + o2 else o1 - o2))
-  zitaLoop st mem l r mix out b a1 len chan (i + 1) n
+zitaLoop :: Ptr () -> Ptr () -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Bool -> Int -> Int ->> ()
+zitaLoop st mem l r mix out b a1 len db da1 dlen chan glide i n = if i == n then do
+    h <- castPtr st :: Ptr Zita
+    writeField h Zita.b b
+    writeField h Zita.a1 a1
+    writeField h Zita.preLen len
+  else do
+    h <- castPtr st :: Ptr Zita
+    pos <- roundInt (readField h Zita.prePos)
+    xl <- zitaPre mem 0 pos len (at l i)
+    xr <- zitaPre mem 1 pos len (at r i)
+    writeField h Zita.prePos (toFloat (if pos + 1 == zitaPreSize then 0 else pos + 1))
+    a0 <- zitaLine st mem 0 xl b a1 0.6
+    a1v <- zitaLine st mem 1 xr b a1 (-0.6)
+    a2 <- zitaLine st mem 2 (0.0 - xl) b a1 0.6
+    a3 <- zitaLine st mem 3 (0.0 - xr) b a1 (-0.6)
+    a4 <- zitaLine st mem 4 xl b a1 0.6
+    a5 <- zitaLine st mem 5 xr b a1 (-0.6)
+    a6 <- zitaLine st mem 6 (0.0 - xl) b a1 0.6
+    a7 <- zitaLine st mem 7 (0.0 - xr) b a1 (-0.6)
+    -- the Hadamard matrix, ro.hadamard(8)
+    b0 <- a0 + a4
+    b1 <- a1v + a5
+    b2 <- a2 + a6
+    b3 <- a3 + a7
+    b4 <- a0 - a4
+    b5 <- a1v - a5
+    b6 <- a2 - a6
+    b7 <- a3 - a7
+    c0 <- b0 + b2
+    c1 <- b1 + b3
+    c2 <- b0 - b2
+    c3 <- b1 - b3
+    c4 <- b4 + b6
+    c5 <- b5 + b7
+    c6 <- b4 - b6
+    c7 <- b5 - b7
+    o1 <- c0 - c1
+    o2 <- c2 + c3
+    setZitaField st 0 fOut (c0 + c1)
+    setZitaField st 1 fOut o1
+    setZitaField st 2 fOut o2
+    setZitaField st 3 fOut (c2 - c3)
+    setZitaField st 4 fOut (c4 + c5)
+    setZitaField st 5 fOut (c4 - c5)
+    setZitaField st 6 fOut (c6 + c7)
+    setZitaField st 7 fOut (c6 - c7)
+    m <- at mix i
+    put out i ((1.0 - m) * at (if chan == 0.0 then l else r) i + m * 0.37 * (if chan == 0.0 then o1 + o2 else o1 - o2))
+    if glide then zitaGlide st 0 else ()
+    zitaLoop st mem l r mix out (b + db) (a1 + da1) (len + dlen) db da1 dlen chan glide (i + 1) n
 
--- inputs: left, right, predelay in seconds, f1, f2, t60dc, t60m (per call), mix.
+-- inputs: left, right, predelay in seconds, f1, f2, t60dc, t60m (per call, smoothed), mix.
 -- Silent if the memory is too small for this rate.
 zitaK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 zitaK st ins out n cx = zitaRun st (castPtr st) ins out (fromIntegral n) (readField cx Context.rate)
 
+-- the time constant of the parameters' smoothing, in seconds
+zitaSmooth :: Float
+zitaSmooth = 0.05
+
 zitaRun :: Ptr () -> Ptr Zita -> Ptr (Ptr CFloat) -> Ptr CFloat -> Int -> Float ->> ()
 zitaRun st h ins out n rate = do
-  if readField h Zita.ready == 0.0 then writeField h Zita.ready (if 2 * zitaLayout st 0 (2 * zitaPreSize) rate <= readField h Zita.frames then 1.0 else -1.0) else ()
-  if readField h Zita.ready < 0.0 then silence out 0 n else do
-    rdel <- at (input ins 2) 0
-    f1 <- at (input ins 3) 0
-    f2 <- at (input ins 4) 0
-    t60dc <- at (input ins 5) 0
-    t60m <- at (input ins 6) 0
-    if rdel /= readField h Zita.rdel || f1 /= readField h Zita.f1 || f2 /= readField h Zita.f2 || t60dc /= readField h Zita.t60dc || t60m /= readField h Zita.t60m then zitaTune st rdel f1 f2 t60dc t60m rate else ()
-    zitaLoop st (readField h Zita.mem) (input ins 0) (input ins 1) (input ins 7) out (readField h Zita.b) (readField h Zita.a1) (roundInt (readField h Zita.preLen)) (readField h Zita.channel) 0 n
+  rdel <- at (input ins 2) 0
+  f1 <- at (input ins 3) 0
+  f2 <- at (input ins 4) 0
+  t60dc <- at (input ins 5) 0
+  t60m <- at (input ins 6) 0
+  -- the first block takes its parameters at once
+  if readField h Zita.ready == 0.0 then do
+    writeField h Zita.ready (if 2 * zitaLayout st 0 (2 * zitaPreSize) rate <= readField h Zita.frames then 1.0 else -1.0)
+    zitaTune st rdel f1 f2 t60dc t60m rate 0.0
+  else ()
+  if readField h Zita.ready < 0.0 || n <= 0 then silence out 0 n else do
+    if rdel /= readField h Zita.rdel || f1 /= readField h Zita.f1 || f2 /= readField h Zita.f2 || t60dc /= readField h Zita.t60dc || t60m /= readField h Zita.t60m then do
+      a <- 1.0 - cexp (0.0 - toFloat n / (zitaSmooth * rate))
+      zitaTune st (zitaEase (readField h Zita.rdel) rdel a) (zitaEase (readField h Zita.f1) f1 a) (zitaEase (readField h Zita.f2) f2 a) (zitaEase (readField h Zita.t60dc) t60dc a) (zitaEase (readField h Zita.t60m) t60m a) rate (toFloat n)
+      writeField h Zita.moving 1.0
+    else if readField h Zita.moving /= 0.0 then do
+      -- settled: exact values, without the ramps' rounding
+      zitaTune st rdel f1 f2 t60dc t60m rate 0.0
+      writeField h Zita.moving 0.0
+    else ()
+    zitaLoop st (readField h Zita.mem) (input ins 0) (input ins 1) (input ins 7) out (readField h Zita.b) (readField h Zita.a1) (readField h Zita.preLen) (readField h Zita.dB) (readField h Zita.dA1) (readField h Zita.dLen) (readField h Zita.channel) (readField h Zita.moving /= 0.0) 0 n

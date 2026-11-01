@@ -262,7 +262,7 @@ sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq)
 
 Functions with many parameters take them by name, and the rest have defaults: `d.adsr .{ attack = 0.001 } gate`, `d.reverb .{ mix = 0.5 } x`. `d.adsr`, `d.adsrExp`, `d.compress`, `d.comb`, `d.allpass`, `d.chorus`, `d.flanger`, `d.reverb` and `d.zita` take them; see [dev/named-args.md](dev/named-args.md).
 
-`d.zita x` is a stereo reverb, Zita-Rev1, for a mono or stereo `x`. `d.reverb` is Freeverb's structure, per channel; `d.zita` costs about 4 us per 64 frames and shares state across its channels. Its names and defaults are `predelay` 0.06 s, `crossover` 200 Hz, `damping` 6000 Hz, `lowDecay` 3 s, `midDecay` 2 s and `mix` 0.3.
+`d.zita x` is a stereo reverb, Zita-Rev1, for a mono or stereo `x`. `d.reverb` is Freeverb's structure, per channel; `d.zita` costs about 4 us per 64 frames and shares state across its channels. Its parameters can move while it plays: they glide over about 50 ms, and moving `predelay` bends the pitch of the tail's input. Its names and defaults are `predelay` 0.06 s, `crossover` 200 Hz, `damping` 6000 Hz, `lowDecay` 3 s, `midDecay` 2 s and `mix` 0.3.
 
 `d.sample path gate speed` plays a WAV file once at each rising gate, in two channels. `speed` 1 is its own pitch, so `freq * d.dc (1.0 / 261.63)` plays middle C at that pitch. `d.wavetable values freq` repeats one cycle of values, which `d.cycleOf n f` makes, and `d.wavetableFile path freq` reads them from a file:
 

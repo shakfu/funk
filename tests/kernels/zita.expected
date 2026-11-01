@@ -47,3 +47,10 @@
 184000 -0.0000104 0.0000008
 188000 -0.0000005 0.0000118
 the graph differs from direct calls on 0 samples
+predelay: no click, settled
+predelay to 0: no click, settled
+crossover: no click, settled
+damping: no click, settled
+lowDecay: no click, settled
+midDecay down: no click, settled
+midDecay up: no click, settled

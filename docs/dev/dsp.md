@@ -23,7 +23,7 @@ All 20 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 
 | Delay | `dsp_delay` | `delay`, `chorus` | memory, read between frames by linear interpolation | 125 |
 | | `dsp_comb` | `comb`, `flanger`, `reverb` | feedback comb, with a one-pole low-pass in the loop | 230 |
 | | `dsp_allpass` | `allpass`, `reverb` | Schroeder allpass | 170 |
-| | `dsp_zita` | `zita` | Zita-Rev1, 8 lines; two nodes for stereo. Output matches Faust's within 1.4e-16, in double precision | 1950 per channel |
+| | `dsp_zita` | `zita` | Zita-Rev1, 8 lines; two nodes for stereo. Output matches Faust's within 1.4e-16, in double precision | 2000 per channel |
 | Tables | `dsp_wavetable` | `wavetable`, `wavetableFile` | one cycle of a table, read between frames by linear interpolation | 240 |
 | | `dsp_sampler` | `sample` | a file once per rising gate, linear interpolation | 125 |
 | Utility | `dsp_const` | `dc`, numeric literals | constant | 4-6 |

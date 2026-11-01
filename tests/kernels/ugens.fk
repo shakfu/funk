@@ -197,6 +197,21 @@ zitaAfter replay n s = do
 channels0 :: g.Player ->> ()
 channels0 a = allocaBytes 512 (\out -> g.renderChannels a [out, plusPtr out 256] 64)
 
+-- both channels' next 8 frames, after s plays for 448 frames, then t. 448 is no
+-- whole number of cycles at 100 or 150 Hz, so a kept phase shows.
+afterEdit :: g.Sig -> g.Sig ->> [[Int]]
+afterEdit s t = do
+  a <- g.player [getKernels ()] 8000.0 64
+  g.play a s
+  mapM_ (\i -> channels0 a) (enumFromTo 1 7)
+  g.play a t
+  r <- allocaBytes 512 (\out -> do
+    bufs <- map (\c -> plusPtr out (256 * c)) [0, 1]
+    g.renderChannels a bufs 8
+    map (\b -> map (\i -> round (10000.0 * fromCFloat (peekByteOff b (4 * i) :: CFloat))) (enumFromTo 0 7)) bufs)
+  g.close a
+  r
+
 -- the nodes s builds
 nodeCount :: g.Sig ->> Int
 nodeCount s = do
@@ -395,6 +410,24 @@ main = do
   -- a repeated subtree is one node, and its output does not change; different
   -- states stay apart. An x of 3 new nodes (dc 1 is the reverb's own) costs a reverb 3.
   print (nodeCount (dsp.saw 440 + dsp.saw 440), nodeCount (dsp.saw 440 + dsp.saw 441), nodeCount (dsp.noise 1 + dsp.noise 2))
+  -- named nodes never merge, with each other or with an unnamed equal
+  print (nodeCount (g.named "a" (dsp.saw 100) + g.named "b" (dsp.saw 100)), nodeCount (g.named "a" (dsp.saw 100) + dsp.saw 100))
+  print (nodeCount (g.named "a" (dsp.stereo (dsp.saw 100) (dsp.saw 100))))
+  -- live edits. s100 s150 is the reference, as first played
+  s1 <- dsp.saw 100
+  s2 <- dsp.saw 150
+  both2 <- afterEdit (dsp.stereo s1 s2) (dsp.stereo s1 s2)
+  fresh2 <- afterEdit g.Silence (dsp.stereo s1 s2)
+  -- a merge keeps the first node's state, on both channels
+  print (afterEdit (dsp.stereo s1 s2) (dsp.stereo s1 s1) == [head both2, head both2])
+  -- x to x + x doubles the same phase
+  print (head (afterEdit (dsp.stereo s1 s2) (dsp.stereo (s1 + s1) s2)) == map (\v -> 2 * v) (head both2))
+  -- a split: the first keeps its state, and the other starts again
+  print (afterEdit (dsp.stereo s1 s1) (dsp.stereo s1 s2) == [head both2, head (drop 1 fresh2)])
+  -- names keep two equal nodes' states through the same split: r has l's phase, at 150 Hz
+  n1 <- g.named "l" s1
+  named2 <- afterEdit (dsp.stereo n1 (g.named "r" s1)) (dsp.stereo n1 (g.named "r" s2))
+  print (head named2 == head both2, head (head (drop 1 named2)) == head (head both2), named2 /= [head both2, head (drop 1 fresh2)])
   -- values that hash alike stay apart
   print (nodeCount (dsp.dc 2.0e9 + dsp.dc 3.0e9), nodeCount (dsp.dc 0.0001 + dsp.dc 0.0002))
   print (fresh p 64 (dsp.saw 440 + dsp.saw 440) == fresh p 64 (dsp.saw 440 * 2))

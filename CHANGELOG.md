@@ -6,7 +6,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- A graph builds equal subtrees once, since equal kernels, states and inputs give equal samples. A signal used several times was built once per use: `d.reverb` on 16 voices made 2,628 nodes and now makes 260, and takes 21 us per block where it took 139. `d.chorus` and `d.flanger` gain too. Two equal nodes that used to keep different histories across a live edit are now one. A hash trie finds equal nodes, since a list scan took 152 ms to build 64 voices, against 12 ms now and 7 ms with no sharing.
+- A graph builds equal subtrees once, since equal kernels, states and inputs give equal samples. A signal used several times was built once per use: `d.reverb` on 16 voices made 2,628 nodes and now makes 260, and takes 21 us per block where it took 139. `d.chorus` and `d.flanger` gain too. Named nodes never merge. Across a live edit, a merge keeps the first node's state, and an unnamed node split from a shared one restarts: name both to keep their phases. A hash trie finds equal nodes, since a list scan took 152 ms to build 64 voices, against 12 ms now and 7 ms with no sharing.
+
+- `d.zita`'s parameters glide over about 50 ms, so moving them does not click. The second difference after a jump fell 137x for predelay, and 6x to 136x for the decays. Targets are smoothed per block, and coefficients ramp per frame: retuning 8 lines per frame was the alternative, and costs 8 `exp` pairs each frame. Predelay changes pitch while it glides. Unmoving parameters match Faust as before, at 2% more cost.
 
 - `d.zita` is Zita-Rev1, a stereo reverb ported from Faust's `re.zita_rev1_stereo`, with a mix added. At 48 kHz over 4 s, its output is within 1.4e-16 of Faust's, compared in double precision, which `tests/kernels/zita.c` keeps checked at 7 decimals. Its channels share state with no second kernel output: two nodes with the same inputs evolve identically, and each emits one channel. `g.Shared` gives both nodes every channel of the input. Splitting a stereo input by channel was the alternative: the graph has no shared subtrees, so that would copy the input's nodes.
 
