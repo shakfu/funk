@@ -100,6 +100,20 @@ main =
 
 `p.x` needs the type of `p`. A function like `getW s = s.w` needs a signature, except inside `Shape.f`, where an unconstrained first parameter is a `Shape`. Details are in [docs/dev/records.md](docs/dev/records.md); [examples/shop.fk](examples/shop.fk) is a longer example.
 
+A signature can name parameters and give them defaults. `.{ }` fills them by name:
+
+```haskell
+tone :: freq:Float = 440.0 -> gain:Float = 0.5 -> phase:Float -> Float
+tone f g p = f * g + p
+
+main = do
+  print (tone 220.0 1.0 0.0)          -- positional calls ignore defaults
+  print (tone .{ gain = 0.25 } 0.0)   -- phase has no default, so it stays positional
+  print (tone .{ phase = 1.0 })       -- 221.0
+```
+
+`.{ }` works on top-level functions and foreign imports, and its values must be pure. See [docs/dev/named-args.md](docs/dev/named-args.md).
+
 A module is a file with a lowercase name. `import` makes its names available qualified:
 
 ```haskell
