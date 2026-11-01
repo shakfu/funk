@@ -181,6 +181,30 @@ reverbTail u = withImpulse (dsp.reverb (dsp.dc 0.5) (dsp.dc 0.5) 1) (\a -> do
   skip a 160000
   (early > 0, maximum (map abs (frames a 64))))
 
+-- 64 frames of both channels of s, after n blocks at 48 kHz; replays s before
+-- each block if asked, which must not disturb its state
+zitaAfter :: Bool -> Int -> g.Sig ->> [[Int]]
+zitaAfter replay n s = do
+  a <- g.player [getKernels ()] 48000.0 64
+  g.play a s
+  mapM_ (\i -> do
+    if replay then g.play a s else ()
+    channels0 a) (enumFromTo 1 n)
+  r <- channels a 2 64 s
+  g.close a
+  r
+
+channels0 :: g.Player ->> ()
+channels0 a = allocaBytes 512 (\out -> g.renderChannels a [out, plusPtr out 256] 64)
+
+-- the nodes s builds
+nodeCount :: g.Sig ->> Int
+nodeCount s = do
+  gr <- g.graphNew 64 48000.0
+  (g.Player h libs r m) <- g.player [getKernels ()] 48000.0 64
+  (is, ns) <- g.add gr libs g.noneSeen s
+  1 + maximum is
+
 -- whether a stereo signal's channels differ after 2 s, and its peak under 2
 spreadOf :: g.Sig ->> (Int, Bool, Bool)
 spreadOf s = do
@@ -353,6 +377,29 @@ main = do
   print (fresh p 64 (dsp.chorus .{ } x) == fresh p 64 (dsp.chorus 0.8 0.005 0.5 x))
   print (fresh p 64 (dsp.flanger .{ } x) == fresh p 64 (dsp.flanger 0.3 0.003 0.5 x))
   print (fresh p 64 (dsp.reverb .{ } x) == fresh p 64 (dsp.reverb 0.7 0.4 0.3 x))
+  -- zita: both channels sound and differ; defaults; a mono x fills both inputs;
+  -- channels stay apart; replays keep its state; mix 0 is dry; silent at 8000 Hz
+  wet <- dsp.zita .{ mix = 1 }
+  zl <- dsp.sine 1000 * 0.5
+  zr <- dsp.saw 300 * 0.5
+  mono <- zitaAfter False 200 (wet zl)
+  print (g.width (wet zl), head mono /= head (drop 1 mono), maximum (map abs (concat mono)) > 100)
+  print (zitaAfter False 200 (dsp.zita .{ } zl) == zitaAfter False 200 (dsp.zita 0.06 200 6000 3 2 0.3 zl))
+  print (mono == zitaAfter False 200 (wet (dsp.stereo zl zl)))
+  print (zitaAfter False 200 (wet (dsp.stereo zl zr)) /= zitaAfter False 200 (wet (dsp.stereo zr zl)))
+  print (zitaAfter True 200 (wet (dsp.stereo zl zr)) == zitaAfter False 200 (wet (dsp.stereo zl zr)))
+  print (zitaAfter False 200 (dsp.zita .{ mix = 0 } zl) == zitaAfter False 200 (dsp.stereo zl zl))
+  zlow <- g.player [getKernels ()] 8000.0 64
+  print (maximum (map abs (concat (channels zlow 2 64 (dsp.zita .{ } zl)))))
+  g.close zlow
+  -- a repeated subtree is one node, and its output does not change; different
+  -- states stay apart. An x of 3 new nodes (dc 1 is the reverb's own) costs a reverb 3.
+  print (nodeCount (dsp.saw 440 + dsp.saw 440), nodeCount (dsp.saw 440 + dsp.saw 441), nodeCount (dsp.noise 1 + dsp.noise 2))
+  -- values that hash alike stay apart
+  print (nodeCount (dsp.dc 2.0e9 + dsp.dc 3.0e9), nodeCount (dsp.dc 0.0001 + dsp.dc 0.0002))
+  print (fresh p 64 (dsp.saw 440 + dsp.saw 440) == fresh p 64 (dsp.saw 440 * 2))
+  print (nodeCount (dsp.reverb .{ } (dsp.saw (dsp.sine 2))) - nodeCount (dsp.reverb .{ } (dsp.dc 1)))
+  print (nodeCount (dsp.delay 0.1 0.01 x + dsp.delay 0.2 0.01 x) - nodeCount (dsp.delay 0.1 0.01 x))
   g.close p
   g.close q
   g.close r

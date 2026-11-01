@@ -456,6 +456,12 @@ void CheckAudio(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 		Events wave = Play(plugin, 0., 16);
 		check(FirstWhere(wave.audio, 0, true) >= 0, "the [named] case sounds");
 	}
+	if (cases.count("zita")) {
+		reply = Eval(cases["zita"]);
+		check(reply.find("error") == std::string::npos, "the [zita] case evaluates: " + reply);
+		Events wave = Play(plugin, 0., 16);
+		check(FirstWhere(wave.audio, 0, true) >= 0, "the [zita] case sounds");
+	}
 	if (cases.count("drone")) {
 		// A host's reset leaves `sig` playing, since a host may reset at any time. The editor's
 		// Stop silences it, until it is evaluated again.

@@ -93,7 +93,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Named arguments, stage 2: presets that keep names, `pluck = adsr .{ ... }`, once patches use presets ([docs/dev/named-args.md](docs/dev/named-args.md)). Also confirm `lib/dsp.fk`'s proposed defaults by ear.
 
-- [ ] DSP phase 3, deferred until a patch needs it: several outputs per kernel, then a stereo reverb whose channels share state ([docs/dev/dsp.md](docs/dev/dsp.md#phase-3-several-outputs-per-kernel)).
+- [ ] DSP phase 3, deferred until a patch needs it: several outputs per kernel, which would halve `d.zita`'s cost ([docs/dev/dsp.md](docs/dev/dsp.md#phase-3-several-outputs-per-kernel)).
 
 - [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): a `funk *` on every call, state passed explicitly, a thread per session. Measured 2026-10-30: a thread-local pointer costs the interpreter 27%, an explicit one nothing ([docs/dev/261030-session-measurements.md](docs/dev/261030-session-measurements.md)). Done 2026-10-30: any number of sessions, up to 256, side by side; tests `embed/sessions`, `embed/globals`. Left: glue shared by path binds the last session's `funk_provide`d addresses; a TSan job in CI.
 

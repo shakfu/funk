@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A graph builds equal subtrees once, since equal kernels, states and inputs give equal samples. A signal used several times was built once per use: `d.reverb` on 16 voices made 2,628 nodes and now makes 260, and takes 21 us per block where it took 139. `d.chorus` and `d.flanger` gain too. Two equal nodes that used to keep different histories across a live edit are now one. A hash trie finds equal nodes, since a list scan took 152 ms to build 64 voices, against 12 ms now and 7 ms with no sharing.
+
+- `d.zita` is Zita-Rev1, a stereo reverb ported from Faust's `re.zita_rev1_stereo`, with a mix added. At 48 kHz over 4 s, its output is within 1.4e-16 of Faust's, compared in double precision, which `tests/kernels/zita.c` keeps checked at 7 decimals. Its channels share state with no second kernel output: two nodes with the same inputs evolve identically, and each emits one channel. `g.Shared` gives both nodes every channel of the input. Splitting a stereo input by channel was the alternative: the graph has no shared subtrees, so that would copy the input's nodes.
+
+  ```haskell
+  sig = d.zita .{ midDecay = 4, mix = 0.4 } (voices (\gate freq -> gate * d.saw freq * 0.2))
+  ```
+
 - A signature can name parameters and give them defaults, and `.{ }` fills them by name. Positional calls and types do not change, so currying and existing code are unaffected. `lib/dsp.fk`'s 8 functions of four or more parameters have names and defaults. Values in `.{ }` and defaults must be pure. `:t` on the name shows them. `:t` now omits type qualifiers, for short lines, and the new `:tq` keeps them, since two modules' types of one name then print alike. Names are resolved at compile time, so a function passed as a value loses them; labels in types would keep them, but affect unification ([docs/dev/named-args.md](docs/dev/named-args.md)).
 
   ```haskell

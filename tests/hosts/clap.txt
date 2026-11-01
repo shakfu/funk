@@ -31,6 +31,9 @@ sig = d.wavetable (d.cycleOf 64 (\x -> if x < 0.5 then 1.0 else -1.0)) 440
 [named]
 -- named arguments and defaults from lib/dsp.fk, in the plugin
 sig = d.reverb .{ mix = 0.5 } (d.sine 440 * d.adsr .{ gate = 1 })
+[zita]
+-- a kernel of two nodes that read every channel of x, in the plugin
+sig = d.zita .{ mix = 1, predelay = 0 } (d.sine 440 * d.adsr .{ gate = 1 })
 [drone]
 -- sounds with no notes
 sig = d.sine 440 * 0.5

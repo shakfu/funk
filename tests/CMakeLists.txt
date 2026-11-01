@@ -278,6 +278,7 @@ set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c projects/funkgrap
 funk_test(kernels/graph "ffi;kernels" ${GRAPH})
 set(TABLES kernels lib/kernels.fk tests/kernels/tables.c projects/funkgraph/graph.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -lpthread -lm)
 funk_test(kernels/tables "ffi;kernels" ${TABLES})
+funk_test(kernels/zita "ffi;kernels" kernels lib/kernels.fk tests/kernels/zita.c projects/funkgraph/graph.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -Itests/kernels -lpthread -lm)
 # ... built from funk by lib/graph.fk
 set(FUNKGRAPH -M lib -I projects/funkgraph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
 funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/chain.fk tests/kernels/build.fk ${FUNKGRAPH})

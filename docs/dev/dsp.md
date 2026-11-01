@@ -2,7 +2,7 @@
 
 Status on 2026-10-31. Design and measurements: [audio.md](audio.md), option D, and [261029-dsp-measurements.md](261029-dsp-measurements.md).
 
-funk has 20 unit generators. [roadmap.md](roadmap.md) lists none to add, and `TODO.md` and `audio.md` mention only a stereo reverb, as an example. [Proposed roadmap](#proposed-roadmap) below is a proposal; its tasks are in `TODO.md`, under DSP.
+funk has 21 unit generators. [roadmap.md](roadmap.md) lists none to add, and `TODO.md` and `audio.md` mention only a stereo reverb, as an example. [Proposed roadmap](#proposed-roadmap) below is a proposal; its tasks are in `TODO.md`, under DSP.
 
 ## Unit generators
 
@@ -23,6 +23,7 @@ All 20 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 
 | Delay | `dsp_delay` | `delay`, `chorus` | memory, read between frames by linear interpolation | 125 |
 | | `dsp_comb` | `comb`, `flanger`, `reverb` | feedback comb, with a one-pole low-pass in the loop | 230 |
 | | `dsp_allpass` | `allpass`, `reverb` | Schroeder allpass | 170 |
+| | `dsp_zita` | `zita` | Zita-Rev1, 8 lines; two nodes for stereo. Output matches Faust's within 1.4e-16, in double precision | 1950 per channel |
 | Tables | `dsp_wavetable` | `wavetable`, `wavetableFile` | one cycle of a table, read between frames by linear interpolation | 240 |
 | | `dsp_sampler` | `sample` | a file once per rising gate, linear interpolation | 125 |
 | Utility | `dsp_const` | `dc`, numeric literals | constant | 4-6 |
@@ -48,7 +49,7 @@ These add no kernels:
 ## Limits
 
 - **One buffer per node.** A kernel gets one block of delay memory.
-- **One output per kernel.** A stereo reverb whose channels share state cannot be written (`TODO.md`). `reverb` instead runs two separate reverbs, tuned 23 frames at 44.1 kHz apart.
+- **One output per kernel.** Channels that share state need two nodes with the same inputs, which evolve identically, each emitting one channel, at twice the cost: `zita` does this, and `g.Shared` gives each node all of its input's channels. `reverb` instead runs two separate reverbs, tuned 23 frames at 44.1 kHz apart.
 - **A changed maximum restarts a delay.** Changing `delay`'s first argument zeroes its memory; changing the time input does not.
 - **Feedback between nodes is one block late.** Feedback within a sample needs one kernel.
 - **Separate kernels cost more.** A voice of separate kernels costs 2.7x a fused loop.

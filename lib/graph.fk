@@ -6,7 +6,8 @@
 -- from the audio thread's next block. A named node is one node however
 -- often the tree uses it, and keeps its state across plays while its
 -- kernel and initial state stay the same; an unnamed one keeps it too,
--- matched by its shape (funk_graph_name in graph.h). A control's output is a value
+-- matched by its shape (funk_graph_name in graph.h). Equal subtrees become one
+-- node. A control's output is a value
 -- that send changes from a given frame, such as a note's gate. Channels
 -- is a signal of several channels: a node with such an input becomes one
 -- node per channel, so stereo builds from mono kernels, as SuperCollider's
@@ -38,9 +39,12 @@ foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
 -- Reader k src st ins: a Node that reads src; its state starts with three
 -- zeros, which become the data's pointer, frames and rate. A patch names the
 -- data, never its memory, so it cannot write to what other nodes read.
+-- Shared k secs sts x ins: one Delay node per state in sts, each reading all of
+-- x's channels (a mono x fills them all), then ins, which are mono. Its channels
+-- are the nodes': the way to get several outputs from a state that one kernel owns.
 data Source = File String Int | Values [Float]
 
-data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Named String Sig | Control Float | Channels [Sig]
+data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Shared String Float [[Float]] Sig [Sig] | Named String Sig | Control Float | Channels [Sig]
 
 -- a C player, its kernel libraries, frames per second, and the most
 -- frames per kernel call
@@ -58,6 +62,7 @@ same Silence Silence = True
 same (Node k st ins) (Node k2 st2 ins2) = k == k2 && st == st2 && length ins == length ins2 && and (zipWith same ins ins2)
 same (Delay k m st ins) (Delay k2 m2 st2 ins2) = m == m2 && same (Node k st ins) (Node k2 st2 ins2)
 same (Reader k src st ins) (Reader k2 src2 st2 ins2) = sameSource src src2 && same (Node k st ins) (Node k2 st2 ins2)
+same (Shared k m sts x ins) (Shared k2 m2 sts2 x2 ins2) = m == m2 && sts == sts2 && same x x2 && same (Node k [] ins) (Node k2 [] ins2)
 same (Named n s) (Named n2 s2) = n == n2 && same s s2
 same (Control v) (Control v2) = v == v2
 same (Channels ss) (Channels ss2) = length ss == length ss2 && and (zipWith same ss ss2)
@@ -78,6 +83,8 @@ width (Node k st ins) = case map width ins of
     w -> if any (\x -> x /= 1 && x /= w) ws then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else w
 width (Delay k m st ins) = width (Node k st ins)
 width (Reader k src st ins) = width (Node k st ins)
+width (Shared k m sts x ins) = case width x : map width ins of
+  ws -> if (head ws /= 1 && head ws /= length sts) || any (\w -> w /= 1) (tail ws) then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else length sts
 width s = 1
 
 -- libraries of kernels, such as `funk emit-c --kernels` output compiled
@@ -117,6 +124,7 @@ names ns (Named n s) = case lookup n ns of
 names ns (Node k st ins) = foldl names ns ins
 names ns (Delay k m st ins) = names ns (Node k st ins)
 names ns (Reader k src st ins) = names ns (Node k st ins)
+names ns (Shared k m sts x ins) = foldl names ns (x : ins)
 names ns (Control v) = ns
 names ns (Channels ss) = foldl names ns ss
 
@@ -127,42 +135,120 @@ kernels libs (Control v) = ()
 kernels libs (Channels ss) = mapM_ (kernels libs) ss
 kernels libs (Delay k m st ins) = kernels libs (Node k st ins)
 kernels libs (Reader k src st ins) = kernels libs (Node k st ins)
+kernels libs (Shared k m sts x ins) = kernels libs (Node k [] (x : ins))
 kernels libs (Node k st ins) = do
   kernel libs k
   mapM_ (kernels libs) ins
+
+-- the nodes added so far: by name, and by kernel, state and inputs
+data Seen = Seen [(String, [Int])] Trie
+
+noneSeen :: Seen
+noneSeen = Seen [] Empty
 
 -- s's nodes after those in g, and those named, with the names added
 -- before; s's indices, one per channel, -1 for silence. A node whose
 -- inputs have w channels becomes w nodes, the kth reading each input's
 -- kth channel, or its only one: an input is added once and shared. A
 -- named node of several channels is named n.1, n.2 and so on.
-add :: Ptr () -> [Ptr ()] -> [(String, ([Int], Sig))] -> Sig ->> ([Int], [(String, ([Int], Sig))])
+add :: Ptr () -> [Ptr ()] -> Seen -> Sig ->> ([Int], Seen)
 add g libs ns Silence = ([-1], ns)
 add g libs ns (Channels ss) = do
   (iss, ns2) <- addAll g libs ns ss
   (concat iss, ns2)
-add g libs ns (Named n s) = case lookup n ns of
-  Just (is, s2) -> (is, ns)
+add g libs (Seen named built) (Named n s) = case lookup n named of
+  Just is -> (is, Seen named built)
   Nothing -> do
-    (is, ns2) <- add g libs ns s
+    (is, Seen named2 built2) <- add g libs (Seen named built) s
     nameAll g (if length is == 1 then [n] else map (\k -> n ++ "." ++ show k) (enumFromTo 1 (length is))) is
-    (is, (n, (is, s)) : ns2)
+    (is, Seen ((n, is) : named2) built2)
 add g libs ns (Control v) = do
   i <- graphControl g (toCFloat v)
   if i < 0 then error "graph: out of memory" else ([fromIntegral i], ns)
-add g libs ns (Node k st ins) = do
-  (iss, ns2) <- addAll g libs ns ins
-  kp <- kernel libs k
-  (nodes g kp st iss 0 (maximum (1 : map length iss)), ns2)
-add g libs ns (Delay k m st ins) = do
-  (is, ns2) <- add g libs ns (Node k st ins)
+add g libs ns (Node k st ins) = once g libs ns ins (Node k st) (expand g libs k st)
+add g libs ns (Delay k m st ins) = once g libs ns ins (Delay k m st) (\iss -> do
+  is <- expand g libs k st iss
   mapM_ (\i -> if graphMemory g (fromIntegral i) m < 0 then error ("graph: no memory for " ++ k) else ()) is
-  (is, ns2)
-
-add g libs ns (Reader k src st ins) = do
-  (is, ns2) <- add g libs ns (Node k st ins)
+  is)
+add g libs ns (Reader k src st ins) = once g libs ns ins (Reader k src st) (\iss -> do
+  is <- expand g libs k st iss
   mapM_ (giveTable g k src) is
-  (is, ns2)
+  is)
+add g libs ns (Shared k m sts x ins) = once g libs ns (x : ins) (Shared k m sts Silence) (\iss -> do
+  kp <- kernel libs k
+  xs <- head iss
+  sharedNodes g kp k m sts ((if length xs == 1 then replicate (length sts) (head xs) else xs) ++ concat (tail iss)))
+
+-- a node of inputs ins, unless one has the same kernel, state and inputs: those
+-- give the same samples, so every use of a subtree shares one node. key is the
+-- node with its inputs replaced by their indices, so comparing it is shallow.
+once :: Ptr () -> [Ptr ()] -> Seen -> [Sig] -> ([Sig] -> Sig) -> ([[Int]] ->> [Int]) ->> ([Int], Seen)
+once g libs ns ins key make = do
+  (iss, Seen named built) <- addAll g libs ns ins
+  k <- key (map (\is -> Channels (map (\i -> Control (toFloat i)) is)) iss)
+  h <- hashKey k
+  case findBuilt k h built of
+    Just is -> (is, Seen named built)
+    Nothing -> do
+      is <- make iss
+      (is, Seen named (insertBuilt builtDepth h (k, is) built))
+
+-- a pure hash trie of the nodes built, so a graph of n nodes takes n log n compares.
+-- A hash only picks the bucket: same decides, so a collision cannot merge two nodes.
+data Trie = Empty | Bucket [(Sig, [Int])] | Fork Trie Trie
+
+builtDepth :: Int
+builtDepth = 10
+
+findBuilt :: Sig -> Int -> Trie -> Maybe [Int]
+findBuilt k h Empty = Nothing
+findBuilt k h (Bucket es) = case filter (\e -> same k (fst e)) es of
+  [] -> Nothing
+  e : rest -> Just (snd e)
+findBuilt k h (Fork l r) = findBuilt k (h `div` 2) (if h `mod` 2 == 0 then l else r)
+
+insertBuilt :: Int -> Int -> (Sig, [Int]) -> Trie -> Trie
+insertBuilt d h e t = if d == 0 then (case t of
+    Bucket es -> Bucket (e : es)
+    _ -> Bucket [e])
+  else case t of
+    Fork l r -> if h `mod` 2 == 0 then Fork (insertBuilt (d - 1) (h `div` 2) e l) r else Fork l (insertBuilt (d - 1) (h `div` 2) e r)
+    _ -> insertBuilt d h e (Fork Empty Empty)
+
+mixHash :: Int -> Int -> Int
+mixHash h x = (h * 31 + x) `mod` 2147483647
+
+-- Too large a value, or NaN, hashes as 0: only its bucket suffers.
+hashFloat :: Float -> Int
+hashFloat x = if abs x < 1.0e9 then round (x * 1024.0) else 0
+
+hashKey :: Sig -> Int
+hashKey (Node k st ins) = hashParts k st ins
+hashKey (Delay k m st ins) = hashParts k st ins
+hashKey (Reader k src st ins) = hashParts k st ins
+hashKey (Shared k m sts x ins) = hashParts k (concat sts) ins
+hashKey s = 0
+
+hashParts :: String -> [Float] -> [Sig] -> Int
+hashParts k st ins = foldl mixHash (foldl mixHash (foldl mixHash 7 (map ord (unpack k))) (map hashFloat st)) (concat (map inputHash ins))
+
+inputHash :: Sig -> [Int]
+inputHash (Channels is) = map (\c -> case c of
+  Control i -> round i
+  _ -> 0) is
+inputHash s = []
+
+expand :: Ptr () -> [Ptr ()] -> String -> [Float] -> [[Int]] ->> [Int]
+expand g libs k st iss = do
+  kp <- kernel libs k
+  nodes g kp st iss 0 (maximum (1 : map length iss))
+
+sharedNodes :: Ptr () -> Ptr () -> String -> Float -> [[Float]] -> [Int] ->> [Int]
+sharedNodes g kp k m [] is = []
+sharedNodes g kp k m (st:sts) is = do
+  i <- node g kp st is
+  if graphMemory g (fromIntegral i) m < 0 then error ("graph: no memory for " ++ k) else ()
+  i : sharedNodes g kp k m sts is
 
 giveTable :: Ptr () -> String -> Source -> Int ->> ()
 giveTable g k (File path c) i = if graphTableFile g (fromIntegral i) path (fromIntegral c) < 0 then error ("graph: " ++ k ++ " cannot read " ++ path ++ ": " ++ tableError ()) else ()
@@ -192,7 +278,7 @@ nameAll g (n:ns) (i:is) = do
   nameAll g ns is
 nameAll g _ _ = ()
 
-addAll :: Ptr () -> [Ptr ()] -> [(String, ([Int], Sig))] -> [Sig] ->> ([[Int]], [(String, ([Int], Sig))])
+addAll :: Ptr () -> [Ptr ()] -> Seen -> [Sig] ->> ([[Int]], Seen)
 addAll g libs ns [] = ([], ns)
 addAll g libs ns (s:ss) = do
   (i, ns2) <- add g libs ns s
@@ -208,7 +294,7 @@ play (Player p libs rate maxBlock) s = do
   kernels libs s
   g <- graphNew (fromIntegral maxBlock) rate
   if g == nullPtr then error "graph: out of memory" else do
-    (is, ns) <- add g libs [] s
+    (is, ns) <- add g libs noneSeen s
     if w > 1 then mapM_ (output g) is else ()
     playerPlay p g
 
