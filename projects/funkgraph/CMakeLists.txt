@@ -1,6 +1,7 @@
 # The graph player for compiled kernels (docs/dev/audio.md, D); static and
 # position-independent, so foreign-import glue can link it.
-add_library(funkgraph STATIC graph.c voices.c)
+add_library(funkgraph STATIC graph.c voices.c table.c)
+target_link_libraries(funkgraph PUBLIC Threads::Threads)
 set_target_properties(funkgraph PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(funkgraph PRIVATE -Wall -Wextra)
 target_include_directories(funkgraph PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

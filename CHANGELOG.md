@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `lib/dsp.fk` reads tables: `wavetable` and `wavetableFile`, an oscillator over one cycle, and `sample`, a WAV file played once at each rising gate. Tables are shared by file or content and freed with the last graph that reads them. A patch names a table and never holds its pointer, so it cannot write to it, and funk needs no finalizers ([docs/dev/dsp.md](docs/dev/dsp.md#decisions)).
+
 - `d.polyIx` and the hosts' `voicesIx` pass `f` the voice's number, so each voice can seed its own noise. A variant over changing `poly`, whose patches stay valid.
 
 - A field read on a parameter needs no signature when one loaded type has the field: `begin e = e.whole.start`. With several such types it is still an error, so loading another module can turn this code into an error, never into a different type.

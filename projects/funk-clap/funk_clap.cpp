@@ -211,7 +211,7 @@ private:
 		// graph.fk's imports: the plugin's own functions, which it does not export
 #define PROVIDE(fn) funk_provide(f, #fn, (void*)fn);
 		PROVIDE(funk_graph_new) PROVIDE(funk_graph_add) PROVIDE(funk_graph_control) PROVIDE(funk_graph_name)
-		PROVIDE(funk_graph_output) PROVIDE(funk_graph_memory) PROVIDE(funk_player_new) PROVIDE(funk_player_send) PROVIDE(funk_player_frames)
+		PROVIDE(funk_graph_output) PROVIDE(funk_graph_memory) PROVIDE(funk_graph_table_file) PROVIDE(funk_graph_table_values) PROVIDE(funk_table_error) PROVIDE(funk_player_new) PROVIDE(funk_player_send) PROVIDE(funk_player_frames)
 		PROVIDE(funk_player_play) PROVIDE(funk_player_render_channels) PROVIDE(funk_player_free)
 #undef PROVIDE
 		funk_glue(f, funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed

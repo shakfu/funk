@@ -25,6 +25,9 @@ sig = voices (\gate freq -> gate)
 [delay]
 -- delay memory reaches the plugin, whose foreign imports are linked in
 sig = d.reverb (d.dc 0.5) (d.dc 0.5) (d.dc 0.5) (d.sine 440)
+[table]
+-- table data reaches the plugin: a wavetable from values, through the glue linked in
+sig = d.wavetable (d.cycleOf 64 (\x -> if x < 0.5 then 1.0 else -1.0)) 440
 [channels]
 -- channel 10 has its own voices, at twice the gate; other channels share voices
 sig = voices (\gate freq -> gate) + voicesOn 10 (\gate freq -> gate * d.dc 2.0)

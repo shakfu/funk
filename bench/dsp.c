@@ -18,6 +18,7 @@
 #include <time.h>
 
 #include "graph.h"
+#include "table.h"
 
 enum { RUNS = 7, MAX_BLOCK = 4096 };
 static const double RATE = 48000, PI = 3.141592653589793; /* M_PI is POSIX, not C */
@@ -138,6 +139,19 @@ static void call(void *arg) {
 
 static float line[48002];
 
+typedef struct {
+  funk_kernel k;
+  double state[5];
+  float *in[2];
+  float out[MAX_BLOCK];
+  funk_context cx;
+} Table5;
+
+static void table_call(void *arg) {
+  Table5 *c = arg;
+  c->k(c->state, c->in, c->out, block, &c->cx);
+}
+
 /* Worst of 200 blocks that each start a swap keeping a 1 s delay, against
    blocks without one. The delay kernel is the graph's only node. */
 static void swap_cost(void) {
@@ -163,6 +177,52 @@ static void swap_cost(void) {
   }
   funk_player_free(p);
   printf("a 1 s delay, worst block, ns: with a swap %.0f, without %.0f\n", worst[0], worst[1]);
+}
+
+/* The readers, over a second of noise, and the worst block of 200 that each
+   start a swap to a new graph reading it. */
+static void tables(void) {
+  static double data[48000];
+  for (int i = 0; i < 48000; i++) data[i] = (i * 7919 % 2003) / 1001.5 - 1;
+  funk_table *t = funk_table_values(data, 48000);
+  struct { const char *name; float *in[2]; double pos, gate; } ks[] = {{"dsp_wavetable", {freqs}, 0, 0}, {"dsp_sampler", {gate, ones}, 0, 1}};
+  for (size_t i = 0; i < sizeof ks / sizeof *ks; i++) {
+    static Table5 c;
+    const float *d = funk_table_data(t);
+    int64_t frames = funk_table_frames(t);
+    memcpy(&c.state[0], &d, sizeof d);
+    memcpy(&c.state[1], &frames, sizeof frames);
+    c.state[2] = RATE;
+    c.state[3] = ks[i].pos;
+    c.state[4] = ks[i].gate;
+    c.k = kernel(ks[i].name);
+    c.in[0] = ks[i].in[0], c.in[1] = ks[i].in[1];
+    c.cx.rate = RATE;
+    printf("  %-12s %7.1f\n", ks[i].name, best(table_call, &c));
+  }
+  funk_kernel k = kernel("dsp_wavetable"), cst = kernel("dsp_const");
+  funk_player *p = funk_player_new();
+  float out[MAX_BLOCK];
+  double worst[2] = {0, 0};
+  for (int i = 0; i < 400; i++) {
+    if (i % 2 == 0) {
+      funk_graph *g = funk_graph_new(MAX_BLOCK, RATE);
+      double st[5] = {0}, v = 220;
+      int in = funk_graph_add(g, cst, &v, sizeof v, NULL, 0);
+      int n = funk_graph_add(g, k, st, sizeof st, &in, 1);
+      if (funk_graph_table_values(g, n, data, 48000) < 0 || funk_graph_name(g, n, "w") < 0) exit(1);
+      funk_player_play(p, g);
+    }
+    struct timespec a, b;
+    clock_gettime(CLOCK_MONOTONIC, &a);
+    funk_player_render(p, out, block);
+    clock_gettime(CLOCK_MONOTONIC, &b);
+    double ns = (double)(b.tv_sec - a.tv_sec) * 1e9 + (double)(b.tv_nsec - a.tv_nsec);
+    if (i > 1 && ns > worst[i % 2]) worst[i % 2] = ns;
+  }
+  funk_player_free(p);
+  funk_table_release(t);
+  printf("a 1 s table, worst block, ns: with a swap %.0f, without %.0f\n", worst[0], worst[1]);
 }
 
 static void kernels(void) {
@@ -322,6 +382,7 @@ int main(int argc, char **argv) {
   }
   printf("block %d frames at %.0f Hz\n", block, RATE);
   kernels();
+  tables();
   swap_cost();
   per_node();
   voices();

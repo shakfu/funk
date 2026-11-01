@@ -444,6 +444,12 @@ void CheckAudio(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 		Events wet = Play(plugin, 0., 16);
 		check(FirstWhere(wet.audio, 0, true) >= 0, "the [delay] case sounds");
 	}
+	if (cases.count("table")) {
+		reply = Eval(cases["table"]);
+		check(reply.find("error") == std::string::npos, "the [table] case evaluates: " + reply);
+		Events wave = Play(plugin, 0., 16);
+		check(FirstWhere(wave.audio, 0, true) >= 0, "the [table] case sounds");
+	}
 	if (!cases.count("channels")) return;
 	reply = Eval(cases["channels"]);
 	check(reply.find("error") == std::string::npos, "the [channels] case evaluates: " + reply);

@@ -54,6 +54,18 @@ int funk_graph_add(funk_graph *g, funk_kernel k, const void *state, size_t size,
    runs out. Not after the graph is played. */
 int funk_graph_memory(funk_graph *g, int node, double seconds);
 
+/* Gives kernel node `node` read-only data, shared with other nodes and kept
+   until the last graph reading it is freed (table.h). When played, the first
+   24 bytes of its state become the data's pointer, its frames, an int64_t, and
+   its frames per second, a double; its initial state should hold zeros there.
+   A node that keeps its state across a swap keeps its position, but reads
+   the new graph's data. 0, or -1 if node is a control, has memory or data or
+   has under 24 bytes of state, or loading fails: funk_table_error. A
+   file is read on the calling thread. Not after the graph is played. */
+int funk_graph_table_file(funk_graph *g, int node, const char *path, int channel);
+int funk_graph_table_values(funk_graph *g, int node, const double *values, int64_t frames);
+const char *funk_table_error(void);
+
 /* Adds a control, whose output starts at value; its index, or -1 if
    memory runs out. Events reach it once it is named. */
 int funk_graph_control(funk_graph *g, float value);

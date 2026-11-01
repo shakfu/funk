@@ -5,6 +5,37 @@ import graph as g
 import dsp
 
 foreign import ccall "stdlib.h getenv" getenv :: String ->> Ptr CChar
+foreign import ccall "stdio.h fopen" fopen :: String -> String ->> Ptr ()
+foreign import ccall "stdio.h fclose" fclose :: Ptr () ->> CInt
+foreign import ccall "stdio.h fputs" fputs :: String -> Ptr () ->> CInt
+foreign import ccall "stdio.h fputc" fputc :: CInt -> Ptr () ->> CInt
+foreign import ccall "stdio.h remove" cremove :: String ->> CInt
+foreign import ccall "unistd.h getpid" getpid :: () ->> CInt
+
+le :: Int -> Int -> [Int]
+le 0 v = []
+le n v = (v `mod` 256) : le (n - 1) (v `div` 256)
+
+putBytes :: Ptr () -> [Int] ->> ()
+putBytes f [] = ()
+putBytes f (b:bs) = do
+  fputc (fromIntegral b) f
+  putBytes f bs
+
+-- a mono or stereo 16-bit WAV of these sample values, at 8000 Hz
+writeWav :: String -> Int -> [Int] ->> ()
+writeWav path channels xs = do
+  f <- fopen path "wb"
+  size <- 2 * length xs
+  fputs "RIFF" f
+  putBytes f (le 4 (36 + size))
+  fputs "WAVEfmt " f
+  putBytes f (concat [le 4 16, le 2 1, le 2 channels, le 4 8000, le 4 (8000 * channels * 2), le 2 (channels * 2), le 2 16])
+  fputs "data" f
+  putBytes f (le 4 size)
+  putBytes f (concat (map (le 2) xs))
+  fclose f
+  ()
 
 -- the next n frames, at most 64
 frames :: g.Player -> Int ->> [Int]
@@ -20,6 +51,13 @@ channels p k n s = do
     bufs <- map (\c -> plusPtr out (256 * c)) (enumFromTo 0 (k - 1))
     g.renderChannels p bufs n
     map (\b -> map (\i -> round (10000.0 * fromCFloat (peekByteOff b (4 * i) :: CFloat))) (enumFromTo 0 (n - 1))) bufs)
+
+-- both, on a node that keeps no state from the graph before
+fresh :: g.Player -> Int -> g.Sig ->> [[Int]]
+fresh p n s = do
+  g.play p g.Silence
+  frames p 1
+  both p n s
 
 both :: g.Player -> Int -> g.Sig ->> [[Int]]
 both p n s = channels p 2 n s
@@ -287,6 +325,21 @@ main = do
   -- two seeds do not sum to twice one seed
   print (first p 1 (dsp.polyIx 2 (\k gate freq -> dsp.dc (toFloat k))))
   print (first p 2 (dsp.polyIx 2 (\k gate freq -> dsp.noise k)) /= first p 2 (dsp.poly 2 (\gate freq -> dsp.noise 1)))
+  -- a wavetable from values, and through a voice's frequency: quarter cycles
+  print (head (fresh p 4 (dsp.wavetable [0.0, 1.0, 0.0, -1.0] 2000)))
+  print (take 2 (dsp.cycleOf 4 (\x -> x)))
+  -- a file: a gate plays it once, on both channels of a stereo file; a mono
+  -- file plays on both; a voice's number seeds nothing it does not ask for
+  wav <- show (getpid ()) ++ ".ugens.wav"
+  writeWav wav 2 [16384, 8192, 8192, 4096]
+  print (fresh p 3 (dsp.sample wav 1 1))
+  writeWav wav 1 [16384, 8192]
+  print (fresh p 3 (dsp.sample wav 1 1))
+  -- a gate that never rises is silent
+  print (fresh p 2 (dsp.sample wav 0 1))
+  -- the speed scales pitch, here half
+  print (fresh p 3 (dsp.sample wav 1 0.5))
+  cremove wav
   g.close p
   g.close q
   g.close r

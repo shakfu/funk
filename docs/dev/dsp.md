@@ -2,11 +2,11 @@
 
 Status on 2026-10-31. Design and measurements: [audio.md](audio.md), option D, and [261029-dsp-measurements.md](261029-dsp-measurements.md).
 
-funk has 18 unit generators. [roadmap.md](roadmap.md) lists none to add, and `TODO.md` and `audio.md` mention only a stereo reverb, as an example. [Proposed roadmap](#proposed-roadmap) below is a proposal; its tasks are in `TODO.md`, under DSP.
+funk has 20 unit generators. [roadmap.md](roadmap.md) lists none to add, and `TODO.md` and `audio.md` mention only a stereo reverb, as an example. [Proposed roadmap](#proposed-roadmap) below is a proposal; its tasks are in `TODO.md`, under DSP.
 
 ## Unit generators
 
-All 18 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 2 and the kernels fused multiply-add changed from `build/dspbench` on 2026-10-31 (M1, `-O2`). A 64-frame block at 48 kHz lasts 1.33 ms.
+All 20 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 2 and the kernels fused multiply-add changed from `build/dspbench` on 2026-10-31 (M1, `-O2`). A 64-frame block at 48 kHz lasts 1.33 ms.
 
 | Group | Kernel | In `lib/dsp.fk` | Method | ns per 64 frames |
 |-|-|-|-|-|
@@ -23,6 +23,8 @@ All 18 are in `lib/kernels.fk`. Costs are from `audio.md`, and for phases 1 and 
 | Delay | `dsp_delay` | `delay`, `chorus` | memory, read between frames by linear interpolation | 125 |
 | | `dsp_comb` | `comb`, `flanger`, `reverb` | feedback comb, with a one-pole low-pass in the loop | 230 |
 | | `dsp_allpass` | `allpass`, `reverb` | Schroeder allpass | 170 |
+| Tables | `dsp_wavetable` | `wavetable`, `wavetableFile` | one cycle of a table, read between frames by linear interpolation | 240 |
+| | `dsp_sampler` | `sample` | a file once per rising gate, linear interpolation | 125 |
 | Utility | `dsp_const` | `dc`, numeric literals | constant | 4-6 |
 | | `dsp_add` | `+`, `-` | sample-wise | not listed |
 | | `dsp_mul` | `*`, `negate` | sample-wise | 4-6 |
@@ -53,6 +55,9 @@ These add no kernels:
 - **Some parameters are per block.** Filter cutoffs, envelope times and compressor settings are read once per block.
 - **`limit` has no lookahead.** It holds its ceiling by turning each peak down within its frame, which distorts it.
 - **Channels compress separately.** A stereo `compress` or `limit` follows each channel's own level, which can move the stereo image.
+- **`wavetable` is not band-limited.** A bright table aliases at high notes.
+- **`sample` reads WAV only.** Integer of 8 to 32 bits, or float of 32 or 64. It always has two channels; a mono file plays on both.
+- **A replaced file plays from the next `sig`.** Nothing watches the file. Loading runs on funk's thread, so a large file can delay `pat`'s next window, but not the audio thread.
 - **Noise needs a seed per voice.** Nodes with one seed play one signal. `polyIx` passes the voice's number, for a seed. Two instruments that both seed from it still match.
 
 ## Missing
@@ -61,7 +66,6 @@ This is an assessment of the code, not a roadmap.
 
 | Missing | Examples | Needs |
 |-|-|-|
-| Sources | wavetable, sampler | a way to load data into a kernel |
 | Envelopes | multi-segment | a new kernel |
 | Spectral, granular | FFT, granular | large state and buffers; FFT also needs its own block size |
 
@@ -105,23 +109,27 @@ A kernel writes several buffers, so channels can share state. The kernel signatu
 
 ### Phase 4: loaded data
 
-Immutable tables and samples, loaded on funk's thread and read by many nodes. These use a read-only type of their own, over phase 2's allocation and freeing.
+Tables are read-only samples, loaded on funk's thread and read by many nodes. A process-wide cache shares them by file and channel, or by content, and each is freed with the last graph that reads it.
 
-- Shared read-only buffers, kept alive until the last graph that reads them is freed.
-- A wavetable oscillator.
-- Reading audio files, and a sampler.
+- Shared read-only buffers: `projects/funkgraph/table.c`.
+- A wavetable oscillator: `wavetable`, `wavetableFile`.
+- Reading WAV files, and a sampler: `sample`.
 
-Done when: a sampler plays a file in a DAW, and replacing the file during playback misses no block.
+`dspbench` measures the worst block with a swap to a graph reading a 1 s table at about 1 us, its clock's resolution, the same as without a swap. `kernels/tables` replaces a file 400 times while an audio thread renders, with no wrong samples, also under AddressSanitizer and ThreadSanitizer.
+
+Implemented 2026-11-01. Done when: a sampler plays a file in a DAW, and replacing the file during playback misses no block. That listen is outstanding.
 
 ### Later: only on demand
 
 - FFT and spectral processing, which need their own block size.
-- Granular synthesis, which needs phase 4.
+- Granular synthesis, over phase 4's tables.
 - Per-frame filter cutoffs, if per-block cutoffs step audibly.
 
 ### Decisions
 
-Delay memory and loaded data share allocation and freeing, and have separate language-level types. One type would let a node write to a sample other nodes read, and the compiler could not reject it. The alternative for loaded data is compile-time constants: simpler lifetimes, but replacing a file needs a recompile, and large samples pass through the compiler. Reconsider that if phase 4 needs only wavetables and short samples. This design is not prototyped.
+A patch names a table by its file or its values, and never holds its pointer, so it cannot write to data other nodes read. A new read-only type was the alternative: funk has no finalizers, so a handle in a funk value could not tell the cache when to free. Compile-time constants were the other: simpler lifetimes, but replacing a file needs a recompile, and large samples pass through the compiler.
+
+The WAV reader is about 60 lines of `table.c`, with every offset checked. miniaudio's decoders were the alternative, adding FLAC and MP3, but the plugin does not link miniaudio.
 
 Generated kernels contract multiply-adds across statements; other generated C does not. Measured 2026-10-31 (M1, clang 21, best of 3, ns per 64 frames, off to fast):
 

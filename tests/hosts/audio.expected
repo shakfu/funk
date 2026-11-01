@@ -14,3 +14,7 @@ funk-midi: sig failed; the last graph plays on until sig is defined again
  2500.000 audio peak 5000
  2750.000 audio peak 4389
  3000.000 audio peak 2500
+ 3250.000 audio peak 4896
+runtime error: graph: dsp_sampler cannot read /nonexistent/x.wav: cannot open
+funk-midi: sig failed; the last graph plays on until sig is defined again
+ 3500.000 audio peak 4896

@@ -113,6 +113,33 @@ reverbCombs fb damp x = case map (\f -> comb 0.04 (spread f) fb damp x) [1116.0,
   c : cs -> foldl (+) c cs
   [] -> g.Silence
 
+-- a wavetable oscillator over one cycle of values, from -1 to 1; no
+-- band-limiting, so a bright table aliases at high notes
+wavetable :: [Float] -> g.Sig -> g.Sig
+wavetable values freq = g.Reader "dsp_wavetable" (g.Values values) tableState [freq]
+
+-- wavetable with the cycle read from channel 0 of a WAV file
+wavetableFile :: String -> g.Sig -> g.Sig
+wavetableFile path freq = g.Reader "dsp_wavetable" (g.File path 0) tableState [freq]
+
+-- n values of f over one cycle, f's argument from 0 up to 1
+cycleOf :: Int -> (Float -> Float) -> [Float]
+cycleOf n f = map (\i -> f (toFloat i / toFloat n)) (enumFromTo 0 (n - 1))
+
+-- a WAV file, in two channels, played once at each rising gate; speed 1 is its
+-- own pitch, whatever the file's sample rate. An absolute path is safest:
+-- a plugin's working directory is its host's. A replaced file plays from
+-- the next `sig`; it is read on funk's thread, never the audio thread.
+sample :: String -> g.Sig -> g.Sig -> g.Sig
+sample path gate speed = stereo (sampleChannel path 0 gate speed) (sampleChannel path 1 gate speed)
+
+sampleChannel :: String -> Int -> g.Sig -> g.Sig -> g.Sig
+sampleChannel path c gate speed = g.Reader "dsp_sampler" (g.File path c) [0.0, 0.0, 0.0, 1.0e30, 0.0] [gate, speed]
+
+-- data, frames, rate, position, gate: the first three from graph.h
+tableState :: [Float]
+tableState = [0.0, 0.0, 0.0, 0.0, 0.0]
+
 -- two channels, left and right
 stereo :: g.Sig -> g.Sig -> g.Sig
 stereo l r = g.Channels [l, r]

@@ -260,6 +260,16 @@ sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq)
 
 `voicesIx f` is `voices` with the voice's number, from 1, as `f`'s first argument, for a noise seed per voice: `voicesIx (\k gate freq -> d.adsr 0.001 0.1 0 0.1 gate * d.noise k)`.
 
+`d.sample path gate speed` plays a WAV file once at each rising gate, in two channels. `speed` 1 is its own pitch, so `freq * d.dc (1.0 / 261.63)` plays middle C at that pitch. `d.wavetable values freq` repeats one cycle of values, which `d.cycleOf n f` makes, and `d.wavetableFile path freq` reads them from a file:
+
+```haskell
+sig = voices (\gate freq -> d.sample "/abs/path/piano.wav" gate (freq * d.dc (1.0 / 261.63)))
+
+sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.wavetable (d.cycleOf 256 (\x -> if x < 0.5 then 1.0 else -1.0)) freq * 0.2)
+```
+
+Use an absolute path: a plugin's working directory is its host's. A replaced file plays from the next `sig`.
+
 A channel's notes play `voicesOn c f` instead, for MIDI channel `c` from 1 to 16, if `sig` has it:
 
 ```haskell
