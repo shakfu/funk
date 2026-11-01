@@ -10,8 +10,6 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## High
 
-- [ ] **Stack overflow in compiled code ends the host process** ([docs/dev/embedding.md](docs/dev/embedding.md) phase 0 item 2). Recovery by `siglongjmp` is unsafe inside libc or the collector. Not due for the plugin: it runs interpreted code and kernels, which cannot recurse but by a tail call of themselves ([docs/dev/plugin.md](docs/dev/plugin.md)). gh:2
-
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 
 - [ ] Node state other than `Float`s and one delay buffer ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).

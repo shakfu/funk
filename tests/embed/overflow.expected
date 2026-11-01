@@ -1,0 +1,12 @@
+hook: stack overflow, ctx set
+runtime error: stack overflow
+child exit 1
+hanging hook ended by SIGALRM: yes
+ok   5050
+runtime error: stack overflow
+fail -
+runtime error: stack overflow
+fail -
+runtime error: stack overflow
+fail -
+ok   5014997

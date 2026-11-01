@@ -35,7 +35,7 @@ Line counts below are measured; costs are estimates from reading the code, not f
 
 4. **`funkgraph`'s functions** reach `lib/graph.fk`'s imports through `funk_provide`, as `funk-midi` does.
 
-5. **gh:2 (stack overflow in compiled code ends the process) is not due.** The plugin runs interpreted code, which reports overflow as an error, and kernels. The export check rejects any recursion but a function's tail call of itself, which compiles to a loop (`cgen.c:617`, test `error/ffi_export_recursion`), so a kernel's stack depth is bounded by its call graph. gh:2 becomes due only if a plugin runs a whole compiled program.
+5. **Stack overflow.** The plugin runs interpreted code and kernels. Overflow in interpreted code, or in C it calls, is a runtime error, but for the cases that exit ([embedding.md](embedding.md#phase-0-embedding-basics), item 2). The export check rejects any recursion but a function's tail call of itself, which compiles to a loop (`cgen.c:617`, test `error/ffi_export_recursion`), so a kernel's stack depth is bounded by its call graph.
 
 ## Options
 

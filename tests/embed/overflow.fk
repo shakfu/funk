@@ -1,0 +1,11 @@
+-- C recursion on funk's stack, from interpreted code (tests/embed/overflow.c).
+foreign import ccall "overflow.h overflow_deep" deep :: CLong -> CLong
+foreign import ccall "overflow.h overflow_libc" deepLibc :: CLong -> CLong
+foreign import ccall "overflow.h overflow_each" each :: Ptr () -> FunPtr (Ptr () -> CInt ->> ()) ->> ()
+foreign import ccall "callback" eachCb :: FunPtr (Ptr () -> CInt ->> ())
+
+-- the overflow is under a callback: its error stops at the callback's trampoline
+inCallback () = do
+  sp <- newStablePtr (\n -> print (deep (fromIntegral n)))
+  each (castStablePtrToPtr sp) eachCb
+  freeStablePtr sp

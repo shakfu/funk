@@ -4,6 +4,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A stack overflow in C called from a session, such as a recursive foreign import, is the runtime error "stack overflow", and the host goes on. It ended the process, with no call to `funk_on_fatal`'s hook, even from interpreted code. The handler resumes on the session's stack, over `siglongjmp`, which would leave the signal mask and signal stack to restore. An overflow inside a system library, an image that defines `malloc`, or the collector still exits, since a lock may be held, and now runs the hook, for at most 5 seconds ([docs/dev/embedding.md](docs/dev/embedding.md)). gh:2.
+
 ## [0.9.0] - 2026-11-01
 
 ### Added

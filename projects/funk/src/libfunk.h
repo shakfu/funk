@@ -28,7 +28,9 @@ typedef struct funk funk;
    stack: beyond which recursion is the runtime error "stack overflow". In
    bytes; 0 keeps a default: 64 GiB of address space, 128 MiB, 4 GiB. The
    heap is at least 4 MiB, the stack 32 MiB. cc_args (-I, -l, -L) are for
-   foreign-import glue and funk_build; the strings must outlive the session. */
+   foreign-import glue and funk_build; the strings must outlive the session.
+   An overflow in C called from funk abandons its frames: locks it holds stay
+   held, and C++ destructors do not run. */
 typedef struct {
   size_t heap, threshold, stack;
   const char *const *cc_args;
@@ -47,9 +49,11 @@ int funk_run(funk *f, int (*fn)(funk *f, void *arg), void *arg);
    signal handlers are installed again. */
 void funk_free(funk *f);
 
-/* fn runs on an error funk cannot recover from, such as malloc failing;
-   then the process exits. It may save the host's work; it must not call
-   funk. */
+/* fn runs on an error funk cannot recover from, such as malloc failing or
+   a stack overflow inside a system library; then the process exits. It may
+   save the host's work; it must not call funk. After a stack overflow it
+   runs in a signal handler, on a 1 MiB stack, and malloc may be locked; 5
+   seconds later SIGALRM ends the process, unless the host handles SIGALRM. */
 void funk_on_fatal(funk *f, void (*fn)(void *ctx, const char *msg), void *ctx);
 
 /* Search dir for imported modules, after the importing file's own

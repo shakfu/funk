@@ -19,7 +19,7 @@ Process-wide resources outside those globals:
 
 - `fk_run` reserves a 4 GiB stack and starts its own thread. `heap_reserve` claims 64 GiB of address space; `gc_min` is 128 MiB.
 
-- 17 calls to `exit()`: 13 in `rt.c`, 4 in `util.c`. Stack overflow calls `_exit(1)`.
+- 17 calls to `exit()`: 13 in `rt.c`, 4 in `util.c`. Stack overflow calls `_exit(1)` where it cannot unwind (phase 0, item 2).
 
 - `funk_build` writes executables only. `-shared` is used only for foreign-import glue (`projects/funk/src/ffi.c`).
 
@@ -34,7 +34,12 @@ Needed by every host, whatever follows.
 2. **Never end the host process.** Partly done, 2026-10-28: a full heap is the runtime error "out of memory", after a full collection, so a host recovers (test `embed/memory`). Two exits stay, by decision:
    - **`malloc` returning NULL**, in the compiler, the runtime's tables and the collector's mark stack and stack copy. It runs `funk_on_fatal`'s hook, then exits. On macOS, and on Linux with its default overcommit, `malloc` of these sizes does not fail: the system swaps or kills the process first (from the platforms' documented behaviour, not measured). Making the collector's buffers unable to fail means reserving them up front, the mark stack as large as the heap's limit; not worth it for a failure that does not occur.
 
-   - **Stack overflow in compiled code**, which exits from the signal handler. No host runs compiled code yet. A recovery would leave the handler by `siglongjmp`, which is unsafe when the overflow is inside libc, such as `malloc` holding its lock, or inside the collector. Decide with item 5, when a host first runs compiled code. Interpreted code reports overflow as an error already.
+   - **Stack overflow where unwinding is unsafe.** Done otherwise, 2026-11-01: an overflow in C called from a session, a foreign import or a host's function, is the runtime error "stack overflow" (test `embed/overflow`). The fault's handler returns to a function on the session's stack, over `siglongjmp`, which would leave the signal mask and signal stack to restore on each platform. It exits, after `funk_on_fatal`'s hook, when the fault is in a system library, by the path of its image, since one may hold a lock; in the allocator or collector; or when no error target lies above the room the message needs. An image that defines `malloc` counts as a system library, for hosts that link their own allocator. Accepted, as the alternative is exiting every time:
+     - A non-system C library's own lock stays held, and its C++ destructors do not run.
+     - Only the top frame is checked, so a system function that holds a lock and calls back into C, as `dl_iterate_phdr` does, is not seen. Walking frames needs frame pointers, which Linux x86-64 builds often omit, and a runaway recursion has millions.
+     - The handler's `dladdr` is not async-signal-safe.
+
+     The hook runs on the handler's 1 MiB stack, and may wait on a lock the overflow left held, so `alarm(5)` bounds it. Compiled programs have no host, and still exit.
 
 3. **Output and error callbacks.** Done, 2026-10-28: `funk_output` in `libfunk.h`; test `embed/output`. The C compiler's output for foreign-import glue still goes to stderr.
 
@@ -47,7 +52,7 @@ Needed by every host, whatever follows.
 
    - A host's own functions and variables reach imports the same way, through `funk_provide` (test `embed/plugin`, with a `static` function). `funk-midi` provides `funkgraph`'s functions to `lib/graph.fk`'s imports, and no longer exports its symbols.
 
-   - **`funk build --shared`**, a library with its own private runtime. Deferred: `funk emit-c --kernels` covers a compiled synth inside an interpreting host ([audio.md](audio.md), D) without a second runtime. A full runtime per library needs an entry point that starts its thread, 64 GiB of address space and a 4 GiB stack each, and a decision on item 2.
+   - **`funk build --shared`**, a library with its own private runtime. Deferred: `funk emit-c --kernels` covers a compiled synth inside an interpreting host ([audio.md](audio.md), D) without a second runtime. A full runtime per library needs an entry point that starts its thread, 64 GiB of address space and a 4 GiB stack each, and an overflow's recovery extended to compiled programs (item 2).
 
 6. **Interrupts.** Done, 2026-10-28: `funk_interrupt`; test `embed/interrupt`. Needed for a host's Stop; not in the first list.
 

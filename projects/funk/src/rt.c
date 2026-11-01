@@ -8,6 +8,9 @@
    arrays. Conservative scanning lets compiled C code keep values in
    ordinary locals with no shadow stack. */
 #define _DEFAULT_SOURCE
+#ifdef FK_SESSIONS
+#define _GNU_SOURCE /* glibc: dladdr, REG_RIP */
+#endif
 #include "rt.h"
 
 #include <ctype.h>
@@ -244,6 +247,7 @@ struct FkRt {
   size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
   size_t step_bytes, gc_min;
   size_t cycle_start_threshold; /* gc_threshold when the cycle started */
+  bool in_alloc, overflowing; /* on_fault */
   size_t next_step; /* while marking, gc_threshold is 0, so every allocation takes alloc_slow, which marks it */
   size_t gc_count, lazy_chunks, forced, cycle_steps;
   double pause_total, pause_max, lazy_total, lazy_max, start_max, step_max, finish_max, sweep_step_max;
@@ -996,8 +1000,15 @@ static void collect_now(void) {
   while (!sweep_step()) {}
 }
 
+#ifdef FK_SESSIONS
+#define ALLOC_BUSY(b) (RT->in_alloc = (b)) /* a stack overflow here cannot unwind: on_fault */
+#else
+#define ALLOC_BUSY(b) ((void)0)
+#endif
+
 /* A runtime error, which a host recovers from (libfunk.h); no state is half-built. */
 static _Noreturn void heap_full(void) {
+  ALLOC_BUSY(false);
   RT->was_full = true;
   fk_error("out of memory: the heap's limit is %zu MiB", RT->heap_reserve >> 20);
 }
@@ -1056,6 +1067,7 @@ static V *alloc_small(size_t words) {
 
 static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uint32_t aux) {
   V *o;
+  ALLOC_BUSY(true);
   if (fk_marking ? alloc_since_gc > RT->next_step : alloc_since_gc > gc_threshold) gc_due();
   if (words > MAX_SMALL) {
     o = (V *)alloc_large(words);
@@ -1070,6 +1082,7 @@ static __attribute__((noinline)) V alloc_slow(size_t words, int kind, int n, uin
   h->n = (uint16_t)n;
   h->aux = aux;
   if (fk_marking) alloc_black(o);
+  ALLOC_BUSY(false);
   return (V)o;
 }
 
@@ -2264,6 +2277,71 @@ void fk_init(void) {
 /* Generated code has no stack check: overflowing reaches the guard
    region below the stack and faults. The handler runs on its own stack. */
 
+#ifdef FK_SESSIONS
+#if defined(__APPLE__) && defined(__aarch64__)
+#define FAULT_PC(u) ((u)->uc_mcontext->__ss.__pc)
+#define FAULT_SP(u) ((u)->uc_mcontext->__ss.__sp)
+#elif defined(__APPLE__) && defined(__x86_64__)
+#define FAULT_PC(u) ((u)->uc_mcontext->__ss.__rip)
+#define FAULT_SP(u) ((u)->uc_mcontext->__ss.__rsp)
+#elif defined(__linux__) && defined(__x86_64__)
+#define FAULT_PC(u) ((u)->uc_mcontext.gregs[REG_RIP])
+#define FAULT_SP(u) ((u)->uc_mcontext.gregs[REG_RSP])
+#elif defined(__linux__) && defined(__aarch64__)
+#define FAULT_PC(u) ((u)->uc_mcontext.pc)
+#define FAULT_SP(u) ((u)->uc_mcontext.sp)
+#endif
+#endif
+
+#ifdef FAULT_PC
+#include <dlfcn.h>
+#include <sys/ucontext.h>
+
+#define OVERFLOW_ROOM ((size_t)512 << 10) /* for the message, above the guard; below stack_limit */
+
+/* A system library may hold a lock, which an unwind would never release. By
+   path, or by holding malloc, as a host that links its own allocator does: its
+   whole image then counts. Only the top frame is checked. A library in
+   /usr/lib that is not the system's only loses the recovery. */
+static bool in_system_library(uintptr_t pc) {
+  static const char *const dirs[] = {"/usr/lib", "/lib", "/System/"}; /* /lib64, /usr/lib64 too */
+  Dl_info info, allocator;
+  if (!dladdr((void *)pc, &info) || !info.dli_fname) return true;
+  if (dladdr((void *)malloc, &allocator) && allocator.dli_fbase == info.dli_fbase) return true;
+  for (size_t i = 0; i < sizeof dirs / sizeof dirs[0]; i++)
+    if (!strncmp(info.dli_fname, dirs[i], strlen(dirs[i]))) return true;
+  return false;
+}
+
+/* The frames below the error's target are abandoned, as for any runtime error,
+   and the new frames lie among them, so the target must be above them. */
+static bool overflow_recoverable(FkRt *r, ucontext_t *u) {
+  char *target = (char *)r->sh.error_jmp;
+  return pthread_equal(pthread_self(), r->funk_thread) && target > r->sh.stack_limit &&
+         !r->in_alloc && !r->overflowing && !in_system_library((uintptr_t)FAULT_PC(u));
+}
+
+/* The handler returns here, on the session's stack, so the signal mask and
+   the signal stack need no restoring and RT works: no siglongjmp. */
+static _Noreturn void overflow_resume(void) {
+  fk_message("runtime error: ", "stack overflow");
+  RT->overflowing = false;
+  fk_cb_rethrow();
+}
+
+static void overflow_redirect(FkRt *r, ucontext_t *u) {
+  uintptr_t sp = ((uintptr_t)r->guard_hi + OVERFLOW_ROOM) & ~(uintptr_t)15;
+#ifdef __x86_64__
+  sp -= 8; /* as after a call */
+#endif
+#ifdef FK_ASAN
+  __asan_unpoison_memory_region(r->guard_hi, (size_t)(r->stack_top - r->guard_hi)); /* the abandoned frames' redzones */
+#endif
+  r->overflowing = true;
+  FAULT_SP(u) = sp;
+  FAULT_PC(u) = (uintptr_t)overflow_resume;
+}
+#endif
 
 /* The handlers funk's replaced. A fault that is not funk's goes to them, so
    a host's handler still runs: a crash reporter, or its own guard pages. */
@@ -2314,7 +2392,17 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
     return;
   }
   if (a >= r->guard_lo && a < r->guard_hi) {
+#ifdef FAULT_PC
+    if (overflow_recoverable(r, ctx)) {
+      overflow_redirect(r, ctx);
+      return;
+    }
+#endif
     static const char msg[] = "runtime error: stack overflow\n";
+    if (fk_fatal_hook) {
+      alarm(5); /* the hook may wait on a lock the overflow left held: the default action ends the process */
+      fk_fatal_hook(fk_fatal_ctx, "stack overflow");
+    }
     fflush(stdout); /* not async-signal-safe, but the process exits next */
     if (write(2, msg, sizeof msg - 1) < 0) {}
     _exit(1);
@@ -2334,7 +2422,7 @@ static void *task_main(void *p) {
      unmaps it when the thread ends; else ours, freed here */
   stack_t ss = {0}, off = {.ss_flags = SS_DISABLE};
   if (sigaltstack(NULL, &ss) != 0 || (ss.ss_flags & SS_DISABLE)) {
-    ss = (stack_t){.ss_sp = malloc(1 << 16), .ss_size = 1 << 16};
+    ss = (stack_t){.ss_sp = malloc(1 << 20), .ss_size = 1 << 20}; /* funk_on_fatal's hook runs on it */
     if (ss.ss_sp && sigaltstack(&ss, NULL) != 0) {
       free(ss.ss_sp);
       ss.ss_sp = NULL;

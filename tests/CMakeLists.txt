@@ -127,7 +127,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory session sessions compile_limit kernels)
+foreach(n signals output interrupt memory overflow session sessions compile_limit kernels)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -180,6 +180,23 @@ add_test(NAME embed/interrupt
   COMMAND sh -c "\"$<TARGET_FILE:embed_interrupt>\" 2>/dev/null | diff tests/embed/interrupt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(embed/interrupt PROPERTIES LABELS embed TIMEOUT 300)
+foreach(t overflow overflow/stress)
+  add_test(NAME embed/${t}
+    COMMAND sh -c "\"$<TARGET_FILE:embed_overflow>\" tests/embed/overflow.fk 2>&1 | diff tests/embed/overflow.expected -"
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+endforeach()
+set_tests_properties(embed/overflow embed/overflow/stress PROPERTIES LABELS "embed;ffi" TIMEOUT 300)
+set_tests_properties(embed/overflow/stress PROPERTIES ENVIRONMENT FUNK_GCSTRESS=1)
+if(NOT FUNK_SANITIZE) # sanitizers define malloc themselves
+  add_executable(embed_overflow_malloc embed/overflow.c)
+  target_compile_definitions(embed_overflow_malloc PRIVATE HOST_MALLOC)
+  target_link_libraries(embed_overflow_malloc PRIVATE libfunk)
+  add_test(NAME embed/overflow/malloc
+    COMMAND sh -c "\"$<TARGET_FILE:embed_overflow_malloc>\" tests/embed/overflow.fk 2>&1"
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  set_tests_properties(embed/overflow/malloc PROPERTIES LABELS "embed;ffi" TIMEOUT 300
+    PASS_REGULAR_EXPRESSION "hook: stack overflow, ctx set\nruntime error: stack overflow\n$")
+endif()
 add_test(NAME embed/memory
   COMMAND sh -c "\"$<TARGET_FILE:embed_memory>\" 2>&1 | diff tests/embed/memory.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
@@ -358,6 +375,8 @@ set_property(TEST cli/compile_limit APPEND PROPERTY ENVIRONMENT FK_COMPILE_LIMIT
 # - embed/sessions: freed memory waits in ASan's quarantine, so it measures without one.
 # LeakSanitizer is off: funk frees a session's memory, not the process's at exit.
 if(FUNK_SANITIZE MATCHES "address")
+  # embed/overflow: ASan defines malloc, in the test's own image where it links statically, so nothing recovers there
+  set_tests_properties(embed/overflow embed/overflow/stress PROPERTIES DISABLED TRUE)
   set_tests_properties(run/overflow/interp embed/memory embed/memory/stress PROPERTIES DISABLED TRUE)
   set_tests_properties(embed/sessions PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:quarantine_size_mb=0")
   set_tests_properties(embed/sessions/stress PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:quarantine_size_mb=0;FUNK_GCSTRESS=1")
