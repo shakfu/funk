@@ -5,7 +5,12 @@ Status: design agreed 2026-11-01. Not implemented or prototyped.
 A signature may name parameters and give them defaults. `.{ }` then fills them by name.
 
 ```haskell
-adsr :: attack:Sig = 0.1 -> decay:Sig = 0.5 -> sustain:Sig = 0.3 -> release:Sig = 0.3 -> gate:Sig -> Sig
+adsr :: attack:Sig = 0.1
+     -> decay:Sig = 0.5
+     -> sustain:Sig = 0.3
+     -> release:Sig = 0.3
+     -> gate:Sig
+     -> Sig
 adsr a d s r gate = ...
 
 adsr 0.1                      -- partial application: 4 arguments still to come
@@ -24,29 +29,33 @@ soft = pluck .{ release = 1 }                   -- presets chain
 
 - **Currying:** positional calls never use defaults, and the function's type stays a chain of arrows. Existing code is unaffected.
 - **`.{ }`:** fills the named fields and the defaults. Parameters with no value stay positional, in declared order.
+- **Position:** `.{` follows a known name directly, and nothing else. `adsr 0.1 .{ decay = 1 }` is a compile error. A local that shadows the name is not the known function, so `\adsr -> adsr .{ }` is a compile error.
+- **Signatures:** a named signature may take one parameter per line.
 - **Names:** a signature's names are the API; parameter names stay local. `attack:Sig` over a parameter `a` is valid, and renaming `a` breaks no caller.
 - **Partial naming:** a signature may name some parameters. The others stay positional.
 - **Which functions:** top-level functions and foreign imports with named signatures. Class methods are excluded. `.{ }` on anything else, such as a function parameter, is a compile error.
-- **Defaults:** pure, and cannot refer to other parameters. Evaluated at each call that uses them.
-- **Evaluation order:** field values run as written, then the call runs in declared order, since evaluation is strict and effects must not reorder.
+- **Values:** a default or a preset's field is pure, and cannot refer to parameters. So when it runs cannot be observed. A value with effects is bound first, and passed by name.
+- **Evaluation order:** a call's field values run once, as written, before the call. In an unfilled call they run when `.{ }` is evaluated, not at each later call, so `adsr .{ attack = f x }` computes `f x` once.
 - **Effects:** `.{ }` keeps each `->` or `->>` as declared.
 - **Literals:** a field takes its type from the signature, so `attack = 0.2` can be a `Sig`.
-- **Presets:** a top-level binding `p = f .{ ... }` keeps `f`'s names, and its fields become `p`'s defaults. Its positional parameters are those with no value, and its own fields can still be overridden by name. Each field value is evaluated once, when the preset is defined, so unlike a signature's default it may have effects and may refer to any top-level value.
-- **Errors:** an unknown name, a name given twice, and a positional-only target are compile errors.
+- **Presets:** a top-level binding `p = f .{ ... }` keeps `f`'s names, and its fields become `p`'s defaults. Its positional parameters are those with no value, and its own fields can still be overridden by name. A field may refer to top-level values. The form is exact: `pluck g = adsr .{ ... } g` is an ordinary function, and `pluck .{ }` on it is an error saying that only `p = f .{ ... }` keeps names.
+- **Errors:** an unknown name, a name given twice, and a positional-only target are compile errors. `adsr { attack = 0.2 }` on a function with names is an error suggesting `.{`.
 
 ## Implementation
 
-`.{ }` is rewritten to a positional call before inference. A call with every argument becomes a direct call, so it allocates nothing and works in kernels. Otherwise it becomes a lambda, which kernels already reject.
+`.{ }` is rewritten to a positional call before inference. A call with every argument becomes a direct call, so it allocates nothing and works in kernels. Otherwise it becomes a lambda, which kernels already reject. Field values that need ordering go in strict bindings outside the call or lambda: an ordinary `let` can be lazy, so it does not fix the order.
 
 - **Parser:** `name:Type = default` in a signature, and `.{` as an adjacent `.` and `{`. Checked 2026-11-01: `f :: x:Int -> Int` and `f . { }` are both parse errors today, so neither form changes the meaning of a valid program.
 - **Globals:** each stores its names and defaults, across modules, so `d.adsr .{ }` resolves.
 - **Check:** the rewrite, before inference.
-- **Presets:** a preset's global stores its target and one hidden top-level value per field. `pluck .{ release = 1 } gate` becomes `adsr $pluck.attack 0.5 $pluck.sustain 1 gate`. Copying the field's expression to each use was the alternative: a local at the use could shadow its names, and it would run at every use.
+- **Presets:** a preset's global stores its target and one hidden top-level value per field. `pluck .{ release = 1 } gate` becomes `adsr $pluck.attack 0.5 $pluck.sustain 1 gate`. Copying the field's expression to each use was the alternative: a local at the use could shadow its names, and it would recompute at every use.
 
 ## Decisions
 
 - **Defaults in the signature, over the definition (`adsr a=0.1 ... = ...`).** Several `=` in a function head are hard to parse, multi-clause definitions have no place for them, and foreign imports have no definition.
 - **A rewrite, over a generated record type.** Generated fields would compete in field inference, which picks the only loaded type with a field, so `e.attack` could become ambiguous. An unnamed type also cannot be written in a signature.
+- **Pure defaults and fields, over effects in either.** Defaults that run at each call beside fields that run once would make moving a value between them change when it runs.
+- **`.{`, over reusing `f { }`.** A function with names cannot also be a record, so the dot is not strictly needed. It keeps a call visibly apart from a record update.
 - **Over labels in types, as in OCaml.** Those survive higher-order use, but affect unification, class methods, effects and error messages.
 - **Over a handwritten record per function.** That works today, but needs a type and a helper for each function.
 - **Preset inheritance, over wrappers.** A wrapper needs no compiler support and can hide parameters, but restates types and defaults. Wrappers still work where a preset should hide a parameter.
@@ -77,4 +86,17 @@ The names come from `env`'s annotation. At the call, the compiler adapts `pluck`
 sig = spread (\release gate -> pluck .{ release = release } gate)
 ```
 
-Names stay out of unification, so this costs far less than labels in types. It is not part of the first version: a generated wrapper at each such call needs its own design for an argument that is not a known function, such as a parameter passed on. Add it when wrappers like the lambda above recur.
+This is likely to be needed, but it is not part of the first version, and it needs its own design:
+
+- **Arity:** `pluck` is a `Sig -> Sig` where a `Sig -> Sig -> Sig` is expected, so the adapter must run before unification rejects the call. The checker must know the parameter's type when it reaches the argument, which function calls do not need today.
+- **Unknown arguments:** an argument that is not a known function, such as a parameter passed on, has no names to adapt from. It probably has to be a compile error unless its own type is named.
+
+Add it when wrappers like the lambda above recur.
+
+## Build order
+
+Each stage is useful alone.
+
+1. Named signatures, defaults and the rewrite, on `lib/dsp.fk`'s 8 functions of four or more parameters: `adsr`, `adsrExp`, `compress`, `comb`, `allpass`, `chorus`, `flanger`, `reverb`.
+2. Preset inheritance, once patches use presets.
+3. Named parameter types, once wrappers justify the design work.
