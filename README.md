@@ -35,10 +35,10 @@ make test                     # interpreter, compiled, error, REPL and command-l
 make test ARGS="-R gcdeep"     # the tests whose names match; ARGS go to ctest (-L ffi for a label)
 make SANITIZE=undefined test  # the same, with funk built under UBSan; build/ is rebuilt
 make bench                    # time funk against C; see bench/README.md
-make install PREFIX=~/.local  # install funk into PREFIX/bin
+make install                  # install funk into ~/.local/bin
 ```
 
-CMake works directly too: `cmake -B build && cmake --build build && ctest --test-dir build`. `BUILD_TYPE` (default `RelWithDebInfo`) applies when a build directory is first configured.
+CMake works directly too: `cmake -B build && cmake --build build && ctest --test-dir build`. `cmake --install build --prefix DIR` installs funk, `libfunk` and its CMake package into `DIR`. `BUILD_TYPE` (default `RelWithDebInfo`) applies when a build directory is first configured.
 
 ```sh
 funk                          # REPL

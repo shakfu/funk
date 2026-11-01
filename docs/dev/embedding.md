@@ -41,7 +41,7 @@ Needed by every host, whatever follows.
 4. **Memory sizes.** Done, 2026-10-28: `funk_memory(heap, threshold, stack)` before `funk_main`; test `embed/memory`. The threshold stays at most a quarter of the heap's limit. Empty chunks are reusable by any size class; those beyond the threshold go back to the system, and after "out of memory" a full collection runs at once, so the heap falls back. In the CLAP plugin, a 512 MiB limit reached left the host at 217 MiB, against 589 MiB before.
 
 5. **Symbol isolation.** Done, 2026-10-29, but for `funk build --shared`:
-   - `libfunk` is built with `-fvisibility=hidden` and exports only `libfunk.h`'s `funk_*` (test `embed/exports`). `make install` installs `libfunk.a`, `libfunk.h` and a CMake package, `find_package(funk)` giving `funk::libfunk` (test `embed/package`).
+   - `libfunk` is built with `-fvisibility=hidden` and exports only `libfunk.h`'s `funk_*` (test `embed/exports`). `cmake --install` installs `libfunk.a`, `libfunk.h` and a CMake package, `find_package(funk)` giving `funk::libfunk` (test `embed/package`).
 
    - Foreign-import glue reaches the runtime through pointers that `ffi_load` sets after loading it, not through symbols (`GLUE_NAMES` in `ffi.c`; test `embed/plugin`). Measured on macOS before the change, with two modules each embedding `libfunk`: loaded `RTLD_LOCAL`, or exporting only an entry point as a CLAP plugin does, glue failed to load (`symbol not found in flat namespace`); loaded `RTLD_GLOBAL`, the second module's glue bound the first's runtime. The glue's cache key includes the path of the image that loads it, since two plugins loading one file would share one image and one set of pointers.
 

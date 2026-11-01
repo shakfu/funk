@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-01
+
 ### Added
 
 - The plugin compiles a kernel while playing: a paragraph with a `foreign export` becomes a library in about 90 ms, and 9 ms when unchanged, and `sig` plays it from the next block. Over `dlclose`, old libraries stay loaded until the plugin goes, since a retiring graph may still run them. The compile has its own thread and session, because a session that installs exports refuses them, and a compile on the evaluator's thread made a looping `pat`'s notes 21 ms late. `funk_compile_kernels` is the API, and `lib/ugen.fk` holds what a kernel needs. It needs `$CC`; without one, the built-in kernels still play ([docs/music.md](docs/music.md)).
@@ -47,6 +49,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `projects/tree-sitter-funk`: a tree-sitter grammar for highlighting funk in Helix and Neovim, forked from tree-sitter-haskell 0.24.1, whose layout scanner handled funk's layout in every file. The fork adds funk's syntax: lowercase module names and qualifiers, definitions in a type's namespace, `foreign library`, `foreign struct` and `->>`. `make tree-sitter` parses every `.fk` file in the repository, 238, without errors; upstream parsed 166 of them. A new grammar would have needed its own layout scanner ([projects/tree-sitter-funk/README.md](projects/tree-sitter-funk/README.md)).
 
 ### Changed
+
+- `make install` copies only the `funk` binary to `~/.local/bin`, and `PREFIX` is gone. To install `libfunk` and its CMake package, or to choose a prefix, use `cmake --install build --prefix DIR`.
 
 - `pipeline` runs interpreted at n = 1,000,000 instead of 100,000,000 (`INTERP_SIZES` in `bench/bench.py`), which takes `make bench` from about 30 minutes to about 3. Interpreted time per element is unchanged; the larger size, chosen so C's vectorized loop is measurable, broke the benchmarks' 3 s rule.
 
