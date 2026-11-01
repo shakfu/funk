@@ -244,6 +244,8 @@ Errors leave the music playing:
 
 The editor opens with a `sig` and a `pat`: evaluate both paragraphs to hear `pat`'s notes on the plugin's voices. Notes the DAW sends to the plugin, from a keyboard or a MIDI clip, play the same voices.
 
+In REAPER, Space types while the code field is active; click outside it, or in another window, for the transport.
+
 In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. stops: running code, notes and `sig`, which stays silent until it is evaluated again. A host resetting the plugin leaves `sig` playing.
 
 | Code | Live on | Live off |

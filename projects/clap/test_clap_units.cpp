@@ -197,8 +197,44 @@ void testLivePlayback()
 
 } // namespace
 
+// --- REAPER's hwnd_info hook --------------------------------------------
+
+std::vector<std::string> gRegistered;
+
+int fakeRegister(const char* name, void*)
+{
+	gRegistered.push_back(name);
+	return 1;
+}
+
+void testReaperTextFields()
+{
+	const ReaperInfo reaper = {0, nullptr, fakeRegister, nullptr};
+	int a = 0, b = 0, windowA = 0, windowB = 0, other = 0;
+	bool active = true;
+	check(ReaperHwndInfo(&windowA, 0) == 0, "no editor: not known");
+	ReaperAddTextFields(nullptr, &a, [](const void*) { return true; }); // another host
+	check(gRegistered.empty() && ReaperHwndInfo(&other, 0) == 0, "not REAPER: nothing registered");
+	ReaperRemoveTextFields(&a);
+	ReaperAddTextFields(&reaper, &a, [&](const void* w) { return w == &windowA && active; });
+	ReaperAddTextFields(&reaper, &b, [&](const void* w) { return w == &windowB; });
+	check(gRegistered.size() == 1 && gRegistered[0] == "hwnd_info", "one hook for two editors");
+	check(ReaperHwndInfo(&windowA, 0) == 1 && ReaperHwndInfo(&windowA, 1) == 1, "active field");
+	check(ReaperHwndInfo(&windowA, 2) == 0, "unknown query");
+	check(ReaperHwndInfo(&other, 0) == 0, "another window");
+	active = false;
+	check(ReaperHwndInfo(&windowA, 0) == 0, "field not active: REAPER keeps Space");
+	ReaperRemoveTextFields(&a);
+	check(gRegistered.size() == 1 && ReaperHwndInfo(&windowB, 0) == 1, "the other editor keeps the hook");
+	ReaperRemoveTextFields(&b);
+	check(gRegistered.size() == 2 && gRegistered[1] == "-hwnd_info", "the last editor removes it");
+	ReaperRemoveTextFields(&b);
+	check(gRegistered.size() == 2, "removing twice is harmless");
+}
+
 int main()
 {
+	testReaperTextFields();
 	testSelection();
 	testBrackets();
 	testParagraphs();

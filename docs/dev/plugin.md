@@ -225,6 +225,10 @@ Done, 2026-10-30: the editor colours funk from `projects/tree-sitter-funk`'s par
 - It builds where `projects/tree-sitter-funk/src/parser.c` (`make tree-sitter`) and the tree-sitter runtime are found; elsewhere, such as CI, the text is plain. The plugin grows from 2.2 MB to 6.4 MB.
 - Tests: `hosts/clap/colours` draws the field headless, by ImGui and by `DrawTokens`, and compares every glyph's vertices: wrapped or not, scrolled down or right, active, and at fractional font sizes. An ImGui update that moves its text fails it. `hosts/clap/highlight` checks a token per construct.
 
+## Keys in REAPER
+
+Done, 2026-11-01: while the editor's code field is active, REAPER treats the editor as a text field, so Space types. Elsewhere Space stays the transport's. CLAP has no call that offers a plugin a key, unlike VST3's `IPlugView::onKeyDown`, so the plugin answers REAPER's `hwnd_info` query, reached through `cockos.reaper_extension` ([SDK](https://github.com/justinfrankel/reaper-sdk/blob/main/sdk/reaper_plugin.h)). An `NSEvent` local monitor was the alternative, measured too late: it runs inside `NSApplication`'s `sendEvent:`, after an override's code. Other hosts are unchanged. The window's match assumes REAPER passes the native view as the HWND, as on macOS and Windows; SWELL's Linux handles are not X11 windows, so there it finds no match.
+
 ## Open questions
 
 1. Should the host's notes reach funk code, for patterns that answer them, or the MIDI output?

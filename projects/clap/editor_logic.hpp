@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 // A byte's class for the editor's syntax colours (LanguageInfo::highlight).
@@ -34,3 +35,21 @@ struct EvalSyntax {
 // blank lines around it. kBrackets extends it to the whole multi-line top-level ( ), [ ] or { }
 // group it is part of. Returns "" for blank code.
 std::string SelectEvalCode(const std::string& text, int selStart, int selEnd, int cursor, const EvalSyntax& syntax);
+
+// REAPER's API, from clap_host.get_extension(host, "cockos.reaper_extension");
+// reaper_plugin_info_t in its SDK's reaper_plugin.h.
+struct ReaperInfo {
+	int caller_version;
+	void* hwnd_main;
+	int (*Register)(const char* name, void* info);
+	void* (*GetFunc)(const char* name);
+};
+
+// CLAP has no call that offers a plugin a key, so REAPER runs its shortcuts first, Space's
+// transport among them, unless told a window is a text field. isTextField answers for a native
+// window. One hwnd_info hook serves every editor, and goes with the last: main thread only.
+void ReaperAddTextFields(const ReaperInfo* reaper, const void* owner, std::function<bool(const void* window)> isTextField);
+void ReaperRemoveTextFields(const void* owner);
+
+// What the hook answers for hwnd_info's query; the arguments are those of the callback.
+int ReaperHwndInfo(void* hwnd, intptr_t infoType);

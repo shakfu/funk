@@ -17,6 +17,7 @@
 // Each instance has its own Language, so its own interpreter.
 
 #include "editor.hpp"
+#include "editor_logic.hpp"
 #include "language.hpp"
 #include "timeline.hpp"
 #include "udp_server.hpp"
@@ -666,6 +667,8 @@ private:
 		callbacks.drainLog = [this] { return drainLog(); };
 		editor_ = CreateEditor(std::move(callbacks), EditorState{editorText_, udpOn_, wrap_, tl_.live, udpPort_}, kLanguage);
 		if (!editor_) return false;
+		ReaperAddTextFields((const ReaperInfo*)host_->get_extension(host_, "cockos.reaper_extension"), this,
+		                    [this](const void* window) { return editor_->isTextField(window); });
 		// The host timer drives the editor; on X11 nothing else dispatches its events.
 		auto* timers = (const clap_host_timer_support_t*)host_->get_extension(host_, CLAP_EXT_TIMER_SUPPORT);
 		if (!timers || !timers->register_timer(host_, 16, &timerId_)) {
@@ -677,6 +680,7 @@ private:
 
 	void destroyEditor()
 	{
+		ReaperRemoveTextFields(this);
 		if (timerId_ != CLAP_INVALID_ID) {
 			auto* timers = (const clap_host_timer_support_t*)host_->get_extension(host_, CLAP_EXT_TIMER_SUPPORT);
 			if (timers) timers->unregister_timer(host_, timerId_);

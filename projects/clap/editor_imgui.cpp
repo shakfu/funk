@@ -181,6 +181,13 @@ public:
 	void setWrap(bool on) override { wrap_ = on; }
 	void setLive(bool on) override { live_ = on; }
 
+	bool isTextField(const void* window) override
+	{
+		if (!realized_ || window != (const void*)puglGetNativeView(view_)) return false;
+		ImGui::SetCurrentContext(context_);
+		return ImGui::GetIO().WantTextInput;
+	}
+
 	void idle() override { puglUpdate(world_, 0.0); }
 
 private:

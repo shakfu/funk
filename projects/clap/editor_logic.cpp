@@ -90,3 +90,44 @@ std::string SelectEvalCode(const std::string& text, int selStart, int selEnd, in
 	std::string code = text.substr(begin, end - begin);
 	return IsBlank(code) ? std::string() : code;
 }
+
+namespace {
+
+struct TextFields {
+	const void* owner;
+	std::function<bool(const void*)> isTextField;
+};
+
+std::vector<TextFields> gTextFields;
+const ReaperInfo* gReaper = nullptr;
+
+} // namespace
+
+int ReaperHwndInfo(void* hwnd, intptr_t infoType)
+{
+	if (infoType != 0 && infoType != 1) return 0; // 0: a text field? 1: skip global hotkeys?
+	for (const TextFields& t : gTextFields) {
+		if (t.isTextField(hwnd)) return 1;
+	}
+	return 0; // not known: REAPER decides, so Space is the transport's outside the code field
+}
+
+void ReaperAddTextFields(const ReaperInfo* reaper, const void* owner, std::function<bool(const void* window)> isTextField)
+{
+	if (!reaper || !reaper->Register) return;
+	if (gTextFields.empty()) {
+		if (!reaper->Register("hwnd_info", (void*)ReaperHwndInfo)) return;
+		gReaper = reaper;
+	}
+	gTextFields.push_back({owner, std::move(isTextField)});
+}
+
+void ReaperRemoveTextFields(const void* owner)
+{
+	const size_t before = gTextFields.size();
+	gTextFields.erase(std::remove_if(gTextFields.begin(), gTextFields.end(), [&](const TextFields& t) { return t.owner == owner; }), gTextFields.end());
+	if (before && gTextFields.empty()) {
+		gReaper->Register("-hwnd_info", (void*)ReaperHwndInfo); // the plugin may be unloaded next
+		gReaper = nullptr;
+	}
+}

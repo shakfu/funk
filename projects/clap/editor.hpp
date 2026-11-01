@@ -38,6 +38,8 @@ public:
 	virtual void setText(const std::string& text) = 0;
 	virtual void setWrap(bool on) = 0;
 	virtual void setLive(bool on) = 0;
+	// Whether window is this editor's, with its text field active.
+	virtual bool isTextField(const void* window) = 0;
 	// Called from the host's timer. Required on X11, where nothing else dispatches the editor's events.
 	virtual void idle() = 0;
 };
