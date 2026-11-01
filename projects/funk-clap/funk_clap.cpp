@@ -381,6 +381,18 @@ public:
 		pending_ = {};
 	}
 
+	void stopSound(std::string& out) override
+	{
+		if (!audio_.ready || !audio_.haveSig) return;
+		audio_.haveSig = false;
+		long arg = 0, r = 0;
+		session_.call([&] {
+			if (session_.eval("hushsig :: Int ->> Int\nhushsig u = do { g.play audioPlayer g.Silence ; 0 }", out))
+				funk_call(session_.handle(), "hushsig", 1, &arg, &r);
+		}, &out, false);
+		out += "sig is silent until it is evaluated again\n";
+	}
+
 	// False only if funk did not start; without audio, MIDI still plays and the output is silent.
 	bool audioActivate(double rate, uint32_t maxFrames) override
 	{

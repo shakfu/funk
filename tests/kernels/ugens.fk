@@ -340,6 +340,19 @@ main = do
   -- the speed scales pitch, here half
   print (fresh p 3 (dsp.sample wav 1 0.5))
   cremove wav
+  -- named arguments: the same samples as positional, and the rest from defaults
+  print (fresh p 4 (dsp.adsr .{ attack = 0.001, decay = 0.001, sustain = 0.5, release = 0.001 } 1) == fresh p 4 (dsp.adsr 0.001 0.001 0.5 0.001 1))
+  print (fresh p 4 (dsp.adsr .{ gate = 1 }) == fresh p 4 (dsp.adsr 0.01 0.2 0.5 0.3 1))
+  print (fresh p 4 (dsp.adsr .{ attack = 0.002 } 1) == fresh p 4 (dsp.adsr 0.002 0.2 0.5 0.3 1))
+  -- every function's defaults, against the same call written out
+  x <- dsp.sine 1000 * 0.5
+  print (fresh p 64 (dsp.adsrExp .{ } 1) == fresh p 64 (dsp.adsrExp 0.005 0.3 0.4 0.4 1))
+  print (fresh p 64 (dsp.compress .{ } x) == fresh p 64 (dsp.compress (-20.0) 4 0.01 0.1 x))
+  print (fresh p 64 (dsp.comb .{ time = 0.001 } x) == fresh p 64 (dsp.comb 1.0 0.001 0.5 0.2 x))
+  print (fresh p 64 (dsp.allpass .{ time = 0.001 } x) == fresh p 64 (dsp.allpass 0.1 0.001 0.5 x))
+  print (fresh p 64 (dsp.chorus .{ } x) == fresh p 64 (dsp.chorus 0.8 0.005 0.5 x))
+  print (fresh p 64 (dsp.flanger .{ } x) == fresh p 64 (dsp.flanger 0.3 0.003 0.5 x))
+  print (fresh p 64 (dsp.reverb .{ } x) == fresh p 64 (dsp.reverb 0.7 0.4 0.3 x))
   g.close p
   g.close q
   g.close r

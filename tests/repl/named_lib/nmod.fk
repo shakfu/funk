@@ -1,0 +1,6 @@
+module nmod where
+import nkinds as k
+base :: Int
+base = 1
+env :: Num a => (a, [k.Sig]) -> f:(k.Sig -> k.Sig) -> amount:Int = (base + 1) -> Maybe k.Sig ->> k.Sig
+env p f a m = f (k.Sig a)

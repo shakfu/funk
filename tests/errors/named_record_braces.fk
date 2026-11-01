@@ -1,0 +1,4 @@
+-- expect: write `f .{ ... }`
+f :: x:Int = 1 -> y:Int -> Int
+f x y = x + y
+main = print (f { x = 1 } 2)

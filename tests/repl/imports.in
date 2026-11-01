@@ -3,6 +3,7 @@ area (Circle 1.0)
 shapes.area (Square 2.0)
 twice s = area s * 2.0
 twice (Square 1.0)
+:tq shapes.area
 :t shapes.area
 import tests.run.nosuch
 area (Square 3.0)

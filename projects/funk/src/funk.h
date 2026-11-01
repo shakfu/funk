@@ -82,6 +82,7 @@ typedef struct {
   double fval;
   int line, col;
   bool bol; /* first token on its line */
+  const char *text, *text_end; /* its source */
 } Token;
 
 Token *lex(const char *src, size_t len, int *ntok); /* includes layout */
@@ -102,6 +103,9 @@ typedef struct TypeExpr {
   const char *name;
   int n;
   struct TypeExpr **args;
+  const char *pname;    /* TE_FUN: its parameter's name, or NULL (named-args.md) */
+  struct Expr *pdefault; /* and its default, or NULL */
+  const char *pdefault_text; /* the default's source, for `:t` */
 } TypeExpr;
 
 typedef struct {
@@ -140,7 +144,8 @@ struct Alt { int np; Pat **pats; Rhs rhs; };
 
 enum { E_VAR, E_CON, E_INT, E_FLOAT, E_CHAR, E_STR, E_APP, E_LAM, E_LET, E_IF, E_CASE, E_ANN,
        E_FIELD,   /* body.name; check lowers it to a case */
-       E_RECORD }; /* fn { fields = args }: construction if fn is E_CON, else update */
+       E_RECORD,  /* fn { fields = args }: construction if fn is E_CON, else update */
+       E_NAMED }; /* fn .{ fields = args }: check rewrites it to a positional call (named-args.md) */
 enum { VK_NONE, VK_LOCAL, VK_FREE, VK_GLOBAL };
 
 struct Expr {
@@ -209,6 +214,7 @@ struct Bind {
   struct Bind *own_of; /* a copy: the function copied */
   struct Expr *own_src; /* the body before calls were redirected, for copies */
   struct Bind *from; /* type-class clone: the definition it was cloned from */
+  const char *named_field; /* a value in `.{ }`: its field, for messages */
   bool pure, total;  /* no effects; and cannot fail, given such arguments (fusion.md) */
   bool prelude;      /* defined in the prelude */
   bool acts;         /* a `let` statement in `do` whose evaluation can act: evaluated on its line, not lazily */
@@ -369,6 +375,7 @@ typedef struct {
   Bind *bind;       /* top-level binding, for specialization */
   int mcls, midx;   /* class method: class and method index, else -1 */
   ForeignDecl *ffi; /* a foreign import */
+  Sig *named;       /* its signature, if that names a parameter */
 } Global;
 
 typedef struct { const char *name; int arity; Type *scheme; int tydef; const char **labels; } ConDef;

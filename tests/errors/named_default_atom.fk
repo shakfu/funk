@@ -1,0 +1,5 @@
+-- expect: `s`'s default must be one atom
+f :: s:Int = g 1 -> Int
+f s = s
+g x = x
+main = print (f .{ })

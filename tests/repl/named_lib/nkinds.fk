@@ -1,0 +1,2 @@
+module nkinds where
+data Sig = Sig Int

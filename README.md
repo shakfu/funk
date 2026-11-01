@@ -58,7 +58,8 @@ REPL commands:
 
 | Command | Effect |
 |-|-|
-| `:t EXPR` | print the type of `EXPR` |
+| `:t EXPR` | print the type of `EXPR`, without type qualifiers |
+| `:tq EXPR` | the same, with them |
 | `:l FILE` | load definitions from `FILE` |
 | `:{` ... `:}` | multi-line input |
 | `:q` | quit |

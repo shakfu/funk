@@ -117,7 +117,7 @@ Tables are read-only samples, loaded on funk's thread and read by many nodes. A 
 
 `dspbench` measures the worst block with a swap to a graph reading a 1 s table at about 1 us, its clock's resolution, the same as without a swap. `kernels/tables` replaces a file 400 times while an audio thread renders, with no wrong samples, also under AddressSanitizer and ThreadSanitizer.
 
-Implemented 2026-11-01. Done when: a sampler plays a file in a DAW, and replacing the file during playback misses no block. That listen is outstanding.
+Done 2026-11-01: `d.sample` and `d.wavetable` played in `make clap-dev`, and replacing a file while it played, then evaluating `sig`, missed no block. The roadmap named a DAW; none was used.
 
 ### Later: only on demand
 

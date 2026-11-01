@@ -450,6 +450,34 @@ void CheckAudio(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 		Events wave = Play(plugin, 0., 16);
 		check(FirstWhere(wave.audio, 0, true) >= 0, "the [table] case sounds");
 	}
+	if (cases.count("named")) {
+		reply = Eval(cases["named"]);
+		check(reply.find("error") == std::string::npos, "the [named] case evaluates: " + reply);
+		Events wave = Play(plugin, 0., 16);
+		check(FirstWhere(wave.audio, 0, true) >= 0, "the [named] case sounds");
+	}
+	if (cases.count("drone")) {
+		// A host's reset leaves `sig` playing, since a host may reset at any time. The editor's
+		// Stop silences it, until it is evaluated again.
+		reply = Eval(cases["drone"]);
+		check(reply.find("error") == std::string::npos, "the [drone] case evaluates: " + reply);
+		check(FirstWhere(Play(plugin, 0., 16).audio, 0, true) >= 0, "a sig without notes sounds");
+		plugin->reset(plugin);
+		check(FirstWhere(Play(plugin, 0., 16).audio, 0, true) >= 0, "a host's reset leaves sig playing");
+		struct EditorStop { void (*stop)(const clap_plugin_t*); };
+		auto* stop = (const EditorStop*)plugin->get_extension(plugin, "funk.editor-stop");
+		check(stop != nullptr, "the plugin has the editor's Stop");
+		if (stop) stop->stop(plugin);
+		bool silent = false;
+		for (int i = 0; i < 200 && !silent; i++) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			Events e = Play(plugin, 0., 16);
+			silent = FirstWhere(e.audio, 0, true) < 0;
+		}
+		check(silent, "the editor's Stop silences sig");
+		reply = Eval(cases["drone"]);
+		check(FirstWhere(Play(plugin, 0., 16).audio, 0, true) >= 0, "evaluating sig again plays it");
+	}
 	if (!cases.count("channels")) return;
 	reply = Eval(cases["channels"]);
 	check(reply.find("error") == std::string::npos, "the [channels] case evaluates: " + reply);

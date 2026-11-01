@@ -155,6 +155,7 @@ static void q_expr(Q *q, Expr *e) {
   case E_CON: e->name = ren_con(q, e->name, e->line, e->col); break;
   case E_APP:
   case E_RECORD:
+  case E_NAMED:
     q_expr(q, e->fn);
     for (int i = 0; i < e->n; i++) q_expr(q, e->args[i]);
     break;

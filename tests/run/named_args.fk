@@ -1,0 +1,69 @@
+-- named arguments (docs/dev/named-args.md)
+env :: attack:Int = 1
+    -> decay:Int = 2
+    -> sustain:Float = 0.5
+    -> gate:Int
+    -> [Float]
+env a d s g = [toFloat a, toFloat d, s, toFloat g]
+
+-- a parameter need not be named, and an unnamed one stays positional
+mix :: Int -> level:Int = -3 -> Int -> Int
+mix a l b = a * 100 + l * 10 + b
+
+-- no default: a named parameter stays positional until given
+need :: x:Int -> y:Int = 7 -> Int
+need x y = x * y
+
+base :: Int
+base = 40
+
+-- a default may use a top-level value, and be overloaded
+twiceDefault :: n:Int = (base + 2) -> Int
+twiceDefault n = 2 * n
+
+poly :: Num a => x:a = 1 -> y:a -> a
+poly x y = x + y
+
+-- a constraint applies only to the defaults whose types mention its variable
+tagged :: Num a => n:a = (1 + 2) -> label:String = "x" -> a
+tagged n l = n
+
+-- an effectful function keeps its arrows
+say :: label:String = "hi" -> n:Int ->> ()
+say l n = do
+  putStrLn l
+  print n
+
+two :: Int
+two = 2
+
+main = do
+  -- positional calls never use defaults, and curry as before
+  print (env 9 8 0.25 7)
+  print ((env 9) 8 0.25 7)
+  -- any order, the rest from defaults
+  print (env .{ decay = 5 } 7)
+  print (env .{ gate = 7, attack = 3 })
+  print (env .{ } 7)
+  -- unfilled: a function of the parameters without values
+  f <- env .{ sustain = 1.0 }
+  print (f 1)
+  print (map (env .{ attack = 0 }) [1, 2])
+  -- unnamed and named together
+  print (mix .{ } 1 2)
+  print (mix .{ level = 5 } 1 2)
+  print (need .{ x = 3 })
+  print (need .{ y = 2 } 4)
+  -- values that are not atoms, including locals that share a field's name
+  let attack = 10
+  print (env .{ attack = attack + 1, decay = attack * 2 } 0)
+  print (env .{ attack = two + two } 0)
+  print (twiceDefault .{ })
+  print (poly .{ y = 2 })
+  print (poly .{ x = 1.5, y = 2.0 })
+  print (tagged .{ } + 1)
+  print (tagged .{ n = 2.5 })
+  say .{ } 1
+  say .{ label = "bye", n = 2 }
+  g <- say .{ label = "later" }
+  g 3

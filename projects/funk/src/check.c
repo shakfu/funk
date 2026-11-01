@@ -810,6 +810,13 @@ static void deps_expr(Expr *e, Sh *sh, Deps *d) {
         d->adj[d->cur * d->n + i] = true;
     }
     return;
+  case E_NAMED: /* its rewrite reads the function's defaults */
+    if (e->fn->k == E_VAR) {
+      size_t len = strlen(e->fn->name);
+      for (int i = 0; i < d->n; i++)
+        if (!strncmp(d->b[i]->name, e->fn->name, len) && d->b[i]->name[len] == '$') d->adj[d->cur * d->n + i] = true;
+    }
+    /* fall through */
   case E_RECORD:
     deps_expr(e->fn, sh, d);
     for (int i = 0; i < e->n; i++) deps_expr(e->args[i], sh, d);
@@ -944,6 +951,7 @@ static void split_expr(Expr *e) {
   case E_ANN:
   case E_FIELD: split_expr(e->body); return;
   case E_RECORD:
+  case E_NAMED:
     split_expr(e->fn);
     for (int i = 0; i < e->n; i++) split_expr(e->args[i]);
     return;
@@ -1398,6 +1406,88 @@ static void resolve_fields(bool final) {
   }
 }
 
+static Sig *named_sig(const char *name, Env *env) {
+  for (Env *x = env; x; x = x->next)
+    if (x->name == name) return NULL;
+  int g = global_lookup(name);
+  return g >= 0 ? CS->globals.a[g].named : NULL;
+}
+
+/* e, a named call fn .{ ... } or one applied to arguments, as a positional call
+   (named-args.md). Fields that are not atoms become strict local bindings:
+   effectful_binding rejects any that can act, and in an unfilled call they
+   run once, outside the lambda. */
+static void rewrite_named(Expr *e, Env *env) {
+  Expr *nm = e->k == E_APP ? e->fn : e, *fn = nm->fn;
+  int extra = e->k == E_APP ? e->n : 0, n = 0;
+  Sig *sig = fn->k == E_VAR ? named_sig(fn->name, env) : NULL;
+  if (!sig) {
+    infer(fn, env); /* its own error, if it is not in scope */
+    cerror(nm->line, nm->col, "`%s` has no named parameters", fn->k == E_VAR ? fn->name : "this");
+  }
+  for (TypeExpr *t = sig->t; t->k == TE_FUN; t = t->args[1]) n++;
+  Expr **vals = xcalloc((size_t)n + 1, sizeof *vals);
+  VEC(Bind *) lets = {0};
+  for (int f = 0; f < nm->n; f++) {
+    int i = 0;
+    TypeExpr *t = sig->t;
+    while (t->k == TE_FUN && (!t->pname || strcmp(t->pname, nm->fields[f]))) {
+      t = t->args[1];
+      i++;
+    }
+    if (t->k != TE_FUN) cerror(nm->args[f]->line, nm->args[f]->col, "`%s` has no parameter named `%s`", fn->name, nm->fields[f]);
+    if (vals[i]) cerror(nm->args[f]->line, nm->args[f]->col, "`%s` is given twice", nm->fields[f]);
+    Expr *v = nm->args[f];
+    if (v->k != E_VAR && v->k != E_CON && v->k != E_INT && v->k != E_FLOAT && v->k != E_CHAR && v->k != E_STR) {
+      Bind *b = NEW(Bind);
+      b->name = intern(xsprintf("$named%d", ST->rec_counter++));
+      b->e = v;
+      b->line = v->line;
+      b->col = v->col;
+      b->named_field = nm->fields[f];
+      b->acts = true; /* strict: a kernel may not hold a lazy binding */
+      VPUSH(lets, b);
+      v = ex_var(b->name, v->line, v->col);
+    }
+    vals[i] = v;
+  }
+  Expr **args = xmalloc(((size_t)n + (size_t)extra + 1) * sizeof *args);
+  VEC(const char *) holes = {0};
+  int m = 0, used = 0, i = 0;
+  for (TypeExpr *t = sig->t; t->k == TE_FUN; t = t->args[1], i++) {
+    if (vals[i]) args[m++] = vals[i];
+    else if (t->pdefault) args[m++] = ex_var(intern(xsprintf("%s$%s", fn->name, t->pname)), nm->line, nm->col);
+    else if (used < extra) args[m++] = e->args[used++];
+    else {
+      const char *h = intern(xsprintf("$hole%d", ST->rec_counter++));
+      VPUSH(holes, h);
+      args[m++] = ex_var(h, nm->line, nm->col);
+    }
+  }
+  while (used < extra) args[m++] = e->args[used++];
+  Expr *body = ex_app(fn, m, args);
+  if (holes.n) {
+    Lambda *L = NEW(Lambda);
+    L->n = holes.n;
+    L->params = holes.a;
+    L->body = body;
+    L->line = nm->line;
+    L->col = nm->col;
+    Expr *lam = ex_new(E_LAM, nm->line, nm->col);
+    lam->lam = L;
+    body = lam;
+  }
+  for (int k = lets.n - 1; k >= 0; k--) {
+    Expr *let = ex_new(E_LET, nm->line, nm->col);
+    Bind **bs = xmalloc(sizeof *bs);
+    bs[0] = lets.a[k];
+    let->g = (Group){bs, 1, false};
+    let->body = body;
+    body = let;
+  }
+  *e = *body;
+}
+
 /* Type.x where x is a field: \r -> r.x with r of type Type. */
 static Type *infer_qualified_field(Expr *e, Env *env) {
   const char *dot = ns_dot(e->name);
@@ -1614,7 +1704,14 @@ static Type *infer0(Expr *e, Env *env) {
   case E_FLOAT: return e->ty = floatvar(e->line, e->col);
   case E_CHAR: return tcon0(ST->s_char);
   case E_STR: return tcon0(ST->s_string);
+  case E_NAMED:
+    rewrite_named(e, env);
+    return infer(e, env);
   case E_APP: {
+    if (e->fn->k == E_NAMED) {
+      rewrite_named(e, env);
+      return infer(e, env);
+    }
     Type *tf = infer(e->fn, env);
     int known = known_arity(e->fn, env);
     for (int i = 0; i < e->n; i++) {
@@ -1681,6 +1778,8 @@ static Type *infer0(Expr *e, Env *env) {
       lower_construction(e);
       return infer(e, env);
     }
+    if (e->fn->k == E_VAR && named_sig(e->fn->name, env))
+      cerror(e->line, e->col, "`%s` is a function: write `%s .{ ... }` to fill its parameters by name", e->fn->name, e->fn->name);
     Pending pd = {e, infer(e->fn, env), NULL, xmalloc((size_t)e->n * sizeof(Type *) + 1)};
     for (int i = 0; i < e->n; i++) pd.vals[i] = infer(e->args[i], env);
     VPUSH(ST->pending, pd);
@@ -1703,6 +1802,8 @@ static bool eff_in(Type *t, Type *v) {
 /* Can a binding with effect e act? If e is effectful, or the effect of an
    argument of a function around it, which callers choose. */
 static void effectful_binding(Bind *b, const char *in) {
+  if (b->named_field)
+    cerror(b->line, b->col, "`%s` in `.{ }` can act, but must be pure; bind it first (`x <- ...`)", b->named_field);
   if (b->stmt) { /* a `let` statement in `do` runs on its line */
     b->acts = true;
     return;
@@ -2146,7 +2247,7 @@ static Bind *selector(const char *name, int con, int field, int arity, int line,
 }
 
 static void add_global(const char *name, Type *t, Lambda *lam) {
-  VPUSH(CS->globals, ((Global){name, t, -1, lam, spec_stem(name), NULL, -1, -1, NULL}));
+  VPUSH(CS->globals, ((Global){name, t, -1, lam, spec_stem(name), NULL, -1, -1, NULL, NULL}));
   map_put(&ST->gmap, name, CS->globals.n - 1);
 }
 
@@ -2480,7 +2581,7 @@ void compiler_init(void) {
     add_con(intern(tuples[i]), t, n, intern(tuples[i]));
   }
   for (int i = 0; i < fk_nprims; i++) {
-    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1, NULL};
+    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1, NULL, NULL};
     const char *pn = g.name;
     if ((!strcmp(pn, "putStr") || !strcmp(pn, "putStrLn") || !strcmp(pn, "getLine") || !strncmp(pn, "primPrint", 9))) {
       Type *t = g.type;
@@ -2693,6 +2794,13 @@ static void check_export_code(Module *m) {
   }
 }
 
+static bool sig_names(Sig *s) {
+  if (s)
+    for (TypeExpr *t = s->t; t->k == TE_FUN; t = t->args[1])
+      if (t->pname) return true;
+  return false;
+}
+
 bool compile_chunk(Module *m, Chunk *out) {
   jmp_buf jb, *saved = CS->cerr_jmp;
   int mark = undo_mark(), ng0 = CS->globals.n, nc0 = CS->condefs.n, nt0 = CS->tydefs.n, ncl0 = CS->classes.n, ni0 = CS->insts.n, ns0 = ST->cstructs.n;
@@ -2753,7 +2861,10 @@ bool compile_chunk(Module *m, Chunk *out) {
     b->gidx = CS->globals.n;
     add_global(b->name, NULL, b->e->k == E_LAM ? b->e->lam : NULL);
     CS->globals.a[b->gidx].bind = b;
+    CS->globals.a[b->gidx].named = sig_names(b->sig) ? b->sig : NULL;
   }
+  for (int i = 0; i < m->nforeign; i++)
+    if (!m->foreigns[i]->exported && sig_names(m->foreigns[i]->sig)) CS->globals.a[m->foreigns[i]->gidx].named = m->foreigns[i]->sig;
   Group tmp = {m->binds, m->nb, false};
   split_group_exprs(&tmp);
   int ng;
@@ -2826,7 +2937,55 @@ bool compile_chunk(Module *m, Chunk *out) {
   return true;
 }
 
+static void te_print(SB *b, TypeExpr *t, bool atom) {
+  bool parens = atom && (t->k == TE_FUN || (t->k == TE_CON && t->n));
+  if (parens) sb_puts(b, "(");
+  switch (t->k) {
+  case TE_VAR: sb_puts(b, t->name); break;
+  case TE_CON:
+    sb_puts(b, t->name);
+    for (int i = 0; i < t->n; i++) {
+      sb_puts(b, " ");
+      te_print(b, t->args[i], true);
+    }
+    break;
+  case TE_LIST:
+    sb_puts(b, "[");
+    te_print(b, t->args[0], false);
+    sb_puts(b, "]");
+    break;
+  case TE_TUPLE:
+    sb_puts(b, "(");
+    for (int i = 0; i < t->n; i++) {
+      if (i) sb_puts(b, ", ");
+      te_print(b, t->args[i], false);
+    }
+    sb_puts(b, ")");
+    break;
+  case TE_FUN:
+    if (t->pname) sb_printf(b, "%s:", t->pname);
+    te_print(b, t->args[0], t->args[0]->k == TE_FUN);
+    if (t->pdefault_text) sb_printf(b, " = %s", t->pdefault_text);
+    sb_printf(b, " %s ", t->name ? t->name : "->");
+    te_print(b, t->args[1], false);
+    break;
+  }
+  if (parens) sb_puts(b, ")");
+}
+
+/* A named signature, with its defaults as written. */
+static const char *named_sig_str(Sig *s) {
+  SB b = {0};
+  sb_puts(&b, "");
+  for (int i = 0; i < s->nctx; i++) sb_printf(&b, "%s%s %s%s", i ? ", " : s->nctx > 1 ? "(" : "", s->ctx_cls[i], s->ctx[i], i + 1 == s->nctx && s->nctx > 1 ? ")" : "");
+  if (s->nctx) sb_puts(&b, " => ");
+  te_print(&b, s->t, false);
+  return b.s;
+}
+
 const char *infer_type_text(Expr *e) {
+  Sig *named = e->k == E_VAR ? named_sig(e->name, NULL) : NULL;
+  if (named) return named_sig_str(named); /* names and defaults are not in the type */
   jmp_buf jb, *saved = CS->cerr_jmp;
   if (setjmp(jb)) {
     CS->cerr_jmp = saved;

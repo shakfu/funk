@@ -116,6 +116,7 @@ static void raw_lex(Lexer *L) {
     Token t = {0};
     t.line = L->line;
     t.col = L->col;
+    t.text = L->src + L->pos;
     t.bol = L->bol;
     L->bol = false;
     if (L->pos >= L->len) {
@@ -222,6 +223,7 @@ static void raw_lex(Lexer *L) {
       default: cerror(t.line, t.col, "unexpected character '%c'", c);
       }
     }
+    t.text_end = L->src + L->pos;
     VPUSH(L->out, t);
   }
 }

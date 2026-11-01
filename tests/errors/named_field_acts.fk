@@ -1,0 +1,4 @@
+-- expect: `x` in `.{ }` can act, but must be pure
+f :: x:Int = 1 -> y:Int -> Int
+f x y = x + y
+main = print (f .{ x = length (getLine ()) } 2)

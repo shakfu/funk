@@ -1,0 +1,4 @@
+-- expect: `.{` must directly follow a function's name
+f :: x:Int = 1 -> y:Int -> Int
+f x y = x + y
+main = print (f 1 .{ y = 2 })

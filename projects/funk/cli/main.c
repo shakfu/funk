@@ -1,5 +1,6 @@
 /* main.c -- the command line and the REPL, over libfunk.h. */
 #define _DEFAULT_SOURCE
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -32,7 +33,7 @@ typedef struct { const char *name, *synopsis, *help; } Command;
 
 static const Command commands[] = {
     {"repl", "repl [FILE] [-M DIR] [-I DIR] [-l LIB] [-L DIR]", "Start the REPL, after loading FILE if given. This is the default with no arguments.\n"
-                            "In the REPL, :t EXPR shows a type, :l FILE loads, :{ ... :} is multi-line, :q quits.\n"
+                            "In the REPL, :t EXPR shows a type, :tq EXPR with qualified names, :l FILE loads, :{ ... :} is multi-line, :q quits.\n"
                             "  -M DIR    search DIR for imported modules, after FILE's directory; repeatable\n"
                             "  -I DIR    search DIR for the headers of foreign imports; repeatable\n"
                             "  -l LIB    link foreign imports with LIB; repeatable\n"
@@ -122,13 +123,46 @@ static void load(funk *f, const char *path) {
   if (funk_load_file(f, path)) printf("loaded %s\n", path);
 }
 
+/* Prints a type with each qualified name reduced to its last part, for :t. A
+   default's string or character literal prints as written. */
+static void print_unqualified(const char *s) {
+  while (*s) {
+    if (*s == '"' || *s == '\'') {
+      char q = *s;
+      putchar(*s++);
+      while (*s && *s != q) {
+        if (*s == '\\' && s[1]) putchar(*s++);
+        putchar(*s++);
+      }
+      if (*s) putchar(*s++);
+    } else if (isalpha((unsigned char)*s) || *s == '_') {
+      const char *end = s, *last = s;
+      while (isalnum((unsigned char)*end) || *end == '_' || *end == '\'' || *end == '.') {
+        if (*end == '.') last = end + 1;
+        end++;
+      }
+      if (!isupper((unsigned char)*last)) last = s; /* T.x and p.x name values */
+      printf("%.*s", (int)(end - last), last);
+      s = end;
+    } else {
+      putchar(*s++);
+    }
+  }
+}
+
 static void command(funk *f, const char *line) {
-  const char *arg = line + 2;
+  bool full = line[1] == 't' && line[2] == 'q' && (line[3] == ' ' || !line[3]);
+  const char *arg = line + (full ? 3 : 2);
   while (*arg == ' ') arg++;
   if (line[1] == 'q') exit(0);
-  if (line[1] == 't' && (line[2] == ' ' || !line[2])) {
+  if (full || (line[1] == 't' && (line[2] == ' ' || !line[2]))) {
     char *t = funk_type_of(f, arg, "<repl>");
-    if (t) printf("%s :: %s\n", arg, t);
+    if (t) {
+      printf("%s :: ", arg);
+      if (full) fputs(t, stdout);
+      else print_unqualified(t);
+      putchar('\n');
+    }
     free(t);
     return;
   }
@@ -136,12 +170,12 @@ static void command(funk *f, const char *line) {
     load(f, arg);
     return;
   }
-  printf("commands: :t EXPR (type), :l FILE (load), :{ ... :} (multi-line), :q (quit)\n");
+  printf("commands: :t EXPR (type), :tq EXPR (type, qualified), :l FILE (load), :{ ... :} (multi-line), :q (quit)\n");
 }
 
 static void repl(funk *f) {
   bool tty = isatty(0);
-  if (tty) puts("funk REPL. :t EXPR shows a type, :{ starts multi-line input, :q quits.");
+  if (tty) puts("funk REPL. :t EXPR shows a type, :tq EXPR with qualified names, :{ starts multi-line input, :q quits.");
   char *block = NULL; /* multi-line input so far */
   size_t nblock = 0;
   bool multi = false;

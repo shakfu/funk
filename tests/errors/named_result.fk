@@ -1,0 +1,4 @@
+-- expect: `r` names a function's result
+f :: x:Int -> r:Int
+f x = x
+main = print (f 1)

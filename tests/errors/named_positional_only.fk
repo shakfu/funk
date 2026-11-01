@@ -1,0 +1,4 @@
+-- expect: `g` has no named parameters
+g :: Int -> Int
+g x = x
+main = print (g .{ x = 1 })

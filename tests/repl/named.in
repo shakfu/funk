@@ -1,0 +1,29 @@
+:{
+f :: x:Int = 1 -> y:Int -> Int
+f x y = x + y
+:}
+:t f
+:t f .{ x = 2 }
+:t f 1
+:{
+g :: Num a => first:a = (1 + 2)   -- a comment
+  -> second : a = -3
+  -> label:String = "a -- b"
+  ->> a
+g a b s = a + b
+:}
+:t g
+:{
+h :: Int -> Int
+h x = x
+:}
+:t h
+:t \f -> f
+:l tests/repl/named_lib/use.fk
+:t n.env
+:tq n.env
+:{
+s :: t:String = "a.Bc" -> c:Char = '.' -> Int
+s t c = 1
+:}
+:t s

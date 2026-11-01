@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A signature can name parameters and give them defaults, and `.{ }` fills them by name. Positional calls and types do not change, so currying and existing code are unaffected. `lib/dsp.fk`'s 8 functions of four or more parameters have names and defaults. Values in `.{ }` and defaults must be pure. `:t` on the name shows them. `:t` now omits type qualifiers, for short lines, and the new `:tq` keeps them, since two modules' types of one name then print alike. Names are resolved at compile time, so a function passed as a value loses them; labels in types would keep them, but affect unification ([docs/dev/named-args.md](docs/dev/named-args.md)).
+
+  ```haskell
+  adsr :: attack:Sig = 0.01 -> decay:Sig = 0.2 -> sustain:Sig = 0.5 -> release:Sig = 0.3 -> gate:Sig -> Sig
+
+  sig = voices (\gate freq -> d.adsr .{ attack = 0.001 } gate * d.saw freq * 0.2)
+  ```
+
 - `lib/dsp.fk` reads tables: `wavetable` and `wavetableFile`, an oscillator over one cycle, and `sample`, a WAV file played once at each rising gate. Tables are shared by file or content and freed with the last graph that reads them. A patch names a table and never holds its pointer, so it cannot write to it, and funk needs no finalizers ([docs/dev/dsp.md](docs/dev/dsp.md#decisions)).
 
 - `d.polyIx` and the hosts' `voicesIx` pass `f` the voice's number, so each voice can seed its own noise. A variant over changing `poly`, whose patches stay valid.
@@ -35,6 +43,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Unnamed graph nodes keep their state across `play`, as named ones do, so editing a graph without names no longer restarts its oscillators and clicks. `funk_player_play` names each by its shape, a hash of its kernel and its inputs, without initial states, and its order among nodes of that shape. A changed constant or a filter put around an oscillator keeps its phase; a changed kernel restarts the nodes above it. A node's path in the tree was the alternative; wrapping a signal or adding a term to a sum changes every path below. Playing silence first gives fresh states ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time), item 4).
 
 ### Fixed
+
+- The plugin's Stop silences `sig`. It released notes only, so a sample, a reverb's tail or a drone played on. A host's `reset`, which shared its code, still leaves `sig` playing: a host may reset at any time, and the plugin would stay silent until `sig` is evaluated again.
 
 - Compiling a recursive function that passes itself a growing lambda, such as `nest n f = nest (n - 1) (\x -> f (x + 1))`, no longer takes over 20 GiB. Each specialized copy specialized its own recursive call again; the size limit measured each argument, which stayed short, while the chain of copies grew. The limit now covers the copy's whole name. One `compile_chunk` may also allocate at most 2 GiB (`FK_COMPILE_LIMIT`, in bytes), then the compile fails with an error and the session continues: four such compiles under `make test` ran a 16 GiB machine out of memory, faster than a test timeout could stop them.
 

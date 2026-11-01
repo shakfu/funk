@@ -1,6 +1,6 @@
 # Named arguments
 
-Status: design agreed 2026-11-01. Not implemented or prototyped.
+Status: stage 1 implemented 2026-11-01, on `lib/dsp.fk`'s 8 functions. Stages 2 and 3 are not: `pluck .{ }` below describes stage 2.
 
 A signature may name parameters and give them defaults. `.{ }` then fills them by name.
 
@@ -30,12 +30,12 @@ soft = pluck .{ release = 1 }                   -- presets chain
 - **Currying:** positional calls never use defaults, and the function's type stays a chain of arrows. Existing code is unaffected.
 - **`.{ }`:** fills the named fields and the defaults. Parameters with no value stay positional, in declared order.
 - **Position:** `.{` follows a known name directly, and nothing else. `adsr 0.1 .{ decay = 1 }` is a compile error. A local that shadows the name is not the known function, so `\adsr -> adsr .{ }` is a compile error.
-- **Signatures:** a named signature may take one parameter per line.
+- **Signatures:** a named signature may take one parameter per line. A default is one atom or a negated one, so `->>` does not parse as an operator: `x:Int = (f 1)`.
 - **Names:** a signature's names are the API; parameter names stay local. `attack:Sig` over a parameter `a` is valid, and renaming `a` breaks no caller.
 - **Partial naming:** a signature may name some parameters. The others stay positional.
 - **Which functions:** top-level functions and foreign imports with named signatures. Class methods are excluded. `.{ }` on anything else, such as a function parameter, is a compile error.
 - **Purity:** every value in a named-args operation is pure: a default, a preset's field, and a field in a call. Any other value is a compile error, and is bound first: `k <- readKnob ()`, then `adsr .{ attack = k }`. The called function may still have effects. A default or a preset's field cannot refer to parameters.
-- **Evaluation:** field values run once. In an unfilled call they run when `.{ }` is evaluated, not at each later call, so `adsr .{ attack = f x }` computes `f x` once. If two values fail, which error is raised is not specified.
+- **Evaluation:** field values run once. In an unfilled call they run when `.{ }` is evaluated, not at each later call, so `adsr .{ attack = f x }` computes `f x` once. A default runs once, when its module is installed. If two values fail, which error is raised is not specified.
 - **Effects:** `.{ }` keeps each `->` or `->>` as declared.
 - **Literals:** a field takes its type from the signature, so `attack = 0.2` can be a `Sig`.
 - **Presets:** a top-level binding `p = f .{ ... }` keeps `f`'s names, and its fields become `p`'s defaults. Its positional parameters are those with no value, and its own fields can still be overridden by name. A field may refer to top-level values. The form is exact: `pluck g = adsr .{ ... } g` is an ordinary function, and `pluck .{ }` on it is an error saying that only `p = f .{ ... }` keeps names.
@@ -43,12 +43,13 @@ soft = pluck .{ release = 1 }                   -- presets chain
 
 ## Implementation
 
-`.{ }` is rewritten to a positional call before inference. A call with every argument becomes a direct call, so it allocates nothing and works in kernels. Otherwise it becomes a lambda, which kernels already reject. Purity lets the rewrite pass values in declared order. An unfilled call binds each value that is not a literal or a variable outside the lambda, strictly: an ordinary `let` can be lazy.
+`.{ }` is rewritten to a positional call during inference, which knows the scope and the target. A rewrite before inference was the first plan, but purity is only known from inference. A field that is not an atom becomes a strict local binding, and the check for an effectful `let` rejects any that can act. A top-level value that acts is already an error, which covers defaults. A call with every argument allocates nothing and works in kernels: the C compiler gives one such call the same machine code as a positional call. An unfilled call becomes a lambda, which kernels already reject.
 
 - **Parser:** `name:Type = default` in a signature, and `.{` as an adjacent `.` and `{`. Checked 2026-11-01: `f :: x:Int -> Int` and `f . { }` are both parse errors today, so neither form changes the meaning of a valid program.
-- **Globals:** each stores its names and defaults, across modules, so `d.adsr .{ }` resolves.
-- **Check:** the rewrite, before inference.
+- **Globals:** each stores its signature. A default is a hidden top-level value, `adsr$attack`, of its parameter's type, so `d.adsr .{ }` resolves across modules, and a default is evaluated once and in its own module's scope.
 - **Presets:** a preset's global stores its target and one hidden top-level value per field. `pluck .{ release = 1 } gate` becomes `adsr $pluck.attack 0.5 $pluck.sustain 1 gate`. Copying the field's expression to each use was the alternative: a local at the use could shadow its names, and it would recompute at every use.
+
+`:t` on a function's bare name prints its signature, since names and defaults are not in its type. `:t` drops type qualifiers from all its output, for short lines: `d.adsr`'s parameters are `Sig`, and two modules' types of one name print alike. `:tq` keeps them: `graph.Sig`. Error messages keep them too. Defaults show as written, because funk has no expression printer. Any other expression, such as `:t adsr .{ attack = 1 }`, prints an ordinary type, without names.
 
 ## Decisions
 
@@ -93,10 +94,25 @@ This is likely to be needed, but it is not part of the first version, and it nee
 
 Add it when wrappers like the lambda above recur.
 
+## Defaults in `lib/dsp.fk`
+
+Proposed 2026-11-01, for listening: `attack` and the other envelope times in seconds.
+
+| Function | Defaults; parameters without one stay positional |
+|-|-|
+| `adsr` | `attack` 0.01, `decay` 0.2, `sustain` 0.5, `release` 0.3; `gate` |
+| `adsrExp` | `attack` 0.005, `decay` 0.3, `sustain` 0.4, `release` 0.4; `gate` |
+| `compress` | `threshold` -20, `ratio` 4, `attack` 0.01, `release` 0.1; `x` |
+| `comb` | `most` 1, `feedback` 0.5, `damp` 0.2; `time`, `x` |
+| `allpass` | `most` 0.1, `gain` 0.5; `time`, `x` |
+| `chorus` | `rate` 0.8, `depth` 0.005, `mix` 0.5; `x` |
+| `flanger` | `rate` 0.3, `depth` 0.003, `feedback` 0.5; `x` |
+| `reverb` | `room` 0.7, `damp` 0.4, `mix` 0.3; `x` |
+
 ## Build order
 
 Each stage is useful alone.
 
-1. Named signatures, defaults and the rewrite, on `lib/dsp.fk`'s 8 functions of four or more parameters: `adsr`, `adsrExp`, `compress`, `comb`, `allpass`, `chorus`, `flanger`, `reverb`.
+1. Done: named signatures, defaults and the rewrite, on `lib/dsp.fk`'s 8 functions of four or more parameters.
 2. Preset inheritance, once patches use presets.
 3. Named parameter types, once wrappers justify the design work.

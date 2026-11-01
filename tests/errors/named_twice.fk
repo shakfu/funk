@@ -1,0 +1,4 @@
+-- expect: `x` is given twice
+f :: x:Int = 1 -> y:Int -> Int
+f x y = x + y
+main = print (f .{ x = 1, x = 2 } 2)

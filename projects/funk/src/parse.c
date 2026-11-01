@@ -12,7 +12,7 @@
 
 #include "funk.h"
 
-typedef struct { Token *t; int n, pos; } P;
+typedef struct { Token *t; int n, pos; bool named; } P; /* named: a type here may name its parameters */
 
 enum { D_CLAUSE, D_PATBIND, D_SIG, D_DATA, D_FIXITY, D_CLASS, D_INST, D_FOREIGN, D_LIBRARY, D_STRUCT };
 typedef struct {
@@ -41,6 +41,8 @@ static Expr *parse_expr(P *p);
 static Pat *parse_pat(P *p);
 static Pat *parse_apat(P *p);
 static TypeExpr *parse_type(P *p);
+static Expr *parse_default(P *p);
+static Expr *parse_aexp(P *p);
 static void parse_decl_block(P *p, Binds *out);
 static void parse_decl(P *p, Decls *out, bool top);
 static void build_binds(Decls *ds, Binds *out, Datas *datas);
@@ -367,16 +369,22 @@ static TypeExpr *parse_atype(P *p) {
     TypeExpr *te = mkte(TE_LIST, t);
     te->n = 1;
     te->args = xmalloc(sizeof *te->args);
+    bool named = p->named;
+    p->named = false;
     te->args[0] = parse_type(p);
+    p->named = named;
     expect(p, T_RBRACKET, NULL);
     return te;
   }
   expect(p, T_LPAREN, "a type");
   VEC(TypeExpr *) el = {0};
+  bool named = p->named;
+  p->named = false;
   if (!is(p, T_RPAREN)) {
     do VPUSH(el, parse_type(p));
     while (accept(p, T_COMMA));
   }
+  p->named = named;
   expect(p, T_RPAREN, NULL);
   if (el.n == 1) return el.a[0];
   TypeExpr *te = mkte(TE_TUPLE, t);
@@ -397,13 +405,46 @@ static TypeExpr *parse_btype(P *p) {
   return head;
 }
 
+/* The source of tokens first to now, each gap one space. */
+static const char *tokens_text(P *p, int first) {
+  SB b = {0};
+  sb_puts(&b, "");
+  for (int i = first; i < p->pos; i++) {
+    Token *t = &p->t[i];
+    if (!t->text_end || (i > first && t->text == p->t[i - 1].text)) continue; /* layout's */
+    if (i > first && t->text > p->t[i - 1].text_end) sb_puts(&b, " ");
+    sb_printf(&b, "%.*s", (int)(t->text_end - t->text), t->text);
+  }
+  return b.s;
+}
+
 static TypeExpr *parse_type(P *p) {
   Token *t = cur(p);
+  const char *pname = NULL;
+  Expr *pdefault = NULL;
+  if (p->named && t->k == T_VARID && ahead(p, 1)->k == T_CONSYM && !strcmp(ahead(p, 1)->s, ":")) {
+    pname = t->s;
+    next(p);
+    next(p);
+  }
   TypeExpr *a = parse_btype(p);
+  const char *ptext = NULL;
+  if (pname && accept(p, T_EQ)) {
+    int first = p->pos;
+    pdefault = parse_default(p);
+    ptext = tokens_text(p, first);
+  }
   bool eff = cur(p)->k == T_VARSYM && strcmp(cur(p)->s, "->>") == 0; /* an effectful arrow (typed-effects.md, E) */
   if (eff) next(p);
-  else if (!accept(p, T_ARROW)) return a;
+  else if (!accept(p, T_ARROW)) {
+    if (pdefault) cerror(cur(p)->line, cur(p)->col, "`%s`'s default must be one atom; write `%s:T = (f x)`", pname, pname);
+    if (pname) cerror(t->line, t->col, "`%s` names a function's result; only parameters have names", pname);
+    return a;
+  }
   TypeExpr *f = mkte(TE_FUN, t);
+  f->pname = pname;
+  f->pdefault = pdefault;
+  f->pdefault_text = ptext;
   if (eff) f->name = intern("->>");
   f->n = 2;
   f->args = xmalloc(2 * sizeof *f->args);
@@ -703,6 +744,17 @@ static Expr *parse_record(P *p, Expr *base) {
   return e;
 }
 
+/* A signature's default: an atom, or a negated one, since `->>` is an operator. */
+static Expr *parse_default(P *p) {
+  Token *t = cur(p);
+  if (t->k == T_VARSYM && t->s == intern("-")) {
+    next(p);
+    Expr *x = parse_aexp(p);
+    return mkapp(mkvar("negate", t->line, t->col), 1, &x);
+  }
+  return parse_aexp(p);
+}
+
 /* Field access and record braces bind tighter than application. */
 static Expr *parse_aexp(P *p) {
   Expr *e = parse_aexp0(p);
@@ -715,6 +767,11 @@ static Expr *parse_aexp(P *p) {
       e = f;
     } else if (is(p, T_LBRACE)) {
       e = parse_record(p, e);
+    } else if (t->k == T_VARSYM && !strcmp(t->s, ".") && ahead(p, 1)->k == T_LBRACE && ahead(p, 1)->line == t->line && ahead(p, 1)->col == t->col + 1) {
+      if (e->k != E_VAR) cerror(t->line, t->col, "`.{` must directly follow a function's name");
+      next(p);
+      e = parse_record(p, e);
+      e->k = E_NAMED;
     } else {
       return e;
     }
@@ -1102,7 +1159,7 @@ static void parse_generated(const char *src, Decls *out, int line, int col) {
     t[i].line = line;
     t[i].col = col;
   }
-  P q = {t, n, 0};
+  P q = {t, n, 0, false};
   while (!is(&q, T_EOF)) {
     if (accept(&q, T_SEMI)) continue;
     parse_decl(&q, out, true);
@@ -1347,7 +1404,9 @@ static void parse_foreign(P *p, Decl *d) {
   }
   f->name = expect(p, T_VARID, "the funk name of the import")->s;
   expect(p, T_DCOLON, NULL);
+  p->named = true;
   f->sig = parse_sig(p);
+  p->named = false;
   d->k = D_FOREIGN;
   d->ffi = f;
 }
@@ -1404,7 +1463,9 @@ static void parse_decl(P *p, Decls *out, bool top) {
     d.k = D_SIG;
     d.names = names.a;
     d.nn = names.n;
+    p->named = top;
     d.sig = parse_sig(p);
+    p->named = false;
     VPUSH(*out, d);
     return;
   }
@@ -1467,6 +1528,35 @@ static void pat_vars(Pat *p, Pats *out) {
 
 /* Group consecutive clauses into functions, split pattern bindings,
    attach signatures. */
+static bool te_mentions(TypeExpr *t, const char *var) {
+  if (t->k == TE_VAR && t->name == var) return true;
+  for (int i = 0; i < t->n; i++)
+    if (te_mentions(t->args[i], var)) return true;
+  return false;
+}
+
+/* A signature's defaults, as top-level values of each parameter's type, with
+   the signature's constraints on that type's variables. */
+static void default_binds(const char *fn, Sig *sig, Binds *out) {
+  for (TypeExpr *t = sig->t; t->k == TE_FUN; t = t->args[1]) {
+    if (!t->pdefault) continue;
+    Sig *s = NEW(Sig);
+    *s = *sig;
+    s->t = t->args[0];
+    s->nctx = 0;
+    s->ctx = xmalloc(((size_t)sig->nctx + 1) * sizeof *s->ctx);
+    s->ctx_cls = xmalloc(((size_t)sig->nctx + 1) * sizeof *s->ctx_cls);
+    for (int i = 0; i < sig->nctx; i++)
+      if (te_mentions(s->t, sig->ctx[i])) {
+        s->ctx[s->nctx] = sig->ctx[i];
+        s->ctx_cls[s->nctx++] = sig->ctx_cls[i];
+      }
+    Bind *b = mkbind(intern(xsprintf("%s$%s", fn, t->pname)), t->pdefault, t->line, t->col);
+    b->sig = s;
+    VPUSH(*out, b);
+  }
+}
+
 static void build_binds(Decls *ds, Binds *out, Datas *datas) {
   int start = out->n;
   for (int i = 0; i < ds->n;) {
@@ -1538,8 +1628,11 @@ static void build_binds(Decls *ds, Binds *out, Datas *datas) {
       if (!b) cerror(d->line, d->col, "type signature for `%s` lacks a binding", d->names[n]);
       if (b->sig) cerror(d->line, d->col, "duplicate type signature for `%s`", d->names[n]);
       b->sig = d->sig;
+      default_binds(d->names[n], d->sig, out);
     }
   }
+  for (int i = 0; i < ds->n; i++)
+    if (ds->a[i].k == D_FOREIGN && !ds->a[i].ffi->exported) default_binds(ds->a[i].ffi->name, ds->a[i].ffi->sig, out);
 }
 
 static void parse_decl_block(P *p, Binds *out) {
@@ -1715,6 +1808,7 @@ static void join_qualified(P *p, Module *m) {
       t.s = intern(xsprintf("%s.%s", q, p->t[i + n + 1].s));
       i += n + 1;
     }
+    t.text_end = p->t[i].text_end;
     p->t[o++] = t;
   }
   p->n = o;
@@ -1801,7 +1895,7 @@ Sig *parse_sig_text(const char *src) {
 bool is_decl_text(const char *src, size_t len) {
   int n;
   Token *t = lex(src, len, &n);
-  if (t[0].k == T_DATA || t[0].k == T_CLASS || t[0].k == T_INSTANCE || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || (n > 1 && foreign_start(t)) || sig_start(&(P){t, n, 0}))
+  if (t[0].k == T_DATA || t[0].k == T_CLASS || t[0].k == T_INSTANCE || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || (n > 1 && foreign_start(t)) || sig_start(&(P){t, n, 0, false}))
     return true;
   int depth = 0;
   for (int i = 0; i < n; i++) {

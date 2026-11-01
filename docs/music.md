@@ -244,7 +244,7 @@ Errors leave the music playing:
 
 The editor opens with a `sig` and a `pat`: evaluate both paragraphs to hear `pat`'s notes on the plugin's voices. Notes the DAW sends to the plugin, from a keyboard or a MIDI clip, play the same voices.
 
-In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. stops.
+In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. stops: running code, notes and `sig`, which stays silent until it is evaluated again. A host resetting the plugin leaves `sig` playing.
 
 | Code | Live on | Live off |
 |-|-|-|
@@ -259,6 +259,8 @@ sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq)
 ```
 
 `voicesIx f` is `voices` with the voice's number, from 1, as `f`'s first argument, for a noise seed per voice: `voicesIx (\k gate freq -> d.adsr 0.001 0.1 0 0.1 gate * d.noise k)`.
+
+Functions with many parameters take them by name, and the rest have defaults: `d.adsr .{ attack = 0.001 } gate`, `d.reverb .{ mix = 0.5 } x`. `d.adsr`, `d.adsrExp`, `d.compress`, `d.comb`, `d.allpass`, `d.chorus`, `d.flanger` and `d.reverb` take them; see [dev/named-args.md](dev/named-args.md).
 
 `d.sample path gate speed` plays a WAV file once at each rising gate, in two channels. `speed` 1 is its own pitch, so `freq * d.dc (1.0 / 261.63)` plays middle C at that pitch. `d.wavetable values freq` repeats one cycle of values, which `d.cycleOf n f` makes, and `d.wavetableFile path freq` reads them from a file:
 

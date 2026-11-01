@@ -2,6 +2,7 @@
 4.0
 2.0
 shapes.area :: shapes.Shape -> Float
+shapes.area :: Shape -> Float
 <repl>:1:1: error: module `tests.run.nosuch` not found; looked for ./tests/run/nosuch.fk
 9.0
 Vec {x = 1.0, y = 2.0}

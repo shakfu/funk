@@ -25,6 +25,9 @@ public:
 	// Resumes the voices due at or before ms, appending their output to out.
 	virtual void resume(double ms, std::string& out) = 0;
 	virtual void stopVoices() = 0;
+	// The editor's Stop, after stopVoices: silences what plays without notes. Appends to out
+	// how to hear it again. A host's reset does not call it: a host may reset at any time.
+	virtual void stopSound(std::string& out) { (void)out; }
 
 	// An instrument's audio, if LanguageInfo::audioChannels is not 0. audioActivate and
 	// audioDeactivate run on the host's main thread, audioNote and audioRender on its audio

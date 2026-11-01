@@ -91,6 +91,7 @@ struct Timeline {
 	SpscRing<LiveEvent, 16384> liveQueue;    // evaluator -> audio
 	std::atomic<uint32_t> gen{0};            // bumped by stop
 	std::atomic<bool> cancel{false};         // stop the running code
+	std::atomic<bool> silence{false};        // and, from the editor, the sound
 	std::atomic<bool> live{false};
 	std::atomic<bool> offline{false};
 	std::atomic<double> barBeats{4.};
@@ -206,6 +207,11 @@ private:
 			}
 			delete tl_.retiredClip.exchange(nullptr);
 			if (tl_.cancel.exchange(false)) lang_->stopVoices();
+			if (tl_.silence.exchange(false)) {
+				std::string out;
+				lang_->stopSound(out);
+				if (!out.empty()) log_(out);
+			}
 			if (haveJob && job.gen != tl_.gen) {
 				// A stop came after this job was dequeued
 				if (job.reply) job.reply->set_value("error: stopped\n");
@@ -396,6 +402,12 @@ private:
 		}
 	}
 
+	void stopFromEditor()
+	{
+		tl_.silence = true;
+		stop();
+	}
+
 	// --- audio --------------------------------------------------------------
 
 	clap_process_status process(const clap_process_t* process)
@@ -564,6 +576,9 @@ private:
 
 	const void* extension(const char* id)
 	{
+		// The editor's Stop, for test_clap_host, which has no editor.
+		static const struct { void (*stop)(const clap_plugin_t*); } kEditorStop = {[](const clap_plugin_t* p) { self(p)->stopFromEditor(); }};
+		if (!strcmp(id, "funk.editor-stop")) return &kEditorStop;
 		if (!strcmp(id, CLAP_EXT_NOTE_PORTS)) return &kNotePorts;
 		if (!strcmp(id, CLAP_EXT_AUDIO_PORTS)) return &kAudioPorts;
 		if (!strcmp(id, CLAP_EXT_STATE)) return &kState;
@@ -643,7 +658,7 @@ private:
 	{
 		EditorCallbacks callbacks;
 		callbacks.eval = [this](const std::string& code) { evalFromEditor(code); };
-		callbacks.stop = [this] { stop(); };
+		callbacks.stop = [this] { stopFromEditor(); };
 		callbacks.setUdp = [this](bool on) { setUdp(on); };
 		callbacks.setWrap = [this](bool on) { wrap_ = on; };
 		callbacks.setLive = [this](bool on) { setLive(on); };

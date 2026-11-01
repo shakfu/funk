@@ -24,10 +24,6 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] `foreign struct`: C arrays inside structs (voice blocks; Core Audio's `AudioBufferList`), and several fields per line, as `data` records accept.
 
-### DSP ([docs/dev/dsp.md](docs/dev/dsp.md#phase-4-loaded-data))
-
-- [ ] Play a WAV file through `d.sample` in a DAW, replace the file and evaluate `sig` again while it plays, and listen for a missed block. Play a `d.wavetable` too.
-
 ### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 
 - [ ] #4: a file that imports a module of its own name reports "import cycle: pattern -> pattern"; say "imports itself".
@@ -62,6 +58,8 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Correctness
 
+- [ ] `ffi/sched/tsan-compiled` hung once on an M1 under the full suite: 300 s timeout, where it takes 1.7 s; load average about 27. Passed 3 runs alone and the next full suite. A hang, not slowness, so it may be a real race or a lost wakeup. Not reproduced.
+
 - [ ] `embed/plugin` failed once on `ubuntu-latest (address)`: plugin B stopped at once with "stack overflow" from `FK_STACK_CHECK` (run 41272122243, a commit that changed only CI and pugl's build). Not reproduced in 120 runs on macOS under ASan, with `detect_stack_use_after_return` default, on and off. A rerun of the job passed, so it is intermittent; cause unknown.
 
 - [ ] `eff_error` takes `$m.Class.Type.method` apart at its first and last `.`. A module's class is `prefix.C`, so `$m.geometry.C.T.m` reports class `geometry` and type `C.T`.
@@ -93,7 +91,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Other
 
-- [ ] Named arguments and defaults: `adsr .{ attack = 0.2 } gate`, with names and defaults in the signature ([docs/dev/named-args.md](docs/dev/named-args.md)). Design agreed; not implemented.
+- [ ] Named arguments, stage 2: presets that keep names, `pluck = adsr .{ ... }`, once patches use presets ([docs/dev/named-args.md](docs/dev/named-args.md)). Also confirm `lib/dsp.fk`'s proposed defaults by ear.
 
 - [ ] DSP phase 3, deferred until a patch needs it: several outputs per kernel, then a stereo reverb whose channels share state ([docs/dev/dsp.md](docs/dev/dsp.md#phase-3-several-outputs-per-kernel)).
 

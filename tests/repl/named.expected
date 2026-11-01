@@ -1,0 +1,10 @@
+f :: x:Int = 1 -> y:Int -> Int
+f .{ x = 2 } :: Int -> Int
+f 1 :: Int -> Int
+g :: Num a => first:a = (1 + 2) -> second:a = -3 -> label:String = "a -- b" ->> a
+h :: Int -> Int
+\f -> f :: a -> a
+loaded tests/repl/named_lib/use.fk
+n.env :: Num a => (a, [Sig]) -> f:(Sig -> Sig) -> amount:Int = (base + 1) -> Maybe Sig ->> Sig
+n.env :: Num a => (a, [nkinds.Sig]) -> f:(nkinds.Sig -> nkinds.Sig) -> amount:Int = (base + 1) -> Maybe nkinds.Sig ->> nkinds.Sig
+s :: t:String = "a.Bc" -> c:Char = '.' -> Int

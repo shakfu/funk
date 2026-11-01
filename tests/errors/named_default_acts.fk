@@ -1,0 +1,4 @@
+-- expect: a top-level value acts when evaluated
+f :: s:String = (getLine ()) ->> String
+f s = s
+main = putStrLn (f .{ })

@@ -52,12 +52,12 @@ highpass cutoff q x = g.Node "dsp_highpass" [0.0, 0.0] [x, cutoff, q]
 
 -- 0 to 1: attack, decay, sustain level, release, then the gate (above 0
 -- is on); times in seconds, read once per block
-adsr :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+adsr :: attack:g.Sig = 0.01 -> decay:g.Sig = 0.2 -> sustain:g.Sig = 0.5 -> release:g.Sig = 0.3 -> gate:g.Sig -> g.Sig
 adsr a d s r gate = g.Node "dsp_adsr" [0.0, 0.0, 0.0] [gate, a, d, s, r]
 
 -- adsr with exponential segments: attack reaches 1 in its time, decay and
 -- release get within 60 dB in theirs
-adsrExp :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+adsrExp :: attack:g.Sig = 0.005 -> decay:g.Sig = 0.3 -> sustain:g.Sig = 0.4 -> release:g.Sig = 0.4 -> gate:g.Sig -> g.Sig
 adsrExp a d s r gate = g.Node "dsp_adsr_exp" [0.0, 0.0, 0.0] [gate, a, d, s, r]
 
 -- tanh (drive * x), within (-1, 1)
@@ -67,7 +67,7 @@ saturate drive x = g.Node "dsp_saturate" [] [x, drive]
 -- threshold in dB, ratio from 1 up, attack and release time constants in
 -- seconds, read once per block. A multichannel x compresses each channel
 -- on its own level, which can move a stereo image.
-compress :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+compress :: threshold:g.Sig = -20.0 -> ratio:g.Sig = 4.0 -> attack:g.Sig = 0.01 -> release:g.Sig = 0.1 -> x:g.Sig -> g.Sig
 compress threshold ratio attack release x = g.Node "dsp_compress" [0.0] [x, threshold, ratio, attack, release]
 
 -- x held to at most ceiling, in dB, with no lookahead: an instant attack
@@ -82,26 +82,26 @@ delay most time x = g.Delay "dsp_delay" most [0.0, 0.0, 0.0, 0.0] [x, time]
 
 -- a feedback comb: feedback within (-1, 1), damping in [0, 1) low-passes
 -- what is fed back
-comb :: Float -> g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+comb :: most:Float = 1.0 -> time:g.Sig -> feedback:g.Sig = 0.5 -> damp:g.Sig = 0.2 -> x:g.Sig -> g.Sig
 comb most time fb damp x = g.Delay "dsp_comb" most [0.0, 0.0, 0.0, 0.0] [x, time, fb, damp]
 
 -- gain within (-1, 1)
-allpass :: Float -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+allpass :: most:Float = 0.1 -> time:g.Sig -> gain:g.Sig = 0.5 -> x:g.Sig -> g.Sig
 allpass most time gain x = g.Delay "dsp_allpass" most [0.0, 0.0, 0.0, 0.0] [x, time, gain]
 
 -- x mixed with itself at a moving delay: rate in Hz, depth in seconds up to
 -- 0.02, mix from 0 to 1. Two channels, whose delays move a quarter cycle apart.
-chorus :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+chorus :: rate:g.Sig = 0.8 -> depth:g.Sig = 0.005 -> mix:g.Sig = 0.5 -> x:g.Sig -> g.Sig
 chorus rate depth mix x = x * (1 - mix) + mix * delay 0.05 (dc 0.025 + depth * stereo (g.Node "dsp_sine" [0.0] [rate]) (g.Node "dsp_sine" [0.25] [rate])) x
 
 -- x plus a short comb of itself at a moving delay: rate in Hz, depth in
 -- seconds up to 0.005, feedback within (-1, 1)
-flanger :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+flanger :: rate:g.Sig = 0.3 -> depth:g.Sig = 0.003 -> feedback:g.Sig = 0.5 -> x:g.Sig -> g.Sig
 flanger rate depth fb x = (x + comb 0.015 (dc 0.006 + depth * sine rate) fb 0 x) * dc 0.5
 
 -- Freeverb's mono structure, in each of two channels, tuned 23 frames at
 -- 44100 Hz apart: room and damp from 0 to 1, mix from 0 to 1
-reverb :: g.Sig -> g.Sig -> g.Sig -> g.Sig -> g.Sig
+reverb :: room:g.Sig = 0.7 -> damp:g.Sig = 0.4 -> mix:g.Sig = 0.3 -> x:g.Sig -> g.Sig
 reverb room damp mix x = x * (1 - mix) + mix * foldl (\y f -> allpass 0.03 (spread f) (dc 0.5) y) (reverbCombs (room * dc 0.28 + dc 0.7) (damp * dc 0.4) (x * dc 0.03)) [556.0, 441.0, 341.0, 225.0]
 
 -- a time of f frames at 44100 Hz, and 23 frames more on the right

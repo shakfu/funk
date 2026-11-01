@@ -1,0 +1,5 @@
+-- expect: `f` has no named parameters
+f :: x:Int = 1 -> y:Int -> Int
+f x y = x + y
+h f = f .{ x = 1 } 2
+main = print (h (\a b -> a))
