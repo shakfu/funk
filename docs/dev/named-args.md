@@ -34,8 +34,8 @@ soft = pluck .{ release = 1 }                   -- presets chain
 - **Names:** a signature's names are the API; parameter names stay local. `attack:Sig` over a parameter `a` is valid, and renaming `a` breaks no caller.
 - **Partial naming:** a signature may name some parameters. The others stay positional.
 - **Which functions:** top-level functions and foreign imports with named signatures. Class methods are excluded. `.{ }` on anything else, such as a function parameter, is a compile error.
-- **Values:** a default or a preset's field is pure, and cannot refer to parameters. So when it runs cannot be observed. A value with effects is bound first, and passed by name.
-- **Evaluation order:** a call's field values run once, as written, before the call. In an unfilled call they run when `.{ }` is evaluated, not at each later call, so `adsr .{ attack = f x }` computes `f x` once.
+- **Purity:** every value in a named-args operation is pure: a default, a preset's field, and a field in a call. Any other value is a compile error, and is bound first: `k <- readKnob ()`, then `adsr .{ attack = k }`. The called function may still have effects. A default or a preset's field cannot refer to parameters.
+- **Evaluation:** field values run once. In an unfilled call they run when `.{ }` is evaluated, not at each later call, so `adsr .{ attack = f x }` computes `f x` once. If two values fail, which error is raised is not specified.
 - **Effects:** `.{ }` keeps each `->` or `->>` as declared.
 - **Literals:** a field takes its type from the signature, so `attack = 0.2` can be a `Sig`.
 - **Presets:** a top-level binding `p = f .{ ... }` keeps `f`'s names, and its fields become `p`'s defaults. Its positional parameters are those with no value, and its own fields can still be overridden by name. A field may refer to top-level values. The form is exact: `pluck g = adsr .{ ... } g` is an ordinary function, and `pluck .{ }` on it is an error saying that only `p = f .{ ... }` keeps names.
@@ -43,7 +43,7 @@ soft = pluck .{ release = 1 }                   -- presets chain
 
 ## Implementation
 
-`.{ }` is rewritten to a positional call before inference. A call with every argument becomes a direct call, so it allocates nothing and works in kernels. Otherwise it becomes a lambda, which kernels already reject. Field values that need ordering go in strict bindings outside the call or lambda: an ordinary `let` can be lazy, so it does not fix the order.
+`.{ }` is rewritten to a positional call before inference. A call with every argument becomes a direct call, so it allocates nothing and works in kernels. Otherwise it becomes a lambda, which kernels already reject. Purity lets the rewrite pass values in declared order. An unfilled call binds each value that is not a literal or a variable outside the lambda, strictly: an ordinary `let` can be lazy.
 
 - **Parser:** `name:Type = default` in a signature, and `.{` as an adjacent `.` and `{`. Checked 2026-11-01: `f :: x:Int -> Int` and `f . { }` are both parse errors today, so neither form changes the meaning of a valid program.
 - **Globals:** each stores its names and defaults, across modules, so `d.adsr .{ }` resolves.
@@ -54,7 +54,7 @@ soft = pluck .{ release = 1 }                   -- presets chain
 
 - **Defaults in the signature, over the definition (`adsr a=0.1 ... = ...`).** Several `=` in a function head are hard to parse, multi-clause definitions have no place for them, and foreign imports have no definition.
 - **A rewrite, over a generated record type.** Generated fields would compete in field inference, which picks the only loaded type with a field, so `e.attack` could become ambiguous. An unnamed type also cannot be written in a signature.
-- **Pure defaults and fields, over effects in either.** Defaults that run at each call beside fields that run once would make moving a value between them change when it runs.
+- **Strict purity, over allowing effects in values.** Effects would need an order for fields written out of declared order, and moving a value between a default, a preset and a call could change when it runs. The cost is one extra binding before a call with an effectful value.
 - **`.{`, over reusing `f { }`.** A function with names cannot also be a record, so the dot is not strictly needed. It keeps a call visibly apart from a record update.
 - **Over labels in types, as in OCaml.** Those survive higher-order use, but affect unification, class methods, effects and error messages.
 - **Over a handwritten record per function.** That works today, but needs a type and a helper for each function.
