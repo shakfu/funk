@@ -116,7 +116,19 @@ Released 2026-11-01; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - Named arguments ([named-args.md](named-args.md)): signatures name parameters and give defaults, and `.{ }` fills them.
 
-## 0.10 -- language growth
+## 0.10 -- Stabilization
+
+- Failures: explain or bound the ffi/sched/tsan-compiled hang and the embed/plugin stack overflow.
+
+- Coverage: add a TSan job to CI, and check kernel compiles in a hardened host.
+
+- Memory: add the pacer, since heap overshoot multiplies with each plugin instance.
+
+- Visibility: add the optimization report.
+
+- Acceptance test: play a full live set in a DAW, with edits, with no missed blocks. Log any friction it turns up.
+
+## 0.11 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
