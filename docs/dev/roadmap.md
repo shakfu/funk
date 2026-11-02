@@ -135,25 +135,33 @@ Get close to Tidal's expressiveness in funk, through library work first and lang
 Library, in `lib/pattern.fk`:
 
 - **Pattern application and joins:** monomorphic `apP` and `joinP`, with the left-structure and right-structure forms of Tidal's `<*` and `*>`, and `squeezeJoin`'s behaviour. The library has only `mapP` today.
+
 - **Patterned arguments:** combinators accept patterns as parameters, such as `fast (p "2 4")`, as Tidal's `patternify` gives. `fast`, `slow` and `shift` take plain `Int`s today.
+
 - **Mini-notation:** an explicit parse call, `p "bd*2 sn"` ([patterns.md](patterns.md#literals)). Overloaded string literals are not planned.
+
 - **Control patterns:** named parameters on events, and a `#` that combines them, as Tidal's `ValueMap` and `Unionable` do. This settles the event payload question in [patterns.md](patterns.md#open).
+
 - **Combinators:** Tidal's common transformations, such as `rev`, `every` and `degradeBy`. The list comes from porting real patches.
 
 Host and time decisions these depend on:
 
 - **Delivery:** `sampleEvents`, `pushOnsets` and `writeEvents` carry an `Int` value, and `pushOnsets` only 16 bits. Control patterns need a path to the voices and the graph.
+
 - **Time:** ticks divide exactly by factors of 720720. Tidal's `Rational` allows `fast 1.5` and `0.25 ~> p`. Decide whether fractional factors round, or time changes.
 
 Language features, each only if the library work shows the need:
 
 - `type` synonyms, for names such as `ControlPattern`.
+
 - As-patterns.
+
 - Higher-kinded classes, if a second pattern-like type appears or Tidal's `<$>` and `<*>` names prove necessary. Design risk: effects in class methods ([tidal.md](tidal.md#kinds-and-higher-kinded-classes)).
 
 Acceptance test:
 
 - A set of real Tidal patches ported to funk, with each remaining difference listed.
+
 - Patterned arguments and control patterns keep the slowest query well inside its window, measured in the interpreter.
 
 ## 0.12+ -- possible language growth
@@ -162,11 +170,13 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 
 - Haskell syntax guides funk's syntax and does not constrain it. [haskell-compat.md](haskell-compat.md) lists what stops Haskell source from running; close a gap only where funk programs need it.
 
-- Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`).
+- Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`), if 0.11 did not need them.
 
 - Phase 3: existential types, for lists of mixed instances.
 
-- As-patterns, list comprehensions.
+- List comprehensions.
+
+- `type` synonyms and as-patterns, if 0.11 did not need them.
 
 ## Open questions
 
