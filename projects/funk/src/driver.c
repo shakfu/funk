@@ -503,6 +503,26 @@ char *funk_emit_c(funk *f, const char *path) {
   return plain(cgen_program(all, n));
 }
 
+static int by_line(const void *a, const void *b) {
+  const OptNote *x = a, *y = b;
+  return x->line != y->line ? (x->line > y->line) - (x->line < y->line) : (x->seq > y->seq) - (x->seq < y->seq); /* fusion's first */
+}
+
+char *funk_opt_report(funk *f, const char *path) {
+  ON_THREAD(f, NULL);
+  CS->opt_report = true;
+  CS->opt_notes.n = 0;
+  char *c = funk_emit_c(f, path);
+  CS->opt_report = false;
+  if (!c) return NULL;
+  free(c);
+  qsort(CS->opt_notes.a, (size_t)CS->opt_notes.n, sizeof *CS->opt_notes.a, by_line);
+  SB b = {0};
+  sb_puts(&b, "");
+  for (int i = 0; i < CS->opt_notes.n; i++) sb_printf(&b, "%s:%d: %s\n", path, CS->opt_notes.a[i].line, CS->opt_notes.a[i].text);
+  return plain(b.s);
+}
+
 char *funk_emit_kernels(funk *f, const char *path) {
   ON_THREAD(f, NULL);
   Chunk c;

@@ -23,7 +23,7 @@ foreach(f ${runs})
   foreach(mode interp compiled types wall)
     funk_test(${label}/${n}/${mode} ${label} run ${f} ${mode})
   endforeach()
-  foreach(mode reuse fuse)
+  foreach(mode reuse fuse report)
     if(EXISTS ${PROJECT_SOURCE_DIR}/${d}/${n}.${mode})
       funk_test(${label}/${n}/${mode} ${label} run ${f} ${mode})
     endif()
@@ -381,4 +381,15 @@ if(FUNK_SANITIZE MATCHES "address")
   set_tests_properties(run/overflow/interp embed/memory embed/memory/stress PROPERTIES DISABLED TRUE)
   set_tests_properties(embed/sessions PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:quarantine_size_mb=0")
   set_tests_properties(embed/sessions/stress PROPERTIES ENVIRONMENT "ASAN_OPTIONS=detect_leaks=0:quarantine_size_mb=0;FUNK_GCSTRESS=1")
+endif()
+
+# Under ThreadSanitizer (FUNK_SANITIZE=thread), what TSan itself changes:
+# - deep recursion: TSan's per-thread shadow call stack is a fixed size, and its runtime
+#   faults past it (in __tsan::TraceSwitchPartImpl) before funk's stack overflows; at
+#   about 30,000 levels in the interpreter on an M1;
+# - embed/memory: its limits are of resident memory, which TSan's shadow memory exceeds.
+if(FUNK_SANITIZE MATCHES "thread")
+  set_tests_properties(run/gc/interp run/gcdeep/interp run/overflow/interp run/reuse/interp run/stress/interp
+    run/trmc/interp stress/gc/interp stress/gcdeep/interp error/stack_overflow ffi/efault/interp
+    embed/interrupt embed/overflow embed/overflow/stress embed/memory embed/memory/stress PROPERTIES DISABLED TRUE)
 endif()

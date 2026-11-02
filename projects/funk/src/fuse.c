@@ -604,6 +604,7 @@ typedef struct {
   int cnt;       /* take: its counter parameter */
   const char *v; /* concat: the element variable; inner: the list made from it */
   Pipe *inner;
+  const char *name; /* as called, before unfolding: sum, not foldl */
 } Stage;
 
 struct Pipe {
@@ -611,6 +612,7 @@ struct Pipe {
   Expr *a, *b;  /* bounds; count and element; the list */
   Type *elem;
   VEC(Stage) st; /* outermost first, as parsed */
+  const char *name; /* the producer's, as called */
 };
 
 /* Unfold a call of a prelude function whose body is one call using its
@@ -658,6 +660,7 @@ static bool concat_map(Stage *s, Expr *m, Nm *loc, Nm *lazy, Expr **src) {
 
 static Pipe *parse(Expr *e, Nm *loc, Nm *lazy, bool consumer) {
   Pipe *p = NEW(Pipe);
+  const char *via = NULL; /* the call unfolded into e */
   for (int depth = 0; depth < 64; depth++) {
     while (e->k == E_ANN) e = e->body;
     Bind *b = e->k == E_APP ? gbind(gref(e->fn, loc)) : NULL;
@@ -665,12 +668,14 @@ static Pipe *parse(Expr *e, Nm *loc, Nm *lazy, bool consumer) {
     if (b && !k) {
       Expr *u = unfold(e, loc, lazy);
       if (u) {
+        if (!via) via = e->fn->name;
         e = u;
         continue;
       }
     }
     if (b && k && e->n == b->e->lam->n) {
-      Stage s = {.kind = k};
+      Stage s = {.kind = k, .name = base_name(via ? via : e->fn->name)};
+      via = NULL;
       switch (k) {
       case F_FOLDL:
       case F_ANY:
@@ -717,12 +722,14 @@ static Pipe *parse(Expr *e, Nm *loc, Nm *lazy, bool consumer) {
       }
       case F_RANGE:
         if (!elem_of(e->ty) || repr(elem_of(e->ty))->k != TY_CON || strcmp(repr(elem_of(e->ty))->name, "Int")) break;
+        p->name = s.name;
         p->kind = F_RANGE;
         p->a = e->args[0];
         p->b = e->args[1];
         p->elem = elem_of(e->ty);
         return p;
       case F_REPLICATE:
+        p->name = s.name;
         p->kind = F_REPLICATE;
         p->a = e->args[0];
         p->b = e->args[1];
@@ -880,7 +887,32 @@ static Expr *flow(Gen *g, int lv, int j, Expr *y, Expr **cur) {
 
 /* -------------------------------------------------------- the pass */
 
-typedef struct { Expr *fn; bool expr; int at; } Item;
+typedef struct { Expr *fn; bool expr; int at; const char *name; } Item; /* name: the stage's, for funk_opt_report */
+
+/* funk_opt_report: the stages, producer first, as written. */
+static void pipe_names(SB *b, Pipe *p) {
+  if (p->name) sb_printf(b, "%s", p->name);
+  for (int i = p->st.n; i-- > 0;) {
+    sb_printf(b, "%s%s", b->n ? ", " : "", p->st.a[i].name);
+    if (p->st.a[i].inner && p->st.a[i].inner->st.n) {
+      SB in = {0};
+      sb_puts(&in, "");
+      pipe_names(&in, p->st.a[i].inner);
+      sb_printf(b, " (%s)", in.s);
+    }
+  }
+}
+
+static bool in_program(void) { return CS->opt_report && !CS->cur_module && strcmp(CS->cur_file, "<prelude>") != 0; }
+
+static bool refused(Pipe *top, const char *why) {
+  if (!in_program()) return false;
+  SB b = {0};
+  sb_puts(&b, "");
+  pipe_names(&b, top);
+  opt_note(ST->fline, "not fused: %s: %s", b.s, why);
+  return false;
+}
 typedef VEC(Expr *) Exprs; /* per-element work, in flow order */
 
 /* A template for e: e itself if a value, else a setup variable. */
@@ -931,41 +963,42 @@ static bool fuse_at(Expr *e, Nm *loc, Nm *lazy) {
   Nm *iloc = g.cm ? nm(loc, g.cm->v) : loc;
   for (int i = 0; i < g.nA; i++) {
     if (g.A[i]->kind == F_TAKE || g.A[i]->kind == F_TAKEWHILE) VPUSH(shorts, items.n);
-    if (g.A[i]->fn) VPUSH(items, ((Item){g.A[i]->fn, false, 0}));
+    if (g.A[i]->fn) VPUSH(items, ((Item){g.A[i]->fn, false, 0, g.A[i]->name}));
   }
   if (g.cm) {
     Pipe *in = g.cm->inner;
     Expr *ie[2] = {in->a, in->b};
     for (int i = 0; i < 2; i++)
-      if (ie[i] && !is_value(ie[i], iloc, lazy)) VPUSH(items, ((Item){ie[i], true, 1}));
+      if (ie[i] && !is_value(ie[i], iloc, lazy)) VPUSH(items, ((Item){ie[i], true, 1, g.cm->name}));
     for (int i = 0; i < g.nB; i++) {
       Stage *s = g.B[i];
-      if (s->n && !is_value(s->n, iloc, lazy)) VPUSH(items, ((Item){s->n, true, 1}));
+      if (s->n && !is_value(s->n, iloc, lazy)) VPUSH(items, ((Item){s->n, true, 1, s->name}));
       if (s->kind == F_TAKE || s->kind == F_TAKEWHILE) VPUSH(shorts, items.n);
-      if (s->fn) VPUSH(items, ((Item){s->fn, false, 1}));
+      if (s->fn) VPUSH(items, ((Item){s->fn, false, 1, s->name}));
     }
     for (int i = 0; i < g.nR; i++) {
       if (g.R[i]->kind == F_TAKE || g.R[i]->kind == F_TAKEWHILE) VPUSH(shorts, items.n);
-      if (g.R[i]->fn) VPUSH(items, ((Item){g.R[i]->fn, false, 0}));
+      if (g.R[i]->fn) VPUSH(items, ((Item){g.R[i]->fn, false, 0, g.R[i]->name}));
     }
   }
   if (g.cons) {
     if (g.cons->kind != F_FOLDL) VPUSH(shorts, items.n);
-    VPUSH(items, ((Item){g.cons->fn, false, 0}));
+    VPUSH(items, ((Item){g.cons->fn, false, 0, g.cons->name}));
   }
   bool *total = xcalloc((size_t)items.n + 1, 1);
   int failing = 0;
   for (int i = 0; i < items.n; i++) {
     Item *it = &items.a[i];
     Nm *l = it->at ? iloc : loc;
-    if (it->expr ? !ok_e(it->fn, l, NULL, false) : (!is_value(it->fn, l, lazy) || !fn_ok(it->fn, l, false))) return false;
+    if (it->expr ? !ok_e(it->fn, l, NULL, false) : (!is_value(it->fn, l, lazy) || !fn_ok(it->fn, l, false)))
+      return refused(top, xsprintf("%s's %s may act, or is not a known function", it->name, it->expr ? "argument" : "function"));
     total[i] = it->expr ? ok_e(it->fn, l, NULL, true) : fn_ok(it->fn, l, true);
     failing += !total[i];
   }
-  if (failing > 1) return false;
+  if (failing > 1) return refused(top, "more than one stage can fail");
   for (int k = 0; k < shorts.n; k++)
     for (int i = 0; i < shorts.a[k]; i++)
-      if (!total[i]) return false;
+      if (!total[i]) return refused(top, xsprintf("%s can fail before a stage that stops early", items.a[i].name));
   /* Parameters and their values at entry, setup in evaluation order:
      outermost stage first, producer last. */
   ST->floc = loc;
@@ -1009,7 +1042,7 @@ static bool fuse_at(Expr *e, Nm *loc, Nm *lazy) {
     VEC(Expr **) slots = {0};
     Expr **at[16];
     int nat = 0;
-    if (g.nB > 12) return false;
+    if (g.nB > 12) return refused(top, "more than 12 stages inside concat");
     for (int i = g.nB; i-- > 0;)
       if (g.B[i]->n) at[nat++] = &g.B[i]->n;
     at[nat++] = &in->a;
@@ -1082,6 +1115,12 @@ static bool fuse_at(Expr *e, Nm *loc, Nm *lazy) {
   let->body = cont(&g, ent);
   Expr *out = let;
   for (int i = g.sn.n; i-- > 0;) out = ebind(g.se.a[i], g.sn.a[i], out);
+  if (in_program()) {
+    SB b = {0};
+    sb_puts(&b, "");
+    pipe_names(&b, top);
+    opt_note(ST->fline, "fused: %s", b.s);
+  }
   Type *t = e->ty;
   *e = *out;
   e->ty = t;

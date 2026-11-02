@@ -23,8 +23,9 @@ const char *funk_version(void);
 typedef struct funk funk;
 
 /* heap: the heap's limit, beyond which allocation is the runtime error
-   "out of memory" after a full collection; threshold: the allocation after
-   which the first collection starts, kept at most a quarter of the limit;
+   "out of memory" after a full collection; threshold: the least allocation
+   from one collection's end to the next's, which is twice the live data if
+   that is more, kept at most a quarter of the limit;
    stack: beyond which recursion is the runtime error "stack overflow". In
    bytes; 0 keeps a default: 64 GiB of address space, 128 MiB, 4 GiB. The
    heap is at least 4 MiB, the stack 32 MiB. cc_args (-I, -l, -L) are for
@@ -87,6 +88,11 @@ bool funk_run_file(funk *f, const char *path);
 
 /* The C program for path, which must define `main`; NULL on error. */
 char *funk_emit_c(funk *f, const char *path);
+
+/* Which optimizations applied to path's functions, as funk_emit_c compiles
+   it: a line per pipeline fused or refused, and per function's worker, with
+   its parameters' and result's representations, by line; NULL on error. */
+char *funk_opt_report(funk *f, const char *path);
 
 /* path's foreign exports alone, as C without the runtime, for a host to
    load (docs/dev/audio.md, D); path need not define `main`. NULL on error. */

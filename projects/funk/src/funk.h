@@ -24,6 +24,8 @@ void compile_budget(bool on);   /* limit the allocations of one compile_chunk */
 char *xsprintf(const char *fmt, ...);
 const char *intern(const char *s);
 const char *intern_n(const char *s, size_t n);
+const char *base_name(const char *name); /* a clone's or copy's name without its suffixes: map@Int, f@own0, f/$f1 */
+void opt_note(int line, const char *fmt, ...); /* for funk_opt_report, if it is on */
 char *read_file(const char *path, size_t *len);
 #define NEW(T) ((T *)xcalloc(1, sizeof(T)))
 /* memcpy and memmove of n bytes, which may be 0 from an empty array that
@@ -474,6 +476,7 @@ extern const char fk_prelude_src[];
    session reaches them through FkShared's cc (rt.h), on its own thread. */
 enum { CC_SHARED, CC_UTIL, CC_PARSE, CC_RESOLVE, CC_CHECK, CC_ELAB, CC_FUSE, CC_CGEN, CC_INTERP, CC_FFI, CC_DRIVER, CC_N };
 _Static_assert(CC_N <= FK_NCC, "FkShared's cc is too small");
+typedef struct { int line, seq; const char *text; } OptNote; /* funk_opt_report's: a line of the program's file */
 typedef struct {
   const char *cur_file;
   jmp_buf *cerr_jmp;
@@ -493,6 +496,8 @@ typedef struct {
   int float_class;
   Type *dict_type; /* type of dictionary arguments: represented as V */
   VEC(Bind *) specialized; /* clones made by elab_bind, to install */
+  bool opt_report; /* funk_opt_report: fusion and cgen add notes */
+  VEC(OptNote) opt_notes;
 } CompilerShared;
 #define CS ((CompilerShared *)fk_here()->cc[CC_SHARED])
 void *shared_state_new(void);

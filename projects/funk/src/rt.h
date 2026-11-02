@@ -92,15 +92,23 @@ typedef struct {
 } FkShared;
 FkRt *fk_current(void);
 #define FK_SLOT ((uintptr_t)1 << 33) /* each session's stack's slot of address space */
-#ifdef FK_SESSIONS
-static inline __attribute__((pure, unused)) FkShared *fk_here(void) {
+/* The stack pointer. A local's address is not on the stack under ASan's
+   use-after-return check, which GCC applies to any local whose address is
+   taken: its fake stack is a separate mapping. */
+static inline __attribute__((unused)) uintptr_t fk_sp(void) {
   uintptr_t sp;
 #if defined __aarch64__
   __asm__("mov %0, sp" : "=r"(sp));
-#else
+#elif defined __x86_64__
   __asm__("mov %%rsp, %0" : "=r"(sp));
+#else
+  sp = (uintptr_t)__builtin_frame_address(0);
 #endif
-  return *(FkShared **)((sp | (FK_SLOT - 1)) - 7);
+  return sp;
+}
+#ifdef FK_SESSIONS
+static inline __attribute__((pure, unused)) FkShared *fk_here(void) {
+  return *(FkShared **)((fk_sp() | (FK_SLOT - 1)) - 7);
 }
 #define fk_error_jmp (fk_here()->error_jmp)
 #define fk_stack_limit (fk_here()->stack_limit)
@@ -406,7 +414,7 @@ void fk_rt_interrupt(FkRt *r);
 _Noreturn void fk_match_fail(const char *where);
 _Noreturn void fk_stack_overflow(void);
 #define FK_STACK_CHECK() \
-  do { char c_; if ((char *)&c_ < fk_stack_limit) fk_stack_overflow(); } while (0)
+  do { if (fk_sp() < (uintptr_t)fk_stack_limit) fk_stack_overflow(); } while (0)
 
 typedef struct { const char *name; int arity; FkCode code; } FkPrim;
 extern const FkPrim fk_prims[];

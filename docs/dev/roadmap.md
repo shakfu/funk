@@ -118,13 +118,13 @@ Released 2026-11-01; see [CHANGELOG.md](../../CHANGELOG.md).
 
 ## 0.10 -- Stabilization
 
-- Failures: explain or bound the ffi/sched/tsan-compiled hang and the embed/plugin stack overflow.
+- ~~Failures: explain or bound the ffi/sched/tsan-compiled hang and the embed/plugin stack overflow.~~ Both explained and fixed ([CHANGELOG.md](../../CHANGELOG.md)).
 
-- Coverage: add a TSan job to CI, and check kernel compiles in a hardened host.
+- ~~Coverage: add a TSan job to CI, and check kernel compiles in a hardened host.~~ See [plugin.md](plugin.md#hardened-hosts).
 
-- Memory: add the pacer, since heap overshoot multiplies with each plugin instance.
+- ~~Memory: add the pacer, since heap overshoot multiplies with each plugin instance.~~ The overshoot proved small; what multiplied was the 128 MiB threshold floor, now 16 MiB in the plugin ([realtime.md](realtime.md#pacer)).
 
-- Visibility: add the optimization report.
+- ~~Visibility: add the optimization report.~~ `funk emit-c --opt-report`.
 
 - Acceptance test: play a full live set in a DAW, with edits, with no missed blocks. Log any friction it turns up.
 

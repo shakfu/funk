@@ -4,7 +4,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `funk emit-c --opt-report FILE`, and `funk_opt_report` in `libfunk.h`, list which optimizations applied to FILE's functions. Each pipeline fusion took is listed, as is each it refused, with the rule that refused it. Each emitted worker is listed with its parameter and result representations, and whether it loops, uses TRMC (tail recursion modulo cons) or reuses cells. A small change elsewhere can lose any of these with no other sign: `queens` lost 18.7% during 0.5 and 0.6. Diff the report across a change to see it.
+
+  ```text
+  queens.fk:10: not fused: filter, map: filter's function may act, or is not a known function
+  queens.fk:10: fused: concatMap (enumFromTo, filter, map)
+  queens.fk:10: queens@Int,Int/go12/$f8313@reuse1: (Int, boxed, boxed, Int, Int) -> boxed, loop, TRMC, reuses cells
+  ```
+
+- CI runs the suite with funk built under ThreadSanitizer, on Linux and macOS. 15 tests are disabled there: TSan's runtime faults past its fixed shadow call stack, at about 30,000 interpreter levels, before funk's stack overflows, and its shadow memory exceeds `embed/memory`'s limits. The suite raised no TSan report.
+
+### Changed
+
+- The collector paces its cycles. It now starts a cycle early by the previous cycle's allocation while marking, and counts the objects marked during a cycle toward the next threshold. The heap therefore settles near the live data plus the threshold. Before, it settled near that plus twice a cycle's allocation. `churn` at 4,000,000 live cells: 287 MiB resident, against 333, and 13% slower from 3 more cycles. The benchmark suite is unchanged (+0.0%). Shortening mark steps instead was the alternative. It bounds the overshoot within a cycle only, which measured 24% of the live data at every size ([docs/dev/realtime.md](docs/dev/realtime.md#pacer)).
+
+- The plugin's sessions collect after 16 MiB, not 128 MiB, since each instance has a heap. Over 7 minutes of playback, a session's resident set fell from 119 to 43 MiB, with the same time per window.
+
 ### Fixed
+
+- `ffi/sched/tsan-compiled` hung under load: its host played a fixed 600 blocks, and over 300 underruns ended them before musical time reached the end, so the scheduler waited forever. At a load average of 43, 23 of 24 runs hung. The host now plays until funk stops it, and 24 of 24 passed under the same load.
+
+- An interpreter stack check could report "stack overflow" at once under GCC's AddressSanitizer, as `embed/plugin` did once in CI. The check compared a local's address against the stack's limit. On Linux, ASan's use-after-return check is on by default and moves such a local to a separate mapping, which may lie below the stack. The check now reads the stack pointer, as `fk_here` does. Confirmed with GCC 16's ASan on macOS, where the local lay 1.76 GB below the stack pointer. The CI failure itself was not reproduced.
 
 - In REAPER, Space typed in the plugin's editor toggled the transport instead. The plugin now reports its active code field as a text field through REAPER's `hwnd_info` hook, since CLAP has no call offering a plugin a key ([docs/dev/plugin.md](docs/dev/plugin.md#keys-in-reaper)).
 

@@ -22,19 +22,15 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] #12: a local signature cannot call an enclosing function's parameter; see the log.
 
+### 0.10 acceptance test
+
+- [ ] Play a full live set in a DAW, with edits, with no missed blocks; log any friction in [docs/dev/patterns.md](docs/dev/patterns.md#friction-log). Needs a person at the DAW.
+
 ### Correctness
 
-- [ ] `ffi/sched/tsan-compiled` hung once on an M1 under the full suite: 300 s timeout, where it takes 1.7 s; load average about 27. Passed 3 runs alone and the next full suite. A hang, not slowness, so it may be a real race or a lost wakeup. Not reproduced.
+- [ ] `embed/plugin`'s CI failure (run 41272122243) is explained by ASan's fake stack under GCC, now fixed (CHANGELOG), but was not reproduced on Linux. Watch the `address` jobs.
 
-- [ ] `embed/plugin` failed once on `ubuntu-latest (address)`: plugin B stopped at once with "stack overflow" from `FK_STACK_CHECK` (run 41272122243, a commit that changed only CI and pugl's build). Not reproduced in 120 runs on macOS under ASan, with `detect_stack_use_after_return` default, on and off. A rerun of the job passed, so it is intermittent; cause unknown.
-
-### Runtime
-
-- [ ] **A pacer for incremental marking.** Steps come every 256 KiB of allocation (`STEP_BYTES`), a constant; the heap overshoots by whatever the program allocates while a cycle marks, which grows with the live set (`churn` at 4,000,000 cells: 359 MB resident). Plugin instances each with a heap multiply it. Size each step's allocation from the live set at the cycle's start, as Go's pacer does. See [docs/dev/realtime.md](docs/dev/realtime.md) ("Step size").
-
-### Visibility
-
-- [ ] **Report which optimizations applied to a function**: fusion, reuse, TRMC, typed worker. Fusion matches prelude names, reuse needs linear use and TRMC a given recursion shape, so a small change can lose one with no sign; `queens` lost 18.7% and `bst` 8.6% during 0.5 and 0.6 ([docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md), weakness 3).
+- [ ] `embed/kernels` failed once in a local parallel suite run, 2026-11-02, with its output lost; 12 parallel and 15 repeated runs passed. Keep the output when it recurs.
 
 ## Medium
 
@@ -85,7 +81,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Kernels compiled while playing, outside the plugin: `funk-midi --audio` has no way to evaluate one (`funk_compile_kernels`). Done in the plugin 2026-11-01.
 
-- [ ] A hardened host may refuse to `dlopen` a compiled kernel; only the test host has run one.
+- [ ] Under the hardened runtime, `dlopen` refuses a relative path, so a relative `XDG_CACHE_HOME` would fail every kernel load. Make the cache path absolute. The rest is checked ([docs/dev/plugin.md](docs/dev/plugin.md#hardened-hosts)).
 
 - [ ] **LLVM, as Faust uses it**, only if `$CC` proves too slow for kernels without the runtime: about 60 ms per edit at `-O2`, of which 22 ms is clang's start-up and about 20 ms linking. An IR emitter for the export subset alone would be much smaller than `cgen.c`, since that subset has no allocation, closures or constructors. libtcc compiles faster but does not optimize, and its support for the runtime's `__atomic_*` builtins is unverified.
 
@@ -105,7 +101,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] DSP phase 3, deferred until a patch needs it: several outputs per kernel, which would halve `d.zita`'s cost ([docs/dev/dsp.md](docs/dev/dsp.md#phase-3-several-outputs-per-kernel)).
 
-- [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): glue shared by path binds the last session's `funk_provide`d addresses; CI has no job running the suite under TSan.
+- [ ] **Sessions** ([docs/dev/embedding.md](docs/dev/embedding.md#phase-2-sessions)): glue shared by path binds the last session's `funk_provide`d addresses.
+
+- [ ] `--opt-report` lists the workers of the program's own functions only: not anonymous lambdas, nor prelude functions copied for the program's calls (`foldr@{0=insert}`). Add them if a slowdown hides there.
 
 - [ ] **Type classes, phase 2.** Kinds and higher-kinded classes (`Functor`, `Foldable`, `Monad`); see [docs/dev/type-classes.md](docs/dev/type-classes.md#later-phases). Only if the friction log shows a need: with one `Pattern` type, monomorphic functions suffice ([docs/dev/patterns.md](docs/dev/patterns.md)).
 

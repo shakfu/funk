@@ -65,7 +65,9 @@ namespace {
 const double kCycleMs = 2000.;
 const double kWindowMs = 10.;
 const int kCap = 4096; // events per window, as in kStep
-const size_t kHeapLimit = (size_t)512 << 20, kStackSize = (size_t)256 << 20;
+const size_t kHeapLimit = (size_t)512 << 20, kThreshold = (size_t)16 << 20, kStackSize = (size_t)256 << 20;
+// Each instance has a heap: kThreshold, not the default 128 MiB, cut a session's resident set
+// from 119 to 43 MiB at the same speed (docs/dev/realtime.md, "Pacer").
 const char* const kStep = "step buf a b = p.writeEvents (plusPtr nullPtr buf) 4096 pat 2000000 a b";
 const char* const kStepOnce = "stepOnce buf a b = p.writeEvents (plusPtr nullPtr buf) 4096 once 2000000 a b";
 
@@ -140,7 +142,7 @@ public:
 			// graph.h, for glue compiled if the linked glue does not match.
 			cc_args_[0] = "-I";
 			cc_args_[1] = dir_.c_str();
-			const funk_config config{kHeapLimit, 0, kStackSize, cc_args_, 2};
+			const funk_config config{kHeapLimit, kThreshold, kStackSize, cc_args_, 2};
 			funk_ = funk_new(&config);
 			if (!funk_) {
 				start.started.set_value(false);
@@ -320,7 +322,7 @@ struct KernelBuild {
 // evaluates, and funk's thread stays free to query a looping pat.
 void BuildKernels(KernelBuild* b)
 {
-	const funk_config config{kHeapLimit, 0, kStackSize, nullptr, 0};
+	const funk_config config{kHeapLimit, kThreshold, kStackSize, nullptr, 0};
 	funk* f = funk_new(&config);
 	if (!f) {
 		b->messages += "funk-midi: cannot start a session for the kernels\n";

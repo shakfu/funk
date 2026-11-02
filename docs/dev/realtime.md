@@ -180,7 +180,7 @@ Throughput, compiled, 21 interleaved runs, minimum: against the same emitted C w
 | `churn`, 1,000,000 cells | | 229 / 185 MB |
 | `churn`, 4,000,000 cells | | 547 / 359 MB |
 
-The program's share of time while marking falls: `bst` allocates about 1 MiB per ms, so it runs about 0.25 ms per 0.4 ms step, against 1 ms before. 128 KiB recovered `bst` fully (+0.5%), at a share of about 25%. A pacer that sizes steps from the live set would bound the overshoot at any heap size; it is in TODO.
+The program's share of time while marking falls: `bst` allocates about 1 MiB per ms, so it runs about 0.25 ms per 0.4 ms step, against 1 ms before. 128 KiB recovered `bst` fully (+0.5%), at a share of about 25%. A pacer that sizes steps from the live set would bound the overshoot at any heap size; see "Pacer" for what was done instead.
 
 Tests:
 
@@ -191,6 +191,45 @@ Tests:
 - **The check itself** was tested by marking one constructor in seven without tracing it: it stopped the program at the first cycle's end.
 
 - The `stress` tests run `gc.fk` and `gcbarrier.fk` under `FUNK_GCSTRESS=1` in both backends. Every run test and example also passed under it, by hand.
+
+## Pacer
+
+Done 2026-11-02, for 0.10. The TODO proposed sizing each step's allocation from the live set, to bound a cycle's overshoot. Measured first (`churn`, compiled, M1):
+
+| n | Live | Steps per cycle | Overshoot (steps x 256 KiB) | Heap |
+|-|-|-|-|-|
+| 1,000,000 cells | 22.9 MiB | 22 | 5.5 MiB | 170 MiB |
+| 4,000,000 cells | 91.6 MiB | 88 | 22 MiB | 333 MiB |
+
+The overshoot is 24% of the live data at both sizes. A step marks about 1 MiB in its 0.4 ms, against 256 KiB allocated, so it is proportional already. The plugin's per-instance cost is the threshold floor instead: `bench/reload.c`'s session levels off at the 128 MiB threshold with under 1 MB live ([patterns.md](patterns.md)).
+
+What changed:
+
+- **The goal.** A cycle should end by the time the program has allocated one threshold (`goal`, max(`gc_min`, 2 x live)) since the last cycle ended. The heap then settles near live + goal. Before, it settled near live + goal + 2E, where E is what a cycle allocates while marking: E of this cycle's garbage, and E of last cycle's objects, marked black, which survive one more sweep.
+
+- **The trigger.** The next cycle starts at goal - E, with E the cycle's black bytes, at most goal / 2. The black bytes also start the next count of allocation, at most half the trigger. Stress mode keeps its fixed schedule.
+
+- **The forced finish** now fires when a cycle has allocated a whole goal, as its comment said; it read the threshold at the cycle's start, which the trigger now lowers.
+
+| Program | Heap before / after | Time before / after |
+|-|-|-|
+| `churn`, 1,000,000 cells | 170 / 158 MiB | 0.53 / 0.55 s |
+| `churn`, 4,000,000 cells | 333 / 287 MiB (target 275) | 0.94 / 1.06 s |
+| benchmark suite (`bench.py ab`) | | +0.0% geometric mean |
+
+`churn`'s 4M run takes 17 cycles, against 14: each cycle now waits for goal - 2E of new allocation, not goal, so this is the trade of a lower threshold. The suite's live data is small against the 128 MiB floor, so E is near zero there.
+
+**The floor, for sessions.** `funk_config`'s threshold in `bench/reload.c`, 20,000 windows of 21.3 ms (7 minutes), 512 MiB heap:
+
+| Threshold | Resident | Cycles | `funk_call` time, total | Slowest window |
+|-|-|-|-|-|
+| 128 MiB (default) | 119 MiB | 0 | 517 ms | 0.12 ms |
+| 32 MiB | 58 MiB | 2 | 509 ms | 0.28 ms |
+| 16 MiB | 43 MiB | 5 | 514 ms | 0.33 ms |
+| 8 MiB | 33 MiB | 11 | 523 ms | 0.28 ms |
+| 4 MiB | 28 MiB | 22 | 526 ms | 0.24 ms |
+
+The plugin uses 16 MiB (`funk_clap.cpp`, `kThreshold`). Below it the savings shrink: about 17 MiB is the session itself, the compiler's tables and the prelude ([261030-session-measurements.md](261030-session-measurements.md)). The default stays 128 MiB, since compiled benchmarks slowed at lower thresholds ([memory.md](memory.md)).
 
 ## Implementation: R3
 

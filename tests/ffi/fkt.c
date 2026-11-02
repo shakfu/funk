@@ -49,6 +49,7 @@ static struct {
   void (*cb)(void *, float *, int);
   void *ctx;
   int frames, blocks, pace;
+  _Atomic int stop;
   double sum;
   pthread_t thread;
 } audio;
@@ -56,7 +57,7 @@ static struct {
 static void *audio_run(void *arg) {
   (void)arg;
   float buf[4096];
-  for (int b = 0; b < audio.blocks; b++) {
+  for (int b = 0; audio.blocks ? b < audio.blocks : !audio.stop; b++) {
     audio.cb(audio.ctx, buf, audio.frames);
     for (int i = 0; i < audio.frames; i++) audio.sum += buf[i];
     if (audio.pace) usleep((useconds_t)audio.pace);
@@ -66,11 +67,13 @@ static void *audio_run(void *arg) {
 
 int fkt_audio_start(void (*cb)(void *ctx, float *buf, int frames), void *ctx, int frames, int blocks) {
   if (frames < 1 || frames > 4096) return -1;
-  audio.cb = cb, audio.ctx = ctx, audio.frames = frames, audio.blocks = blocks, audio.sum = 0;
+  audio.cb = cb, audio.ctx = ctx, audio.frames = frames, audio.blocks = blocks, audio.sum = 0, audio.stop = 0;
   return pthread_create(&audio.thread, NULL, audio_run, NULL);
 }
 
 void fkt_audio_pace(int usec) { audio.pace = usec; }
+
+void fkt_audio_stop(void) { audio.stop = 1; }
 
 double fkt_audio_join(void) {
   pthread_join(audio.thread, NULL);

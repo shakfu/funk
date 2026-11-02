@@ -32,9 +32,11 @@ typedef struct fkt_config {
 int fkt_start(const fkt_config *cfg); /* 0 on success */
 void fkt_join(void);
 
-/* An audio host: a thread that calls cb(ctx, buf, frames) blocks times
-   with a buffer of frames floats, and sums every sample written. */
+/* An audio host: a thread that calls cb(ctx, buf, frames) blocks times,
+   or until fkt_audio_stop if blocks is 0, with a buffer of frames floats,
+   and sums every sample written. */
 int fkt_audio_start(void (*cb)(void *ctx, float *buf, int frames), void *ctx, int frames, int blocks);
+void fkt_audio_stop(void);
 double fkt_audio_join(void);
 /* Sleep usec microseconds after each block from the next start on, as a
    device does; 0, the default, runs the blocks back to back. */

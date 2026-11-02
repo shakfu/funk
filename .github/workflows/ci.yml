@@ -1,7 +1,8 @@
 # Build funk and run the test suite on Linux and macOS, plain and with
-# funk built under UBSan and under ASan. The sqlite, PCRE2 and GMP tests run
-# where their headers are installed and are skipped otherwise; under ASan, the
-# tests ASan itself changes are disabled (tests/CMakeLists.txt, at its end).
+# funk built under UBSan, ASan and TSan. The sqlite, PCRE2 and GMP tests run
+# where their headers are installed and are skipped otherwise; under ASan and
+# TSan, the tests the sanitizer itself changes are disabled (tests/CMakeLists.txt,
+# at its end).
 name: CI
 
 on:
@@ -16,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        sanitize: ["", undefined, address]
+        sanitize: ["", undefined, address, thread]
     steps:
       - uses: actions/checkout@v5
 
@@ -25,6 +26,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libsqlite3-dev libgmp-dev libpcre2-dev
+
+      # TSan rejects the address layout of mmap randomization above 28 bits, every
+      # funk process's under FUNK_SANITIZE=thread
+      - name: Lower mmap randomization for TSan (Linux)
+        if: runner.os == 'Linux' && matrix.sanitize == 'thread'
+        run: sudo sysctl vm.mmap_rnd_bits=28
 
       # where a crash's core goes: a pipe dumps untouched reserved pages as zeros
       - name: Show core dump settings (Linux)

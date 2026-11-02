@@ -1,0 +1,31 @@
+-- funk emit-c --opt-report (check.sh's report mode): each kind of line.
+data Tree = Leaf | Node Tree Int Tree
+
+insert :: Int -> Tree -> Tree
+insert x Leaf = Node Leaf x Leaf
+insert x (Node l y r) = if x < y then Node (insert x l) y r else Node l y (insert x r)
+
+double :: [Int] -> [Int]
+double [] = []
+double (x : xs) = x * 2 : double xs
+
+go :: Int -> Int -> Int
+go acc n = if n == 0 then acc else go (acc + n) (n - 1)
+
+total :: Int -> Int
+total n = sum (map (\x -> x * 3) (filter even (enumFromTo 1 n)))
+
+twoFail :: Int -> Int
+twoFail n = sum (map (\x -> div 100 x) (filter (\x -> div 100 x > 3) (enumFromTo 1 n)))
+
+firsts :: Int -> [Int]
+firsts n = take 3 (map (\x -> div 100 x) (enumFromTo 1 n))
+
+main = do
+  print (total 100)
+  print (go 0 10)
+  print (sum (double (enumFromTo 1 10)))
+  print (twoFail 10)
+  print (firsts 10)
+  let t = foldr insert Leaf [3, 1, 2]
+  print (case t of { Leaf -> 0; Node _ v _ -> v })

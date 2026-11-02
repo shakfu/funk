@@ -13,6 +13,7 @@
 #                                   wall: the C compiles without warnings under -Wall -Wextra
 #                                   reuse, fuse: the reuse copies (@reuseK, @ownK) emitted without
 #                                     fusion, or the fused loops, equal FILE.reuse or FILE.fuse
+#                                   report: funk emit-c --opt-report FILE equals FILE.report
 #                                   gcstats: FUNK_GCSTATS=1 reports each cycle and a summary
 #                                   FLAGS (-I, -L, -l, -M) go to funk run and funk build;
 #                                     -M also to funk emit-c
@@ -108,6 +109,12 @@ run)
     # a fused loop's name ends in its id, or in its reuse copies' suffixes
     grep '^static .* w_[0-9]*(.*) { /\* .*/\$f[0-9]*\(@\(reuse\|own\)[0-9]*\)* \*/$' "$tmp/c" | sed 's|.*/\* ||; s|/\$f.*||' | LC_ALL=C sort -u >"$tmp/out"
     same "$base.fuse" "$tmp/out"
+    exit 0 ;;
+  report)
+    # lambda ids shift with the prelude
+    "$FUNK" emit-c --opt-report "$f" >"$tmp/r" 2>&1 || fail "funk emit-c --opt-report" "$tmp/r"
+    sed -E "s|^$f:||; s/[$]f[0-9]+/\$f/g" "$tmp/r" >"$tmp/out"
+    same "$base.report" "$tmp/out"
     exit 0 ;;
   gcstats)
     build "$@"

@@ -47,6 +47,7 @@ funk prog.fk                  # interpret (same as: funk run prog.fk)
 funk build prog.fk -o prog    # native executable via $CC (default cc)
 funk build prog.fk -O3 -lsqlite3   # C optimization level; libraries to link (-I, -L, -l)
 funk emit-c prog.fk -o prog.c # the generated C
+funk emit-c prog.fk --opt-report  # which optimizations applied to each function
 funk check prog.fk            # type-check only, for editors
 funk -e 'sum [1..10]'         # evaluate an expression (same as: funk eval EXPR)
 funk help build               # a command's options; funk --version

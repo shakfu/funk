@@ -181,6 +181,16 @@ const char *intern_n(const char *s, size_t n) {
 
 const char *intern(const char *s) { return intern_n(s, strlen(s)); }
 
+const char *base_name(const char *name) { return intern_n(name, strcspn(name, "@{</")); }
+
+void opt_note(int line, const char *fmt, ...) {
+  if (!CS->opt_report) return;
+  va_list ap;
+  va_start(ap, fmt);
+  VPUSH(CS->opt_notes, ((OptNote){line, CS->opt_notes.n, vxsprintf(fmt, ap)}));
+  va_end(ap);
+}
+
 /* ----------------------------------------------------------- string buf */
 
 void sb_puts(SB *b, const char *s) {

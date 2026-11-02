@@ -56,6 +56,7 @@ typedef struct {
   int cg_expr_nstr;
   signed char *tuple_result_memo; /* by lambda id: 0 unknown, 1 no, 2 yes */
   int tuple_result_cap;
+  Strs user; /* funk_opt_report: the program's top-level names, interned */
 } CgenState;
 static const CgenState cgen_init = {0};
 #define ST ((CgenState *)fk_here()->cc[CC_CGEN])
@@ -1163,6 +1164,23 @@ static void freps_lambda(Lambda *L, Lambda *P, Rep *pslot) {
   freps_expr(L->body, L, lam_slots(L));
 }
 
+/* funk_opt_report's line for a worker of the program's file. */
+static void note_lambda(Lambda *L, CG *c) {
+  static const char *const rname[] = {"boxed", "Int", "Float", "Char", "Bool", "Ptr"};
+  const char *base = L->name && L->n ? base_name(L->name) : NULL;
+  bool user = false;
+  for (int i = 0; base && i < ST->user.n; i++) user |= ST->user.a[i] == base;
+  if (!user) return;
+  SB b = {0};
+  sb_printf(&b, "%s: (", L->name);
+  for (int i = 0; i < L->n; i++) sb_printf(&b, "%s%s", i ? ", " : "", rname[param_rep(L, i)]);
+  sb_printf(&b, ") -> %s", c->tuple ? "unboxed tuple" : rname[c->rrep]);
+  if (c->looped) sb_puts(&b, ", loop");
+  if (c->trmc) sb_puts(&b, ", TRMC");
+  if (c->reused) sb_puts(&b, ", reuses cells");
+  opt_note(L->line, "%s", b.s);
+}
+
 static void cg_lambda(SB *out, Lambda *L) {
   Rep *slot = lam_slots(L);
   SB body = {0};
@@ -1171,6 +1189,7 @@ static void cg_lambda(SB *out, Lambda *L) {
   Rep rr = trmc ? R_V : result_rep(L);
   CG c = {&body, L, 0, 0, false, slot, trmc, {0}, rr, false, tuple_result(L), {0}, {0}, 0, 0};
   cg_tail(&c, L->body);
+  if (CS->opt_report) note_lambda(L, &c);
   for (char *s; !c.reused && (s = strstr(body.s, SHADE_DST));) memmove(s, s + strlen(SHADE_DST), strlen(s + strlen(SHADE_DST)) + 1);
   char *nm = xsprintf("%s", L->name ? L->name : "lambda");
   for (char *s = nm; (s = strstr(s, "*/"));) s[1] = '|'; /* keep the comment closed */
@@ -1344,6 +1363,11 @@ static void cg_functions(SB *out, Reach *r) {
 
 char *cgen_program(Chunk *chunks, int nchunks) {
   Reach r = reach_program(chunks, nchunks);
+  Chunk *user = &chunks[nchunks - 1];
+  ST->user.n = 0;
+  for (int i = 0; CS->opt_report && i < user->ng; i++)
+    for (int j = 0; j < user->groups[i].n; j++) VPUSH(ST->user, user->groups[i].b[j]->name);
+  for (int i = 0; CS->opt_report && i < user->nraw; i++) VPUSH(ST->user, user->raw[i]->name);
   for (int i = 0; i < CS->ffi_exports.n; i++) reach_global(&r, CS->ffi_exports.a[i]->gidx);
   SB out = {0};
   sb_puts(&out, fk_rt_src);

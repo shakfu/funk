@@ -246,7 +246,8 @@ struct FkRt {
   size_t black_bytes; /* of which allocated during the cycle: mostly garbage by its end */
   size_t unswept[MAX_SMALL + 1]; /* a chunk index plus one */
   size_t step_bytes, gc_min;
-  size_t cycle_start_threshold; /* gc_threshold when the cycle started */
+  size_t goal;      /* bytes allocated from one cycle's end to the next's: see sweep */
+  size_t cycle_alloc0; /* alloc_since_gc when the cycle started */
   bool in_alloc, overflowing; /* on_fault */
   size_t next_step; /* while marking, gc_threshold is 0, so every allocation takes alloc_slow, which marks it */
   size_t gc_count, lazy_chunks, forced, cycle_steps;
@@ -796,9 +797,16 @@ static void sweep(void) {
     if (end > RT->large_hi) RT->large_hi = end;
   }
   RT->nlarge = j;
-  gc_threshold = 2 * live > RT->gc_min && !gcstress ? 2 * live : RT->gc_min;
-  if (gc_threshold > RT->heap_reserve / 4) gc_threshold = RT->heap_reserve / 4; /* room for a cycle's garbage below the limit */
-  RT->warm_limit = gc_threshold;
+  RT->goal = 2 * live > RT->gc_min && !gcstress ? 2 * live : RT->gc_min;
+  if (RT->goal > RT->heap_reserve / 4) RT->goal = RT->heap_reserve / 4; /* room for a cycle's garbage below the limit */
+  RT->warm_limit = RT->goal;
+  /* The pacer: the cycle's black objects count against the goal, and the
+     next cycle starts early by as much as this one allocated while marking,
+     so it ends near the goal. Without it the heap reached live + goal plus
+     twice a cycle's allocation. Stress keeps its fixed schedule. */
+  size_t black = gcstress ? 0 : RT->black_bytes;
+  gc_threshold = RT->goal - (black < RT->goal / 2 ? black : RT->goal / 2);
+  alloc_since_gc = black < gc_threshold / 2 ? black : gc_threshold / 2;
 }
 
 /* The cycle's first pause: the snapshot of the stack and the roots. */
@@ -810,7 +818,7 @@ static void gc_start(void) {
   clear_unswept_marks();
   RT->live_bytes = RT->black_bytes = 0;
   fk_marking = 1;
-  RT->cycle_start_threshold = gc_threshold;
+  RT->cycle_alloc0 = alloc_since_gc;
   snapshot_stack();
   for (size_t i = 0; i < RT->nroots; i++) scan_range(*RT->roots[i].base, *RT->roots[i].base + *RT->roots[i].count);
   if (gcstats) {
@@ -923,7 +931,6 @@ static void gc_finish(bool was_forced) {
   double t0 = gcstats ? now_ms() : 0;
   if (gcstress && !RT->no_verify) verify_marks();
   sweep();
-  alloc_since_gc = 0;
   RT->forced += was_forced;
   if (gcstats) {
     double t = now_ms() - t0;
@@ -936,10 +943,10 @@ static void gc_finish(bool was_forced) {
 }
 
 /* A step of marking, or the cycle's end when marking is done. If the cycle
-   has allocated a whole threshold more, marking cannot keep up: it
-   finishes in one pause. */
+   has allocated a whole goal, marking cannot keep up: it finishes in one
+   pause. */
 static void gc_step(void) {
-  bool force = !gcstress && alloc_since_gc > 2 * RT->cycle_start_threshold;
+  bool force = !gcstress && alloc_since_gc - RT->cycle_alloc0 > RT->goal;
   double t0 = gcstats ? now_ms() : 0;
   bool done = drain(force ? INFINITY : STEP_MS);
   if (gcstats) {
@@ -2265,7 +2272,7 @@ void fk_init(void) {
     RT->gc_min = (size_t)64 << 10;
     RT->step_bytes = (size_t)16 << 10;
   }
-  gc_threshold = RT->gc_min;
+  gc_threshold = RT->goal = RT->gc_min;
   fk_register_con("False", 0);
   fk_register_con("True", 0);
   fk_register_con("()", 0);

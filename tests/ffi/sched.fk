@@ -3,13 +3,16 @@
 -- foreign export, on tests/ffi/fkt.h's paced audio host, writes each as an
 -- impulse at its sample. Musical time advances only once funk has
 -- scheduled the block, so a late funk thread costs an underrun, not a late
--- event, and the output does not depend on timing.
+-- event, and the output does not depend on timing. The host plays until
+-- funk stops it: with a fixed number of blocks, enough underruns ended it
+-- before musical time reached the end, and schedule waited forever.
 import pattern as p
 
 foreign export ccall "fk_play" play :: Ptr () -> Ptr CFloat -> CInt ->> ()
 foreign import ccall "fkt.h &fk_play" playPtr :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ())
 foreign import ccall "fkt.h fkt_audio_start" audioStart :: FunPtr (Ptr () -> Ptr CFloat -> CInt ->> ()) -> Ptr () -> CInt -> CInt ->> CInt
 foreign import ccall "fkt.h fkt_audio_pace" audioPace :: CInt ->> ()
+foreign import ccall "fkt.h fkt_audio_stop" audioStop :: () ->> ()
 foreign import ccall "fkt.h fkt_audio_join" audioJoin :: () ->> Float
 
 foreign struct Player
@@ -24,8 +27,7 @@ foreign struct Player
 
 cs = 12345     -- samples per cycle: does not divide 720720
 frames = 64
-blocks = 600
-end = 300 * 64 -- half the host's blocks: room for underruns
+end = 300 * 64
 window = 1024
 
 poly = p.stack [p.fastcat (replicate 3 (p.atom 3)), p.fastcat (replicate 5 (p.atom 5)), p.fastcat (replicate 7 (p.atom 7))]
@@ -76,6 +78,12 @@ schedule st w = if w >= end then 0 else
     atomicPoke (fieldPtr st Player.ready) (w + window)
     lost + schedule st (w + window)
 
+-- until the player reaches the end
+finish :: Ptr Player ->> ()
+finish st = if atomicPeek (fieldPtr st Player.pos) >= end then () else do
+  churn 1 0
+  finish st
+
 main = do
   st <- (mallocBytes Player.size :: Ptr Player)
   writeField st Player.events (newRing 256 (0 :: Int))
@@ -86,8 +94,10 @@ main = do
   writeField st Player.check 0
   writeField st Player.underruns 0
   audioPace 500
-  print (audioStart playPtr (castPtr st) (fromIntegral frames) (fromIntegral blocks))
+  print (audioStart playPtr (castPtr st) (fromIntegral frames) 0)
   lost <- schedule st 0
+  finish st
+  audioStop ()
   total <- audioJoin ()
   want <- p.sampleOnsets poly cs 0 end
   print (lost, readField st Player.pos)
