@@ -16,7 +16,9 @@ The interpreter's hot state moved into one struct in scratch copies of the sourc
 `tls` and the first `global` row cover 15 benchmarks; `ptr` and the second, 14, without `pipeline` (270 s a run interpreted).
 
 - **`tls`**: on macOS every function that reads a thread-local calls its accessor through a pointer (`blr` in `fk_alloc`), which also gives it a stack frame. The interpreter is many small functions, each paying once.
+
 - **`ptr`**: one load, no call. A pointer passed in a register costs at most this, so `ptr` stands for passing the session explicitly.
+
 - Not measured: Linux, where a thread-local costs one instruction in an executable but a call to `__tls_get_addr` in a dylib by default (inferred); compiled programs, which keep a static struct in every design.
 
 With the state behind a thread-local, `ffi.c`'s `glue_addrs` stops compiling: a table of the runtime's addresses cannot hold per-session ones.

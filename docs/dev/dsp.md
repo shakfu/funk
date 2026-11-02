@@ -35,7 +35,9 @@ polyBLEP is a correction near an oscillator's jump that reduces aliasing.
 These add no kernels:
 
 - **Channels:** `stereo`, `pan`.
+
 - **Voices:** `poly`, `polyIx`, `polyOn`.
+
 - **Graph nodes:** `g.control`, a value set by events, and `g.named`.
 
 ## Implementation
@@ -49,16 +51,27 @@ These add no kernels:
 ## Limits
 
 - **One buffer per node.** A kernel gets one block of delay memory.
+
 - **One output per kernel.** Channels that share state need two nodes with the same inputs, which evolve identically, each emitting one channel, at twice the cost: `zita` does this, and `g.Shared` gives each node all of its input's channels. `reverb` instead runs two separate reverbs, tuned 23 frames at 44.1 kHz apart.
+
 - **A changed maximum restarts a delay.** Changing `delay`'s first argument zeroes its memory; changing the time input does not.
+
 - **Feedback between nodes is one block late.** Feedback within a sample needs one kernel.
+
 - **Separate kernels cost more.** A voice of separate kernels costs 2.7x a fused loop.
+
 - **Some parameters are per block.** Filter cutoffs, envelope times and compressor settings are read once per block.
+
 - **`limit` has no lookahead.** It holds its ceiling by turning each peak down within its frame, which distorts it.
+
 - **Channels compress separately.** A stereo `compress` or `limit` follows each channel's own level, which can move the stereo image.
+
 - **`wavetable` is not band-limited.** A bright table aliases at high notes.
+
 - **`sample` reads WAV only.** Integer of 8 to 32 bits, or float of 32 or 64. It always has two channels; a mono file plays on both.
+
 - **A replaced file plays from the next `sig`.** Nothing watches the file. Loading runs on funk's thread, so a large file can delay `pat`'s next window, but not the audio thread.
+
 - **Noise needs a seed per voice.** Nodes with one seed play one signal. `polyIx` passes the voice's number, for a seed. Two instruments that both seed from it still match.
 
 ## Missing
@@ -91,8 +104,11 @@ Done 2026-10-31: `noise`, `saturate`, `compress`, `limit` and `adsrExp` played t
 Node state grows beyond a list of `Float`s, to a zeroed buffer of a given size. funk's thread allocates it, as it does other state, so the audio thread still allocates nothing. The audio thread also frees nothing, and the freeing code must not assume a buffer has one owner, because phase 4 reuses it.
 
 - Delay memory in node state, kept across a graph swap without copying it on the audio thread.
+
 - Delay, comb and allpass.
+
 - Interpolated reads, then chorus and flanger.
+
 - A mono reverb from combs and allpasses, one per channel through multichannel expansion.
 
 A swap exchanges the buffers' pointers on the audio thread. `dspbench` measures the worst block with a swap of a 1 s delay at about 1 us, its clock's resolution, the same as without a swap. `kernels/graph` passes under AddressSanitizer and ThreadSanitizer.
@@ -106,6 +122,7 @@ Deferred 2026-10-31: the listen of phase 2 found no problem with the per-channel
 A kernel writes several buffers, so channels can share state. The kernel signature changes, which affects every kernel and `projects/funkgraph`.
 
 - Several outputs, in the signature and in graph expansion.
+
 - A stereo reverb.
 
 ### Phase 4: loaded data
@@ -113,7 +130,9 @@ A kernel writes several buffers, so channels can share state. The kernel signatu
 Tables are read-only samples, loaded on funk's thread and read by many nodes. A process-wide cache shares them by file and channel, or by content, and each is freed with the last graph that reads it.
 
 - Shared read-only buffers: `projects/funkgraph/table.c`.
+
 - A wavetable oscillator: `wavetable`, `wavetableFile`.
+
 - Reading WAV files, and a sampler: `sample`.
 
 `dspbench` measures the worst block with a swap to a graph reading a 1 s table at about 1 us, its clock's resolution, the same as without a swap. `kernels/tables` replaces a file 400 times while an audio thread renders, with no wrong samples, also under AddressSanitizer and ThreadSanitizer.
@@ -123,7 +142,9 @@ Done 2026-11-01: `d.sample` and `d.wavetable` played in `make clap-dev`, and rep
 ### Later: only on demand
 
 - FFT and spectral processing, which need their own block size.
+
 - Granular synthesis, over phase 4's tables.
+
 - Per-frame filter cutoffs, if per-block cutoffs step audibly.
 
 ### Decisions

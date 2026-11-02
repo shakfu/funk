@@ -36,7 +36,9 @@ Needed by every host, whatever follows.
 
    - **Stack overflow where unwinding is unsafe.** Done otherwise, 2026-11-01: an overflow in C called from a session, a foreign import or a host's function, is the runtime error "stack overflow" (test `embed/overflow`). The fault's handler returns to a function on the session's stack, over `siglongjmp`, which would leave the signal mask and signal stack to restore on each platform. It exits, after `funk_on_fatal`'s hook, when the fault is in a system library, by the path of its image, since one may hold a lock; in the allocator or collector; or when no error target lies above the room the message needs. An image that defines `malloc` counts as a system library, for hosts that link their own allocator. Accepted, as the alternative is exiting every time:
      - A non-system C library's own lock stays held, and its C++ destructors do not run.
+
      - Only the top frame is checked, so a system function that holds a lock and calls back into C, as `dl_iterate_phdr` does, is not seen. Walking frames needs frame pointers, which Linux x86-64 builds often omit, and a runaway recursion has millions.
+
      - The handler's `dladdr` is not async-signal-safe.
 
      The hook runs on the handler's 1 MiB stack, and may wait on a lock the overflow left held, so `alarm(5)` bounds it. Compiled programs have no host, and still exit.
@@ -109,6 +111,7 @@ Each session owns a thread, on the runtime's large stack; a host thread has 512 
 | Process-wide by nature | `SIGSEGV`/`SIGBUS` handlers, the live sessions | the registry |
 
 - `fk_true`, `fk_false`, `fk_unit` and `fk_nil` point to static objects, never collected, as compiled programs already have them (`fk_nullaries`); the variables hold the same address in every session.
+
 - The registry installs the signal handler with the first session and removes it with the last. The handler finds the faulting session by address, its snapshot and stack guard, and passes other faults on. Each session saving and restoring the previous handler breaks when sessions end out of order.
 
 ### Reaching the state: the stack
@@ -122,7 +125,9 @@ The page above the stack is not the thread's: glibc keeps a thread's own data at
 Code off a session's thread does not use the slot:
 
 - the API's calls from a host's thread use `f`'s session;
+
 - `fk_on_funk_thread`, output and `fk_ffi_enter` in glue use a thread-local set on the session's thread, `NULL` elsewhere; none is on a hot path;
+
 - the signal handler, which runs on its own stack, and the queued-callback ring, claimed on any thread, use the session started last until the registry (step 6) finds it by address and by stable pointer.
 
 Compiled programs are one session: the runtime pasted into them is built without `FK_SESSIONS`, and keeps a static `FkRt`, separate allocator statics and `rt.h`'s variables as globals, so they cost what they did.
@@ -136,13 +141,20 @@ Compiled programs are one session: the runtime pasted into them is built without
 Each passes `make test`.
 
 1. Measure. Done, 2026-10-30.
+
 2. The API alone: `funk *` in `libfunk.h`, backed by the one global session; the CLI, `funk-midi`, the plugin and `embed/*` move to it. Done, 2026-10-30, with the session's thread (from step 6); test `embed/session`. A process makes one session in its life until step 4.
+
 3. Static builtin nullaries; `const` on fixed tables. Done, 2026-10-30: `False`, `True`, `()` and `[]` are one read-only object each in `libfunk` (`builtin_nullaries`); before, `fk_init` `calloc`ed them, so with `fk_cons` per session, each session would have made its own `True`, and the interpreter compares by address. Few tables were left to make `const`: the initialized globals are mostly `funk_config`'s sizes, which move into `FkRt`.
+
 4. `FkRt` and the session argument in the runtime and interpreter; glue binding. Benchmarks against step 3. In two parts:
    - 4a, done 2026-10-30: 73 of `rt.c`'s file-scope statics are fields of one static `FkRt`, reached as `RT->x` with `RT` a constant address; no signature changed. The compiler found each use, with the declarations removed, so a local of the same name was left alone; `#ifdef` branches it did not compile were checked by hand (one, Linux's `sem_init`). The export ring is `calloc`ed: in a struct with an initializer, its 512 KiB became initialized data, and a compiled `lists` grew from 114 to 693 KB. `alloc`'s five fields stay separate statics: in any struct, compiled `lists` ran 15% slower ([measurements](261030-session-measurements.md#the-allocators-fields)). Against HEAD: compiled +0.1%, interpreted +0.2% (geometric means). `rt.c`'s writable symbols: 107 to 40.
+
    - 4b, done 2026-10-30: the session found from the stack ([above](#reaching-the-state-the-stack)), in `libfunk` (`FK_SESSIONS`); `fk_start` allocates each session's `FkRt` and its stack's slot, and `fk_init` runs on the session's thread. `rt.h`'s variables (`fk_marking`, `fk_cb_failed`, `fk_snap_lo`, `fk_error_jmp`, `fk_cons` and their kin) head `FkRt` as `FkShared`; `alloc`'s fields are the session's. Compiled programs are unchanged. Glue no longer takes the four variables' addresses. A failed `funk_new`'s message goes to stderr: output callbacks are a session's. Against HEAD: interpreted +0.1%, compiled -0.0% to +0.6% (geometric means); compiled output had looked up its session per write, 3% on `printing`, until it no longer did. `rt.c`'s writable symbols: 21, from 107. Left: process-wide (`fk_true` and its kin, the signal handlers, `page_size`, the environment's flags, a compiled program's nullary table, the fatal hook); `last_rt`, until step 6; and three function-local statics, `fk_p_getline`'s buffer, `verify_marks`'s and `prim_values`, which two sessions on two threads would share.
+
 5. `FkCompiler`, a file at a time, `check.c` first. Done, 2026-10-30, all at once: 118 variables in 11 files. Each file's own are a struct of its own (`CheckState` and the rest, `ST->x` in the file); `funk.h`'s 18 extern ones are `CompilerShared` (`CS->x`); the session's thread allocates them, from `const` templates, and reaches them through `FkShared`'s `cc`, from the stack. Declarations were found in clang's AST, and uses by the compiler's errors with the declarations removed; 9 type definitions moved above the structs that use them. Kept global: the session object itself (`driver.c`'s `session`), and `wild_pat` and `parse.c`'s `pn`, never written. Generated C is byte-identical (4 benchmarks); interpreted +0.3% (geometric mean); a session starts in 7.0 ms, 10.5 MB, against 6.6 ms and 9.9 MB. `libfunk`'s writable symbols: 28, from 288.
+
 6. The registry. Done, 2026-10-30: a table of live sessions, up to 256, by id. The signal handler finds a fault's session by the stack slot holding the address; it is installed with the first session and removed with the last, so sessions may end in any order. A stable pointer carries its session's id in bits 40 and up: a queued callback claims its own session's ring from any thread, a direct one checks that it runs on its session's thread and inside its slot (the stack-switching risk above), and another session's pointer is a runtime error. Set once per process: `page_size`, the environment's flags, `fk_true` and its kin, the primitives' closures. `funk_new` makes any number of sessions; `funk_free` returns the runtime's memory and the stack's slot. The compiler's memory goes too, done 2026-10-30: each `xmalloc` block has a 16-byte header on its session's list (`util.c`), and the session frees the list as it ends; a session holds 110,000 blocks, so the headers cost 2.0 MB of its 11.7. An arena would also need a header, for `xrealloc`'s old size, and could not free. Strings the API returns are copied to plain `malloc` memory, which hosts free. Checked with Guard Malloc (`libgmalloc`): no access to freed memory in `embed/session`, `embed/sessions` or `hosts/clap`; and with AddressSanitizer, across the suite and `hosts/clap` (with ASan's library in `DYLD_INSERT_LIBRARIES`, as the test host is not built with it), with no report. Not yet: glue a session loads with `$CC` is shared by path, so two sessions that `funk_provide` one name with different addresses bind the last one.
+
 7. Tests. Done, 2026-10-30. `embed/sessions`: two sessions define `x` differently and evaluate at once on two threads, 8 collections each; each one's output reaches its own callback; one's `StablePtr` is refused by the other; they end out of order, and a later session takes a freed id. Also under `FUNK_GCSTRESS=1`, and run by hand under ThreadSanitizer (`-DFUNK_SANITIZE=thread`), with no report. `embed/globals`: `libfunk`'s writable symbols, from its sources at `-O0`, where clang merges none, against `tests/embed/globals.allow`. The list: the builtin nullaries (`fk_true` and its kin), the fatal hook, set once or by the host; the environment's flags, `page_size`, `once`, `prim_values`, a compiled program's `nullary_table`, set once; the registry (`sessions`, `registry_lock`, `nlive`, `prev_segv`, `prev_bus`) and `thread_rt`; `wild_pat` and `parse.c`'s `pn`, never written. Mutations: without the stable pointer's session check, and with sessions sharing one compiler, `embed/sessions` fails; a new global fails `embed/globals`.
 
 ## Unchecked

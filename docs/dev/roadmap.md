@@ -89,8 +89,11 @@ Released 2026-10-27; see [CHANGELOG.md](../../CHANGELOG.md).
 Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - Embedding ([embedding.md](embedding.md), phase 0): `libfunk.h`'s output, interrupt, memory and provide calls; only `funk_*` exported; foreign imports inside a plugin; `cmake --install` with a CMake package.
+
 - Patterns ([patterns.md](patterns.md)): `lib/pattern.fk` and `lib/midi.fk`, and `funk-midi`, a REPL that plays `pat` live.
+
 - Audio ([audio.md](audio.md)): kernels from `funk emit-c --kernels`, the `funkgraph` runner, `lib/graph.fk` and `lib/dsp.fk`, voices per MIDI channel.
+
 - The CLAP plugin ([plugin.md](plugin.md)): moved from `midi-langs`, with a stereo output, note input from the DAW and linked glue, so it needs no C compiler.
 
 ## 0.8 -- done: sessions
@@ -98,7 +101,9 @@ Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
 Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - Sessions ([embedding.md](embedding.md), phase 2): every `libfunk.h` call takes a `funk *`; any number of sessions per process, each on its own thread, with its memory freed by `funk_free`.
+
 - The CLAP plugin ([plugin.md](plugin.md#instances)): any number of instances in one process.
+
 - AddressSanitizer: the suite runs clean under it, and CI runs it on Linux and macOS.
 
 ## 0.9 -- done: live DSP
@@ -106,14 +111,16 @@ Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
 Released 2026-11-01; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - Kernels compiled while playing, in the CLAP plugin ([music.md](../music.md)): `funk_compile_kernels`, with `$CC`.
+
 - DSP ([dsp.md](dsp.md)): `d.zita` with smoothed parameters, wavetables and sample playback; equal subtrees of a graph build once.
+
 - Named arguments ([named-args.md](named-args.md)): signatures name parameters and give defaults, and `.{ }` fills them.
 
 ## 0.10 -- language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 
-- Haskell compatibility: what stops Haskell source from running, and what would close it ([haskell-compat.md](haskell-compat.md)).
+- Haskell syntax guides funk's syntax and does not constrain it. [haskell-compat.md](haskell-compat.md) lists what stops Haskell source from running; close a gap only where funk programs need it.
 
 - Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.
 

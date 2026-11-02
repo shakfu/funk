@@ -174,7 +174,7 @@ Steps, all done:
 
 ## Glue without a compiler at load
 
-Glue is the C that `ffi_load` writes for a module's `foreign import`s: one wrapper per import, which unboxes the arguments, calls the C function and boxes its result. It is compiled with `$CC`, loaded with `dlopen`, and cached in `~/.cache/funk/ffi` by a hash of its source, the loading binary's path, the compiler arguments and the libraries. The kernels need none: they are compiled when the plugin is built. graph.fk's 14 imports need it: 782 lines, about 70 ms to compile, 51 KB.
+Glue is the C code that `ffi_load` writes for a module's `foreign import`s: one wrapper per import, which unboxes the arguments, calls the C function and boxes its result. It is compiled with `$CC`, loaded with `dlopen`, and cached in `~/.cache/funk/ffi` by a hash of its source, the loading binary's path, the compiler arguments and the libraries. The kernels built with the plugin need none; `funk_compile_kernels` builds the others while playing. graph.fk's 14 imports need it: 782 lines, about 70 ms to compile, 51 KB.
 
 Fixed, 2026-10-30: the plugin wrote its modules to a new `mkdtemp` directory on each load, which its `-I` names, so the cache key changed and every load compiled the glue again. They go to `$XDG_CACHE_HOME/funk/plugin/<hash of the files>`, kept across loads and written only when missing, so `graph.h`'s time never makes cached glue stale. Option 1 below then removed the compile; this keeps the fallback cached.
 
@@ -182,12 +182,17 @@ Options to need no compiler at all:
 
 1. **Glue compiled when the plugin is built.** Done, 2026-10-30; see [Linked glue](#linked-glue). The build emits the glue for the embedded modules and links it in; libfunk looks it up before compiling. Needs in `ffi.c`:
    - wrapper names independent of load order: they are numbered by the import's slot in the global table (`fk_ffi_%d` of `gidx`), which depends on what was loaded before;
+
    - a key without the loading binary's path and the compiler arguments, which differ between the build and the load;
+
    - a call to register linked-in glue, such as `funk_glue(key, bind, wrappers)`.
 
    It serves any module with imports, and graph.fk keeps one path. User code with its own imports still needs `$CC`.
+
 2. **Graphs without foreign imports.** `g.play` pokes the graph into a host's buffer, as `pattern.writeEvents` writes events (`lib/pattern.fk:122`); the host builds it with `dlsym` and `funk_graph_add`. No glue, no libfunk change; kernel names must be encoded, `g.send` too, and graph.fk gets a second backend.
+
 3. **Vendored libffi**: calls built at run time, for every host. A second calling path beside the glue, closures for callbacks, a new dependency.
+
 4. **funkgraph's functions as libfunk primitives.** Rejected: ties the language to one library.
 
 ## Linked glue
@@ -195,8 +200,11 @@ Options to need no compiler at all:
 `funk emit-c --glue FILE` writes the wrappers of the imports of FILE and the modules it imports, as C to link with libfunk, and `funk_glue_table`, each import's key and wrapper. A host passes the table to `funk_glue` before the code that imports them loads; `ffi_load` then takes each import whose key is there and compiles only the rest.
 
 - **Key**: a hash of the import's wrapper, generated with a fixed id and without its funk name, and of its headers and structs. It no longer depends on load order (the wrapper's name was `fk_ffi_<gidx>`), on how the module is reached (`graph.graphNew` or another qualified name), or on the binary and compiler arguments. A change to the import's type, C name or header changes it, and that import is compiled again.
+
 - **Binding**: the linked wrappers are in the host's binary with libfunk, so the runtime's functions and the host's, such as `funkgraph`'s, bind at link time: no `fk_glue_bind`, no `funk_provide`.
+
 - **The plugin** emits `projects/funk-clap/glue.fk`, which imports the modules its session imports, at build time.
+
 - **Tests**: `embed/glue` runs an import through linked glue with `CC=/nonexistent/cc`, after a global that moves its slot; `embed/glue/none`, the same without `funk_glue`, fails to compile. `hosts/clap/nocc` runs every plugin check, audio included, with `CC=/nonexistent/cc`, and compiles no glue.
 
 ## Note input
@@ -204,7 +212,9 @@ Options to need no compiler at all:
 Done, 2026-10-30: an instrument plugin has a note input port, in the CLAP and MIDI dialects, and the host's notes play the same voices as the plugin's own. They are not sent on to the MIDI output, and funk code does not see them.
 
 - **Order**: `process()` collects a block's notes, the host's and those `emit` sends, sorts them by frame, and only then gives them to `AudioOutput::note`. The voices take events in time order and move an earlier one up to the last frame sent, so a clip's note at frame 0 handled after a host's at frame 300 started at 300. The sort is an insertion sort: `std::stable_sort` may allocate, on the audio thread.
+
 - **Capacity**: 1024 notes per block; more are dropped.
+
 - **Tests**: `tests/hosts/clap` sends a CLAP note ended by MIDI and a MIDI note ended by a CLAP note, each sounding from its frame at its velocity, and a host's note at frame 300 in the block of a clip's note at frame 0. Without the sort, the last check fails.
 
 ## Instances
@@ -212,8 +222,11 @@ Done, 2026-10-30: an instrument plugin has a note input port, in the CLAP and MI
 Done, 2026-10-30, once `libfunk` ran sessions side by side ([embedding.md](embedding.md#phase-2-sessions)): each plugin instance has its own funk session, player, voices and kernels handle, so a DAW may put the plugin on as many tracks as it likes, up to `libfunk`'s 256 sessions.
 
 - `Language` gained the audio calls as virtual methods (`audioActivate`, `audioNote`, `audioRender`), so they reach their instance; `LanguageInfo` gives only the output's channel count, 0 for a note effect. Free functions in a table could not tell instances apart.
+
 - `midi_clock.c`'s sink and clock are per thread: each instance's evaluator thread installs its own.
+
 - funk's library files are written to the cache directory once per process: two instances would have raced on one temporary name, which carries only the pid.
+
 - One UDP port serves one instance; a second one's bind fails, and the editor shows it. Test `hosts/clap` passes the port between two instances through their state's flag: a definition in one is not in scope in the other, and one note sounds through each one's own `sig`.
 
 ## Syntax colours
@@ -221,8 +234,11 @@ Done, 2026-10-30, once `libfunk` ran sessions side by side ([embedding.md](embed
 Done, 2026-10-30: the editor colours funk from `projects/tree-sitter-funk`'s parser and its `queries/highlights.scm`, the grammar Helix and Neovim use, so the three agree.
 
 - ImGui's multiline field cannot colour parts of its text. The field keeps editing, undo, word wrap and the eval keys, and draws its text transparent; `DrawTokens` (`projects/clap/editor_colours.cpp`) draws the same text over it, a colour per byte, repeating ImGui 1.93's layout. A code editor widget such as ImGuiColorTextEdit was the alternative; it has no word wrap, and the eval keys and caret tracking would have moved to it.
+
 - The framework has no tree-sitter: `LanguageInfo::highlight` gives a `Token` per byte, or is null for plain text. funk's (`projects/funk-clap/highlight.cpp`) parses the whole text on each change; a later pattern's capture wins, as in Neovim.
+
 - It builds where `projects/tree-sitter-funk/src/parser.c` (`make tree-sitter`) and the tree-sitter runtime are found; elsewhere, such as CI, the text is plain. The plugin grows from 2.2 MB to 6.4 MB.
+
 - Tests: `hosts/clap/colours` draws the field headless, by ImGui and by `DrawTokens`, and compares every glyph's vertices: wrapped or not, scrolled down or right, active, and at fractional font sizes. An ImGui update that moves its text fails it. `hosts/clap/highlight` checks a token per construct.
 
 ## Keys in REAPER
