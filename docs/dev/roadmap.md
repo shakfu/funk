@@ -106,7 +106,7 @@ Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - AddressSanitizer: the suite runs clean under it, and CI runs it on Linux and macOS.
 
-## 0.9 -- done: live DSP
+## 0.9 -- done: live DSP -- done
 
 Released 2026-11-01; see [CHANGELOG.md](../../CHANGELOG.md).
 
@@ -122,7 +122,9 @@ Larger changes, each needing its own design note in `docs/dev/` first.
 
 - Haskell syntax guides funk's syntax and does not constrain it. [haskell-compat.md](haskell-compat.md) lists what stops Haskell source from running; close a gap only where funk programs need it.
 
-- Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`). Phase 3: existential types, for lists of mixed instances.
+- Type classes phase 2: kinds and higher-kinded classes (`Functor`, `Foldable`).
+
+- Phase 3: existential types, for lists of mixed instances.
 
 - As-patterns, list comprehensions.
 
