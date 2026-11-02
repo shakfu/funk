@@ -6,6 +6,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# pma
+.pma
+
 # cache
 .cache
 .*_cache

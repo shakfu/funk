@@ -506,7 +506,11 @@ char *ffi_compile_kernels(const char *src, const char **err) {
   fputs(src, out);
   fclose(out);
   const char *cc = argv.a[0];
-  const char *fixed[] = {"-O2", "-shared", "-fPIC", "-o", tmp, c};
+  const char *fixed[] = {"-O2", "-shared", "-fPIC",
+#ifndef __APPLE__
+                         "-Wl,-z,defs", /* as macOS: a missing C function fails here, not at dlopen */
+#endif
+                         "-o", tmp, c};
   for (size_t i = 0; i < sizeof fixed / sizeof fixed[0]; i++) VPUSH(argv, (char *)fixed[i]);
   push_link_words(&argv, src);
   int status = spawn_wait_err(&argv, log);
