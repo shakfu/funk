@@ -1,6 +1,7 @@
 /* A compile that exceeds FK_COMPILE_LIMIT fails with an error, and the session
    goes on: the limit is tripped at many points of one compile, so in every
    pass, and each time the session still compiles and runs new code. */
+#define _DEFAULT_SOURCE /* setenv, unsetenv: C11 alone does not declare them */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

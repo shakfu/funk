@@ -33,6 +33,7 @@
 #include <windows.h>
 #else
 #include <arpa/inet.h>
+#include <cerrno>
 #include <dlfcn.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -130,7 +131,14 @@ struct Udp {
 #endif
 		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof(timeout));
 		char buf[65536];
-		int n = (int)recv(fd, buf, sizeof(buf), 0);
+		int n;
+#ifdef _WIN32
+		n = (int)recv(fd, buf, sizeof(buf), 0);
+#else
+		// Linux fails a recv with SO_RCVTIMEO with EINTR on any handled signal, even with SA_RESTART
+		while ((n = (int)recv(fd, buf, sizeof(buf), 0)) < 0 && errno == EINTR) {}
+		if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK) fprintf(stderr, "udp receive: %s\n", strerror(errno));
+#endif
 		return n > 0 ? std::string(buf, n) : std::string();
 	}
 

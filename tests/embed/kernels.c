@@ -1,5 +1,6 @@
 /* kernels.c -- funk_compile_kernels: a library for dlopen, cached by source, with
    the compiler's messages in funk_output; and a new session for each of many compiles. */
+#define _DEFAULT_SOURCE /* setenv, unsetenv: C11 alone does not declare them */
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>

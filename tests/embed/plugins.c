@@ -1,6 +1,7 @@
 /* plugins.c -- plugins A B FILE [CC_ARGS]: loads the modules A and B
    RTLD_LOCAL, as a plugin host does, and runs FILE in each, with PLUGIN
    set to its name. */
+#define _DEFAULT_SOURCE /* setenv: C11 alone does not declare it */
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
