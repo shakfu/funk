@@ -79,7 +79,8 @@ if(TARGET funk_midi_clap)
   endif()
   # graph.fk's glue is linked in: with no C compiler, audio still plays and no glue is compiled
   set(CACHE_DIR ${CMAKE_CURRENT_BINARY_DIR}/clap-cache)
-  add_test(NAME hosts/clap/nocc COMMAND sh -c "rm -rf \"$0\" && \"$1\" \"$2\" \"$3\" 57292 >/dev/null 2>&1 && ls \"$0\"/funk/ffi 2>/dev/null | wc -l"
+  # the host's output is shown only if it fails
+  add_test(NAME hosts/clap/nocc COMMAND sh -c "rm -rf \"$0\" && { \"$1\" \"$2\" \"$3\" 57292 >\"$0.log\" 2>&1 || { cat \"$0.log\"; exit 1; }; } && ls \"$0\"/funk/ffi 2>/dev/null | wc -l"
     ${CACHE_DIR} $<TARGET_FILE:test_clap_host> $<TARGET_FILE:funk_midi_clap> ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt)
   set_tests_properties(hosts/clap/nocc PROPERTIES LABELS "hosts;clap" TIMEOUT 240 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57292;CC=/nonexistent/cc;XDG_CACHE_HOME=${CACHE_DIR}" PASS_REGULAR_EXPRESSION "^ *0\n$")
