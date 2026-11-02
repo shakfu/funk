@@ -809,8 +809,9 @@ static void sweep(void) {
   alloc_since_gc = black < gc_threshold / 2 ? black : gc_threshold / 2;
 }
 
-/* The cycle's first pause: the snapshot of the stack and the roots. */
-static void gc_start(void) {
+/* The cycle's first pause: the snapshot of the stack and the roots. Not
+   instrumented: GCC's ASan moves regs to its fake stack, outside the snapshot. */
+static NO_ASAN void gc_start(void) {
   jmp_buf regs;
   setjmp(regs); /* spill callee-saved registers into this frame */
   __asm__ volatile("" : : "r"(&regs) : "memory");
