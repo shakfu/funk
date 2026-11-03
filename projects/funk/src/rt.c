@@ -625,8 +625,7 @@ static NO_ASAN __attribute__((noinline)) void zero_raw(volatile V *p, size_t n) 
 }
 
 static __attribute__((noinline)) void snapshot_stack(void) {
-  V *sp = (V *)fk_sp(); /* this frame's own slots too, which would otherwise be dead stack */
-  RT->snapshot_sp = (char *)sp;
+  V *sp = (V *)__builtin_frame_address(0);
   if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
   if (gcstress) { /* the dead stack below holds old words, which new frames' unset slots would show the check */
     char *dead = (char *)(((uintptr_t)sp - 2 * page_size) & ~(uintptr_t)(page_size - 1));
@@ -637,10 +636,16 @@ static __attribute__((noinline)) void snapshot_stack(void) {
       exit(1);
     }
     if (dead > RT->guard_hi) core_dump(RT->guard_hi, (size_t)(dead - RT->guard_hi), false); /* the new mapping dropped fk_run's advice */
-    /* up to sp: an alloca puts the zeroing's frame below dead */
-    __asm__ volatile("" : : "r"(__builtin_alloca((size_t)((char *)sp - dead) + 256)) : "memory");
-    zero_raw((V *)dead, (size_t)((V *)sp - (V *)dead));
+    /* An alloca block ends at or below this frame's fixed slots and starts at
+       or below dead. Zeroed, it leaves no dead word above dead; the snapshot
+       starts at its end, so this frame's slots are scanned, not left behind.
+       Not a stack pointer read: GCC may move one past the alloca. */
+    size_t n = (size_t)((char *)sp - dead);
+    V *blk = __builtin_alloca(n);
+    zero_raw(blk, n / sizeof(V));
+    sp = (V *)((char *)blk + n);
   }
+  RT->snapshot_sp = (char *)sp;
   char *lo = (char *)(((uintptr_t)sp + page_size - 1) & ~(uintptr_t)(page_size - 1)),
        *hi = (char *)((uintptr_t)RT->stack_top & ~(uintptr_t)(page_size - 1)); /* below the thread's data, which the kernel writes */
   if (fk_callback_depth || lo >= hi) {
