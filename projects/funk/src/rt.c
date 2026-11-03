@@ -620,8 +620,12 @@ static void copy_more(V *from, size_t n) { /* appended to the copy */
   RT->stack_words = at + n;
 }
 
+static NO_ASAN __attribute__((noinline)) void zero_raw(volatile V *p, size_t n) {
+  for (size_t i = 0; i < n; i++) p[i] = 0;
+}
+
 static __attribute__((noinline)) void snapshot_stack(void) {
-  V *sp = (V *)__builtin_frame_address(0);
+  V *sp = (V *)fk_sp(); /* this frame's own slots too, which would otherwise be dead stack */
   RT->snapshot_sp = (char *)sp;
   if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
   if (gcstress) { /* the dead stack below holds old words, which new frames' unset slots would show the check */
@@ -633,7 +637,9 @@ static __attribute__((noinline)) void snapshot_stack(void) {
       exit(1);
     }
     if (dead > RT->guard_hi) core_dump(RT->guard_hi, (size_t)(dead - RT->guard_hi), false); /* the new mapping dropped fk_run's advice */
-    memset(dead, 0, (size_t)((char *)sp - 1024 - dead));
+    /* up to sp: an alloca puts the zeroing's frame below dead */
+    __asm__ volatile("" : : "r"(__builtin_alloca((size_t)((char *)sp - dead) + 256)) : "memory");
+    zero_raw((V *)dead, (size_t)((V *)sp - (V *)dead));
   }
   char *lo = (char *)(((uintptr_t)sp + page_size - 1) & ~(uintptr_t)(page_size - 1)),
        *hi = (char *)((uintptr_t)RT->stack_top & ~(uintptr_t)(page_size - 1)); /* below the thread's data, which the kernel writes */
