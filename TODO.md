@@ -24,7 +24,12 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### 0.10 acceptance test
 
+- [x] The plugin's simulator mode: scripted steps, rotated or random, evaluated live and logged with each block's `process()` time against its budget ([docs/dev/simulator.md](docs/dev/simulator.md)). Done 2026-11-04.
+
 - [ ] Play a full live set in a DAW, with edits, with no missed blocks; log any friction in [docs/dev/patterns.md](docs/dev/patterns.md#friction-log). Needs a person at the DAW.
+  - Run `projects/funk-clap/sim-set.fk` in REAPER on Linux, several instances, with Stop, transport and tempo changes by hand. Check the log for `slow`, `busy` and `failed`, and REAPER's own underrun count: the log times this plugin only.
+
+  - If one script per process proves limiting, read the script from each instance's state instead of the environment.
 
 ### Correctness
 
