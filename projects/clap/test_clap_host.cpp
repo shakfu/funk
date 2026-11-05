@@ -1,6 +1,7 @@
 // Headless CLAP host: loads a midi-langs plugin and checks evaluation over UDP, clip and live
 // playback at exact frames, stop, state, and the one-instance rule.
 // Usage: test_clap_host <plugin binary> <cases file> <udp port>
+//        test_clap_host <plugin binary> --sim <log>: simulator mode (CheckSim)
 // The plugin's UDP port variable must be set to <udp port>, which turns UDP on at init.
 //
 // The cases file holds the language's code for each check, as "[name]" lines followed by code:
@@ -766,8 +767,58 @@ void CheckInstances(const clap_plugin_factory_t* factory, const char* id, const 
 	second->destroy(second);
 }
 
+// Simulator mode, with its variables set by the caller: steps run while the host plays in
+// real time, and the log records them.
+int CheckSim(const char* pluginPath, const char* logPath)
+{
+	remove(logPath);
+	const clap_plugin_entry_t* entry = LoadEntry(pluginPath);
+	if (!entry || !entry->init(pluginPath)) return 1;
+	auto* factory = (const clap_plugin_factory_t*)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+	const clap_plugin_t* plugin = factory->create_plugin(factory, &kHost, factory->get_plugin_descriptor(factory, 0)->id);
+	check(plugin && plugin->init(plugin), "plugin init");
+	CheckPorts(plugin);
+	check(plugin->activate(plugin, kRate, 32, kBlock), "activate");
+	Events ev;
+	const auto block = std::chrono::microseconds((long long)(kBlock * 1e6 / kRate));
+	auto next = std::chrono::steady_clock::now();
+	for (int b = 0; b < (int)(4. * kRate / kBlock); ++b) { // 4 s, at the pace of a device
+		Process(plugin, ev, -1., false);
+		next += block;
+		std::this_thread::sleep_until(next);
+	}
+	plugin->deactivate(plugin);
+	plugin->destroy(plugin);
+	entry->deinit();
+
+	std::ifstream in(logPath);
+	std::string line, log;
+	int steps = 0, failed = 0, notes = 0, sums = 0;
+	while (std::getline(in, line)) {
+		log += line + "\n";
+		if (line.find(" step ") != std::string::npos && line.find(": notes") != std::string::npos) ++notes;
+		if (line.find(" step ") != std::string::npos && line.find(": sum") != std::string::npos) ++sums;
+		if (line.find(" step ") != std::string::npos && line.find(" of 3, ") != std::string::npos) ++steps;
+		if (line.find(" done ") != std::string::npos && line.find("failed") != std::string::npos) ++failed;
+	}
+	check(log.find(" #1 start script ") != std::string::npos, "the log starts with the script:\n" + log);
+	check(log.find("step  preamble (1 paragraphs)") != std::string::npos, "the preamble runs");
+	check(steps >= 4 && notes >= 1 && sums >= 1, "steps rotate, every 0.5 s: " + std::to_string(steps));
+	check(log.find(", live: notes") != std::string::npos, "steps play live");
+	check(log.find("out   5") != std::string::npos, "a step's output is logged");
+	check(failed >= 1, "a failing step is logged as failed");
+	check(log.find("audio blocks ") != std::string::npos && log.find(" #1 end") != std::string::npos,
+	      "block timings and the end are logged");
+	int on = 0;
+	for (const Event& e : ev.list) on += e.data[0] == 0x90 && e.data[1] == 60;
+	check(on >= 4, "the notes step plays: " + std::to_string(on) + " note-ons");
+	printf("%d failure(s)\n", gFailures);
+	return gFailures ? 1 : 0;
+}
+
 int main(int argc, char** argv)
 {
+	if (argc == 4 && !strcmp(argv[2], "--sim")) return CheckSim(argv[1], argv[3]);
 	if (argc < 4) {
 		fprintf(stderr, "usage: test_clap_host <plugin> <cases file> <udp port>\n");
 		return 2;

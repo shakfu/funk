@@ -69,6 +69,11 @@ if(TARGET funk_midi_clap)
   # lookahead, which a loaded machine misses: under ctest -j 10, a note 3 ms late
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  # simulator mode: a script's steps in turn, logged (projects/clap/simulator.hpp)
+  set(SIM_LOG ${CMAKE_CURRENT_BINARY_DIR}/sim.log)
+  add_test(NAME hosts/clap/sim COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim ${SIM_LOG})
+  set_tests_properties(hosts/clap/sim PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
+    ENVIRONMENT "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG};FUNK_MIDI_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
   # the editor's syntax colours: drawn where ImGui draws its text, headless
   add_test(NAME hosts/clap/colours COMMAND test_editor_colours)
   set_tests_properties(hosts/clap/colours PROPERTIES LABELS "hosts;clap")

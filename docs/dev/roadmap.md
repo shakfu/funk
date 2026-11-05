@@ -126,7 +126,7 @@ Released 2026-11-01; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - ~~Visibility: add the optimization report.~~ `funk emit-c --opt-report`.
 
-- Acceptance test: play a full live set in a DAW, with edits, with no missed blocks. Log any friction it turns up.
+- Acceptance test: play a full live set in a DAW, with edits, with no missed blocks. Log any friction it turns up. The plugin's simulator mode runs and logs a scripted set ([simulator.md](simulator.md)).
 
 ## 0.11 -- tidal expressive patterns
 

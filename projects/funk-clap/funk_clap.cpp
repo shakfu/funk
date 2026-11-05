@@ -669,4 +669,5 @@ const LanguageInfo kLanguage = {
 #else
 	nullptr,
 #endif
+	"FUNK_MIDI_CLAP_SIM",
 };

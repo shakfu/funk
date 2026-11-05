@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The CLAP plugin has a simulator mode, for the 0.10 acceptance test. With `FUNK_MIDI_CLAP_SIM` naming a script, each instance evaluates the script's steps live, in turn or at random, one per interval. It appends each step, the plugin's output and `process()`'s time against each block's duration to a log ([docs/dev/simulator.md](docs/dev/simulator.md)). Driving the plugin from inside, over UDP from a script outside, keeps the run in one process and lets the log place block timings beside the step that caused them.
+
 - `funk emit-c --opt-report FILE`, and `funk_opt_report` in `libfunk.h`, list which optimizations applied to FILE's functions. Each pipeline fusion took is listed, as is each it refused, with the rule that refused it. Each emitted worker is listed with its parameter and result representations, and whether it loops, uses TRMC (tail recursion modulo cons) or reuses cells. A small change elsewhere can lose any of these with no other sign: `queens` lost 18.7% during 0.5 and 0.6. Diff the report across a change to see it.
 
   ```text

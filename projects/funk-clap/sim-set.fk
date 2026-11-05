@@ -1,0 +1,43 @@
+-- A set for the plugin's simulator mode (docs/dev/simulator.md): each "--- name" line
+-- starts a step, and paragraphs above the first are the preamble, evaluated first.
+
+sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq * 0.2)
+
+pat = p.stack [p.fastcat [p.atom 48, p.silence, p.atom 55, p.silence],
+               m.vel 70 (p.euclid 3 8 72)]
+
+--- saw voices
+sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq * 0.2)
+
+--- reverb voices
+sig = d.reverb .{ mix = 0.3 } (voices (\gate freq -> d.adsr 0.01 0.1 0.6 0.4 gate * d.sine freq * 0.3))
+
+--- bass and euclid
+pat = p.stack [p.fastcat [p.atom 48, p.silence, p.atom 55, p.silence],
+               m.vel 70 (p.euclid 3 8 72)]
+
+--- fast hats
+pat = p.fast 8 (p.fastcat [p.atom 84, p.silence])
+
+--- arpeggio once
+p.fastcat [p.atom 60, p.atom 64, p.atom 67, p.atom 72]
+
+--- dense
+pat = p.stack [p.fast 16 (p.atom 60), p.euclid 5 8 67, p.fast 3 (p.atom 72)]
+
+--- kernel: fold
+-- compiles a kernel with $CC while the pattern plays, then plays through it
+import ugen as u
+foreign export ccall "sim_fold" foldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+foldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr u.Context ->> ()
+foldK st ins out n cx = go (u.input ins 0) out 0 (fromIntegral n)
+go :: Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+go x out i n = if i == n then () else do
+  u.put out i (abs (u.at x i) * 2.0 - 1.0)
+  go x out (i + 1) n
+
+sig = voices (\gate freq -> gate * g.Node "sim_fold" [] [d.saw freq] * 0.2)
+
+--- error
+-- a typo, as in a set: the old sig and pat keep playing
+pat = p.fast 4 (p.atom nosuch)

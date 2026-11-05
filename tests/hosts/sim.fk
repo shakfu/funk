@@ -1,0 +1,12 @@
+-- The simulator's script for tests/hosts/clap/sim (projects/clap/simulator.hpp).
+-- The preamble: an instrument whose output is every voice's gate.
+sig = voices (\gate freq -> gate)
+
+--- notes
+pat = p.fast 4 (p.atom 60)
+
+--- sum
+2 + 3
+
+--- bad
+nosuch 1

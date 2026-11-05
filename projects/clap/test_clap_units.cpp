@@ -1,9 +1,11 @@
 // Unit tests for the CLAP framework's timeline and eval-code selection.
 
 #include "editor_logic.hpp"
+#include "simulator.hpp"
 #include "timeline.hpp"
 
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -232,8 +234,96 @@ void testReaperTextFields()
 	check(gRegistered.size() == 2, "removing twice is harmless");
 }
 
+// --- simulator -------------------------------------------------------------
+
+void testSimScript()
+{
+	const SimScript s = ParseSimScript("-- about\n  -- the set\n\nsig = a\n\n  \n-- k\nk = 1\n--- bass\npat = b\n\nx\n---\n\n--- empty name \n---no space\n1\n", "--");
+	check(s.preamble.size() == 2 && s.preamble[0] == "sig = a", "preamble paragraphs");
+	check(s.steps.size() == 3, "three steps: got " + std::to_string(s.steps.size()));
+	if (s.steps.size() == 3) {
+		checkEq(s.steps[0].name, "bass", "step name");
+		check(s.steps[0].paragraphs.size() == 2 && s.steps[0].paragraphs[1] == "x", "a step's paragraphs");
+		checkEq(s.steps[1].name, "step 2", "an unnamed step is numbered");
+		check(s.steps[1].paragraphs.empty(), "a step may be empty");
+		checkEq(s.steps[2].name, "empty name", "trailing spaces trimmed");
+		check(s.steps[2].paragraphs.size() == 1 && s.steps[2].paragraphs[0] == "---no space\n1",
+		      "---word is a comment line, not a step");
+	}
+	check(s.preamble.size() == 2 && s.preamble[1] == "-- k\nk = 1", "a comment paragraph is skipped, a commented one kept");
+	check(ParseSimScript("", "--").steps.empty(), "empty script");
+	check(ParseSimScript("-- x\n", nullptr).preamble.size() == 1, "no comment syntax: every paragraph is code");
+}
+
+void testSimOrder()
+{
+	SimOrder rotate(false, 0, 1);
+	std::string got;
+	for (int i = 0; i < 5; ++i) got += std::to_string(rotate.next(3));
+	checkEq(got, "12012", "rotation from the instance's offset");
+	checkEq(std::to_string(rotate.next(2)), "1", "rotation when the script shrinks");
+	SimOrder random(true, 42, 0);
+	size_t last = random.next(4);
+	int seen[4] = {0, 0, 0, 0};
+	bool repeated = false;
+	for (int i = 0; i < 400; ++i) {
+		const size_t k = random.next(4);
+		repeated |= k == last;
+		seen[k < 4 ? k : 0]++;
+		last = k;
+	}
+	check(!repeated, "random: no step twice in a row");
+	check(seen[0] > 50 && seen[1] > 50 && seen[2] > 50 && seen[3] > 50, "random: every step chosen");
+	SimOrder one(true, 1, 0);
+	check(one.next(1) == 0 && one.next(1) == 0, "random of one step");
+	SimOrder a(true, 7, 0), b(true, 7, 0);
+	bool same = true;
+	for (int i = 0; i < 20; ++i) same &= a.next(5) == b.next(5);
+	check(same, "random: a seed repeats its order");
+}
+
+void testSimConfig()
+{
+	SimConfig c;
+	std::string error;
+	unsetenv("T_SIM");
+	check(!SimConfigFromEnv("T_SIM", &c, &error), "unset: no simulator");
+	check(!SimConfigFromEnv(nullptr, &c, &error), "no prefix: no simulator");
+	setenv("T_SIM", "/x/set.fk", 1);
+	check(SimConfigFromEnv("T_SIM", &c, &error) && error.empty(), "set");
+	check(c.log == "/x/set.fk.log" && !c.random && c.interval == 16., "defaults");
+	setenv("T_SIM_ORDER", "random", 1);
+	setenv("T_SIM_INTERVAL", "2.5", 1);
+	setenv("T_SIM_SEED", "9", 1);
+	setenv("T_SIM_LOG", "/y.log", 1);
+	c = SimConfig();
+	check(SimConfigFromEnv("T_SIM", &c, &error) && error.empty(), "every variable");
+	check(c.random && c.interval == 2.5 && c.seed == 9 && c.log == "/y.log", "values");
+	setenv("T_SIM_ORDER", "shuffle", 1);
+	setenv("T_SIM_INTERVAL", "0", 1);
+	setenv("T_SIM_SEED", "x", 1);
+	c = SimConfig();
+	check(SimConfigFromEnv("T_SIM", &c, &error), "bad values still enable it");
+	check(!c.random && c.interval == 16., "bad values keep the defaults");
+	check(error.find("_ORDER") != std::string::npos && error.find("_INTERVAL") != std::string::npos
+	          && error.find("_SEED") != std::string::npos, "bad values reported: " + error);
+}
+
+void testBlockStats()
+{
+	BlockStats s;
+	s.add(100, 1000);
+	s.add(600, 1000);
+	s.add(1500, 1000);
+	check(s.blocks == 3 && s.half == 2 && s.over == 1 && s.maxNs == 1500 && s.budgetNs == 1000, "block counts");
+}
+
 int main()
 {
+	testSimScript();
+	testSimOrder();
+	testSimConfig();
+	testBlockStats();
 	testReaperTextFields();
 	testSelection();
 	testBrackets();

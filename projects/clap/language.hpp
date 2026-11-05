@@ -58,6 +58,8 @@ struct LanguageInfo {
 	// The editor's syntax colours: a Token per byte of text, on the host's main thread; nullptr
 	// for plain text.
 	void (*highlight)(const std::string& text, std::vector<uint8_t>& tokens);
+	// Names the simulator's variables (simulator.hpp); nullptr: no simulator.
+	const char* simEnv;
 };
 
 extern const LanguageInfo kLanguage;

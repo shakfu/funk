@@ -13,7 +13,7 @@ target_include_directories(midi_open PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(midi_open PUBLIC libremidi)
 
 # The parts that do not depend on the language or on pugl.
-add_library(midi_langs_clap STATIC timeline.cpp editor_logic.cpp udp_server.cpp)
+add_library(midi_langs_clap STATIC timeline.cpp editor_logic.cpp udp_server.cpp simulator.cpp)
 target_include_directories(midi_langs_clap PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${THIRDPARTY}/clap/include

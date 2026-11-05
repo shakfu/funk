@@ -19,6 +19,7 @@
 #include "editor.hpp"
 #include "editor_logic.hpp"
 #include "language.hpp"
+#include "simulator.hpp"
 #include "timeline.hpp"
 #include "udp_server.hpp"
 
@@ -50,6 +51,7 @@ const size_t kMaxClipEvents = 200000;
 const double kLiveLookaheadSeconds = 0.05; // how far live code runs ahead of the host
 const auto kOfflineWaitLimit = std::chrono::seconds(10);
 const double kNever = std::numeric_limits<double>::infinity();
+std::atomic<int> gInstances{0}; // numbers the simulator's instances in its log
 
 
 const char* const kFeatures[] = {
@@ -360,13 +362,25 @@ public:
 		plugin_.start_processing = [](const clap_plugin_t*) { return true; };
 		plugin_.stop_processing = [](const clap_plugin_t*) {};
 		plugin_.reset = [](const clap_plugin_t* p) { self(p)->stop(); };
-		plugin_.process = [](const clap_plugin_t* p, const clap_process_t* process) { return self(p)->process(process); };
+		plugin_.process = [](const clap_plugin_t* p, const clap_process_t* process) {
+			const auto started = std::chrono::steady_clock::now();
+			const clap_process_status status = self(p)->process(process);
+			self(p)->timeBlock(process->frames_count, std::chrono::steady_clock::now() - started);
+			return status;
+		};
 		plugin_.get_extension = [](const clap_plugin_t* p, const char* id) { return self(p)->extension(id); };
 		plugin_.on_main_thread = [](const clap_plugin_t*) {};
 	}
 
 	~Plugin()
 	{
+		// Before the evaluator, which the simulator's thread queues code on.
+		std::unique_ptr<Simulator> sim;
+		{
+			std::lock_guard<std::mutex> lock(logMutex_);
+			sim = std::move(sim_);
+		}
+		sim.reset();
 		udp_.stop();
 		destroyEditor();
 		evaluator_.reset();
@@ -388,7 +402,41 @@ private:
 		bool portFromEnv = false;
 		udpPort_ = ConfiguredUdpPort(&portFromEnv);
 		setUdp(portFromEnv);
+		startSimulator();
 		return true;
+	}
+
+	// Simulator mode, if its variables are set: steps play live, as in a set.
+	void startSimulator()
+	{
+		SimConfig config;
+		std::string error;
+		if (!SimConfigFromEnv(kLanguage.simEnv, &config, &error)) return;
+		if (!error.empty()) log(error);
+		if (kLanguage.syntax.lineComment) config.lineComment = kLanguage.syntax.lineComment;
+		tl_.live = true;
+		Simulator::Host host;
+		host.eval = [this](const std::string& code) {
+			log(Echo("sim> ", code));
+			auto reply = std::make_shared<std::promise<std::string>>();
+			std::future<std::string> result = reply->get_future();
+			evaluator_->eval(code, reply);
+			return result;
+		};
+		host.live = [this] { return tl_.live.load(); };
+		host.stats = &blockStats_;
+		auto sim = std::make_unique<Simulator>(config, ++gInstances, std::move(host));
+		std::lock_guard<std::mutex> lock(logMutex_);
+		sim_ = std::move(sim);
+		logLocked("simulator: " + config.script + ", log " + config.log + "\n");
+	}
+
+	// The audio thread: process()'s time against the block's; offline blocks have no deadline.
+	void timeBlock(uint32_t frames, std::chrono::steady_clock::duration took)
+	{
+		if (frames == 0 || sampleRate_ <= 0. || tl_.offline) return;
+		const uint64_t ns = (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(took).count();
+		blockStats_.add(ns, (uint64_t)(frames * 1e9 / sampleRate_));
 	}
 
 	// Stops the running code and its voices; the audio thread releases every held note.
@@ -516,7 +564,13 @@ private:
 	void log(const std::string& text)
 	{
 		std::lock_guard<std::mutex> lock(logMutex_);
+		logLocked(text);
+	}
+
+	void logLocked(const std::string& text)
+	{
 		if (pendingLog_.size() < kMaxPendingLog) pendingLog_ += text;
+		if (sim_) sim_->output(text);
 	}
 
 	std::string drainLog()
@@ -735,6 +789,8 @@ private:
 
 	std::mutex logMutex_;
 	std::string pendingLog_;
+	std::unique_ptr<Simulator> sim_; // under logMutex_, which log() tees to it under
+	BlockStats blockStats_;
 };
 
 // One MIDI output; an instrument also takes notes, which play its audio.
