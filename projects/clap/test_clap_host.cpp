@@ -51,6 +51,14 @@ const uint32_t kBlock = 512;
 const long long kBeatFrames = 24000; // at 120 BPM
 uint32_t gAudioChannels = 0;         // of the plugin's output port; 0 for a note effect
 
+// Sleeps until the next block is due. A late block restarts the schedule, as a device drops
+// the time of an xrun: back-to-back catch-up blocks would outrun the lookahead in no real time.
+void Pace(std::chrono::steady_clock::time_point& due)
+{
+	due = std::max(due + std::chrono::microseconds((long long)(kBlock * 1e6 / kRate)), std::chrono::steady_clock::now());
+	std::this_thread::sleep_until(due);
+}
+
 void check(bool ok, const std::string& what)
 {
 	printf("%s: %s\n", ok ? "PASS" : "FAIL", what.c_str());
@@ -678,8 +686,7 @@ void CheckLive(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 			Process(plugin, ev, -1., false);
 			if (after >= 0) ++after;
 			else if ((reply = rt.receive(1)) != "") after = 0;
-			due += std::chrono::microseconds((long long)(kBlock * 1e6 / kRate));
-			std::this_thread::sleep_until(due);
+			Pace(due);
 		}
 		check(reply == "ok\n", what + " replies: " + reply);
 		check(ev.list.size() == 2 && ev.list[1].frame - ev.list[0].frame == kBeatFrames,
@@ -712,8 +719,7 @@ void CheckLive(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 			}
 			if (sent && built.empty()) built = compile.receive(1);
 			if (!built.empty()) ++sinceBuild;
-			due += std::chrono::microseconds((long long)(kBlock * 1e6 / kRate));
-			std::this_thread::sleep_until(due);
+			Pace(due);
 		}
 		check(built.find("kernels loaded") != std::string::npos, "a kernel compiles while pat loops: " + built);
 		long long widest = 0, last = -1;
