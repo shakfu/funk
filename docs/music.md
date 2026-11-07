@@ -55,11 +55,13 @@ pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
 | `p.fastcat ps` | `[Pattern a] -> Pattern a` | each of `ps` in one equal step of every cycle |
 | `p.cat ps` | `[Pattern a] -> Pattern a` | one of `ps` per cycle, in turn |
 | `p.stack ps` | `[Pattern a] -> Pattern a` | all of `ps` at once |
-| `p.fast k pat` | `Int -> Pattern a -> Pattern a` | `pat` `k` times per cycle |
-| `p.slow k pat` | `Int -> Pattern a -> Pattern a` | one cycle of `pat` over `k` cycles |
-| `p.shift t pat` | `Int -> Pattern a -> Pattern a` | `pat`, `t` ticks later; negative is earlier |
+| `p.fast k pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat` `k` times per cycle; `0` is silence |
+| `p.slow k pat` | `Pattern Int -> Pattern a -> Pattern a` | one cycle of `pat` over `k` cycles; `0` is silence |
+| `p.shift t pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat`, `t` ticks later; negative is earlier |
 | `p.euclid k n v` | `Int -> Int -> a -> Pattern a` | `v` on `k` of `n` steps, spread evenly, the first on step 0 |
 | `p.mapP f pat` | | `pat` with `f` applied to each value |
+
+A number is a pattern too, so `p.fast 2 pat` works, and so does a pattern of factors: `p.fast (p.fastcat [1, 2]) pat` plays the first half of each cycle at speed 1 and the second at speed 2. An `Int` variable needs `p.atom n`, or `p._fast n`, `p._slow n` and `p._shift n`, which take an `Int`. Patterns also add and multiply: `p.fastcat [60, 64] + 12`.
 
 An event lasts its whole step, so notes are legato: each note-off coincides with the next note-on, and the note-off goes first.
 
@@ -166,7 +168,7 @@ pat = p.euclid 3 8 36
  1500.000 on  ch1 36 100
 ```
 
-The onsets fall on steps where `mod (i * k) n < k`. The rhythm is maximally even; its rotation can differ from that of Bjorklund's algorithm, which Tidal uses.
+The onsets follow Bjorklund's algorithm, as Tidal's do: `p.euclid 5 8` plays `x.xx.xx.`. A negative `k` plays the other steps.
 
 ### Changing values
 
@@ -180,6 +182,39 @@ pat = p.mapP (+ 12) (p.fastcat [p.atom 60, p.atom 64])
     0.000 on  ch1 72 100
  1000.000 on  ch1 76 100
 ```
+
+### Mini-notation
+
+`p.mini` parses Tidal's mini-notation into a `Pattern Int`:
+
+```haskell
+pat = p.mini "c4 [e4 g4] <c'maj e'min7> ~"
+```
+
+A number is a MIDI note. A note name is a letter `c` to `b`, then any of `s` (sharp), `f` (flat) or `n` (natural), then an octave: `c4` is 60, `fs3` is 54, and `e` is `e4`, 64.
+
+| Syntax | Plays |
+|-|-|
+| `a b` | a sequence, in one cycle |
+| `~`, `-` | a rest |
+| `[a b]` | a sequence in one step |
+| `a b . c d e` | feet of equal length: `[a b] [c d e]` |
+| `<a b>` | one step per cycle, in turn |
+| `{a b c, d e}` | steps at the first sequence's rate: `d e d` in the first cycle |
+| `{a b c}%4` | 4 steps per cycle; `%` takes a pattern, as in `%<4 8>` |
+| `a, b` | both at once, at the top or inside `[ ]`, `< >` and `{ }` |
+| `a \| b` | one of them each cycle, at random; at the top or inside `[ ]` |
+| `a*k`, `a/k` | `a` `k` times as fast or slow; `k` is a whole number or a pattern, as in `a*<2 3>` |
+| `a!k`, `a !` | `k` copies of `a` in turn; `!` alone adds one |
+| `a@k`, `a _` | `a` lasts `k` steps, a ratio such as `1.5` or `3%2`; each `_` adds one |
+| `a(k,n)`, `a(k,n,r)` | `a` on `k` of `n` steps, as `p.euclid`, rotated left by `r` steps; each may be a pattern |
+| `a?`, `a?0.3` | `a` dropped at random, half or 0.3 of the time |
+| `a .. b` | the numbers from `a` to `b`, in one step |
+| `c'maj`, `e4'min7'ii` | a chord, with Tidal's chord names and modifiers: `'i` inverts, `'o` opens, `'d1` drops, `'5` takes 5 notes |
+
+Randomness is Tidal's: a value is a function of the event's start time and the `?` or `|` it comes from, so a pattern plays the same each time and in any block size. A typo or an unknown chord name fails when the definition is evaluated, so the playing pattern goes on. Tidal plays an unknown chord name as its root.
+
+Not supported: `*1.5` and other fractional factors, since factors are `Int`; sample names such as `bd:3`, since values are `Int`; and `^name`, since there are no control inputs.
 
 ## MIDI values
 

@@ -53,29 +53,525 @@ cat ps = Pattern (\q -> concatMap one (cycleSpans q))
 
 -- all in one cycle, in equal steps
 fastcat :: [Pattern a] -> Pattern a
-fastcat ps = fast (length ps) (cat ps)
+fastcat ps = _fast (length ps) (cat ps)
 
 -- k times as fast. Times that do not divide by k round down. A part cut
 -- at q's start is at q.start * k and rounds to q.start, above its whole's
 -- start, so each event is still an onset in exactly one query.
-fast :: Int -> Pattern a -> Pattern a
-fast k p
+_fast :: Int -> Pattern a -> Pattern a
+_fast k p
   | k <= 0 = error "pattern.fast: factor must be positive"
   | otherwise = Pattern (\q -> map (withSpans (\s -> Span (div s.start k) (div s.stop k))) (query p (Span (q.start * k) (q.stop * k))))
 
 -- k times as slow; exact
-slow :: Int -> Pattern a -> Pattern a
-slow k p
+_slow :: Int -> Pattern a -> Pattern a
+_slow k p
   | k <= 0 = error "pattern.slow: factor must be positive"
   | otherwise = Pattern (\q -> concatMap (clip q . withSpans (\s -> Span (s.start * k) (s.stop * k))) (query p (Span (div q.start k) (ceilDiv q.stop k))))
 
 -- later by t ticks
-shift :: Int -> Pattern a -> Pattern a
-shift t p = Pattern (\q -> map (withSpans (move t)) (query p (move (negate t) q)))
+_shift :: Int -> Pattern a -> Pattern a
+_shift t p = Pattern (\q -> map (withSpans (move t)) (query p (move (negate t) q)))
+
+-- Patterned arguments, as Tidal's: each factor's event applies its value
+-- during its part. A literal is an atom, by Num (Pattern a). A factor of 0
+-- is silence, as Tidal's; a negative one is an error, where Tidal reverses.
+fast :: Pattern Int -> Pattern a -> Pattern a
+fast kp p = innerJoin (mapP (\k -> if k == 0 then silence else _fast k p) kp)
+
+slow :: Pattern Int -> Pattern a -> Pattern a
+slow kp p = innerJoin (mapP (\k -> if k == 0 then silence else _slow k p) kp)
+
+shift :: Pattern Int -> Pattern a -> Pattern a
+shift tp p = innerJoin (mapP (\t -> _shift t p) tp)
+
+-- arithmetic on values, with wholes from both, as Tidal's
+instance Num a => Num (Pattern a) where
+  x + y = apP (mapP (+) x) y
+  x - y = apP (mapP (-) x) y
+  x * y = apP (mapP (*) x) y
+  negate x = mapP negate x
+  abs x = mapP abs x
+  fromInt n = atom (fromInt n)
 
 -- k onsets spread as evenly as possible over n steps, the first on step 0
 euclid :: Int -> Int -> a -> Pattern a
-euclid k n v = fastcat (map (\i -> if mod (i * k) n < k then atom v else silence) (enumFromTo 0 (n - 1)))
+euclid k n v = euclidOf k n (atom v)
+
+-- Applying a pattern of functions to a pattern of values, as Tidal's <*>,
+-- <* and *>: where fragments overlap, f's value applies to x's.
+
+-- wholes from both: each is the intersection of an f's and an x's
+apP :: Pattern (a -> b) -> Pattern a -> Pattern b
+apP pf px = Pattern (\q -> concatMap (\ef -> concatMap (\ex ->
+    concatMap (\w -> map (\s -> Event w s ((ef.value) (ex.value))) (sect ef.part ex.part)) (sect ef.whole ex.whole))
+  (query px q)) (query pf q))
+
+-- wholes from f
+apLeft :: Pattern (a -> b) -> Pattern a -> Pattern b
+apLeft pf px = Pattern (\q -> concatMap (\ef -> concatMap (\ex ->
+    map (\s -> Event ef.whole s ((ef.value) (ex.value))) (sect ef.part ex.part))
+  (query px ef.whole)) (query pf q))
+
+-- wholes from x
+apRight :: Pattern (a -> b) -> Pattern a -> Pattern b
+apRight pf px = Pattern (\q -> concatMap (\ex -> concatMap (\ef ->
+    map (\s -> Event ex.whole s ((ef.value) (ex.value))) (sect ef.part ex.part))
+  (query pf ex.whole)) (query px q))
+
+-- Flattening a pattern of patterns, as Tidal's unwrap, innerJoin,
+-- outerJoin and squeezeJoin. Each outer event plays its inner pattern
+-- during the outer event's part.
+
+-- wholes from both, intersected
+joinP :: Pattern (Pattern a) -> Pattern a
+joinP pp = Pattern (\q -> concatMap (\eo -> concatMap (\ei ->
+    map (\w -> Event w ei.part ei.value) (sect eo.whole ei.whole))
+  (query eo.value eo.part)) (query pp q))
+
+-- wholes from the inner pattern
+innerJoin :: Pattern (Pattern a) -> Pattern a
+innerJoin pp = Pattern (\q -> concatMap (\eo -> query eo.value eo.part) (query pp q))
+
+-- wholes from the outer pattern; values from the inner one at the outer
+-- whole's start
+outerJoin :: Pattern (Pattern a) -> Pattern a
+outerJoin pp = Pattern (\q -> concatMap (\eo ->
+    map (\ei -> Event eo.whole eo.part ei.value) (query eo.value (Span eo.whole.start (eo.whole.start + 1))))
+  (query pp q))
+
+-- Each outer event plays one cycle of its inner pattern within its whole:
+-- the cycle its whole starts in, as Tidal's. Times round down.
+squeezeJoin :: Pattern (Pattern a) -> Pattern a
+squeezeJoin pp = Pattern (\q -> concatMap squeezeOne (query pp q))
+
+squeezeOne :: Event (Pattern a) -> [Event a]
+squeezeOne eo = concatMap fit (query eo.value (Span (back eo.part.start) (ceilDiv ((eo.part.stop - ws) * cycleTicks) n + c)))
+  where
+    ws = eo.whole.start
+    n = eo.whole.stop - ws
+    c = div ws cycleTicks * cycleTicks
+    back t = div ((t - ws) * cycleTicks) n + c
+    out (Span s e) = Span (ws + div ((s - c) * n) cycleTicks) (ws + div ((e - c) * n) cycleTicks)
+    fit ei = concatMap (\w -> map (\s -> Event w s ei.value) (sect eo.part (out ei.part))) (sect eo.whole (out ei.whole))
+
+-- Each pattern in turn within a cycle, for its weight's share of it, as
+-- Tidal's timeCat: cycle c of each plays in its share of cycle c.
+timecat :: [(Int, Pattern a)] -> Pattern a
+timecat wps = Pattern (\q -> concatMap (\s -> concatMap (squeezeInto s) segs) (cycleSpans q))
+  where
+    w = sum (map fst wps)
+    segs = edges 0 (filter (\(k, _) -> k > 0) wps)
+    edges o [] = []
+    edges o ((k, v) : rest) = (div (o * cycleTicks) w, div ((o + k) * cycleTicks) w, v) : edges (o + k) rest
+
+-- the part of s inside [a, b) of its cycle, with p's cycle mapped onto [a, b)
+squeezeInto :: Span -> (Int, Int, Pattern a) -> [Event a]
+squeezeInto s (a, b, p) = concatMap one (sect (Span (c + a) (c + b)) s)
+  where
+    c = div s.start cycleTicks * cycleTicks
+    lo = c + a
+    n = b - a
+    out (Span x y) = Span (lo + div ((x - c) * n) cycleTicks) (lo + div ((y - c) * n) cycleTicks)
+    one qs = concatMap (\e -> map (\pt -> Event (out e.whole) pt e.value) (sect (out e.part) qs))
+      (query p (Span (c + div ((qs.start - lo) * cycleTicks) n) (c + ceilDiv ((qs.stop - lo) * cycleTicks) n)))
+
+-- pat on k of n steps, by Bjorklund's algorithm as Tidal's; a negative k plays the others
+euclidOf :: Int -> Int -> Pattern a -> Pattern a
+euclidOf k n pat = case (if k >= 0 then bjorklund k n else map not (bjorklund (negate k) n)) of
+  [] -> silence
+  bs -> fastcat (map (\b -> if b then pat else silence) bs)
+
+-- euclidOf, earlier by r of its n steps
+euclidOff :: Int -> Int -> Int -> Pattern a -> Pattern a
+euclidOff k n r pat = if n == 0 then silence else _shift (negate (div (r * cycleTicks) n)) (euclidOf k n pat)
+
+bjorklund :: Int -> Int -> [Bool]
+bjorklund i n = case bjStep (i, n - i) (replicate i [True], replicate (n - i) [False]) of
+  (xs, ys) -> concat xs ++ concat ys
+
+bjStep :: (Int, Int) -> ([[Bool]], [[Bool]]) -> ([[Bool]], [[Bool]])
+bjStep (i, j) (xs, ys) =
+  if min i j <= 1 then (xs, ys)
+  else if i > j then (case splitAt j xs of
+    (a, b) -> bjStep (j, i - j) (zipWith (++) a ys, b))
+  else case splitAt i ys of
+    (a, b) -> bjStep (i, j - i) (zipWith (++) xs a, b)
+
+-- Tidal's timeToRand at tick t, after its rotL by seed / 10000 cycles,
+-- as an Int in [0, 2^29): t / 300 cycles' fraction, by 2^29, then an xorshift
+randAt :: Int -> Int -> Int
+randAt t seed = case t * 10000 + seed * cycleTicks of
+  0 -> 268435456
+  x -> mod (xorwise (quot (rem x 2162160000000 * 524288) 2111484375)) 536870912
+
+xorwise :: Int -> Int
+xorwise x = case xor (shiftL x 13) x of
+  a -> case xor (shiftR a 17) a of
+    b -> xor (shiftL b 5) b
+
+-- the events whose random value at their start is at least a / b, as Tidal's degradeBy
+degradeWith :: Int -> Int -> Int -> Pattern a -> Pattern a
+degradeWith seed a b p = Pattern (\q -> filter (\e -> randAt e.whole.start seed * b >= a * 536870912) (query p q))
+
+-- one of ps per cycle, chosen at random, as Tidal's '|'
+chooseCycle :: Int -> [Pattern a] -> Pattern a
+chooseCycle seed ps = joinP (Pattern (\q -> map (\s -> case cycleOf s.start of
+    w -> Event w s (ps !! mod (div (randAt w.start seed * length ps) 536870912) (length ps))) (cycleSpans q)))
+
+-- each event's list, as events of its own
+uncollect :: Pattern [a] -> Pattern a
+uncollect p = Pattern (\q -> concatMap (\e -> map (\v -> Event e.whole e.part v) e.value) (query p q))
+
+-- Tidal's mini-notation, for Int values: "c4 [e4 g4]*2 ~ <c'maj e'min>". Parsed
+-- when called, so a typo fails as the definition is evaluated. A note name
+-- is MIDI's: c4 is 60, and a name with no octave is in octave 4.
+--   a b      a sequence, in one cycle      ~ or -   a rest
+--   [a b]    a sequence in one step        a . b c  steps of equal length: a, then [b c]
+--   <a b>    one step per cycle            {a b c}  steps at the first sequence's rate
+--   {a b}%4  4 steps per cycle             a, b     at once, inside [ ], < >, { } or at the top
+--   a | b    one at random each cycle      a*k a/k  fast, slow; k is a whole number, or a pattern
+--   a!k a !  k copies, or 1 more           a@k a _  a weight of k steps (a ratio), or 1 more
+--   a(k,n,r) on k of n steps, rotated r    a? a?0.3 dropped at random, half or 0.3 of the time
+--   a .. b   a to b, in one step           c'maj'ii a chord, with Tidal's names and modifiers
+mini :: String -> Pattern Int
+mini s = case unpack s of
+  cs -> case mStack (length cs) MInt True (0, cs) of
+    (pat, (_, rest)) -> case mSkip rest of
+      [] -> mapP mvInt pat
+      r -> mFail (length cs) r "unexpected character"
+
+-- what a parse yields: values, chord intervals, or chord modifiers
+data MV = VInt Int | VChord [Int] | VMods [Mod]
+data Mod = Range Int | Drop Int | Invert | Open
+data MMode = MInt | MName | MMod deriving (Eq)
+
+mvInt :: MV -> Int
+mvInt v = case v of
+  VInt n -> n
+  _ -> error "pattern.mini: not a number"
+
+mvChord :: MV -> [Int]
+mvChord v = case v of
+  VChord ns -> ns
+  _ -> error "pattern.mini: not a chord name"
+
+mvMods :: MV -> [Mod]
+mvMods v = case v of
+  VMods ms -> ms
+  _ -> error "pattern.mini: not a chord modifier"
+
+mFail :: Int -> [Char] -> String -> a
+mFail n rest what = error ("pattern.mini: " ++ what ++ " at column " ++ show (n - length rest + 1))
+
+mSkip :: [Char] -> [Char]
+mSkip cs = dropWhile isSpace cs
+
+-- The parser's state is the next random seed and the input left: as
+-- Tidal's, seeds count '?' and '|' groups in the order they are parsed.
+
+-- sequences separated by ',' (all at once) or, if choose, '|' (one per cycle)
+mStack :: Int -> MMode -> Bool -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
+mStack n mode choose st = case mSeq n mode st of
+  ((p, _), (sd, rest)) -> case mSkip rest of
+    ',' : r -> case mSeqs n mode ',' [p] (sd, r) of
+      (ps, st2) -> (stack ps, st2)
+    '|' : r -> if not choose then mFail n ('|' : r) "unexpected '|'" else case mSeqs n mode '|' [p] (sd, r) of
+      (ps, (sd2, r2)) -> (chooseCycle sd2 ps, (sd2 + 1, r2))
+    r -> (p, (sd, r))
+
+-- more sequences after sep, with acc those so far, reversed
+mSeqs :: Int -> MMode -> Char -> [Pattern MV] -> (Int, [Char]) -> ([Pattern MV], (Int, [Char]))
+mSeqs n mode sep acc st = case mSeq n mode st of
+  ((p, _), (sd, rest)) -> case mSkip rest of
+    c : r -> if c == sep then mSeqs n mode sep (p : acc) (sd, r) else (reverse (p : acc), (sd, c : r))
+    [] -> (reverse (p : acc), (sd, []))
+
+-- sequences separated by ',', each with its size in steps, as a ratio
+mSized :: Int -> MMode -> (Int, [Char]) -> ([(Pattern MV, (Int, Int))], (Int, [Char]))
+mSized n mode st = case mSeq n mode st of
+  (ps, (sd, rest)) -> case mSkip rest of
+    ',' : r -> case mSized n mode (sd, r) of
+      (more, st2) -> (ps : more, st2)
+    r -> ([ps], (sd, r))
+
+-- a sequence and its size; feet split by '.' are steps of their own
+mSeq :: Int -> MMode -> (Int, [Char]) -> ((Pattern MV, (Int, Int)), (Int, [Char]))
+mSeq n mode st = case mFeet n mode [] [] st of
+  (feet, st2) -> case feet of
+    [steps] -> (mSteps steps, st2)
+    _ -> (mSteps (map (\f -> ((1, 1), fst (mSteps f))) feet), st2)
+
+-- feet, each its steps; acc the steps of this foot and done the feet before, reversed
+mFeet :: Int -> MMode -> [((Int, Int), Pattern MV)] -> [[((Int, Int), Pattern MV)]] -> (Int, [Char]) -> ([[((Int, Int), Pattern MV)]], (Int, [Char]))
+mFeet n mode acc done (sd, cs) = case mSkip cs of
+  [] -> (reverse (reverse acc : done), (sd, []))
+  c : more ->
+    if elem c (unpack ",|]>})") then (reverse (reverse acc : done), (sd, c : more))
+    else if c == '.' && take 1 more /= ['.'] then mFeet n mode [] (reverse acc : done) (sd, more)
+    else case mPart n mode (sd, c : more) of
+      (p, (sd2, r)) -> case mAfter n mode p (sd2, mSkip r) of
+        (steps, st3) -> mFeet n mode (reverse steps ++ acc) done st3
+
+-- after a part: '..' and a part, or weights, or copies
+mAfter :: Int -> MMode -> Pattern MV -> (Int, [Char]) -> ([((Int, Int), Pattern MV)], (Int, [Char]))
+mAfter n mode p (sd, cs) = case cs of
+  '.' : '.' : r -> if mode /= MInt then mFail n cs "'..' needs numbers" else case mPart n mode (sd, mSkip r) of
+    (b, st2) -> ([((1, 1), mRange p b)], st2)
+  c : _ -> if c == '@' || c == '_' then mWeights n p (1, 1) (sd, cs)
+    else if c == '!' then mCopies n p 1 (sd, cs)
+    else ([((1, 1), p)], (sd, cs))
+  [] -> ([((1, 1), p)], (sd, cs))
+
+mWeights :: Int -> Pattern MV -> (Int, Int) -> (Int, [Char]) -> ([((Int, Int), Pattern MV)], (Int, [Char]))
+mWeights n p w (sd, cs) = case cs of
+  c : r -> if c == '@' || c == '_' then (if any isDigit (take 1 r)
+      then (case mRatio n r of
+        (x, r2) -> mWeights n p (ratAdd w (ratAdd x (-1, 1))) (sd, mSkip r2))
+      else mWeights n p (ratAdd w (1, 1)) (sd, mSkip r))
+    else ([(w, p)], (sd, cs))
+  [] -> ([(w, p)], (sd, cs))
+
+mCopies :: Int -> Pattern MV -> Int -> (Int, [Char]) -> ([((Int, Int), Pattern MV)], (Int, [Char]))
+mCopies n p k (sd, cs) = case cs of
+  '!' : r -> if any isDigit (take 1 r)
+    then (case mWhole n r of
+      (m, r2) -> mCopies n p (k + m - 1) (sd, mSkip r2))
+    else mCopies n p (k + 1) (sd, mSkip r)
+  _ -> (replicate k ((1, 1), p), (sd, cs))
+
+-- steps by weight, and the sequence's size
+mSteps :: [((Int, Int), Pattern MV)] -> (Pattern MV, (Int, Int))
+mSteps steps = case foldl ratAdd (0, 1) (map fst steps) of
+  size -> case steps of
+    [] -> (silence, size)
+    _ -> if all (\(w, _) -> w == (1, 1)) steps then (fastcat (map snd steps), size)
+      else case foldl (\m ((_, d), _) -> div (m * d) (gcd m d)) 1 steps of
+        l -> (timecat (map (\((a, d), p) -> (div (a * l) d, p)) steps), size)
+
+-- a term, then its modifiers, adjacent
+mPart :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
+mPart n mode st = case mBase n mode st of
+  (p, st2) -> mMods n p st2
+
+mBase :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
+mBase n mode (sd, cs) = case cs of
+  '~' : r -> (silence, (sd, r))
+  '-' : r -> if any isDigit (take 1 r) && mode /= MName then mAtom n mode (sd, cs) else (silence, (sd, r))
+  '[' : r -> case mStack n mode True (sd, r) of
+    (p, (sd2, r2)) -> (p, (sd2, mClose n ']' r2))
+  '<' : r -> case mSized n mode (sd, r) of
+    (ps, (sd2, r2)) -> (stack (map (\(p, size) -> mRate (1, 1) size p) ps), (sd2, mClose n '>' r2))
+  '{' : r -> case mSized n mode (sd, r) of
+    (ps, (sd2, r2)) -> case mClose n '}' r2 of
+      '%' : r3 -> case mBase n MInt (sd2, r3) of
+        (k, st3) -> (stack (map (\(p, size) -> fast (mapP mvInt k) (mRate (1, 1) size p)) ps), st3)
+      r3 -> case ps of
+        [] -> (silence, (sd2, r3))
+        (_, first) : _ -> (stack (map (\(p, size) -> mRate first size p) ps), (sd2, r3))
+  _ -> mAtom n mode (sd, cs)
+
+-- p at rate / size steps per cycle
+mRate :: (Int, Int) -> (Int, Int) -> Pattern MV -> Pattern MV
+mRate (a, b) (c, d) p = if a == 0 || c == 0 then silence else case (a * d, b * c) of
+  (x, y) -> case gcd x y of
+    g -> _fast (div x g) (_slow (div y g) p)
+
+mClose :: Int -> Char -> [Char] -> [Char]
+mClose n c cs = case mSkip cs of
+  d : r -> if d == c then r else mFail n (d : r) ("expected " ++ show c)
+  [] -> mFail n [] ("expected " ++ show c)
+
+-- '*', '/', '(', '?'; a factor is a term without modifiers, as Tidal's
+mMods :: Int -> Pattern MV -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
+mMods n p (sd, cs) = case cs of
+  '*' : r -> case mBase n MInt (sd, mSkip r) of
+    (k, st2) -> mMods n (fast (mapP mvInt k) p) st2
+  '/' : r -> case mBase n MInt (sd, mSkip r) of
+    (k, st2) -> mMods n (slow (mapP mvInt k) p) st2
+  '(' : r -> case mSeq n MInt (sd, r) of
+    ((k, _), (sd2, r2)) -> case mSkip r2 of
+      ',' : r3 -> case mSeq n MInt (sd2, r3) of
+        ((m, _), (sd3, r4)) -> case mSkip r4 of
+          ',' : r5 -> case mSeq n MInt (sd3, r5) of
+            ((rot, _), (sd4, r6)) -> mMods n (mEuclid k m rot p) (sd4, mClose n ')' r6)
+          r5 -> mMods n (mEuclid k m (atom (VInt 0)) p) (sd3, mClose n ')' r5)
+      r3 -> mFail n r3 "expected ','"
+  '?' : r -> case (if any isDigit (take 1 r) then mRatio n r else ((1, 2), r)) of
+    ((a, b), r2) -> mMods n (degradeWith sd a b p) (sd + 1, r2)
+  _ -> (p, (sd, cs))
+
+mEuclid :: Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV
+mEuclid k m r p = innerJoin (apP (apP (mapP (\a b c -> euclidOff (mvInt a) (mvInt b) (mvInt c) p) k) m) r)
+
+mRange :: Pattern MV -> Pattern MV -> Pattern MV
+mRange a b = joinP (apP (mapP (\x y -> case (mvInt x, mvInt y) of
+    (i, j) -> fastcat (map (\v -> atom (VInt v)) (if i > j then reverse (enumFromTo j i) else enumFromTo i j))) a) b)
+
+-- a value: a number, a note name or a chord; a chord name; or chord modifiers
+mAtom :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
+mAtom n mode (sd, cs) = case mode of
+  MName -> case span (\c -> isAlpha c || isDigit c) cs of
+    ([], _) -> mFail n cs "expected a chord name"
+    (name, r) -> case lookup name chordTable of
+      Just ns -> (atom (VChord ns), (sd, r))
+      Nothing -> mFail n cs "unknown chord name"
+  MMod -> case mModifiers n cs of
+    (ms, r) -> (atom (VMods ms), (sd, r))
+  MInt -> case cs of
+    '\'' : _ -> mChord n (atom (VInt 0)) (sd, cs)
+    _ -> case mValue n cs of
+      (v, r) -> case r of
+        '\'' : _ -> mChord n (atom (VInt v)) (sd, r)
+        _ -> (atom (VInt v), (sd, r))
+
+-- a number, or a note name: a letter, then s, f or n for sharp, flat or natural, then an octave
+mValue :: Int -> [Char] -> (Int, [Char])
+mValue n cs = case cs of
+  c : r -> if elem c (unpack "cdefgab") then (case span (\x -> elem x (unpack "sfn")) r of
+      (accs, r2) -> case (if any isDigit (take 1 r2) then mDigits n r2 else (4, r2)) of
+        (oct, r3) -> (12 * (oct + 1) + noteStep c + sum (map (\x -> if x == 's' then 1 else if x == 'f' then -1 else 0) accs), r3))
+    else if c == '-' then (case mWhole n r of
+      (v, r2) -> (negate v, r2))
+    else mWhole n cs
+  [] -> mWhole n cs
+
+noteStep :: Char -> Int
+noteStep c = case lookup c (zip (unpack "cdefgab") [0, 2, 4, 5, 7, 9, 11]) of
+  Just k -> k
+  Nothing -> 0
+
+-- a chord on root: 'name, then 'modifiers, each a part of its own
+mChord :: Int -> Pattern MV -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
+mChord n root (sd, cs) = case cs of
+  '\'' : r -> case mPart n MName (sd, r) of
+    (name, st2) -> case mChordMods n [] st2 of
+      (mods, st3) -> (mapP VInt (chordOf (mapP mvInt root) (mapP mvChord name) (map (mapP mvMods) mods)), st3)
+  _ -> mFail n cs "expected '"
+
+mChordMods :: Int -> [Pattern MV] -> (Int, [Char]) -> ([Pattern MV], (Int, [Char]))
+mChordMods n acc (sd, cs) = case cs of
+  '\'' : r -> case mPart n MMod (sd, r) of
+    (m, st2) -> mChordMods n (m : acc) st2
+  _ -> (reverse acc, (sd, cs))
+
+-- Tidal's chord: each root, name and modifier event, joined, then a note per interval
+chordOf :: Pattern Int -> Pattern [Int] -> [Pattern [Mod]] -> Pattern Int
+chordOf root names mods = uncollect (joinP (mapP (\r -> joinP (mapP (\ns -> withMods (map (+ r) ns) mods) names)) root))
+
+withMods :: [Int] -> [Pattern [Mod]] -> Pattern [Int]
+withMods ch mods = case mods of
+  [] -> atom ch
+  m : rest -> joinP (mapP (\ms -> withMods (foldl (\c x -> applyMod x c) ch ms) rest) m)
+
+applyMod :: Mod -> [Int] -> [Int]
+applyMod m ds = case m of
+  Range i -> take i (concatMap (\x -> map (+ x) ds) (map (* 12) (enumFromTo 0 i)))
+  Invert -> (case ds of
+    [] -> []
+    d : rest -> rest ++ [d + 12])
+  Open -> if length ds > 2 then [ds !! 0 - 12, ds !! 2 - 12, ds !! 1] ++ reverse (take (length ds - 3) (reverse ds)) else ds
+  Drop i -> if i < 1 || length ds < i then ds else case length ds - i of
+    s -> case splitAt s ds of
+      (xs, ys) -> (ds !! s - 12) : (xs ++ drop 1 ys)
+
+-- Tidal's: o..., dN, N, iN or i...
+mModifiers :: Int -> [Char] -> ([Mod], [Char])
+mModifiers n cs = case cs of
+  'o' : _ -> case span (== 'o') cs of
+    (os, r) -> (map (\_ -> Open) os, r)
+  'd' : r -> case mWhole n r of
+    (k, r2) -> ([Drop k], r2)
+  'i' : r -> if any isDigit (take 1 r) then (case mWhole n r of
+      (k, r2) -> (replicate k Invert, r2))
+    else (case span (== 'i') cs of
+      (is, r2) -> (map (\_ -> Invert) is, r2))
+  _ -> case mValue n cs of
+    (k, r) -> ([Range k], r)
+
+-- a ratio a / b: digits, a fraction and an exponent, or %d; or Tidal's w h q e s t f x
+mRatio :: Int -> [Char] -> ((Int, Int), [Char])
+mRatio n cs = case span isDigit cs of
+  ([], _) -> mFail n cs "expected a number"
+  (ds, r) -> case (case r of
+      '.' : r1 -> (case span isDigit r1 of
+        ([], _) -> ((digitsOf ds, 1), r)
+        (fs, r2) -> ((digitsOf (ds ++ fs), 10 ^ length fs), r2))
+      _ -> ((digitsOf ds, 1), r)) of
+    ((a, b), r3) -> case r3 of
+      'e' : r4 -> (case (case r4 of
+          '-' : r5 -> (True, r5)
+          _ -> (False, r4)) of
+        (neg, r5) -> case span isDigit r5 of
+          ([], _) -> ratNorm (a, b) r3
+          (es, r6) -> if neg then ratNorm (a, b * 10 ^ digitsOf es) r6 else ratNorm (a * 10 ^ digitsOf es, b) r6)
+      '%' : r4 -> (case span isDigit r4 of
+        ([], _) -> mFail n r4 "expected a number"
+        (es, r5) -> ratNorm (a, b * digitsOf es) r5)
+      c : r4 -> if elem c (unpack "whqestfx") && not (any isAlpha (take 1 r4)) then ratNorm (ratMul (a, b) (ratChar c)) r4 else ratNorm (a, b) r3
+      [] -> ratNorm (a, b) r3
+
+ratChar :: Char -> (Int, Int)
+ratChar c = case lookup c (zip (unpack "whqestfx") [(1, 1), (1, 2), (1, 4), (1, 8), (1, 16), (1, 3), (1, 5), (1, 6)]) of
+  Just r -> r
+  Nothing -> (1, 1)
+
+-- a whole number; a ratio that is not one fails, since factors are Ints
+mWhole :: Int -> [Char] -> (Int, [Char])
+mWhole n cs = case mRatio n cs of
+  ((a, b), r) -> if b == 1 then (a, r) else mFail n cs "expected a whole number"
+
+mDigits :: Int -> [Char] -> (Int, [Char])
+mDigits n cs = case span isDigit cs of
+  ([], _) -> mFail n cs "expected a number"
+  (ds, r) -> (digitsOf ds, r)
+
+digitsOf :: [Char] -> Int
+digitsOf ds = foldl (\a d -> a * 10 + ord d - 48) 0 ds
+
+ratNorm :: (Int, Int) -> [Char] -> ((Int, Int), [Char])
+ratNorm (a, b) r = case gcd a b of
+  g -> ((div a g, div b g), r)
+
+ratAdd :: (Int, Int) -> (Int, Int) -> (Int, Int)
+ratAdd (a, b) (c, d) = case (a * d + c * b, b * d) of
+  (x, y) -> case gcd x y of
+    g -> (div x g, div y g)
+
+ratMul :: (Int, Int) -> (Int, Int) -> (Int, Int)
+ratMul (a, b) (c, d) = (a * c, b * d)
+
+-- Tidal's chord table (Sound.Tidal.Chords)
+chordTable :: [([Char], [Int])]
+chordTable = map (\(k, v) -> (unpack k, v))
+  [ ("major", [0, 4, 7]), ("maj", [0, 4, 7]), ("M", [0, 4, 7]), ("aug", [0, 4, 8]), ("plus", [0, 4, 8]), ("sharp5", [0, 4, 8])
+  , ("six", [0, 4, 7, 9]), ("6", [0, 4, 7, 9]), ("sixNine", [0, 4, 7, 9, 14]), ("six9", [0, 4, 7, 9, 14]), ("sixby9", [0, 4, 7, 9, 14]), ("6by9", [0, 4, 7, 9, 14])
+  , ("major7", [0, 4, 7, 11]), ("maj7", [0, 4, 7, 11]), ("M7", [0, 4, 7, 11]), ("major9", [0, 4, 7, 11, 14]), ("maj9", [0, 4, 7, 11, 14]), ("M9", [0, 4, 7, 11, 14])
+  , ("add9", [0, 4, 7, 14]), ("major11", [0, 4, 7, 11, 14, 17]), ("maj11", [0, 4, 7, 11, 14, 17]), ("M11", [0, 4, 7, 11, 14, 17]), ("add11", [0, 4, 7, 17])
+  , ("major13", [0, 4, 7, 11, 14, 21]), ("maj13", [0, 4, 7, 11, 14, 21]), ("M13", [0, 4, 7, 11, 14, 21]), ("add13", [0, 4, 7, 21])
+  , ("dom7", [0, 4, 7, 10]), ("dom9", [0, 4, 7, 14]), ("dom11", [0, 4, 7, 17]), ("dom13", [0, 4, 7, 21])
+  , ("sevenFlat5", [0, 4, 6, 10]), ("7f5", [0, 4, 6, 10]), ("sevenSharp5", [0, 4, 8, 10]), ("7s5", [0, 4, 8, 10]), ("sevenFlat9", [0, 4, 7, 10, 13]), ("7f9", [0, 4, 7, 10, 13])
+  , ("nine", [0, 4, 7, 10, 14]), ("eleven", [0, 4, 7, 10, 14, 17]), ("11", [0, 4, 7, 10, 14, 17]), ("thirteen", [0, 4, 7, 10, 14, 17, 21]), ("13", [0, 4, 7, 10, 14, 17, 21])
+  , ("minor", [0, 3, 7]), ("min", [0, 3, 7]), ("m", [0, 3, 7]), ("diminished", [0, 3, 6]), ("dim", [0, 3, 6])
+  , ("minorSharp5", [0, 3, 8]), ("msharp5", [0, 3, 8]), ("mS5", [0, 3, 8]), ("minor6", [0, 3, 7, 9]), ("min6", [0, 3, 7, 9]), ("m6", [0, 3, 7, 9])
+  , ("minorSixNine", [0, 3, 9, 7, 14]), ("minor69", [0, 3, 9, 7, 14]), ("min69", [0, 3, 9, 7, 14]), ("minSixNine", [0, 3, 9, 7, 14]), ("m69", [0, 3, 9, 7, 14]), ("mSixNine", [0, 3, 9, 7, 14]), ("m6by9", [0, 3, 9, 7, 14])
+  , ("minor7flat5", [0, 3, 6, 10]), ("minor7f5", [0, 3, 6, 10]), ("min7flat5", [0, 3, 6, 10]), ("min7f5", [0, 3, 6, 10]), ("m7flat5", [0, 3, 6, 10]), ("m7f5", [0, 3, 6, 10])
+  , ("minor7", [0, 3, 7, 10]), ("min7", [0, 3, 7, 10]), ("m7", [0, 3, 7, 10])
+  , ("minor7sharp5", [0, 3, 8, 10]), ("minor7s5", [0, 3, 8, 10]), ("min7sharp5", [0, 3, 8, 10]), ("min7s5", [0, 3, 8, 10]), ("m7sharp5", [0, 3, 8, 10]), ("m7s5", [0, 3, 8, 10])
+  , ("minor7flat9", [0, 3, 7, 10, 13]), ("minor7f9", [0, 3, 7, 10, 13]), ("min7flat9", [0, 3, 7, 10, 13]), ("min7f9", [0, 3, 7, 10, 13]), ("m7flat9", [0, 3, 7, 10, 13]), ("m7f9", [0, 3, 7, 10, 13])
+  , ("minor7sharp9", [0, 3, 7, 10, 15]), ("minor7s9", [0, 3, 7, 10, 15]), ("min7sharp9", [0, 3, 7, 10, 15]), ("min7s9", [0, 3, 7, 10, 15]), ("m7sharp9", [0, 3, 7, 10, 15]), ("m7s9", [0, 3, 7, 10, 15])
+  , ("diminished7", [0, 3, 6, 9]), ("dim7", [0, 3, 6, 9]), ("minor9", [0, 3, 7, 10, 14]), ("min9", [0, 3, 7, 10, 14]), ("m9", [0, 3, 7, 10, 14])
+  , ("minor11", [0, 3, 7, 10, 14, 17]), ("min11", [0, 3, 7, 10, 14, 17]), ("m11", [0, 3, 7, 10, 14, 17])
+  , ("minor13", [0, 3, 7, 10, 14, 17, 21]), ("min13", [0, 3, 7, 10, 14, 17, 21]), ("m13", [0, 3, 7, 10, 14, 17, 21])
+  , ("minorMajor7", [0, 3, 7, 11]), ("minMaj7", [0, 3, 7, 11]), ("mmaj7", [0, 3, 7, 11])
+  , ("one", [0]), ("1", [0]), ("five", [0, 7]), ("5", [0, 7]), ("sus2", [0, 2, 7]), ("sus4", [0, 5, 7])
+  , ("sevenSus2", [0, 2, 7, 10]), ("7sus2", [0, 2, 7, 10]), ("sevenSus4", [0, 5, 7, 10]), ("7sus4", [0, 5, 7, 10])
+  , ("nineSus4", [0, 5, 7, 10, 14]), ("ninesus4", [0, 5, 7, 10, 14]), ("9sus4", [0, 5, 7, 10, 14]), ("sevenFlat10", [0, 4, 7, 10, 15]), ("7f10", [0, 4, 7, 10, 15])
+  , ("nineSharp5", [0, 1, 13]), ("9sharp5", [0, 1, 13]), ("9s5", [0, 1, 13])
+  , ("minor9sharp5", [0, 1, 14]), ("minor9s5", [0, 1, 14]), ("min9sharp5", [0, 1, 14]), ("min9s5", [0, 1, 14]), ("m9sharp5", [0, 1, 14]), ("m9s5", [0, 1, 14])
+  , ("sevenSharp5flat9", [0, 4, 8, 10, 13]), ("7s5f9", [0, 4, 8, 10, 13]), ("minor7sharp5flat9", [0, 3, 8, 10, 13]), ("m7sharp5flat9", [0, 3, 8, 10, 13])
+  , ("elevenSharp", [0, 4, 7, 10, 14, 18]), ("11s", [0, 4, 7, 10, 14, 18]), ("minor11sharp", [0, 3, 7, 10, 14, 18]), ("m11sharp", [0, 3, 7, 10, 14, 18]), ("m11s", [0, 3, 7, 10, 14, 18])
+  ]
 
 -- scheduling: tempo is cs samples per cycle, an Int, so tick t sounds at
 -- sample div (t * cs) cycleTicks; adjacent sample spans then partition the
@@ -145,6 +641,11 @@ move t (Span s e) = Span (s + t) (e + t)
 
 withSpans :: (Span -> Span) -> Event a -> Event a
 withSpans f e = Event (f e.whole) (f e.part) e.value
+
+-- the intersection, if not empty
+sect :: Span -> Span -> [Span]
+sect a b = case (max a.start b.start, min a.stop b.stop) of
+  (s, t) -> if s < t then [Span s t] else []
 
 -- e's part inside q, if any
 clip :: Span -> Event a -> [Event a]

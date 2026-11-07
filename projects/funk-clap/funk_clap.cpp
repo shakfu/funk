@@ -288,6 +288,7 @@ bool IsKernels(const std::string& code)
 
 struct KernelBuild {
 	std::string code, dir, library, messages;
+	void* handle = nullptr; // library, opened
 	static void Output(void* ctx, int, const char* text, size_t n) { static_cast<KernelBuild*>(ctx)->messages.append(text, n); }
 	static int Run(funk* f, void* arg)
 	{
@@ -330,6 +331,11 @@ void BuildKernels(KernelBuild* b)
 	}
 	funk_run(f, &KernelBuild::Run, b);
 	funk_free(f);
+	// Here, not on funk's thread: macOS checks a new library at its first dlopen, for about
+	// 250 ms, which would stall a looping pat.
+	if (b->library.empty()) return;
+	b->handle = dlopen(b->library.c_str(), RTLD_NOW | RTLD_LOCAL);
+	if (!b->handle) b->messages += std::string("funk-midi: cannot load the kernels: ") + dlerror() + "\n";
 }
 
 // --- audio ------------------------------------------------------------------
@@ -346,6 +352,18 @@ std::string KernelsPath()
 #else
 	return dir + "/funkdsp.so";
 #endif
+}
+
+// A type such as `Num a => pattern.Pattern a`. Checked before `:: p.Pattern Int` is tried, since
+// by Num (Pattern a) a bare number would pass as a pattern.
+bool IsPatternType(const char* type)
+{
+	if (!type) return false;
+	std::string t = type;
+	const size_t arrow = t.rfind("=> ");
+	if (arrow != std::string::npos) t = t.substr(arrow + 3);
+	t = t.substr(0, t.find(' '));
+	return t.substr(t.rfind('.') + 1) == "Pattern";
 }
 
 // code as the body of `once`, indented, so that its lines continue the definition
@@ -383,7 +401,11 @@ public:
 		// An expression of type Pattern Int becomes `once`; anything else fails here quietly.
 		std::string ignored;
 		bool once = false;
-		if (s.call([&] { once = s.eval(AsOnce(code), ignored) && s.eval(kStepOnce, ignored); }, &ignored)) {
+		if (s.call([&] {
+			    char* type = funk_type_of(s.handle(), code.c_str(), "<eval>");
+			    once = IsPatternType(type) && s.eval(AsOnce(code), ignored) && s.eval(kStepOnce, ignored);
+			    free(type);
+		    }, &ignored)) {
 			out += "stopped\n"; // a pattern whose evaluation does not end
 			return;
 		}
@@ -547,19 +569,16 @@ private:
 		}
 		out += build.messages;
 		if (midi_clock_cancelled()) {
+			if (build.handle) dlclose(build.handle);
 			out += "stopped\n";
 			return;
 		}
-		if (build.library.empty()) {
+		if (!build.handle) {
 			if (build.messages.empty()) out += "funk-midi: the kernels did not compile\n";
 			return;
 		}
 		session_.call([&] {
-			void* lib = dlopen(build.library.c_str(), RTLD_NOW | RTLD_LOCAL);
-			if (!lib) {
-				out += std::string("funk-midi: cannot load the kernels: ") + dlerror() + "\n";
-				return;
-			}
+			void* lib = build.handle;
 			// dlopen of a path already loaded gives its handle: the kernels become the newest again
 			const auto again = std::find(audio_.compiled.begin(), audio_.compiled.end(), lib);
 			if (again != audio_.compiled.end()) {

@@ -57,7 +57,7 @@
 #endif
 
 enum { WINDOW_US = 10000, LOOKAHEAD_US = 50000, CAP = 512, CYCLE_TICKS = 720720 };
-#define STEP "step buf cs ot a b = p.writeEvents (plusPtr nullPtr buf) 512 (p.shift (negate ot) pat) cs a b"
+#define STEP "step buf cs ot a b = p.writeEvents (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) cs a b"
 
 static bool virtual_time, print_sink, audio;
 static volatile sig_atomic_t interrupted;

@@ -126,7 +126,7 @@ Released 2026-11-01; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - ~~Visibility: add the optimization report.~~ `funk emit-c --opt-report`.
 
-- Acceptance test: play a full live set in a DAW, with edits, with no missed blocks. Log any friction it turns up. The plugin's simulator mode runs and logs a scripted set ([simulator.md](simulator.md)).
+- ~~Acceptance test: play a full live set in a DAW, with edits, with no missed blocks. Log any friction it turns up.~~ Passed in REAPER on macOS, 2026-11-07: the simulator's set ran 48 steps over 6.4 min with no block over budget, and the longest took 15% of its budget. Friction: [simulator.md](simulator.md#in-reaper).
 
 ## 0.11 -- tidal expressive patterns
 
@@ -134,11 +134,11 @@ Get close to Tidal's expressiveness in funk, through library work first and lang
 
 Library, in `lib/pattern.fk`:
 
-- **Pattern application and joins:** monomorphic `apP` and `joinP`, with the left-structure and right-structure forms of Tidal's `<*` and `*>`, and `squeezeJoin`'s behaviour. The library has only `mapP` today.
+- ~~**Pattern application and joins:** monomorphic `apP` and `joinP`, with the left-structure and right-structure forms of Tidal's `<*` and `*>`, and `squeezeJoin`'s behaviour.~~ Functions only, no operators ([patterns.md](patterns.md#implementation)).
 
-- **Patterned arguments:** combinators accept patterns as parameters, such as `fast (p "2 4")`, as Tidal's `patternify` gives. `fast`, `slow` and `shift` take plain `Int`s today.
+- ~~**Patterned arguments:** combinators accept patterns as parameters, such as `fast (p "2 4")`, as Tidal's `patternify` gives.~~ `fast`, `slow` and `shift`; factors are `Int` ([patterns.md](patterns.md#implementation)).
 
-- **Mini-notation:** an explicit parse call, `p "bd*2 sn"` ([patterns.md](patterns.md#literals)). Overloaded string literals are not planned.
+- ~~**Mini-notation:** an explicit parse call, `p "bd*2 sn"` ([patterns.md](patterns.md#literals)). Overloaded string literals are not planned.~~ `p.mini`, for `Int` values ([music.md](../music.md#mini-notation)).
 
 - **Control patterns:** named parameters on events, and a `#` that combines them, as Tidal's `ValueMap` and `Unionable` do. This settles the event payload question in [patterns.md](patterns.md#open).
 

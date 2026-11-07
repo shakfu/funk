@@ -6,6 +6,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `p.mini` parses Tidal's mini-notation into a `Pattern Int`, following Tidal's parser: sequences, rests, `[ ]`, `< >`, `{ }` and `%`, `.`, `,`, `|`, `*`, `/`, `!`, `@`, `_`, `(k,n,r)`, `?`, `..`, note names (`c4` is 60) and chords with Tidal's names and modifiers (`"e'min7'ii"`). Arguments may be patterns, as in `"60*<2 3>"`. `?` and `|` give Tidal's random values exactly, so a ported pattern drops the same events. Parsing happens when `mini` is called, so a typo fails as the definition is evaluated and the playing pattern goes on ([docs/music.md](docs/music.md#mini-notation)). Fractional factors are rejected, since factors are `Int`.
+
+  ```haskell
+  pat = p.mini "c4 [e4 g4]? <c'maj e'min7>(3,8) {60 62 64}%4"
+  ```
+
+- `lib/pattern.fk` applies and joins patterns, as Tidal does: `apP`, `apLeft` and `apRight` for `<*>`, `<*` and `*>`, and `joinP`, `innerJoin`, `outerJoin` and `squeezeJoin`. They are functions, not operators, so `<*` and `*>` stay free for a later `Applicative` ([docs/dev/patterns.md](docs/dev/patterns.md#implementation)).
+
 - The CLAP plugin has a simulator mode, for the 0.10 acceptance test. With `FUNK_MIDI_CLAP_SIM` naming a script, each instance evaluates the script's steps live, in turn or at random, one per interval. It appends each step, the plugin's output and `process()`'s time against each block's duration to a log ([docs/dev/simulator.md](docs/dev/simulator.md)). Driving the plugin from inside, over UDP from a script outside, keeps the run in one process and lets the log place block timings beside the step that caused them.
 
 - `funk emit-c --opt-report FILE`, and `funk_opt_report` in `libfunk.h`, list which optimizations applied to FILE's functions. Each pipeline fusion took is listed, as is each it refused, with the rule that refused it. Each emitted worker is listed with its parameter and result representations, and whether it loops, uses TRMC (tail recursion modulo cons) or reuses cells. A small change elsewhere can lose any of these with no other sign: `queens` lost 18.7% during 0.5 and 0.6. Diff the report across a change to see it.
@@ -20,11 +28,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `p.euclid` follows Bjorklund's algorithm, as Tidal's does: `p.euclid 5 8` plays `x.xx.xx.`, not `x.x.xx.x`. Ported patterns now keep their rhythm. A negative `k` plays the other steps.
+
+- `fast`, `slow` and `shift` in `lib/pattern.fk` take a `Pattern Int`, as Tidal's do: `p.fast (p.fastcat [1, 2]) pat`. A literal still works, since `Num (Pattern a)` makes it an `atom`; an `Int` variable needs `p.atom n`, or `_fast`, `_slow` and `_shift`, which take an `Int`. A factor of 0 is silence, as Tidal's, so `p.fast 0` no longer fails when defined. Factors stay `Int` over fractions, so time stays in integer ticks.
+
+- The plugin plays an expression once only if its own type is a `Pattern`. It used to try each expression as `Pattern Int`, which `Num (Pattern a)` would make `2 + 3` pass, playing note 5.
+
 - The collector paces its cycles. It now starts a cycle early by the previous cycle's allocation while marking, and counts the objects marked during a cycle toward the next threshold. The heap therefore settles near the live data plus the threshold. Before, it settled near that plus twice a cycle's allocation. `churn` at 4,000,000 live cells: 287 MiB resident, against 333, and 13% slower from 3 more cycles. The benchmark suite is unchanged (+0.0%). Shortening mark steps instead was the alternative. It bounds the overshoot within a cycle only, which measured 24% of the live data at every size ([docs/dev/realtime.md](docs/dev/realtime.md#pacer)).
 
 - The plugin's sessions collect after 16 MiB, not 128 MiB, since each instance has a heap. Over 7 minutes of playback, a session's resident set fell from 119 to 43 MiB, with the same time per window.
 
 ### Fixed
+
+- The plugin's `pat` stopped for about 250 ms whenever kernels loaded, on macOS. The first `dlopen` of a new library blocks while the system checks it, and it ran on funk's thread, which queries `pat`. It now runs on the build's thread. `hosts/clap` failed on this; the simulator's log did not show it, since it times `process()` only.
 
 - Cross builds. Build steps ran the `funk` and `embed` just built for the target, and `kernels.sh` compiled `funkdsp.so` with build-time `$CC` rather than the configured compiler. A cross build now runs a native build's tools, named by `FUNK_HOST_TOOLS`. libfunk links `-lunwind` when `_Unwind_Backtrace` needs it, and `-Wl,--exclude-libs,ALL` is passed only where the linker accepts it; `zig cc` needs both. The Linux plugin now builds on macOS with `zig cc` and `tools/zig-linux.cmake`, and CI runs the result on Linux ([docs/dev/cross-build.md](docs/dev/cross-build.md)).
 

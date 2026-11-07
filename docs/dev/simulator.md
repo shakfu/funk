@@ -79,5 +79,9 @@ A block is over budget when `process()` takes longer than the block lasts: `fram
    FUNK_MIDI_CLAP_SIM_INTERVAL=8 FUNK_MIDI_CLAP_SIM_ORDER=random reaper
    ```
 
+   On macOS, run `/Applications/REAPER.app/Contents/MacOS/REAPER` in place of `reaper`. REAPER started from Finder or the Dock does not see the variables.
+
 4. Insert `funk-midi` on one or more tracks. Steps start at each instance's first block.
-5. Read the log: `grep -E ' (slow|busy|error) |failed' projects/funk-clap/sim-set.fk.log`.
+5. Read the log: `grep -E ' (slow|busy|error) |failed' projects/funk-clap/sim-set.fk.log`. The `error` step fails on purpose.
+
+On macOS, REAPER stops playback when it loses focus or the display sleeps. A pattern step then waits until playback resumes, and the log shows `busy`. Keep REAPER in front, and run `caffeinate -d` for the session.

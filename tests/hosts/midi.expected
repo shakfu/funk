@@ -26,6 +26,7 @@ funk-midi: pat is not playing: it must be a Pattern Int
 10775.000 on  ch1 72 100
 10900.000 off ch1 72 0
 runtime error: pattern.fast: factor must be positive
+runtime error: pattern.mini: expected ']' at column 7
 11025.000 off ch1 48 0
 11025.000 on  ch1 48 100
 11025.000 on  ch1 72 100
