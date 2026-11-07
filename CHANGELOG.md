@@ -26,6 +26,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Cross builds. Build steps ran the `funk` and `embed` just built for the target, and `kernels.sh` compiled `funkdsp.so` with build-time `$CC` rather than the configured compiler. A cross build now runs a native build's tools, named by `FUNK_HOST_TOOLS`. libfunk links `-lunwind` when `_Unwind_Backtrace` needs it, and `-Wl,--exclude-libs,ALL` is passed only where the linker accepts it; `zig cc` needs both. The Linux plugin now builds on macOS with `zig cc` and `tools/zig-linux.cmake`, and CI runs the result on Linux ([docs/dev/cross-build.md](docs/dev/cross-build.md)).
+
 - `ffi/sched/tsan-compiled` hung under load: its host played a fixed 600 blocks, and over 300 underruns ended them before musical time reached the end, so the scheduler waited forever. At a load average of 43, 23 of 24 runs hung. The host now plays until funk stops it, and 24 of 24 passed under the same load.
 
 - An interpreter stack check could report "stack overflow" at once under GCC's AddressSanitizer, as `embed/plugin` did once in CI. The check compared a local's address against the stack's limit. On Linux, ASan's use-after-return check is on by default and moves such a local to a separate mapping, which may lie below the stack. The check now reads the stack pointer, as `fk_here` does. Confirmed with GCC 16's ASan on macOS, where the local lay 1.76 GB below the stack pointer. The CI failure itself was not reproduced.

@@ -4,14 +4,29 @@
 
 add_executable(embed tools/embed.c)
 
+# Build steps run embed_tool and funk_tool: the targets built here, or, in a cross
+# build, a native build's, which FUNK_HOST_TOOLS names
+if(CMAKE_CROSSCOMPILING)
+  set(FUNK_HOST_TOOLS "" CACHE PATH "A native build directory with funk and embed, for a cross build")
+  foreach(tool funk embed)
+    if(NOT EXISTS ${FUNK_HOST_TOOLS}/${tool})
+      message(FATAL_ERROR "A cross build runs a native ${tool}: set FUNK_HOST_TOOLS to a native build directory")
+    endif()
+    add_executable(${tool}_tool IMPORTED GLOBAL)
+    set_target_properties(${tool}_tool PROPERTIES IMPORTED_LOCATION ${FUNK_HOST_TOOLS}/${tool})
+  endforeach()
+else()
+  add_executable(embed_tool ALIAS embed)
+endif()
+
 set(RUNTIME_SOURCES src/rt.c src/rt.h src/prims.def)
 add_custom_command(
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/embedded.c
-  COMMAND embed -o ${CMAKE_CURRENT_BINARY_DIR}/embedded.c
+  COMMAND embed_tool -o ${CMAKE_CURRENT_BINARY_DIR}/embedded.c
           fk_rt_src ${CMAKE_CURRENT_SOURCE_DIR}/src/rt.c
           fk_rth_src ${CMAKE_CURRENT_SOURCE_DIR}/src/rt.h
           fk_prelude_src ${funk_SOURCE_DIR}/lib/prelude.fk
-  DEPENDS embed ${RUNTIME_SOURCES} ${funk_SOURCE_DIR}/lib/prelude.fk
+  DEPENDS embed_tool ${RUNTIME_SOURCES} ${funk_SOURCE_DIR}/lib/prelude.fk
   COMMENT "Embedding the runtime and the prelude"
   VERBATIM)
 
@@ -32,10 +47,27 @@ target_include_directories(libfunk INTERFACE
 target_compile_definitions(libfunk PRIVATE FUNK_VERSION="${PROJECT_VERSION}" FK_SESSIONS)
 target_compile_options(libfunk PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(libfunk PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
+# rt.c's GC check calls _Unwind_Backtrace: GCC's driver links it from libgcc, zig cc needs -lunwind
+include(CheckCSourceCompiles)
+set(unwind_src "#include <unwind.h>
+static _Unwind_Reason_Code f(struct _Unwind_Context *c, void *a) { (void)c; (void)a; return _URC_NO_REASON; }
+int main(void) { return _Unwind_Backtrace(f, 0); }")
+check_c_source_compiles("${unwind_src}" FUNK_UNWIND_IMPLICIT)
+if(NOT FUNK_UNWIND_IMPLICIT)
+  set(CMAKE_REQUIRED_LIBRARIES unwind)
+  check_c_source_compiles("${unwind_src}" FUNK_UNWIND_LIB)
+  unset(CMAKE_REQUIRED_LIBRARIES)
+  if(FUNK_UNWIND_LIB)
+    target_link_libraries(libfunk PUBLIC unwind)
+  endif()
+endif()
 
 add_executable(funk cli/main.c)
 target_compile_options(funk PRIVATE -Wall -Wextra -Wno-unused-parameter)
 target_link_libraries(funk PRIVATE libfunk)
+if(NOT CMAKE_CROSSCOMPILING)
+  add_executable(funk_tool ALIAS funk)
+endif()
 
 # funk, and find_package(funk) giving funk::libfunk; not when funk is
 # included by another project

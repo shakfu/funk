@@ -95,8 +95,8 @@ endif()
 # funk_glue: an import's glue linked in, so no C compiler is run; without it, $CC is
 set(LINKED_GLUE ${CMAKE_CURRENT_BINARY_DIR}/embed_glue.c)
 add_custom_command(OUTPUT ${LINKED_GLUE}
-  COMMAND funk emit-c --glue ${CMAKE_CURRENT_SOURCE_DIR}/embed/linked.fk -o ${LINKED_GLUE}
-  DEPENDS funk ${CMAKE_CURRENT_SOURCE_DIR}/embed/linked.fk)
+  COMMAND funk_tool emit-c --glue ${CMAKE_CURRENT_SOURCE_DIR}/embed/linked.fk -o ${LINKED_GLUE}
+  DEPENDS funk_tool ${CMAKE_CURRENT_SOURCE_DIR}/embed/linked.fk)
 add_executable(embed_glue embed/glue.c ${LINKED_GLUE})
 target_include_directories(embed_glue PRIVATE embed)
 target_link_libraries(embed_glue PRIVATE libfunk)
@@ -113,7 +113,7 @@ foreach(p a b)
   if(APPLE)
     target_link_options(embed_plugin_${p} PRIVATE -Wl,-exported_symbol,_plugin_run)
   else()
-    target_link_options(embed_plugin_${p} PRIVATE -Wl,--exclude-libs,ALL)
+    target_link_options(embed_plugin_${p} PRIVATE ${FUNK_EXCLUDE_LIBS})
   endif()
 endforeach()
 # ... and one exporting what libfunk exports

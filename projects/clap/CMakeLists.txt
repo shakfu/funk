@@ -65,7 +65,7 @@ function(midi_langs_add_clap target)
             # Exports clap_entry only: the interpreter, libremidi and libstdc++'s
             # weak template instances stay out of the host's symbols.
             target_link_options(${target} PRIVATE
-                -Wl,--exclude-libs,ALL
+                ${FUNK_EXCLUDE_LIBS}
                 -Wl,--version-script=${funk_SOURCE_DIR}/thirdparty/clap/src/linux-my_plug.version)
         endif()
     endif()

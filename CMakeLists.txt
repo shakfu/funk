@@ -38,6 +38,13 @@ endif()
 
 find_package(Threads REQUIRED)
 
+# Keeps static libraries' symbols out of a shared object's exports; zig cc rejects it
+include(CheckLinkerFlag)
+check_linker_flag(C -Wl,--exclude-libs,ALL FUNK_HAVE_EXCLUDE_LIBS)
+if(FUNK_HAVE_EXCLUDE_LIBS)
+  set(FUNK_EXCLUDE_LIBS -Wl,--exclude-libs,ALL)
+endif()
+
 if(FUNK_LIBREMIDI OR FUNK_CLAP)
   enable_language(CXX)
   set(LIBREMIDI_EXAMPLES OFF CACHE BOOL "" FORCE)

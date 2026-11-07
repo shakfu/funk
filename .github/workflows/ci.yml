@@ -77,3 +77,66 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFUNK_CLAP=ON
           cmake --build build -- -k 0
           ctest --test-dir build -L clap --no-tests=error --output-on-failure
+
+  # the Linux plugin cross-built on macOS with zig cc (docs/dev/cross-build.md) ...
+  plugin-zig:
+    name: plugin cross-built with zig cc
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.1
+
+      - name: Install dependencies
+        run: brew install ninja
+
+      - name: Build the host tools
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build --target funk embed
+
+      - name: Make a Linux sysroot
+        run: tools/linux-sysroot.sh "$RUNNER_TEMP/sysroot"
+
+      - name: Cross-build the plugin
+        run: |
+          export FUNK_SYSROOT="$RUNNER_TEMP/sysroot"
+          cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=tools/zig-linux.cmake \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFUNK_CLAP=ON -DLIBREMIDI_NO_UDEV=ON -DFUNK_HOST_TOOLS="$PWD/build"
+          cmake --build xbuild --target funk_midi_clap
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: funk-midi-clap-zig
+          path: |
+            xbuild/clap/funk-midi.clap
+            xbuild/clap/funkdsp.so
+          if-no-files-found: error
+
+  # ... and run on Linux in the headless host, against the cases hosts/clap runs
+  plugin-zig-run:
+    name: plugin cross-built with zig cc, run on Linux
+    needs: plugin-zig
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libx11-dev libgl-dev libopengl-dev libasound2-dev libudev-dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: funk-midi-clap-zig
+          path: zig-plugin
+
+      - name: Build the host
+        run: |
+          cmake -S . -B build -G Ninja -DFUNK_CLAP=ON
+          cmake --build build --target test_clap_host
+
+      - name: Run the plugin
+        run: build/test_clap_host zig-plugin/funk-midi.clap tests/hosts/clap.txt 57291
