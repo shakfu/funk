@@ -55,8 +55,10 @@ pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
 | `p.fastcat ps` | `[Pattern a] -> Pattern a` | each of `ps` in one equal step of every cycle |
 | `p.cat ps` | `[Pattern a] -> Pattern a` | one of `ps` per cycle, in turn |
 | `p.stack ps` | `[Pattern a] -> Pattern a` | all of `ps` at once |
-| `p.fast k pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat` `k` times per cycle; `0` is silence |
-| `p.slow k pat` | `Pattern Int -> Pattern a -> Pattern a` | one cycle of `pat` over `k` cycles; `0` is silence |
+| `p.fast k pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat` `k` times per cycle; `0` is silence, a negative `k` reverses |
+| `p.slow k pat` | `Pattern Int -> Pattern a -> Pattern a` | one cycle of `pat` over `k` cycles; as `fast` for `0` and negatives |
+| `p._fastR n d pat`, `p._slowR n d pat` | `Int -> Int -> Pattern a -> Pattern a` | `fast` and `slow` by the ratio `n / d`, such as 3 and 2 for 1.5 |
+| `p.rev pat` | `Pattern a -> Pattern a` | each cycle of `pat` backwards |
 | `p.shift t pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat`, `t` ticks later; negative is earlier |
 | `p.euclid k n v` | `Int -> Int -> a -> Pattern a` | `v` on `k` of `n` steps, spread evenly, the first on step 0 |
 | `p.mapP f pat` | | `pat` with `f` applied to each value |
@@ -204,7 +206,7 @@ A number is a MIDI note. A note name is a letter `c` to `b`, then any of `s` (sh
 | `{a b c}%4` | 4 steps per cycle; `%` takes a pattern, as in `%<4 8>` |
 | `a, b` | both at once, at the top or inside `[ ]`, `< >` and `{ }` |
 | `a \| b` | one of them each cycle, at random; at the top or inside `[ ]` |
-| `a*k`, `a/k` | `a` `k` times as fast or slow; `k` is a whole number or a pattern, as in `a*<2 3>` |
+| `a*k`, `a/k` | `a` `k` times as fast or slow; `k` is a number such as `1.5` or `3%2`, or a pattern, as in `a*<2 1.5>`; a negative `k` reverses |
 | `a!k`, `a !` | `k` copies of `a` in turn; `!` alone adds one |
 | `a@k`, `a _` | `a` lasts `k` steps, a ratio such as `1.5` or `3%2`; each `_` adds one |
 | `a(k,n)`, `a(k,n,r)` | `a` on `k` of `n` steps, as `p.euclid`, rotated left by `r` steps; each may be a pattern |
@@ -214,7 +216,20 @@ A number is a MIDI note. A note name is a letter `c` to `b`, then any of `s` (sh
 
 Randomness is Tidal's: a value is a function of the event's start time and the `?` or `|` it comes from, so a pattern plays the same each time and in any block size. A typo or an unknown chord name fails when the definition is evaluated, so the playing pattern goes on. Tidal plays an unknown chord name as its root.
 
-Not supported: `*1.5` and other fractional factors, since factors are `Int`; sample names such as `bd:3`, since values are `Int`; and `^name`, since there are no control inputs.
+`p.miniS` parses the same notation into a `Pattern String`, for names such as Tidal's samples: `p.miniS "bd*2 [hh sn:3] ~ cp?"`. A name starts with a letter or digit and goes on with letters, digits and `: . - _`; `bd .. sn` is `bd sn`, as in Tidal. `pat` plays a `Pattern Int`, so names become notes, in one of two ways:
+
+- `m.drums` plays General MIDI drums on channel 10, for a drum instrument in the host: `pat = m.drums (p.miniS "bd*2 [hh sn:3]")`. `bd` is 36, `sn` 38, `hh` 42, `cp` 39, `oh` 46; an index picks a variant, so `bd:1` is 35. `m.gmDrums` lists the names. A name not in it is dropped.
+- `d.kit` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
+
+```haskell
+kit = ["bd", "sn:3", "hh"]
+sig = d.kit "/abs/path/Dirt-Samples" kit
+pat = m.kit kit (p.miniS "bd*2 [hh sn:3]")
+```
+
+A name not in the kit is dropped. A folder with no WAV file fails `sig`, and the last graph plays on.
+
+Not supported: `^name`, since there are no control inputs.
 
 ## MIDI values
 
@@ -327,6 +342,8 @@ sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.wavetable (d.cycleO
 ```
 
 Use an absolute path: a plugin's working directory is its host's. A replaced file plays from the next `sig`.
+
+`d.key k` is note `k`'s gate, on any channel, while it is held; `d.kit` plays each sample on its note's key, and `d.sampleOf dir name gate speed` plays one name as `d.sample` plays a file.
 
 A channel's notes play `voicesOn c f` instead, for MIDI channel `c` from 1 to 16, if `sig` has it:
 

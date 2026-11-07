@@ -10,15 +10,25 @@ enum { MAX_VOICES = 64, GROUPS = 17 }; /* group 0 is shared, group C is channel 
 typedef struct {
   int64_t on, off; /* frames; off is INT64_MAX until a note-off */
   int chan, note;
-  bool held; /* the off is not yet sent */
+  bool held;  /* the off is not yet sent */
+  bool keyed; /* counted in its note's key */
   char gate[16], freq[16];
 } Voice;
+
+enum { KEYS = 128 };
+
+typedef struct {
+  int held;    /* voices of this note that are held and keyed */
+  int64_t off; /* when the key's gate last fell */
+  char gate[12];
+} Key;
 
 struct funk_voices {
   funk_player *p;
   bool (*send)(funk_player *, int64_t, const char *, float);
   int n;       /* voices per group */
   int64_t sent; /* the last event's frame: sends stay in time order */
+  Key keys[KEYS];
   Voice v[];   /* group g's are v[g * n] to v[g * n + n - 1] */
 };
 
@@ -30,6 +40,10 @@ funk_voices *funk_voices_new(funk_player *p, int n, bool audio_thread) {
   vs->send = audio_thread ? funk_player_send_audio : funk_player_send;
   vs->n = n;
   vs->sent = INT64_MIN;
+  for (int k = 0; k < KEYS; k++) {
+    vs->keys[k].off = INT64_MIN;
+    snprintf(vs->keys[k].gate, sizeof vs->keys[k].gate, "k%d.gate", k);
+  }
   for (int g = 0; g < GROUPS; g++)
     for (int i = 0; i < n; i++) {
       Voice *v = &vs->v[g * n + i];
@@ -53,9 +67,36 @@ static bool send(funk_voices *vs, int64_t frame, const char *name, float x) {
   return vs->send(vs->p, frame, name, x);
 }
 
+/* v's note no longer holds its key; the last one lets it fall */
+static bool key_off(funk_voices *vs, Voice *v, int64_t frame) {
+  if (!v->keyed) return true;
+  v->keyed = false;
+  Key *k = &vs->keys[v->note];
+  if (--k->held > 0) return true;
+  bool ok = send(vs, frame, k->gate, 0);
+  k->off = vs->sent;
+  return ok;
+}
+
 static bool release(funk_voices *vs, Voice *v, int64_t frame) {
   v->held = false;
-  return send(vs, frame, v->gate, 0);
+  bool ok = send(vs, frame, v->gate, 0);
+  return ok & key_off(vs, v, frame);
+}
+
+/* note's key rises at frame s, or a frame later if it must fall first */
+static bool key_on(funk_voices *vs, Voice *v, int64_t s, int vel) {
+  Key *k = &vs->keys[v->note];
+  if (!funk_player_has(vs->p, k->gate)) return true;
+  bool ok = true;
+  if (k->held > 0 || k->off >= s) {
+    ok &= send(vs, s, k->gate, 0);
+    s = vs->sent + 1;
+  }
+  ok &= send(vs, s, k->gate, vel / 127.0f);
+  k->held++;
+  v->keyed = true;
+  return ok;
 }
 
 bool funk_voices_until(funk_voices *vs, int64_t f) {
@@ -86,14 +127,15 @@ bool funk_voices_on(funk_voices *vs, int64_t s, int64_t e, int chan, int note, i
     ok &= send(vs, s, v->gate, 0);
     at = s + 1;
   }
+  ok &= key_off(vs, v, s); /* a stolen voice's note */
   ok &= send(vs, s, v->freq, (float)(440 * pow(2, (note - 69) / 12.0)));
   ok &= send(vs, at, v->gate, vel / 127.0f);
   v->on = s;
   v->off = e > at ? e : at + 1;
   v->chan = chan;
-  v->note = note;
+  v->note = note & (KEYS - 1);
   v->held = true;
-  return ok;
+  return ok & key_on(vs, v, at, vel);
 }
 
 /* Every group: the graph may have changed since the note-on. */

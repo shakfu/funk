@@ -73,17 +73,39 @@ _slow k p
 _shift :: Int -> Pattern a -> Pattern a
 _shift t p = Pattern (\q -> map (withSpans (move t)) (query p (move (negate t) q)))
 
+-- n / d times as fast or as slow, by _fast and _slow, so times round as
+-- _fast's do. As Tidal's, 0 is silence and a negative factor reverses.
+_fastR :: Int -> Int -> Pattern a -> Pattern a
+_fastR n d p
+  | n == 0 = silence
+  | d <= 0 = error "pattern.fast: a ratio's denominator must be positive"
+  | n < 0 = rev (_fastR (negate n) d p)
+  | otherwise = case gcd n d of
+      g -> _fast (div n g) (_slow (div d g) p)
+
+_slowR :: Int -> Int -> Pattern a -> Pattern a
+_slowR n d p = if n == 0 then silence else _fastR d n p
+
 -- Patterned arguments, as Tidal's: each factor's event applies its value
 -- during its part. A literal is an atom, by Num (Pattern a). A factor of 0
--- is silence, as Tidal's; a negative one is an error, where Tidal reverses.
+-- is silence and a negative one reverses, as Tidal's.
 fast :: Pattern Int -> Pattern a -> Pattern a
-fast kp p = innerJoin (mapP (\k -> if k == 0 then silence else _fast k p) kp)
+fast kp p = innerJoin (mapP (\k -> _fastR k 1 p) kp)
 
 slow :: Pattern Int -> Pattern a -> Pattern a
-slow kp p = innerJoin (mapP (\k -> if k == 0 then silence else _slow k p) kp)
+slow kp p = innerJoin (mapP (\k -> _slowR k 1 p) kp)
 
 shift :: Pattern Int -> Pattern a -> Pattern a
 shift tp p = innerJoin (mapP (\t -> _shift t p) tp)
+
+-- each cycle backwards, as Tidal's rev
+rev :: Pattern a -> Pattern a
+rev p = Pattern (\q -> concatMap (\s -> case cycleOf s.start of
+    c -> map (withSpans (reflect c)) (query p (reflect c s))) (cycleSpans q))
+
+-- s mirrored within cycle c
+reflect :: Span -> Span -> Span
+reflect c s = Span (c.start + c.stop - s.stop) (c.start + c.stop - s.start)
 
 -- arithmetic on values, with wholes from both, as Tidal's
 instance Num a => Num (Pattern a) where
@@ -219,6 +241,18 @@ chooseCycle :: Int -> [Pattern a] -> Pattern a
 chooseCycle seed ps = joinP (Pattern (\q -> map (\s -> case cycleOf s.start of
     w -> Event w s (ps !! mod (div (randAt w.start seed * length ps) 536870912) (length ps))) (cycleSpans q)))
 
+-- the events whose value f maps to Just, with that value
+mapMaybeP :: (a -> Maybe b) -> Pattern a -> Pattern b
+mapMaybeP f p = Pattern (\q -> concatMap (\e -> case f e.value of
+    Just v -> [Event e.whole e.part v]
+    Nothing -> []) (query p q))
+
+-- a Tidal sample name's folder and index: "sn:3" is ("sn", 3), "bd" ("bd", 0)
+soundParts :: String -> (String, Int)
+soundParts s = case span (/= ':') (unpack s) of
+  (name, ':' : ds) -> (pack name, if not (null ds) && all isDigit ds then digitsOf ds else 0)
+  (name, _) -> (pack name, 0)
+
 -- each event's list, as events of its own
 uncollect :: Pattern [a] -> Pattern a
 uncollect p = Pattern (\q -> concatMap (\e -> map (\v -> Event e.whole e.part v) e.value) (query p q))
@@ -230,26 +264,44 @@ uncollect p = Pattern (\q -> concatMap (\e -> map (\v -> Event e.whole e.part v)
 --   [a b]    a sequence in one step        a . b c  steps of equal length: a, then [b c]
 --   <a b>    one step per cycle            {a b c}  steps at the first sequence's rate
 --   {a b}%4  4 steps per cycle             a, b     at once, inside [ ], < >, { } or at the top
---   a | b    one at random each cycle      a*k a/k  fast, slow; k is a whole number, or a pattern
+--   a | b    one at random each cycle      a*k a/k  fast, slow; k a ratio, such as 1.5, or a pattern
 --   a!k a !  k copies, or 1 more           a@k a _  a weight of k steps (a ratio), or 1 more
 --   a(k,n,r) on k of n steps, rotated r    a? a?0.3 dropped at random, half or 0.3 of the time
 --   a .. b   a to b, in one step           c'maj'ii a chord, with Tidal's names and modifiers
 mini :: String -> Pattern Int
-mini s = case unpack s of
-  cs -> case mStack (length cs) MInt True (0, cs) of
+mini s = mapP mvInt (mParse MInt s)
+
+-- mini-notation of names, such as Tidal's samples: "bd*2 [hh sn:3]". A name
+-- is a letter or digit, then letters, digits and : . - _; no notes or chords.
+miniS :: String -> Pattern String
+miniS s = mapP mvStr (mParse MStr s)
+
+mParse :: MMode -> String -> Pattern MV
+mParse mode s = case unpack s of
+  cs -> case mStack (length cs) mode True (0, cs) of
     (pat, (_, rest)) -> case mSkip rest of
-      [] -> mapP mvInt pat
+      [] -> pat
       r -> mFail (length cs) r "unexpected character"
 
 -- what a parse yields: values, chord intervals, or chord modifiers
-data MV = VInt Int | VChord [Int] | VMods [Mod]
+data MV = VInt Int | VRat Int Int | VStr [Char] | VChord [Int] | VMods [Mod]
 data Mod = Range Int | Drop Int | Invert | Open
-data MMode = MInt | MName | MMod deriving (Eq)
+data MMode = MInt | MRat | MStr | MName | MMod deriving (Eq)
 
 mvInt :: MV -> Int
 mvInt v = case v of
   VInt n -> n
   _ -> error "pattern.mini: not a number"
+
+mvRat :: MV -> (Int, Int)
+mvRat v = case v of
+  VRat a b -> (a, b)
+  _ -> error "pattern.mini: not a ratio"
+
+mvStr :: MV -> String
+mvStr v = case v of
+  VStr cs -> pack cs
+  _ -> error "pattern.mini: not a name"
 
 mvChord :: MV -> [Int]
 mvChord v = case v of
@@ -316,8 +368,8 @@ mFeet n mode acc done (sd, cs) = case mSkip cs of
 -- after a part: '..' and a part, or weights, or copies
 mAfter :: Int -> MMode -> Pattern MV -> (Int, [Char]) -> ([((Int, Int), Pattern MV)], (Int, [Char]))
 mAfter n mode p (sd, cs) = case cs of
-  '.' : '.' : r -> if mode /= MInt then mFail n cs "'..' needs numbers" else case mPart n mode (sd, mSkip r) of
-    (b, st2) -> ([((1, 1), mRange p b)], st2)
+  '.' : '.' : r -> if mode /= MInt && mode /= MStr then mFail n cs "'..' needs numbers or names" else case mPart n mode (sd, mSkip r) of
+    (b, st2) -> ([((1, 1), if mode == MStr then fastcat [p, b] else mRange p b)], st2)
   c : _ -> if c == '@' || c == '_' then mWeights n p (1, 1) (sd, cs)
     else if c == '!' then mCopies n p 1 (sd, cs)
     else ([((1, 1), p)], (sd, cs))
@@ -357,15 +409,15 @@ mPart n mode st = case mBase n mode st of
 mBase :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
 mBase n mode (sd, cs) = case cs of
   '~' : r -> (silence, (sd, r))
-  '-' : r -> if any isDigit (take 1 r) && mode /= MName then mAtom n mode (sd, cs) else (silence, (sd, r))
+  '-' : r -> if any isDigit (take 1 r) && (mode == MInt || mode == MRat) then mAtom n mode (sd, cs) else (silence, (sd, r))
   '[' : r -> case mStack n mode True (sd, r) of
     (p, (sd2, r2)) -> (p, (sd2, mClose n ']' r2))
   '<' : r -> case mSized n mode (sd, r) of
     (ps, (sd2, r2)) -> (stack (map (\(p, size) -> mRate (1, 1) size p) ps), (sd2, mClose n '>' r2))
   '{' : r -> case mSized n mode (sd, r) of
     (ps, (sd2, r2)) -> case mClose n '}' r2 of
-      '%' : r3 -> case mBase n MInt (sd2, r3) of
-        (k, st3) -> (stack (map (\(p, size) -> fast (mapP mvInt k) (mRate (1, 1) size p)) ps), st3)
+      '%' : r3 -> case mBase n MRat (sd2, r3) of
+        (k, st3) -> (stack (map (\(p, size) -> innerJoin (mapP (\v -> mRate (mvRat v) size p) k)) ps), st3)
       r3 -> case ps of
         [] -> (silence, (sd2, r3))
         (_, first) : _ -> (stack (map (\(p, size) -> mRate first size p) ps), (sd2, r3))
@@ -373,9 +425,7 @@ mBase n mode (sd, cs) = case cs of
 
 -- p at rate / size steps per cycle
 mRate :: (Int, Int) -> (Int, Int) -> Pattern MV -> Pattern MV
-mRate (a, b) (c, d) p = if a == 0 || c == 0 then silence else case (a * d, b * c) of
-  (x, y) -> case gcd x y of
-    g -> _fast (div x g) (_slow (div y g) p)
+mRate (a, b) (c, d) p = if c == 0 then silence else _fastR (a * d) (b * c) p
 
 mClose :: Int -> Char -> [Char] -> [Char]
 mClose n c cs = case mSkip cs of
@@ -385,10 +435,12 @@ mClose n c cs = case mSkip cs of
 -- '*', '/', '(', '?'; a factor is a term without modifiers, as Tidal's
 mMods :: Int -> Pattern MV -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
 mMods n p (sd, cs) = case cs of
-  '*' : r -> case mBase n MInt (sd, mSkip r) of
-    (k, st2) -> mMods n (fast (mapP mvInt k) p) st2
-  '/' : r -> case mBase n MInt (sd, mSkip r) of
-    (k, st2) -> mMods n (slow (mapP mvInt k) p) st2
+  '*' : r -> case mBase n MRat (sd, mSkip r) of
+    (k, st2) -> mMods n (innerJoin (mapP (\v -> case mvRat v of
+        (a, b) -> _fastR a b p) k)) st2
+  '/' : r -> case mBase n MRat (sd, mSkip r) of
+    (k, st2) -> mMods n (innerJoin (mapP (\v -> case mvRat v of
+        (a, b) -> _slowR a b p) k)) st2
   '(' : r -> case mSeq n MInt (sd, r) of
     ((k, _), (sd2, r2)) -> case mSkip r2 of
       ',' : r3 -> case mSeq n MInt (sd2, r3) of
@@ -418,6 +470,19 @@ mAtom n mode (sd, cs) = case mode of
       Nothing -> mFail n cs "unknown chord name"
   MMod -> case mModifiers n cs of
     (ms, r) -> (atom (VMods ms), (sd, r))
+  MRat -> case cs of
+    '-' : r -> (case mRatio n r of
+      ((a, b), r2) -> (atom (VRat (negate a) b), (sd, r2)))
+    c : r -> if elem c (unpack "whqestfx") && not (any isAlpha (take 1 r)) then (case ratChar c of
+        (a, b) -> (atom (VRat a b), (sd, r)))
+      else (case mRatio n cs of
+        ((a, b), r2) -> (atom (VRat a b), (sd, r2)))
+    [] -> mFail n cs "expected a number"
+  MStr -> case cs of
+    c : r -> if isAlpha c || isDigit c then (case span (\x -> isAlpha x || isDigit x || elem x (unpack ":.-_")) r of
+        (name, r2) -> (atom (VStr (c : name)), (sd, r2)))
+      else mFail n cs "expected a name, '~', '[', '<' or '{'"
+    [] -> mFail n cs "expected a name"
   MInt -> case cs of
     '\'' : _ -> mChord n (atom (VInt 0)) (sd, cs)
     _ -> case mValue n cs of

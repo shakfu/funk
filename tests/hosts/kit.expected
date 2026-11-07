@@ -1,0 +1,41 @@
+    0.000 on  ch1 0 100
+  250.000 audio peak 2500
+  500.000 audio peak 0
+  500.000 off ch1 0 0
+  500.000 on  ch1 1 100
+  750.000 audio peak 5000
+ 1000.000 audio peak 0
+ 1000.000 off ch1 1 0
+ 1000.000 on  ch1 2 100
+ 1250.000 audio peak 7500
+ 1500.000 audio peak 0
+ 1500.000 off ch1 2 0
+ 1500.000 on  ch1 3 100
+ 1750.000 audio peak 2500
+ 2000.000 audio peak 0
+ 2000.000 off ch1 3 0
+ 2000.000 on  ch1 2 100
+ 2250.000 audio peak 7500
+ 2500.000 audio peak 0
+ 2750.000 audio peak 0
+runtime error: graph: dsp_sampler has no sample nosuch:0 in tests/hosts/samples: no such sample folder
+funk-midi: sig failed; the last graph plays on until sig is defined again
+ 3000.000 audio peak 0
+ 3000.000 off ch1 2 0
+ 3250.000 audio peak 0
+ 3500.000 audio peak 0
+ 3750.000 audio peak 0
+ 4000.000 audio peak 0
+ 4000.000 on  ch10 36 100
+ 4250.000 audio peak 0
+ 4500.000 audio peak 0
+ 4500.000 off ch10 36 0
+ 4500.000 on  ch10 35 100
+ 4750.000 audio peak 0
+ 5000.000 audio peak 0
+ 5000.000 off ch10 35 0
+ 5000.000 on  ch10 38 100
+ 5250.000 audio peak 0
+ 5500.000 audio peak 0
+ 5500.000 off ch10 38 0
+ 5750.000 audio peak 0

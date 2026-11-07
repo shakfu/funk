@@ -8,6 +8,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -284,6 +285,36 @@ static void swaps(void) {
   printf("400 replaced files during playback: %d wrong samples\n", atomic_load(&bad));
 }
 
+/* funk_sample_path: dir/name's WAV files, sorted, the index wrapping; a
+   name is one folder, never a path out of dir */
+static void touch(const char *p) {
+  FILE *f = fopen(p, "w");
+  if (f) fclose(f);
+}
+
+static void sample_paths(void) {
+  char dir[600], bd[700], empty[700], f[800];
+  snprintf(dir, sizeof dir, "%s.kit", path);
+  snprintf(bd, sizeof bd, "%s/bd", dir);
+  snprintf(empty, sizeof empty, "%s/empty", dir);
+  mkdir(dir, 0700), mkdir(bd, 0700), mkdir(empty, 0700);
+  const char *files[] = {"b.wav", "a.WAV", "c.txt", ".d.wav"};
+  for (int i = 0; i < 4; i++) snprintf(f, sizeof f, "%s/%s", bd, files[i]), touch(f);
+  printf("sample paths:");
+  for (int i = -1; i <= 2; i++) {
+    const char *p = funk_sample_path(dir, "bd", i);
+    printf(" %d %s", i, *p ? strrchr(p, '/') + 1 : "-");
+  }
+  printf("\n");
+  const char *bad[] = {"sn", "empty", "../bd", "bd/a.WAV", "", ".."};
+  for (int i = 0; i < 6; i++) {
+    const char *p = funk_sample_path(dir, bad[i], 0);
+    printf("sample path '%s': '%s', %s\n", bad[i], p, funk_table_error());
+  }
+  for (int i = 0; i < 4; i++) snprintf(f, sizeof f, "%s/%s", bd, files[i]), unlink(f);
+  rmdir(bd), rmdir(empty), rmdir(dir);
+}
+
 int main(int argc, char **argv) {
   void *lib = argc > 1 ? dlopen(argv[1], RTLD_NOW | RTLD_LOCAL) : NULL;
   if (!lib) {
@@ -299,6 +330,7 @@ int main(int argc, char **argv) {
   sharing();
   kernels();
   swaps();
+  sample_paths();
   unlink(path);
   return 0;
 }

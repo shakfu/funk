@@ -5,6 +5,7 @@
 --   tools/kernels.sh funk lib/kernels.fk funkdsp.so
 module dsp where
 import graph as g
+import pattern as p
 
 dc :: Float -> g.Sig
 dc x = g.Node "dsp_const" [x] []
@@ -143,6 +144,27 @@ sample path gate speed = stereo (sampleChannel path 0 gate speed) (sampleChannel
 
 sampleChannel :: String -> Int -> g.Sig -> g.Sig -> g.Sig
 sampleChannel path c gate speed = g.Reader "dsp_sampler" (g.File path c) [0.0, 0.0, 0.0, 1.0e30, 0.0] [gate, speed]
+
+-- the gate of note k, 0 to 127, on any channel: velocity / 127 while one
+-- of its notes is held (funk_voices in graph.h)
+key :: Int -> g.Sig
+key k = g.control ("k" ++ show k ++ ".gate") 0.0
+
+-- a Tidal sample such as "sn:3": the index-th WAV file of dir/sn, sorted,
+-- wrapping, as sample plays a file
+sampleOf :: String -> String -> g.Sig -> g.Sig -> g.Sig
+sampleOf dir name gate speed = case p.soundParts name of
+  (folder, index) -> stereo (sampleFrom dir folder index 0 gate speed) (sampleFrom dir folder index 1 gate speed)
+
+sampleFrom :: String -> String -> Int -> Int -> g.Sig -> g.Sig -> g.Sig
+sampleFrom dir folder index c gate speed = g.Reader "dsp_sampler" (g.Sample dir folder index c) [0.0, 0.0, 0.0, 1.0e30, 0.0] [gate, speed]
+
+-- samples on notes: names !! k, such as "bd" or "sn:3", plays on note k's
+-- key; m.kit names plays a pattern of the names on those notes
+kit :: String -> [String] -> g.Sig
+kit dir names = case zipWith (\k name -> sampleOf dir name (key k) (dc 1.0)) (enumFromTo 0 (length names - 1)) names of
+  [] -> g.Silence
+  v : vs -> foldl (+) v vs
 
 -- data, frames, rate, position, gate: the first three from graph.h
 tableState :: [Float]

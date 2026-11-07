@@ -38,3 +38,10 @@ a NaN frequency stays in bounds
 an empty wavetable is silent: 0.000 0.000
 refused: state too small -1, a control -1, a second table: -1
 400 replaced files during playback: 0 wrong samples
+sample paths: -1 b.wav 0 a.WAV 1 b.wav 2 a.WAV
+sample path 'sn': '', no such sample folder
+sample path 'empty': '', no WAV files in the sample folder
+sample path '../bd': '', a sample name is one folder's name
+sample path 'bd/a.WAV': '', a sample name is one folder's name
+sample path '': '', a sample name is one folder's name
+sample path '..': '', a sample name is one folder's name

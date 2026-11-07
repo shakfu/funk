@@ -235,6 +235,34 @@ int main(int argc, char **argv) {
   funk_voices_free(vs);
   funk_player_free(vp);
 
+  /* keys: "kN.gate" while any note N is held, on any channel; a repeat
+     drops it for a frame, and a stolen voice lets its note's key fall */
+  vp = funk_player_new();
+  g = funk_graph_new(8, 8000.0);
+  funk_graph_output(g, funk_graph_control(g, 0.0f));
+  funk_graph_name(g, 0, "k60.gate");
+  funk_graph_output(g, funk_graph_control(g, 0.0f));
+  funk_graph_name(g, 1, "k64.gate");
+  funk_player_play(vp, g);
+  vs = funk_voices_new(vp, 2, true);
+  funk_voices_on(vs, 1, INT64_MAX, 0, 60, 127);
+  funk_voices_on(vs, 3, INT64_MAX, 1, 60, 127); /* held twice: falls a frame */
+  funk_voices_off(vs, 5, 0, 60);                /* one still held: stays */
+  funk_voices_on(vs, 6, 7, 0, 64, 127);
+  funk_voices_until(vs, 8);
+  for (int b = 0; b < 2; b++) {
+    if (b) {
+      funk_voices_on(vs, 9, INT64_MAX, 0, 67, 127);  /* no k67 control: no key */
+      funk_voices_on(vs, 10, INT64_MAX, 0, 72, 127); /* steals 60's voice */
+    }
+    funk_player_render_channels(vp, vo, 2, N);
+    printf("keys   ");
+    for (int i = 0; i < N; i++) printf(" %g/%g", vl[i], vr[i]);
+    printf("\n");
+  }
+  funk_voices_free(vs);
+  funk_player_free(vp);
+
   /* channels: channel 10 (9 here) has its own voices, channel 2 shares;
      an off ends its own channel's note, not the oldest of its pitch */
   vp = funk_player_new();

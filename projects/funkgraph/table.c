@@ -5,7 +5,9 @@
 #define _DEFAULT_SOURCE
 #include "table.h"
 
+#include <dirent.h>
 #include <pthread.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +29,52 @@ static funk_table *tables;
 static _Thread_local const char *last_error;
 
 const char *funk_table_error(void) { return last_error ? last_error : "no error"; }
+
+static int by_name(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+
+const char *funk_sample_path(const char *dir, const char *name, int index) {
+  static _Thread_local char out[4096];
+  if (!*name || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..")) {
+    last_error = "a sample name is one folder's name";
+    return "";
+  }
+  char folder[4096];
+  if (snprintf(folder, sizeof folder, "%s/%s", dir, name) >= (int)sizeof folder) {
+    last_error = "the sample folder's path is too long";
+    return "";
+  }
+  DIR *d = opendir(folder);
+  if (!d) {
+    last_error = "no such sample folder";
+    return "";
+  }
+  char **files = NULL;
+  size_t n = 0, cap = 0;
+  for (struct dirent *e; (e = readdir(d));) {
+    size_t len = strlen(e->d_name);
+    if (e->d_name[0] == '.' || len < 5 || strcasecmp(e->d_name + len - 4, ".wav")) continue;
+    if (n == cap) {
+      char **more = realloc(files, (cap = cap ? 2 * cap : 16) * sizeof *files);
+      if (!more) break;
+      files = more;
+    }
+    if (!(files[n] = strdup(e->d_name))) break;
+    n++;
+  }
+  closedir(d);
+  const char *result = "";
+  if (!n) last_error = "no WAV files in the sample folder";
+  else {
+    qsort(files, n, sizeof *files, by_name);
+    long i = index % (long)n;
+    if (i < 0) i += (long)n;
+    if (snprintf(out, sizeof out, "%s/%s", folder, files[i]) < (int)sizeof out) result = out;
+    else last_error = "the sample's path is too long";
+  }
+  for (size_t i = 0; i < n; i++) free(files[i]);
+  free(files);
+  return result;
+}
 
 static uint32_t u16le(const unsigned char *p) { return (uint32_t)p[0] | (uint32_t)p[1] << 8; }
 static uint32_t u32le(const unsigned char *p) { return u16le(p) | u16le(p + 2) << 16; }

@@ -14,3 +14,29 @@ chan c pat = p.mapP (\x -> (x .&. 16383) + 16384 * (within 1 16 c - 1)) pat
 
 within :: Int -> Int -> Int -> Int
 within lo hi x = max lo (min hi x)
+
+-- Names onto notes: names !! k plays note k, as d.kit dir names expects.
+-- "bd" is "bd:0". A name not in names is dropped.
+kit :: [String] -> p.Pattern String -> p.Pattern Int
+kit names pat = p.mapMaybeP (\s -> lookup (p.soundParts s) (zip (map p.soundParts names) (enumFromTo 0 127))) pat
+
+-- General MIDI drums, on channel 10: "bd" is 36, "sn" 38, "hh" 42; an index
+-- picks a variant, wrapping: "bd:1" is 35. A name not in gmDrums is dropped.
+drums :: p.Pattern String -> p.Pattern Int
+drums pat = chan 10 (p.mapMaybeP (\s -> case p.soundParts s of
+    (name, i) -> case lookup name gmDrums of
+      Just ns -> Just (ns !! mod i (length ns))
+      Nothing -> Nothing) pat)
+
+-- names, as Tidal's and drum machines' samples are named, and their GM notes
+gmDrums :: [(String, [Int])]
+gmDrums = concatMap (\(names, ns) -> map (\n -> (n, ns)) names)
+  [ (["bd", "kick"], [36, 35]), (["sn", "sd", "snare"], [38, 40]), (["rim", "rs", "rm", "stick"], [37])
+  , (["cp", "clap"], [39]), (["hh", "hc", "ch"], [42, 44]), (["oh", "ho"], [46])
+  , (["lt"], [41, 43]), (["mt"], [45, 47]), (["ht"], [48, 50]), (["tom"], [41, 43, 45, 47, 48, 50])
+  , (["cr", "crash"], [49, 57]), (["ride", "rd"], [51, 59]), (["bell"], [53]), (["china"], [52]), (["splash"], [55])
+  , (["cy", "cym"], [49, 51, 52, 55, 57, 59]), (["cb", "cowbell"], [56]), (["tamb", "tb"], [54]), (["vibraslap"], [58])
+  , (["bongo"], [60, 61]), (["conga"], [62, 63, 64]), (["timbale"], [65, 66]), (["agogo"], [67, 68])
+  , (["cabasa"], [69]), (["maracas", "sh", "shaker"], [70]), (["whistle"], [71, 72]), (["guiro"], [73, 74])
+  , (["claves", "cl"], [75]), (["wb", "wood"], [76, 77]), (["cuica"], [78, 79]), (["tri", "triangle"], [80, 81])
+  ]

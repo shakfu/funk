@@ -58,6 +58,11 @@ add_test(NAME hosts/voices
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --script tests/hosts/voices.txt 2>&1 | diff tests/hosts/voices.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/voices PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+# ... d.kit's samples on m.kit's notes, by name, from tests/hosts/samples
+add_test(NAME hosts/kit
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --script tests/hosts/kit.txt 2>&1 | diff tests/hosts/kit.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/kit PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # the CLAP plugin in a headless host: evaluation, clips, Stop, state, Live
 # (projects/clap/test_clap_host.cpp; cases in tests/hosts/clap.txt)
 if(TARGET funk_midi_clap)

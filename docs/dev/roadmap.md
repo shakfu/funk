@@ -136,7 +136,7 @@ Library, in `lib/pattern.fk`:
 
 - ~~**Pattern application and joins:** monomorphic `apP` and `joinP`, with the left-structure and right-structure forms of Tidal's `<*` and `*>`, and `squeezeJoin`'s behaviour.~~ Functions only, no operators ([patterns.md](patterns.md#implementation)).
 
-- ~~**Patterned arguments:** combinators accept patterns as parameters, such as `fast (p "2 4")`, as Tidal's `patternify` gives.~~ `fast`, `slow` and `shift`; factors are `Int` ([patterns.md](patterns.md#implementation)).
+- ~~**Patterned arguments:** combinators accept patterns as parameters, such as `fast (p "2 4")`, as Tidal's `patternify` gives.~~ `fast`, `slow` and `shift`, with ratios through `_fastR` ([patterns.md](patterns.md#implementation)).
 
 - ~~**Mini-notation:** an explicit parse call, `p "bd*2 sn"` ([patterns.md](patterns.md#literals)). Overloaded string literals are not planned.~~ `p.mini`, for `Int` values ([music.md](../music.md#mini-notation)).
 
@@ -146,7 +146,7 @@ Library, in `lib/pattern.fk`:
 
 Host and time decisions these depend on:
 
-- **Delivery:** `sampleEvents`, `pushOnsets` and `writeEvents` carry an `Int` value, and `pushOnsets` only 16 bits. Control patterns need a path to the voices and the graph.
+- **Delivery:** `sampleEvents`, `pushOnsets` and `writeEvents` carry an `Int` value, and `pushOnsets` only 16 bits. Control patterns need a path to the voices and the graph. Proposal: [delivery.md](delivery.md).
 
 - **Time:** ticks divide exactly by factors of 720720. Tidal's `Rational` allows `fast 1.5` and `0.25 ~> p`. Decide whether fractional factors round, or time changes.
 

@@ -66,13 +66,13 @@ Status:
 
 `lib/pattern.fk`, imported with `-M lib`. Tidal's query model: `query` returns the fragments overlapping a span, each with its event's `whole` and its `part` in the span; an event is an onset where the two start together. Combinators: `silence`, `atom`, `mapP`, `stack`, `cat`, `fastcat`, `fast`, `slow`, `shift`, `euclid`, and Tidal's application and joins: `apP`, `apLeft`, `apRight` (`<*>`, `<*`, `*>`), `joinP` (`unwrap`), `innerJoin`, `outerJoin`, `squeezeJoin`.
 
-- `fast`, `slow` and `shift` take a `Pattern Int`, through `innerJoin`, as Tidal's `tParam`; `_fast`, `_slow` and `_shift` take an `Int`. `Num (Pattern a)` makes a literal an `atom`. Factors stay `Int` (fractions such as Tidal's `fast 1.5` would need non-integer time). A query is split at each factor event's boundary, cycles included, so it returns more fragments; onsets are unchanged. It costs 2x per query: 0.8 us against 0.4 us for a 10 ms window of a 3:5:7 stack, compiled.
+- `fast`, `slow` and `shift` take a `Pattern Int`, through `innerJoin`, as Tidal's `tParam`; `_fast`, `_slow` and `_shift` take an `Int`. `Num (Pattern a)` makes a literal an `atom`. A ratio `n / d` plays as `_fast n (_slow d p)` (`_fastR`), so `fast 1.5` keeps integer ticks and rounds as `fast 17` does. A query is split at each factor event's boundary, cycles included, so it returns more fragments; onsets are unchanged. It costs 2x per query: 0.8 us against 0.4 us for a 10 ms window of a 3:5:7 stack, compiled.
 
 - `mini` follows Tidal's `ParseBP.hs` and `Chords.hs`. It parses when called, not when queried, so a typo fails as the definition is evaluated. Named `mini`, since `p` is the module's usual alias. Values parse into one sum type, `MV`, so that one grammar serves numbers, chord names and chord modifiers without polymorphic recursion.
 
 - `randAt` is Tidal's `timeToRand`, exactly: an event at tick `t`, for the `k`th `?` or `|`, takes the value at `t / 720720 + k / 10000` cycles. Integer arithmetic gives it without overflow, as `300 * 720720 * 10000 = 2^10 * 2111484375`. Checked against an implementation in exact fractions.
 
-- Polymeter steps at `r / size` per cycle play as `_fast` and `_slow` by integers, so `{a b c}%4` works though factors are `Int`; it rounds as `fast 17` does. `timecat` maps each step's cycle linearly into its share, keeping wholes that cross the step, as Tidal's `compressArc`.
+- Polymeter steps at `r / size` per cycle play through `_fastR`. `timecat` maps each step's cycle linearly into its share, keeping wholes that cross the step, as Tidal's `compressArc`.
 
 - `outerJoin` takes the inner value at the outer whole's first tick. `squeezeJoin` fits the cycle its outer whole starts in into that whole, as Tidal does; times round down, so an inner event shorter than a tick at that scale is dropped.
 

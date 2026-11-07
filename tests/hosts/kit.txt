@@ -1,0 +1,17 @@
+-- funk-midi --audio --no-sleep --script (tests/CMakeLists.txt): d.kit and
+-- m.kit, samples on notes by name. tests/hosts/samples/bd holds a.wav, 0.25,
+-- and b.wav, 0.5; sn holds x.WAV, 0.75, and a text file; each lasts 0.1 s.
+-- bd:2 wraps to a.wav. pat changes from the first window not yet
+-- scheduled, 50 ms ahead, so it is redefined 100 ms before a cycle.
+sig = d.kit "tests/hosts/samples" ["bd", "bd:1", "sn", "bd:2"]
+pat = m.kit ["bd", "bd:1", "sn", "bd:2"] (p.miniS "bd bd:1 sn bd:2")
+:wait 1900
+-- a name not in the kit is dropped
+pat = m.kit ["bd", "bd:1", "sn", "bd:2"] (p.miniS "sn nosuch")
+:wait 1000
+-- a folder with no WAV file fails, and the last graph plays on
+sig = d.kit "tests/hosts/samples" ["nosuch"]
+:wait 1000
+-- General MIDI drums, on channel 10; bd:1 is 35
+pat = m.drums (p.miniS "bd bd:1 sn nosuch")
+:wait 2000

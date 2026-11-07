@@ -66,6 +66,12 @@ int funk_graph_table_file(funk_graph *g, int node, const char *path, int channel
 int funk_graph_table_values(funk_graph *g, int node, const double *values, int64_t frames);
 const char *funk_table_error(void);
 
+/* The index-th WAV file of dir/name, sorted by name, the index wrapping as
+   SuperDirt's does: a Tidal sample such as "sn:3". "", with
+   funk_table_error, if name is not one folder's name or the folder has no
+   WAV file. The result lasts until the thread's next call. */
+const char *funk_sample_path(const char *dir, const char *name, int index);
+
 /* Adds a control, whose output starts at value; its index, or -1 if
    memory runs out. Events reach it once it is named. */
 int funk_graph_control(funk_graph *g, float value);
@@ -129,7 +135,9 @@ void funk_player_free(funk_player *p);
 
 /* Notes on the voices of lib/dsp.fk's d.poly and d.polyOn: events to the
    controls "vK.freq" and "vK.gate", or "cC.vK.freq" and "cC.vK.gate" for
-   MIDI channel C, velocity / 127 while held. A note on channel C plays
+   MIDI channel C, velocity / 127 while held. Each note N also sets "kN.gate",
+   d.key's, on any channel, while any of its notes is held; it drops for a
+   frame to rise again. A note on channel C plays
    channel C's voices if the graph now playing has "cC.v1.gate", else the
    shared ones. A note takes the free voice released longest ago, else the
    voice of the oldest note; a held or just-released voice's gate drops for

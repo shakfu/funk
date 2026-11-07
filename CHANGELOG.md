@@ -6,7 +6,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- `p.mini` parses Tidal's mini-notation into a `Pattern Int`, following Tidal's parser: sequences, rests, `[ ]`, `< >`, `{ }` and `%`, `.`, `,`, `|`, `*`, `/`, `!`, `@`, `_`, `(k,n,r)`, `?`, `..`, note names (`c4` is 60) and chords with Tidal's names and modifiers (`"e'min7'ii"`). Arguments may be patterns, as in `"60*<2 3>"`. `?` and `|` give Tidal's random values exactly, so a ported pattern drops the same events. Parsing happens when `mini` is called, so a typo fails as the definition is evaluated and the playing pattern goes on ([docs/music.md](docs/music.md#mini-notation)). Fractional factors are rejected, since factors are `Int`.
+- Sample names play. `m.drums` maps them to General MIDI drums on channel 10, for a drum instrument in the host. `d.kit dir names` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit names` sends the notes it plays: `sn:3` is the 4th WAV file of `sn/`, sorted, wrapping as SuperDirt's index does. Each name gets a note rather than its own control so that names travel over the `Int` notes the hosts already deliver ([docs/music.md](docs/music.md#mini-notation)).
+
+  ```haskell
+  kit = ["bd", "sn:3", "hh"]
+  sig = d.kit "/abs/path/Dirt-Samples" kit
+  pat = m.kit kit (p.miniS "bd*2 [hh sn:3]")
+  ```
+
+- `d.key k`, note `k`'s gate on any channel. `funk_voices` sends `kN.gate` while any note N is held, alongside the voices, which a note takes in turn and so cannot tell a kit which note it holds. `funk_sample_path` in `graph.h` finds a Tidal sample's file.
+
+- `p.mini` parses Tidal's mini-notation into a `Pattern Int`, following Tidal's parser: sequences, rests, `[ ]`, `< >`, `{ }` and `%`, `.`, `,`, `|`, `*`, `/`, `!`, `@`, `_`, `(k,n,r)`, `?`, `..`, note names (`c4` is 60) and chords with Tidal's names and modifiers (`"e'min7'ii"`). Arguments may be patterns, as in `"60*<2 3>"`. `?` and `|` give Tidal's random values exactly, so a ported pattern drops the same events. Factors may be ratios, as in `"60*1.5"`. Parsing happens when `mini` is called, so a typo fails as the definition is evaluated and the playing pattern goes on ([docs/music.md](docs/music.md#mini-notation)). `p.miniS` parses the same notation into a `Pattern String`, for sample names such as `"bd*2 sn:3"`.
 
   ```haskell
   pat = p.mini "c4 [e4 g4]? <c'maj e'min7>(3,8) {60 62 64}%4"
@@ -30,7 +40,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `p.euclid` follows Bjorklund's algorithm, as Tidal's does: `p.euclid 5 8` plays `x.xx.xx.`, not `x.x.xx.x`. Ported patterns now keep their rhythm. A negative `k` plays the other steps.
 
-- `fast`, `slow` and `shift` in `lib/pattern.fk` take a `Pattern Int`, as Tidal's do: `p.fast (p.fastcat [1, 2]) pat`. A literal still works, since `Num (Pattern a)` makes it an `atom`; an `Int` variable needs `p.atom n`, or `_fast`, `_slow` and `_shift`, which take an `Int`. A factor of 0 is silence, as Tidal's, so `p.fast 0` no longer fails when defined. Factors stay `Int` over fractions, so time stays in integer ticks.
+- `fast`, `slow` and `shift` in `lib/pattern.fk` take a `Pattern Int`, as Tidal's do: `p.fast (p.fastcat [1, 2]) pat`. A literal still works, since `Num (Pattern a)` makes it an `atom`; an `Int` variable needs `p.atom n`, or `_fast`, `_slow` and `_shift`, which take an `Int`. As in Tidal, a factor of 0 is silence, so `p.fast 0` no longer fails when defined, and a negative factor reverses, through the new `p.rev`. `_fastR n d` and `_slowR n d` take a ratio; they compose `_fast` and `_slow`, so time stays in integer ticks and rounds as `_fast 17` does.
 
 - The plugin plays an expression once only if its own type is a `Pattern`. It used to try each expression as `Pattern Int`, which `Num (Pattern a)` would make `2 + 3` pass, playing note 5.
 
