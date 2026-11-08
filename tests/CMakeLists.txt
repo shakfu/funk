@@ -39,6 +39,10 @@ foreach(f ${libs})
   endforeach()
 endforeach()
 
+# graph.fk's imports are given to funk by both hosts, which Linux needs (tests/graph_imports.sh)
+add_test(NAME lib/graph_imports COMMAND sh ${PROJECT_SOURCE_DIR}/tests/graph_imports.sh WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(lib/graph_imports PROPERTIES LABELS lib)
+
 # reload during playback, through funk_call (bench/reload.c); fails on a misplaced onset
 add_test(NAME lib/reload COMMAND reload ${PROJECT_SOURCE_DIR}/lib 4000)
 set_tests_properties(lib/reload PROPERTIES LABELS lib TIMEOUT 300)
