@@ -78,14 +78,20 @@ jobs:
           cmake --build build -- -k 0
           ctest --test-dir build -L clap --no-tests=error --output-on-failure
 
-      # a tar keeps the bundle's executable bits, which upload-artifact drops
-      - name: Pack the plugin
-        run: tar -czf funk-midi-clap-${{ runner.os }}.tar.gz -C build/clap .
+      # a tar keeps the executable bits, which upload-artifact drops; funk embeds its
+      # runtime and prelude, and finds lib/'s modules with -M
+      - name: Pack the plugin and funk
+        run: |
+          tar -czf funk-midi-clap-${{ runner.os }}.tar.gz -C build/clap .
+          mkdir -p dist/funk/bin && cp build/funk dist/funk/bin/ && cp -R lib dist/funk/
+          tar -czf funk-${{ runner.os }}.tar.gz -C dist funk
 
       - uses: actions/upload-artifact@v4
         with:
           name: funk-midi-clap-${{ runner.os }}
-          path: funk-midi-clap-${{ runner.os }}.tar.gz
+          path: |
+            funk-midi-clap-${{ runner.os }}.tar.gz
+            funk-${{ runner.os }}.tar.gz
           if-no-files-found: error
 
   # the Linux plugin cross-built on macOS with zig cc (docs/dev/cross-build.md) ...
@@ -156,14 +162,14 @@ jobs:
           FUNK_MIDI_CLAP_UDP_PORT: "57291"
         run: build/test_clap_host zig-plugin/funk-midi.clap tests/hosts/clap.txt 57291
 
-  # every plugin in one download, once each has passed its run
+  # every plugin, and funk, in one download, once each has passed its run
   artifacts:
-    name: plugins in one artifact
+    name: builds in one artifact
     needs: [plugin, plugin-zig-run]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/upload-artifact/merge@v4
         with:
-          name: funk-midi-clap
+          name: funk-builds
           pattern: funk-midi-clap-*
           delete-merged: true
