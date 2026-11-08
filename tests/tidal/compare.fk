@@ -1,0 +1,208 @@
+-- lib/pattern.fk's and lib/control.fk's ports of Tidal's combinators, printed as
+-- tests/tidal/Oracle.hs prints Tidal's, case for case (tests/tidal/compare.sh).
+import pattern as p
+import pattern ((~>), (<~))
+import control (..)
+
+t = p.cycleTicks
+
+fmt :: Float -> String
+fmt x = show (round (x * 1000000000.0))
+
+cat' :: [String] -> String
+cat' xs = foldr (++) "" xs
+
+cycOn :: Int -> (a -> String) -> p.Pattern a -> [(Int, Int, String)]
+cycOn k r pat = concatMap (\c -> sort (map (\e -> case p.wholeOrPart e of
+    w -> (w.start, w.stop, r e.value)) (p.onsets pat (p.Span (c * t) ((c + 1) * t))))) [0 .. k - 1]
+
+out name k r pat = putStrLn (name ++ " " ++ show (cycOn k r pat))
+
+sampled name pat = putStrLn (name ++ " " ++ show (map (\i -> case div (i * t) 4 of
+    a -> cat' (map (\e -> fmt e.value) (p.query pat (p.Span a (a + 1))))) [0 .. 7]))
+
+rI :: Int -> String
+rI x = show x
+rF :: Float -> String
+rF x = fmt x
+rS :: String -> String
+rS x = x
+rB :: Bool -> String
+rB b = if b then "t" else "f"
+
+rV :: Value -> String
+rV v = case v of
+  VF x -> "f" ++ fmt x
+  VI i -> "i" ++ show i
+  VS x -> "s" ++ x
+
+rC :: Controls -> String
+rC m = cat' (map (\(k, v) -> k ++ "=" ++ rV v ++ ";") (controlPairs m))
+
+nums = p.fastFromList [0, 1, 2, 3]
+abcd = p.fastFromList ["a", "b", "c", "d"]
+chord = p.stack [p.atom 0, p.atom 4, p.atom 7]
+tf = p.fastFromList [True, False, True, True]
+bdsn = pS "s" (p.fastFromList ["bd", "sn"])
+sa x = pS "s" (p.atom x)
+ab = p.fastFromList ["a", "b"]
+
+main = do
+  sampled "sine" p.sine
+  sampled "cosine" p.cosine
+  sampled "saw" p.saw
+  sampled "isaw" p.isaw
+  sampled "tri" p.tri
+  sampled "square" p.square
+  sampled "envL" (p._slow 2 p.envL)
+  sampled "envEq" (p._slow 2 p.envEq)
+  sampled "rand" p.rand
+  sampled "perlin" (p._slow 2 p.perlin)
+  sampled "perlin2" (p.perlin2 (p.sine * 4.0))
+  sampled "normal" p.normal
+  out "segsaw" 1 rF (p.segment 4 p.saw)
+  out "segrange" 1 rF (p.segment 4 (p.range 1.0 5.0 p.sine))
+  out "irand" 8 rI (p.segment 1 (p.irand 8))
+  out "choose" 8 rS (p.segment 1 (p.choose ["a", "b", "c"]))
+  out "wchoose" 8 rS (p.segment 1 (p.wchoose [("a", 1.0), ("b", 2.0), ("c", 0.5)]))
+  out "brand" 2 rB (p.segment 4 p.brand)
+  out "degrade" 4 rI (p.degrade (p._fast 8 (p.atom 1)))
+  out "degradeBy" 4 rI (p.degradeBy 0.3 (p._fast 8 nums))
+  out "unDegradeBy" 4 rI (p.unDegradeBy 0.3 (p._fast 8 nums))
+  out "sometimesBy" 4 rI (p.sometimesBy 0.5 (p.fast 2) nums)
+  out "sometimesBy'" 4 rI (p.sometimesBy' 0.5 (\x -> x + 10) nums)
+  out "someCyclesBy" 8 rI (p.someCyclesBy 0.5 (\x -> x + 10) nums)
+  out "randcat" 8 rS (p.randcat [p.atom "a", p.atom "b", p.atom "c"])
+  out "wrandcat" 8 rS (p.wrandcat [(p.atom "a", 1.0), (p.atom "b", 3.0)])
+  out "shuffle" 4 rI (p.shuffle 4 nums)
+  out "scramble" 4 rI (p.scramble 4 nums)
+  out "randrun" 4 rI (p.randrun 5)
+  out "rotR" 1 rS (0.25 ~> abcd)
+  out "rotLpat" 1 rS (p.fastFromList [0.0, 0.25] <~ abcd)
+  out "every" 4 rS (p.every 3 (p.fast 2) ab)
+  out "every'" 5 rS (p.every' 3 1 (p.fast 2) (p.atom "a"))
+  out "foldEvery" 6 rI (p.foldEvery [2, 3] (\x -> x + 10) nums)
+  out "whenmod" 5 rS (p.whenmod 4.0 2.0 (p.fast 2) ab)
+  out "zoom" 1 rS (p.zoom (0.25, 0.75) abcd)
+  out "compress" 1 rS (p.compress (0.25, 0.75) ab)
+  out "fastGap" 2 rS (p.fastGap 2 abcd)
+  out "run" 1 rI (p.run 4)
+  out "scan" 3 rI (p.scan 3)
+  out "mono" 2 rS (p.mono (p.stack [p.atom "x", 0.5 ~> p.atom "y"]))
+  out "iter" 4 rS (p.iter 4 abcd)
+  out "iter'" 4 rS (p.iter' 4 abcd)
+  out "palindrome" 2 rS (p.palindrome (p.fastFromList ["a", "b", "c"]))
+  out "brak" 2 rS (p.brak ab)
+  out "ply" 1 rS (p.ply 2 ab)
+  out "plyWith" 1 rI (p.plyWith 3 (\x -> x + 10) (p.fastFromList [0, 1]))
+  out "chunk" 4 rI (p.chunk 4 (\x -> x + 10) nums)
+  out "chunk'" 4 rI (p.chunk' 4 (\x -> x + 10) nums)
+  out "linger" 1 rS (p.linger 0.25 abcd)
+  out "lingerneg" 1 rS (p.linger (-0.25) abcd)
+  out "trunc" 1 rS (p.trunc 0.75 abcd)
+  out "off" 1 rI (p.off 0.25 (\x -> x + 12) (p.atom 0))
+  out "superimpose" 1 rI (p.superimpose (p.fast 2) (p.fastFromList [0, 1]))
+  out "within" 1 rS (p.within (0.0, 0.5) (p.fast 2) abcd)
+  out "within'" 1 rS (p.within' (0.0, 0.5) (p.fast 2) abcd)
+  out "inside" 1 rS (p.inside 2.0 p.rev abcd)
+  out "outside" 2 rS (p.outside 2.0 p.rev (p.cat [abcd, p.fastFromList ["e", "f"]]))
+  out "euclid" 1 rS (p.euclid 3 8 (p.atom "x"))
+  out "euclidneg" 1 rS (p.euclid (-3) 8 (p.atom "x"))
+  out "euclidFull" 1 rS (p.euclidFull 3 8 (p.atom "x") (p.atom "."))
+  out "euclidOff" 1 rS (p.euclidOff 3 8 2 (p.atom "x"))
+  out "euclidOffBool" 1 rB (p.euclidOffBool 3 8 1 (p.atom True))
+  out "distrib" 1 rS (p.distrib [3, 5] (p.atom "x"))
+  out "wedge" 1 rS (p.wedge 0.25 ab (p.fastFromList ["c", "d"]))
+  out "arpup" 1 rI (p.arp (p.atom "up") chord)
+  out "arpdown" 1 rI (p.arp (p.atom "down") chord)
+  out "arpupdown" 1 rI (p.arp (p.atom "updown") chord)
+  out "arpconverge" 1 rI (p.arp (p.atom "converge") (p.stack (map p.atom [1, 2, 3, 4, 5])))
+  out "arppinky" 1 rI (p.arp (p.atom "pinkyup") (p.stack (map p.atom [1, 2, 3])))
+  out "arpthumb" 1 rI (p.arp (p.atom "thumbupdown") (p.stack (map p.atom [1, 2, 3])))
+  out "rolled" 1 rI (p.rolled chord)
+  out "rolledneg" 1 rI (p.rolledBy (-0.25) chord)
+  out "struct" 1 rS (p.struct tf (p.atom "a"))
+  out "mask" 1 rS (p.mask tf abcd)
+  out "stitch" 1 rS (p.stitch (p.fastFromList [True, False]) (p.atom "a") (p.atom "b"))
+  out "sew" 1 rS (p.sew (p.fastFromList [True, False]) (p.fast 4 (p.atom "a")) (p.fast 3 (p.atom "b")))
+  out "while" 1 rS (p.while (p.fastFromList [True, False]) (p.fast 2) abcd)
+  out "ifp" 3 rI (p.ifp even (\x -> x + 10) (\x -> x + 20) (p.atom 0))
+  out "segment" 1 rI (p.segment 3 (p.atom 1))
+  out "range" 1 rF (p.range 1.0 5.0 (p.fastFromList [0.0, 0.5]))
+  out "quantise" 1 rF (p.quantise 4.0 (p.fastFromList [0.3, 0.6]))
+  out "rot" 1 rS (p.rot 1 abcd)
+  out "rotneg" 1 rS (p.rot (-1) abcd)
+  out "toScale" 1 rI (p.toScale [0, 2, 4, 5, 7, 9, 11] (p.fastFromList [0, 1, 2, 7, -1]))
+  out "binary" 1 rB (p.binary 5)
+  out "ascii" 1 rB (p.ascii (p.atom "a"))
+  out "fit" 2 rS (p.fit 1 ["a", "b", "c"] (p.run 2))
+  out "stutter" 1 rS (p.stutter 3 0.125 (p.atom "a"))
+  out "swingBy" 1 rS (p.swingBy (p.atom (1.0 / 3.0)) 4.0 (p.fast 8 (p.atom "x")))
+  out "bite" 1 rI (p.bite 4 (p.fastFromList [0, 2]) (p.fastFromList [0 .. 7]))
+  out "squeeze" 1 rS (p.squeeze (p.fastFromList [0, 1]) [abcd, p.atom "z"])
+  out "chromaticise" 1 rI (p.chromaticiseBy 2 (p.atom 60))
+  out "press" 1 rS (p.press ab)
+  out "smooth" 1 rF (p.segment 8 (p.smooth (p.fastFromList [0.0, 1.0])))
+  out "spread" 3 rS (p.spread p.fast [1, 2] abcd)
+  out "fastspread" 1 rS (p.fastspread p.fast [1, 2] abcd)
+  out "select" 1 rS (p.select 0.6 [abcd, p.atom "z"])
+  out "pickF" 2 rI (p.pickF (p.cat [0, 1]) [\x -> x + 10, \x -> x + 20] nums)
+  out "necklace" 2 rB (p.necklace 12.0 [4, 2])
+  out "snowball" 4 rI (p.snowball 4 (\a b -> a + b) (p.fast 2) (p.atom 1))
+  out "soak" 3 rI (p.soak 3 (p.fast 2) (p.atom 1))
+  out "markov" 1 rI (p.markovPat 8 1 [[0.5, 0.5], [0.3, 0.7]])
+  out "beat" 1 rS (p.beat 1.0 4.0 (p.atom "x"))
+  out "permstep" 1 rS (p.permstep 4 ["a", "b"] (p.atom 0.0))
+  out "ur" 2 rS (p.ur 2.0 (p.fastFromList ["a", "b:fast"]) [("a", p.fastFromList ["x", "y"]), ("b", p.atom "z")] [("fast", p.fast 2)])
+  out "stripe" 2 rS (p.stripe 2 ab)
+  out "randStruct" 2 rI (p.randStruct 3)
+  out "fit'" 2 rI (p.fit' 1 2 (p.fastFromList [0, 1]) (p.fastFromList [1, 0]) (p.fastFromList [0, 1]))
+  out "inhabit" 1 rS (p.inhabit [("a", p.fastFromList ["x", "y"])] ab)
+  out "spaceOut" 2 rS (p.spaceOut [1.0, 0.5] abcd)
+  out "seqP" 3 rS (p.seqP [(0.0, 1.0, p.atom "a"), (1.0, 3.0, p.fast 2 (p.atom "b"))])
+  out "index" 1 rS (p.index 0.25 (p.atom 1.0) abcd)
+  out "chooseBy" 4 rS (p.segment 1 (p.chooseBy p.rand ["a", "b"]))
+  out "tabby" 2 rS (p.tabby 2 ab (p.fastFromList ["c", "d"]))
+  out "rangex" 1 rF (p.rangex 20.0 2000.0 (p.fastFromList [0.0, 0.5]))
+  out "fadeOut" 4 rI (p.fadeOut 4.0 (p._fast 8 (p.atom 1)))
+  out "degradeOverBy" 4 rI (p.degradeOverBy 2 0.5 (p._fast 8 (p.atom 1)))
+  putStrLn ("lindenmayer " ++ show (p.lindenmayer 3 "a:b,b:ab" "a"))
+  putStrLn ("runMarkov " ++ show (p.runMarkov 8 [[0.0, 1.0], [1.0, 0.0]] 0 0.0))
+  putStrLn ("deconstruct " ++ show (p.deconstruct 4 (p.fastFromList ["bd", "sn"])))
+  out "chop" 1 rC (chop 2 bdsn)
+  out "striate" 1 rC (striate 2 bdsn)
+  out "striateBy" 1 rC (striateBy 2 0.5 bdsn)
+  out "jux" 1 rC (jux p.rev bdsn)
+  out "juxBy" 1 rC (juxBy 0.5 p.rev bdsn)
+  out "juxcut" 1 rC (juxcut p.rev bdsn)
+  out "jux4" 1 rC (jux4 p.rev bdsn)
+  out "slice" 1 rC (slice 4 (p.fastFromList [0, 2]) (sa "bev"))
+  out "splice" 1 rC (splice 4 (p.fastFromList [0, 2]) (sa "bev"))
+  out "randslice" 4 rC (randslice 4 (sa "bev"))
+  out "stut" 1 rC (stut 3 0.5 0.125 (sa "bd"))
+  out "echo" 1 rC (echo 3 0.2 0.5 (sa "bd"))
+  out "echoWith" 1 rC (echoWith 3 0.125 (\x -> x |* pF "speed" 2.0) (sa "bd"))
+  out "fix" 1 rC (fix (p.fast 2) (sa "sn") bdsn)
+  out "loopAt" 2 rC (loopAt 2 (chop 4 (sa "break")))
+  out "hurry" 1 rC (hurry 2 bdsn)
+  out "gap" 1 rC (gap 4 (sa "x"))
+  out "ghost" 1 rC (ghost (sa "bd"))
+  out "spin" 1 rC (spin 2 bdsn)
+  out "chew" 1 rC (chew 4 (p.fastFromList [0, 1]) (pN "n" (p.fastFromList [0.0, 1.0, 2.0, 3.0]) # sa "x"))
+  out "weave" 2 rC (weave 2.0 (pF "pan" p.sine) [sa "a", sa "b"])
+  out "stackwith" 1 rC (stackwith (pF "pan" (p.fastFromList [0.0, 1.0])) [sa "a", sa "b"])
+  out "splat" 1 rC (splat 2 (sa "a") (sa "b"))
+  out "smash" 3 rC (smash 2 [1, 2] (sa "a"))
+  out "grain" 1 rC (grain 0.2 0.1)
+  out "interlace" 1 rC (interlace (sa "a") (sa "b"))
+  out "chunkInto" 4 rI (p.chunkInto 4 (\x -> x + 10) nums)
+  out "chunkIntoneg" 4 rI (p.chunkInto (-4) (\x -> x + 10) nums)
+  out "ribbon" 4 rS (p.ribbon 0.5 2.0 (p.cat [abcd, p.fastFromList ["e", "f"], p.atom "g"]))
+  out "into" 2 rI (p.into (p.fastFromList [True, False]) (p.fast 2) nums)
+  out "reset" 2 rS (p.reset (p.fastFromList [False, True]) abcd)
+  out "restart" 2 rS (p.restart (p.fastFromList [False, True]) (p.slow 2 abcd))
+  out "resetTo" 1 rS (p.resetTo (p.fastFromList [0.0, 0.25]) abcd)
+  out "restartTo" 2 rS (p.restartTo (p.fastFromList [0.0, 0.25]) (p.slow 2 abcd))
+  out "timeCat" 2 rS (p.timeCat [(1, p.fastFromList ["a", "b"]), (2, abcd)])
+  out "markov2" 2 rI (p.markovPat 8 0 [[0.2, 0.0, 0.8], [0.0, 0.0, 1.0], [0.5, 0.5, 0.0]])
+  putStrLn ("runMarkov2 " ++ show (p.runMarkov 12 [[0.2, 0.0, 0.8], [0.0, 0.0, 1.0], [0.5, 0.5, 0.0]] 0 3.0))

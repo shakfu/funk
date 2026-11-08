@@ -132,6 +132,8 @@ Released 2026-11-01; see [CHANGELOG.md](../../CHANGELOG.md).
 
 Get close to Tidal's expressiveness in funk, through library work first and language features only where the library needs them. Evidence and open proposals: [tidal.md](tidal.md).
 
+The items struck through below shipped in release 0.10.0, with 0.10's ([CHANGELOG.md](../../CHANGELOG.md)). Milestone numbers here are not release numbers.
+
 Library, in `lib/pattern.fk`:
 
 - ~~**Pattern application and joins:** monomorphic `apP` and `joinP`, with the left-structure and right-structure forms of Tidal's `<*` and `*>`, and `squeezeJoin`'s behaviour.~~ Functions only, no operators ([patterns.md](patterns.md#implementation)).
@@ -142,7 +144,7 @@ Library, in `lib/pattern.fk`:
 
 - ~~**Control patterns:** named parameters on events, and a `#` that combines them, as Tidal's `ValueMap` and `Unionable` do. This settles the event payload question in [patterns.md](patterns.md#open).~~ `lib/control.fk`: Tidal's 257 controls and its operators, played as MIDI, on the voices and on `d.kit` ([delivery.md](delivery.md)).
 
-- **Combinators:** Tidal's common transformations, such as `rev`, `every` and `degradeBy`. The list comes from porting real patches. Done so far: `rev`.
+- **Combinators:** Tidal's transformations, such as `rev`, `every` and `degradeBy`. All of `Core.hs`, `UI.hs` and `Control.hs` that is not commented out, with continuous patterns, but for two groups that need host work: `d.kit` playing `begin` and `end`, and queries that see the host's state, for `cF` and `trigger` ([combinators.md](combinators.md#status)).
 
 Host and time decisions these depend on:
 

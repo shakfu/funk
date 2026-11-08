@@ -9,14 +9,14 @@ t = p.cycleTicks
 
 -- each onset's start and parameters
 onsets :: p.Pattern Controls -> Int -> [(Int, [(String, Value)])]
-onsets pat cycles = map (\e -> (e.whole.start, controlPairs e.value)) (p.onsets pat (p.Span 0 (cycles * t)))
+onsets pat cycles = map (\e -> ((p.wholeOrPart e).start, controlPairs e.value)) (p.onsets pat (p.Span 0 (cycles * t)))
 
 -- the values of one name, onset by onset
 values :: String -> p.Pattern Controls -> [Value]
 values k pat = concatMap (\(_, kvs) -> map snd (filter (\(k2, _) -> k2 == k) kvs)) (onsets pat 1)
 
 brief :: p.Event a -> (Int, a)
-brief e = (e.whole.start, e.value)
+brief e = ((p.wholeOrPart e).start, e.value)
 
 starts :: Ord a => p.Pattern a -> Int -> Int -> [(Int, a)]
 starts pat a b = map brief (p.onsets pat (p.Span a b))

@@ -60,7 +60,7 @@ pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
 | `p._fastR n d pat`, `p._slowR n d pat` | `Int -> Int -> Pattern a -> Pattern a` | `fast` and `slow` by the ratio `n / d`, such as 3 and 2 for 1.5 |
 | `p.rev pat` | `Pattern a -> Pattern a` | each cycle of `pat` backwards |
 | `p.shift t pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat`, `t` ticks later; negative is earlier |
-| `p.euclid k n v` | `Int -> Int -> a -> Pattern a` | `v` on `k` of `n` steps, spread evenly, the first on step 0 |
+| `p.euclid k n pat` | `Pattern Int -> Pattern Int -> Pattern a -> Pattern a` | `pat` on `k` of `n` steps, spread evenly, the first on step 0 |
 | `p.mapP f pat` | | `pat` with `f` applied to each value |
 
 A number is a pattern too, so `p.fast 2 pat` works, and so does a pattern of factors: `p.fast (p.fastcat [1, 2]) pat` plays the first half of each cycle at speed 1 and the second at speed 2. An `Int` variable needs `p.atom n`, or `p._fast n`, `p._slow n` and `p._shift n`, which take an `Int`. Patterns also add and multiply: `p.fastcat [60, 64] + 12`.
@@ -158,7 +158,7 @@ pat = p.shift (div p.cycleTicks 8) (p.fastcat [p.atom 60, p.atom 64])
 
 ### Euclidean rhythms
 
-`p.euclid k n v` puts `k` onsets on `n` steps, as evenly as possible:
+`p.euclid k n pat` puts `k` onsets on `n` steps, as evenly as possible:
 
 ```haskell
 pat = p.euclid 3 8 36
@@ -171,6 +171,17 @@ pat = p.euclid 3 8 36
 ```
 
 The onsets follow Bjorklund's algorithm, as Tidal's do: `p.euclid 5 8` plays `x.xx.xx.`. A negative `k` plays the other steps.
+
+### Tidal's combinators
+
+`lib/pattern.fk` has Tidal's transformations by their Tidal names: `every`, `whenmod`, `iter`, `ply`, `chunk`, `off`, `jux`, `sometimesBy`, `degradeBy`, `linger`, `struct`, `arp`, `rolled` and about 200 more, with the continuous `sine`, `saw`, `rand` and `perlin`. `lib/control.fk` has those that act on control patterns, such as `jux`, `chop`, `striate` and `stut`. Arguments follow Tidal's types, with two changes: a time in cycles is a `Float`, rounded to a tick, and a speed factor, such as `ply`'s or `segment`'s, is an `Int`.
+
+```haskell
+import pattern ((~>))
+pat = p.every 3 (p.fast 2) (p.off 0.125 (\x -> x + 7) (p.mini "60 [63 67]"))
+```
+
+The list, and where funk differs from Tidal: [dev/combinators.md](dev/combinators.md).
 
 ### Changing values
 

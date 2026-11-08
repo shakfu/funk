@@ -8,7 +8,8 @@ import pattern as p
 t = p.cycleTicks
 
 brief :: p.Event a -> (Int, Int, a)
-brief e = (e.whole.start, e.whole.stop, e.value)
+brief e = case p.wholeOrPart e of
+  w -> (w.start, w.stop, e.value)
 
 starts :: p.Pattern a -> Int -> Int -> [(Int, Int, a)]
 starts pat a b = map brief (p.onsets pat (p.Span a b))
@@ -20,7 +21,7 @@ blocked pat n a b = if a >= b then [] else starts pat a (min b (a + n)) ++ block
 poly = p.stack [p.fastcat (replicate 3 (p.atom 3)), p.fastcat (replicate 5 (p.atom 5)), p.fastcat (replicate 7 (p.atom 7))]
 
 -- a step of 720720 / 17 ticks rounds; the others are exact
-mixed = p.stack [p.fast 17 (p.atom 'r'), p.slow 3 (p.fastcat (map p.atom (unpack "abcde"))), p.shift 1000 (p.euclid 3 8 'e')]
+mixed = p.stack [p.fast 17 (p.atom 'r'), p.slow 3 (p.fastcat (map p.atom (unpack "abcde"))), p.shift 1000 (p.euclid 3 8 (p.atom 'e'))]
 
 fs = p.fastcat [p.atom (+ 10), p.atom (+ 20)]
 xs = p.fastcat [p.atom 1, p.atom 2, p.atom 3]
@@ -49,7 +50,7 @@ sblocked pat n a b = if a >= b then [] else p.sampleOnsets pat 12345 a (min b (a
 
 main = do
   print (starts (p.fastcat (map p.atom (unpack "abc"))) 0 t)
-  print (starts (p.euclid 3 8 'x') 0 t)
+  print (starts (p.euclid 3 8 (p.atom 'x')) 0 t)
   print (starts (p.cat [p.atom 'a', p.slow 2 (p.atom 'b')]) 0 (4 * t))
   print (map brief (p.query (p._slow 2 (p.atom 'b')) (p.Span (div t 2) (t + div t 2))))
   print (starts (p.mapP (* 2) (p.shift (-10) (p.fast 2 (p.atom 1)))) 0 t)

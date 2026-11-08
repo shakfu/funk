@@ -4,6 +4,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Tidal's combinators, ported from tidal-core 1.10.2: all of `Core.hs`, `UI.hs` and `Control.hs` but what is commented out there and what needs the host's state, such as `cF` and `trigger`. `lib/pattern.fk` has about 260 functions, from `every`, `whenmod`, `iter`, `chunk`, `ply`, `off`, `struct`, `arp` and `rolled` to `ur` and `markovPat`; `lib/control.fk` has those on control patterns, such as `jux`, `chop`, `striate`, `splice`, `stut` and `fix`. Arguments keep Tidal's types, but a time in cycles is a `Float`, rounded to a tick, and a speed factor an `Int`. `d.kit` does not yet play `begin` and `end`, so `chop` and `striate` play whole samples. The test `lib/tidal` runs 158 cases through the installed Tidal too and requires the same events; all match ([docs/dev/combinators.md](docs/dev/combinators.md)).
+
+  ```haskell
+  import pattern ((~>))
+  pat = p.every 3 (p.fast 2) (p.off 0.125 (\x -> x + 7) (p.mini "60 [63 67]"))
+  ```
+
+- Continuous patterns, as Tidal's: `sine`, `saw`, `tri`, `square`, the `env` shapes, `rand`, `irand`, `perlin` and `normal`. An event's `whole` is now a `Maybe Span`, `Nothing` for a continuous event, which never has an onset. A separate signal type was the alternative; Tidal's `fast 2 sine` and `0.25 ~> rand` would not then port as written. A float literal is an atom, as a number literal is.
+
+### Changed
+
+- `p.euclid` takes Tidal's arguments: patterns of hits and steps, and a pattern to play. `p.euclid 3 8 36` still works; `p.euclid 3 8 'x'` needs `p.atom 'x'`.
+
+- `p.fastcat []` is silence, as Tidal's is. It failed, as `fast 0`.
+
 ## [0.10.0] - 2026-11-08
 
 ### Added

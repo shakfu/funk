@@ -11,6 +11,10 @@ module control
     (-|), (||-), (|*|), (|*), (*|), (||*), (|/|), (|/), (/|), (||/), (|%|), (|%), (%|), (||%),
     (|**|), (|**), (**|), (||**), (|++|), (|++), (++|), (||++), (|>|), (>|), (||>), (|<|), (|<),
     (<|), (||<), (#), controlPairs, getControl, controlsFromList, pF, pI, pS, pN, grp, mF, mI, mS,
+    spin, chop, striate, striateBy, striate', gap, weave, weaveWith, weave', interlace,
+    slice, randslice, splice, loopAt, hurry, smash, smash', echo, echoWith, stut, stutWith,
+    stut', jux, juxBy, juxcut, juxcut', jux', jux4, ghost', ghost, contrast, contrastBy, contrastRange,
+    fix, unfix, fixRange, unfixRange, grain, squeezeJoinUp, chew, stackwith, splat, chopArc,
     midiOf, Record(..), recordsOf, sampleKey, writeControls, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
     bank, begin, binshift, button0, button1, button10, button11, button12, button13, button14,
     button15, button2, button3, button4, button5, button6, button7, button8, button9, ccn, ccv,
@@ -314,6 +318,270 @@ vReadFloat cs = case cs of
 
 digitsF :: [Char] -> [Char] -> Float
 digitsF ds fs = toFloat (foldl (\a d -> a * 10 + ord d - 48) 0 (ds ++ fs)) / 10.0 ** toFloat (length fs)
+
+-- Combinators of control patterns, as Tidal's UI.hs and Control.hs
+-- (docs/dev/combinators.md). Begin and end set the part of a sample to play.
+
+-- a Float value: a VF's, or a VI's, as Tidal's getF
+getF :: Value -> Maybe Float
+getF v = case v of
+  VF x -> Just x
+  VI i -> Just (toFloat i)
+  _ -> Nothing
+
+-- name's Float value, or d
+floatOf :: Float -> String -> Controls -> Float
+floatOf d name cs = case getControl name cs of
+  Just v -> fromMaybe d (getF v)
+  Nothing -> d
+
+-- name set to v, replacing any value it had
+setControl :: String -> Value -> Controls -> Controls
+setControl name v cs = union (Controls [(name, v)]) cs
+
+-- s to e cut into n equal spans
+chopArc :: p.Span -> Int -> [p.Span]
+chopArc a n = map (\i -> p.Span (a.start + div ((a.stop - a.start) * i) n) (a.start + div ((a.stop - a.start) * (i + 1)) n)) [0 .. n - 1]
+
+_stutWith :: Int -> Float -> (p.Pattern a -> p.Pattern a) -> p.Pattern a -> p.Pattern a
+_stutWith count time f pat = _echoWith count time f pat
+
+-- copies, each a further 1 / copies cycle earlier and panned that far
+spin :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+spin np pat = p.innerJoin (p.mapP (\n -> _spin n pat) np)
+
+_spin :: Int -> p.Pattern Controls -> p.Pattern Controls
+_spin copies pat = p.stack (map (\i -> case toFloat i / toFloat copies of
+    o -> p.rotL o pat # pF "pan" (p.atom o)) [0 .. copies - 1])
+
+-- each event cut into n, each playing the next part of its sample
+chop :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+chop np pat = p.innerJoin (p.mapP (\n -> _chop n pat) np)
+
+_chop :: Int -> p.Pattern Controls -> p.Pattern Controls
+_chop n pat = p.squeezeJoin (p.mapP (\v -> p.fastcat (map (\i -> p.atom (chopRange v (toFloat i / toFloat n) (toFloat (i + 1) / toFloat n))) [0 .. n - 1])) pat)
+
+chopRange :: Controls -> Float -> Float -> Controls
+chopRange v b e = case (getControl "begin" v, getControl "end" v) of
+  (Just bv, Just ev) -> case (getF bv, getF ev) of
+    (Just b', Just e') -> union (playRange (b' + b * (e' - b')) (b' + e * (e' - b'))) v
+    _ -> union (playRange b e) v
+  _ -> union (playRange b e) v
+
+playRange :: Float -> Float -> Controls
+playRange b e = Controls [("begin", VF b), ("end", VF e)]
+
+-- n cycles through p, each playing the next nth of its samples
+striate :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+striate np pat = p.innerJoin (p.mapP (\n -> _striate n pat) np)
+
+_striate :: Int -> p.Pattern Controls -> p.Pattern Controls
+_striate n pat = p.fastcat (map (\i -> p.mapP (mergePlayRange (toFloat i / toFloat n) (toFloat (i + 1) / toFloat n)) pat) [0 .. n - 1])
+
+-- [b, e) of the part of the sample the event already plays
+mergePlayRange :: Float -> Float -> Controls -> Controls
+mergePlayRange b e cm = case (floatOf 0.0 "begin" cm, floatOf 1.0 "end" cm) of
+  (b', e') -> setControl "begin" (VF (b * (e' - b') + b')) (setControl "end" (VF (e * (e' - b') + b')) cm)
+
+-- striate, each part f long
+striateBy :: p.Pattern Int -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
+striateBy np fp pat = p.innerJoin (p.apP (p.mapP (\n f -> _striateBy n f pat) np) fp)
+
+striate' :: p.Pattern Int -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
+striate' np fp pat = striateBy np fp pat
+
+_striateBy :: Int -> Float -> p.Pattern Controls -> p.Pattern Controls
+_striateBy n f pat = case (1.0 - f) / toFloat (n - 1) of
+  slot -> p.fastcat (map (\i -> p.mapP (mergePlayRange (slot * toFloat i) (slot * toFloat i + f)) pat) [0 .. n - 1])
+
+-- chop, every other part silent; n set to 1 where absent, as Tidal's
+gap :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+gap np pat = p.innerJoin (p.mapP (\n -> _gap n pat) np)
+
+_gap :: Int -> p.Pattern Controls -> p.Pattern Controls
+_gap n pat = p._fast n (p.cat [p.atom 1, p.silence]) |>| _chop n pat
+
+-- each of ps with p # it, offset through t cycles
+weave :: Float -> p.Pattern Controls -> [p.Pattern Controls] -> p.Pattern Controls
+weave t pat ps = weaveWith t pat (map (\x y -> x # y) ps)
+
+weaveWith :: Float -> p.Pattern a -> [p.Pattern a -> p.Pattern a] -> p.Pattern a
+weaveWith t pat fs = case length fs of
+  0 -> p.silence
+  l -> p.slowT t (p.stack (zipWith (\i f -> p.rotL (toFloat i / toFloat l) (p.fastT t (f (p.slowT t pat)))) [0 .. l - 1] fs))
+
+weave' :: Float -> p.Pattern a -> [p.Pattern a -> p.Pattern a] -> p.Pattern a
+weave' t pat fs = weaveWith t pat fs
+
+interlace :: p.Pattern Controls -> p.Pattern Controls -> p.Pattern Controls
+interlace a b = weave 16.0 (pF "shape" (p.sine * 0.9)) [a, b]
+
+-- the ith of n parts of each sample
+slice :: p.Pattern Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+slice np ip pat = case p.apLeft (p.mapP (\i n -> toFloat (mod i n) / toFloat n) ip) np of
+  b -> pF "begin" b # pF "end" (b + p.mapP (\n -> 1.0 / toFloat n) np) # pat
+
+_slice :: Int -> Int -> p.Pattern Controls -> p.Pattern Controls
+_slice n i pat = pat # pF "begin" (p.atom (toFloat i / toFloat n)) # pF "end" (p.atom (toFloat (i + 1) / toFloat n))
+
+-- one of n parts at random
+randslice :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+randslice np pat = p.innerJoin (p.mapP (\n -> p.innerJoin (p.mapP (\i -> _slice n i pat) (p._irand n))) np)
+
+-- slice, with speed set so each part fills its event
+splice :: p.Pattern Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+splice bp ip pat = p.innerJoin (p.mapP (\bits -> _splice bits ip pat) bp)
+
+_splice :: Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+_splice bits ip pat = p.Pattern (\q -> map (\e -> case p.wholeOrPart e of
+    w -> case (1.0 / toFloat bits) / p.cycles (w.stop - w.start) of
+      d -> p.Event e.whole e.part (case getControl "speed" e.value of
+        Just (VF sp) -> setControl "speed" (VF (d * sp)) e.value
+        _ -> setControl "speed" (VF d) e.value)) (p.query (slice (p.atom bits) ip pat) q)) # pS "unit" (p.atom "c")
+
+-- p slowed to n cycles, its speed set to fit
+loopAt :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+loopAt np pat = p.slow np pat |* pF "speed" (p.apP (p.mapP (\a k -> a / toFloat k) (p.atom 1.0)) np) # pS "unit" (p.atom "c")
+
+-- fast, with speed raised to match
+hurry :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+hurry xp pat = p.fast xp pat |* pF "speed" (p.mapP toFloat xp)
+
+-- striate n p at each speed of xs in turn
+smash :: p.Pattern Int -> [p.Pattern Int] -> p.Pattern Controls -> p.Pattern Controls
+smash np xs pat = case striate np pat of
+  s -> p.slowcat (map (\x -> p.slow x s) xs)
+
+smash' :: Int -> [p.Pattern Int] -> p.Pattern Controls -> p.Pattern Controls
+smash' n xs pat = case _chop n pat of
+  s -> p.slowcat (map (\x -> p.slow x s) xs)
+
+-- count copies, each time cycles later at feedback times the gain
+echo :: p.Pattern Int -> p.Pattern Float -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
+echo cp tp fp pat = p.innerJoin (p.apP (p.apP (p.mapP (\c t f -> _echo c t f pat) cp) tp) fp)
+
+_echo :: Int -> Float -> Float -> p.Pattern Controls -> p.Pattern Controls
+_echo count time feedback pat = _echoWith count time (\x -> x |* pF "gain" (p.atom feedback)) pat
+
+-- count copies, each time later with f applied once more
+echoWith :: p.Pattern Int -> p.Pattern Float -> (p.Pattern a -> p.Pattern a) -> p.Pattern a -> p.Pattern a
+echoWith np tp f pat = p.innerJoin (p.apLeft (p.mapP (\n t -> _echoWith n t f pat) np) tp)
+
+_echoWith :: Int -> Float -> (p.Pattern a -> p.Pattern a) -> p.Pattern a -> p.Pattern a
+_echoWith count time f pat = if count <= 1 then pat else p.overlay (f (p.rotR time (_echoWith (count - 1) time f pat))) pat
+
+-- count copies, steptime apart, their gain falling to feedback
+stut :: p.Pattern Int -> p.Pattern Float -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
+stut cp fp tp pat = p.innerJoin (p.apP (p.apP (p.mapP (\c f t -> _stut c f t pat) cp) fp) tp)
+
+_stut :: Int -> Float -> Float -> p.Pattern Controls -> p.Pattern Controls
+_stut count feedback steptime pat = p.stack (pat : map (\x -> p.rotR (toFloat x * steptime)
+    (pat |* pF "gain" (p.atom (feedback + (1.0 - feedback) * ((toFloat count - toFloat x) / toFloat count))))) [1 .. count - 1])
+
+stutWith :: p.Pattern Int -> p.Pattern Float -> (p.Pattern a -> p.Pattern a) -> p.Pattern a -> p.Pattern a
+stutWith np tp f pat = p.innerJoin (p.apLeft (p.mapP (\n t -> _echoWith n t f pat) np) tp)
+
+stut' :: p.Pattern Int -> p.Pattern Float -> (p.Pattern a -> p.Pattern a) -> p.Pattern a -> p.Pattern a
+stut' np tp f pat = stutWith np tp f pat
+
+-- p panned left and f p right, or n of the way
+jux :: (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern Controls -> p.Pattern Controls
+jux f pat = juxBy 1.0 f pat
+
+juxBy :: p.Pattern Float -> (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern Controls -> p.Pattern Controls
+juxBy np f pat = case pF "pan" (p.divP np 2.0) of
+  half -> p.stack [pat |+ pF "pan" 0.5 |- half, f (pat |+ pF "pan" 0.5 |+ half)]
+
+-- jux, each side in its own cut group
+juxcut :: (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern Controls -> p.Pattern Controls
+juxcut f pat = p.stack [pat # pF "pan" 0.0 # pI "cut" (p.atom (-1)), f (pat # pF "pan" 1.0 # pI "cut" (p.atom (-2)))]
+
+juxcut' :: [a -> p.Pattern Controls] -> a -> p.Pattern Controls
+juxcut' fs x = case length fs of
+  l -> p.stack (map (\i -> ((fs !! i) x |+ pI "cut" (p.atom (1 - i))) # pF "pan" (p.atom (toFloat i / toFloat l))) [0 .. l - 1])
+
+-- each function's pattern, spread across the stereo field
+jux' :: [a -> p.Pattern Controls] -> a -> p.Pattern Controls
+jux' fs x = case length fs of
+  l -> p.stack (map (\i -> (fs !! i) x |+ pF "pan" (p.atom (toFloat i / toFloat l))) [0 .. l - 1])
+
+jux4 :: (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern Controls -> p.Pattern Controls
+jux4 f pat = p.stack [pat # pF "pan" (p.atom (5.0 / 8.0)), f (pat # pF "pan" (p.atom (1.0 / 8.0)))]
+
+-- two quieter, shorter, higher copies after each event
+ghost' :: Float -> p.Pattern Controls -> p.Pattern Controls
+ghost' a pat = p.ghostWith a (\x -> ((x |*| pF "speed" 1.25) # pF "end" 0.2) |*| pF "gain" 0.7) pat
+
+ghost :: p.Pattern Controls -> p.Pattern Controls
+ghost pat = ghost' 0.125 pat
+
+-- f on the events that match a's names and values, g on the others
+contrast :: (p.Pattern Controls -> p.Pattern Controls) -> (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern Controls -> p.Pattern Controls -> p.Pattern Controls
+contrast f g a pat = contrastBy (\x y -> x == y) f g (p.mapP controlPairs a) pat
+
+-- contrast, matching each name's value by comp
+contrastBy :: (a -> Value -> Bool) -> (p.Pattern Controls -> p.Pattern b) -> (p.Pattern Controls -> p.Pattern b) -> p.Pattern [(String, a)] -> p.Pattern Controls -> p.Pattern b
+contrastBy comp f g a pat = case p.Pattern (\q -> map (\e -> case (p.wholeOrPart e).start of
+    t -> p.Event e.whole e.part (any (\ea -> all (\(k, v) -> case getControl k e.value of
+        Just x -> comp v x
+        Nothing -> False) ea.value) (p.query a (p.Span t (t + 1))), e.value)) (p.query pat q)) of
+  m -> p.overlay (f (p.mapMaybeP (\(t, v) -> if t then Just v else Nothing) m)) (g (p.mapMaybeP (\(t, v) -> if t then Nothing else Just v) m))
+
+-- contrast, matching a value within each name's range
+contrastRange :: (p.Pattern Controls -> p.Pattern b) -> (p.Pattern Controls -> p.Pattern b) -> p.Pattern [(String, (Value, Value))] -> p.Pattern Controls -> p.Pattern b
+contrastRange f g a pat = contrastBy inRange f g a pat
+
+inRange :: (Value, Value) -> Value -> Bool
+inRange r v = case (r, v) of
+  ((VI s, VI e), VI x) -> x >= s && x <= e
+  ((VF s, VF e), VF x) -> x >= s && x <= e
+  ((VS s, VS e), VS x) -> x == s && x == e
+  _ -> False
+
+-- f on the events that match a
+fix :: (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern Controls -> p.Pattern Controls -> p.Pattern Controls
+fix f a pat = contrast f id a pat
+
+unfix :: (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern Controls -> p.Pattern Controls -> p.Pattern Controls
+unfix f a pat = contrast id f a pat
+
+fixRange :: (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern [(String, (Value, Value))] -> p.Pattern Controls -> p.Pattern Controls
+fixRange f a pat = contrastRange f id a pat
+
+unfixRange :: (p.Pattern Controls -> p.Pattern Controls) -> p.Pattern [(String, (Value, Value))] -> p.Pattern Controls -> p.Pattern Controls
+unfixRange f a pat = contrastRange id f a pat
+
+-- begin at s, end w later
+grain :: p.Pattern Float -> p.Pattern Float -> p.Pattern Controls
+grain s w = pF "begin" s # pF "end" (s + w)
+
+-- squeezeJoin, each inner pattern's speed raised by its event's shortness
+squeezeJoinUp :: p.Pattern (p.Pattern Controls) -> p.Pattern Controls
+squeezeJoinUp pp = p.Pattern (\q -> concatMap (\eo -> case eo.whole of
+    Just w -> case mod w.start p.cycleTicks of
+      c -> concatMap (\ei -> case ei.whole of
+          Just iw -> concatMap (\nw -> map (\np -> p.Event (Just nw) np ei.value) (p.sect eo.part ei.part)) (p.sect w iw)
+          Nothing -> [])
+        (p.query (p.compressTicks c (c + w.stop - w.start) (eo.value |* pF "speed" (p.atom (1.0 / p.cycles (w.stop - w.start))))) eo.part)
+    Nothing -> []) (p.query pp q))
+
+-- bite, changing speed with the length of each part
+chew :: p.Pattern Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+chew np ip pat = p.innerJoin (p.mapP (\n -> _chew n ip pat) np)
+
+_chew :: Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
+_chew n ip pat = squeezeJoinUp (p.mapP (\i -> case mod i n of
+    k -> p.zoomTicks (div (k * p.cycleTicks) n) (div ((k + 1) * p.cycleTicks) n) pat) ip) |/ pF "speed" (p.atom (toFloat n))
+
+-- each of ps with p's values, p offset a further 1 / length ps each
+stackwith :: Unionable a => p.Pattern a -> [p.Pattern a] -> p.Pattern a
+stackwith pat ps = case length ps of
+  0 -> p.silence
+  l -> p.stack (zipWith (\i x -> x # p.rotL (toFloat i / toFloat l) pat) [0 .. l - 1] ps)
+
+-- chop, each part's event moved to epat's
+splat :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls -> p.Pattern Controls
+splat slices epat pat = chop slices pat # p.bite 1 (p.mapP (\_ -> 0) pat) epat
 
 -- MIDI, as SuperDirt's MIDI target plays an event (DirtEventTypes.sc,
 -- DirtOrbit.sc). An event plays if it has no s or s is "midi". In order:

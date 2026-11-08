@@ -1,0 +1,74 @@
+-- lib/pattern.fk's and lib/control.fk's ports of Tidal's combinators
+-- (docs/dev/combinators.md): continuous signals, Core.hs, UI.hs and
+-- Control.hs. Each line's values follow from Tidal's definitions.
+import pattern as p
+import pattern ((~>), (<~))
+import control (..)
+
+t = p.cycleTicks
+
+-- the onsets of cycle c in time order: start, stop and value
+on :: p.Pattern a -> Int -> [(Int, Int, a)]
+on pat c = map (\e -> case p.wholeOrPart e of
+    w -> (w.start, w.stop, e.value)) (inTime (p.onsets pat (p.Span (c * t) ((c + 1) * t))))
+
+vs :: p.Pattern a -> Int -> [a]
+vs pat c = map (\(_, _, v) -> v) (on pat c)
+
+inTime :: [p.Event a] -> [p.Event a]
+inTime es = sortBy (\a b -> compare (p.wholeOrPart a).start (p.wholeOrPart b).start) es
+
+ev :: p.Pattern Controls -> Int -> [(Int, [(String, Value)])]
+ev pat c = map (\(s, _, v) -> (s, controlPairs v)) (on pat c)
+
+l :: String -> p.Pattern Char
+l s = p.fastFromList (unpack s)
+
+nums = p.fastFromList [0, 1, 2, 3]
+chord = p.stack [p.atom 0, p.atom 4, p.atom 7]
+tf = p.fastFromList [True, False, True, True]
+
+main = do
+  -- continuous
+  print (map (\e -> (e.whole, e.value)) (p.query p.sine (p.Span 180180 360360)))
+  print (vs (p.segment 4 p.saw) 0, vs (p.segment 4 (p.range 1.0 5.0 p.sine)) 0, vs (p.segment 4 p.tri) 0)
+  print (vs (p.segment 4 p.perlin) 0, vs (p.segment 2 p.normal) 0)
+  print (map (vs (p.segment 1 (p.irand 8))) [0, 1, 2, 3], map (vs (p.segment 1 (p.choose (unpack "abc")))) [0, 1, 2])
+  print (vs (p.degrade (p.fast 8 (p.atom 1))) 3 == vs (p.mini "1*8?") 3)
+  print (map (\c -> sort (vs (p.overlay (p.degradeBy 0.3 nums) (p.unDegradeBy 0.3 nums)) c) == [0, 1, 2, 3]) [0, 1, 2])
+  -- Core.hs
+  print (on (0.25 ~> l "abcd") 0, vs (p.miniF "0 0.25" <~ l "abcd") 0)
+  print (map (vs (p.every 3 (p.fast 2) (l "ab"))) [0, 1, 2, 3], map (vs (p.every' 3 1 (p.fast 2) (l "a"))) [0, 1, 2, 3, 4])
+  print (vs (p.zoom (0.25, 0.75) (l "abcd")) 0, on (p.compress (0.25, 0.75) (l "ab")) 0)
+  print (vs (p.run 4) 0, map (vs (p.scan 3)) [0, 1, 2])
+  print (on (p.mono (p.stack [p.atom 'x', p.shift 360360 (p.atom 'y')])) 0)
+  -- UI.hs
+  print (map (vs (p.iter 4 (l "abcd"))) [0, 1, 2, 3], vs (p.iter' 4 (l "abcd")) 1)
+  print (on (p.ply 2 (l "ab")) 0, map (vs (p.chunk 4 (\x -> x + 10) nums)) [0, 1])
+  print (vs (p.linger 0.25 (l "abcd")) 0, on (p.off 0.25 (\x -> x + 12) (p.atom 0)) 0)
+  print (on (p.arp (p.atom "up") chord) 0, vs (p.arp (p.atom "down") chord) 0, vs (p.arp (p.atom "converge") (p.stack (map p.atom [1, 2, 3, 4, 5]))) 0)
+  print (on (p.rolled chord) 0)
+  print (on (p.struct tf (p.atom 'a')) 0, vs (p.mask tf (l "abcd")) 0)
+  print (on (p.euclid 3 8 (p.atom 'x')) 0, vs (p.euclidFull 3 8 (p.atom 'x') (p.atom '.')) 0)
+  print (map (\c -> length (vs (p.whenmod 4.0 2.0 (p.fast 2) (l "ab")) c)) [0, 1, 2, 3, 4], on (p.brak (l "ab")) 1)
+  print (map (vs (p.palindrome (l "abc"))) [0, 1], vs (p.rot 1 (l "abcd")) 0, vs (p.inside 2.0 p.rev (l "abcd")) 0)
+  print (vs (p.within (0.0, 0.5) (p.fast 2) (l "abcd")) 0)
+  print (map (\c -> sort (vs (p.shuffle 4 nums) c)) [0, 1, 2], map (vs (p.shuffle 4 nums)) [0, 1, 2])
+  print (on (p.stitch (p.fastFromList [True, False]) (p.atom 'a') (p.atom 'b')) 0)
+  print (vs (p.toScale [0, 2, 4, 5, 7, 9, 11] (p.fastFromList [0, 1, 2, 7, -1])) 0, vs (p.binary 5) 0)
+  print (map (vs (p.fit 1 (unpack "abc") (p.run 2))) [0, 1], on (p.stutter 3 0.125 (p.atom 'a')) 0)
+  print (on (p.swingBy (p.atom (1.0 / 3.0)) 4 (p.fast 8 (p.atom 'x'))) 0)
+  print (vs (p.bite 4 (p.fastFromList [0, 2]) (p.fastFromList [0 .. 7])) 0, vs (p.chromaticiseBy 2 (p.atom 60)) 0, on (p.press (l "ab")) 0)
+  print (map (\e -> (e.whole, e.value)) (p.query (p.smooth (p.fastFromList [0.0, 1.0])) (p.Span 90090 90091)))
+  print (p.deconstruct 4 (p.fastFromList ["bd", "sn"]))
+  print (p.lindenmayer 3 "a:b,b:ab" "a", p.runMarkov 8 [[0.0, 1.0], [1.0, 0.0]] 0 0.0, vs (p.markovPat 8 1 [[0.5, 0.5], [0.3, 0.7]]) 0)
+  print (on (p.beat 1.0 4.0 (p.atom 'x')) 0, vs (p.permstep 4 (unpack "ab") (p.atom 0.0)) 0)
+  print (map (vs (p.ur 2.0 (p.fastFromList ["a", "b:fast"]) [("a", p.fastFromList (unpack "xy")), ("b", p.atom 'z')] [("fast", p.fast 2)])) [0, 1])
+  -- Control.hs, and UI.hs's control functions
+  print (ev (chop 2 (s "bd sn")) 0)
+  print (ev (striate 2 (s "bd sn")) 0)
+  print (ev (jux p.rev (s "bd sn")) 0)
+  print (ev (splice 4 (p.fastFromList [0, 2]) (s "bev")) 0)
+  print (ev (stut 3 0.5 0.125 (s "bd")) 0, ev (echo 3 0.2 0.5 (s "bd")) 0)
+  print (ev (fix (p.fast 2) (s "sn") (s "bd sn")) 0, ev (gap 4 (s "x")) 0)
+  print (ev (loopAt 2 (chop 4 (s "break"))) 0, ev (hurry 2 (s "bd")) 0)
