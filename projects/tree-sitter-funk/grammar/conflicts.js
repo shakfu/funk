@@ -2,6 +2,10 @@ module.exports = {
 
   conflicts: $ => [
 
+    // funk: `f .{`, a name before named arguments (docs/dev/named-args.md)
+    [$._exp_named_args, $.expression, $.pattern],
+    [$._exp_named_args, $.expression],
+
     // funk: `v.` starts a projection or a lowercase qualifier, `g.Node`; the token after the dot decides
     [$.expression, $._lc_modid_prefix],
     [$._exp_th_quoted_name, $._lc_modid_prefix],

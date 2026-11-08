@@ -217,9 +217,18 @@ module.exports = {
    */
   _qtype_function: $ => prec.right(seq(
     $._parameter_type,
+    optional(seq('=', field('default', $._named_default))), // funk: name:Type = default (docs/dev/named-args.md)
     $._fun_arrow,
     field('result', $.quantified_type),
   )),
+
+  // funk: a named parameter's default, one atom or a negated literal
+  _named_default: $ => choice(
+    $.literal,
+    $._exp_name,
+    alias($._exp_parens, $.parens),
+    alias(seq('-', $.literal), $.negation),
+  ),
 
   _qtype_linear_function: $ => prec.right(seq(
     $._parameter_type,

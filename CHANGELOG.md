@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `import m (..)` brings in every name `m` exports, unqualified, each type and class with its members. The names meet an import list's checks: another import of the same name, or a top-level definition of it, is an error naming the module, and a local binding shadows it. For a module written to be opened, such as `control`; others stay qualified, so that a name added to them cannot fail an importer's compile ([docs/dev/modules.md](docs/dev/modules.md#imports)).
+
+- `lib/control.fk` builds Tidal's control patterns: events of named parameters, with Tidal's 257 controls, generated from its `Params.hs`, and its operators, `#` and the `|+|`, `|+`, `+|` and `||+` forms of `+ - * / % ** ++ < >`. Values and arithmetic follow Tidal's, quirks included; note names do too, `c5` being middle C, so ported patches keep their pitch. `pat` may be one: `funk-midi` and the plugin play it as SuperDirt's MIDI target does, as notes, CC, NRPN, program change, bend, aftertouch and clock, and on the voices. Sample names do not play from it yet ([docs/music.md](docs/music.md#control-patterns), design in [docs/dev/delivery.md](docs/dev/delivery.md)).
+
+  ```haskell
+  import control (..)
+  pat = s "bd*2 [sn cp]" # n "<0 3>" |+ speed "1 2"
+  ```
+
 - Sample names play. `m.drums` maps them to General MIDI drums on channel 10, for a drum instrument in the host. `d.kit dir names` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit names` sends the notes it plays: `sn:3` is the 4th WAV file of `sn/`, sorted, wrapping as SuperDirt's index does. Each name gets a note rather than its own control so that names travel over the `Int` notes the hosts already deliver ([docs/music.md](docs/music.md#mini-notation)).
 
   ```haskell
@@ -49,6 +58,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The plugin's sessions collect after 16 MiB, not 128 MiB, since each instance has a heap. Over 7 minutes of playback, a session's resident set fell from 119 to 43 MiB, with the same time per window.
 
 ### Fixed
+
+- The tree-sitter grammar, and with it the plugin editor's colours, parses named arguments, a signature's `x:T = default` and `f .{ x = 1 }`, and `import m (..)`. 16 of the repository's files failed to parse; none does now.
 
 - The plugin's `pat` stopped for about 250 ms whenever kernels loaded, on macOS. The first `dlopen` of a new library blocks while the system checks it, and it ran on funk's thread, which queries `pat`. It now runs on the build's thread. `hosts/clap` failed on this; the simulator's log did not show it, since it times `process()` only.
 

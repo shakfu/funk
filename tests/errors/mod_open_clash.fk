@@ -1,0 +1,4 @@
+-- expect: `open` is imported from both `modules.listed` and `modules.other`
+import modules.listed (..)
+import modules.other (..)
+main = ()

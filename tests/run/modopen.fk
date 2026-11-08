@@ -1,0 +1,16 @@
+-- import m (..): every export unqualified, each type and class with its
+-- members, an operator with its fixity (docs/dev/modules.md). Locals shadow
+-- the imported names; qualified names still work.
+import modlists.shapes (..)
+import modlists.color (..)
+import modlists.stack (..)
+
+top :: Stack Int -> Maybe Int
+top s = case pop s of
+  Just (x, _) -> Just x
+  Nothing -> Nothing
+
+main = do
+  print (area (Square 2.0), name (Circle 1.0), Square 3.0 <-> Circle 1.0 <-> 2.0, (Size 2.0 3.0).w)
+  print (favourite, [Red, Green], top (push 3 (push 2 empty)))
+  print ((\area -> area + 1) 1, let name = 7 in name, shapes.area (Circle 1.0))

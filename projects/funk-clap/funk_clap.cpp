@@ -70,6 +70,11 @@ const size_t kHeapLimit = (size_t)512 << 20, kThreshold = (size_t)16 << 20, kSta
 // from 119 to 43 MiB at the same speed (docs/dev/realtime.md, "Pacer").
 const char* const kStep = "step buf a b = p.writeEvents (plusPtr nullPtr buf) 4096 pat 2000000 a b";
 const char* const kStepOnce = "stepOnce buf a b = p.writeEvents (plusPtr nullPtr buf) 4096 once 2000000 a b";
+// for a control pattern: three Ints a MIDI message, its time, bytes and note length (control.fk)
+const char* const kStepControls = "step buf a b = writeControls (plusPtr nullPtr buf) 4096 pat 2000000 1000000 a b";
+const char* const kStepOnceControls = "stepOnce buf a b = writeControls (plusPtr nullPtr buf) 4096 once 2000000 1000000 a b";
+// control.fk, every name unqualified, as Tidal's are
+const char* const kControlImport = "import control (..)";
 
 const int kVoices = 8;
 const uint32_t kChannels = 2;
@@ -225,7 +230,8 @@ private:
 		funk_glue(f, funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed
 		funk_module_dir(f, s.dir_.c_str());
 		funk_output(f, &Session::Output, &s);
-		bool ok = funk_eval(f, "import pattern as p", "<setup>", &shown) && funk_eval(f, "import midi as m", "<setup>", &shown);
+		bool ok = funk_eval(f, "import pattern as p", "<setup>", &shown) && funk_eval(f, "import midi as m", "<setup>", &shown)
+		          && funk_eval(f, kControlImport, "<setup>", &shown);
 		// If the linked glue does not match and no C compiler runs, graph.fk's imports fail:
 		// MIDI still plays, the output is silent.
 		s.graphs_ = ok && funk_eval(f, "import graph as g", "<setup>", &shown) && funk_eval(f, "import dsp as d", "<setup>", &shown);
@@ -366,6 +372,12 @@ bool IsPatternType(const char* type)
 	return t.substr(t.rfind('.') + 1) == "Pattern";
 }
 
+// A pattern of control.fk's Controls: "pattern.Pattern control.Controls".
+bool IsControlsType(const char* type)
+{
+	return IsPatternType(type) && std::string(type).find("Controls") != std::string::npos;
+}
+
 // code as the body of `once`, indented, so that its lines continue the definition
 std::string AsOnce(const std::string& code)
 {
@@ -375,6 +387,12 @@ std::string AsOnce(const std::string& code)
 		if (c == '\n') s += "  ";
 	}
 	return s + "\n  ) :: p.Pattern Int";
+}
+
+std::string AsOnceControls(const std::string& code)
+{
+	const std::string s = AsOnce(code);
+	return s.substr(0, s.size() - 3) + "Controls";
 }
 
 class FunkLanguage : public Language {
@@ -403,7 +421,9 @@ public:
 		bool once = false;
 		if (s.call([&] {
 			    char* type = funk_type_of(s.handle(), code.c_str(), "<eval>");
-			    once = IsPatternType(type) && s.eval(AsOnce(code), ignored) && s.eval(kStepOnce, ignored);
+			    onceControls_ = IsControlsType(type);
+			    once = IsPatternType(type) && (onceControls_ ? s.eval(AsOnceControls(code), ignored) && s.eval(kStepOnceControls, ignored)
+			                                                 : s.eval(AsOnce(code), ignored) && s.eval(kStepOnce, ignored));
 			    free(type);
 		    }, &ignored)) {
 			out += "stopped\n"; // a pattern whose evaluation does not end
@@ -416,8 +436,13 @@ public:
 				if (Defines(code, "sig")) playSig(out);
 				if (!Defines(code, "pat")) return;
 				// Compiled again, so that it names the new pat; as a clip, pat plays once.
-				pat = s.eval(kStep, out) && (live_ || (s.eval("once = pat", out) && s.eval(kStepOnce, out)));
-				if (!pat) out += "funk-midi: pat is not playing: it must be a Pattern Int\n";
+				char* type = funk_type_of(s.handle(), "pat", "<eval>");
+				const bool controls = IsControlsType(type);
+				free(type);
+				pat = s.eval(controls ? kStepControls : kStep, out)
+				      && (live_ || (s.eval("once = pat", out) && s.eval(controls ? kStepOnceControls : kStepOnce, out)));
+				if (pat) stepControls_ = onceControls_ = controls;
+				else out += "funk-midi: pat is not playing: it must be a Pattern Int or of Controls\n";
 			}, &out);
 			if (interrupted) out += "stopped\n";
 		}
@@ -462,7 +487,7 @@ public:
 		// In time order: while pat loops, only what precedes its next window.
 		while (!pending_.empty() && (looping_ ? pending_.top().ms < grid_ : pending_.top().ms <= ms)) {
 			midi_clock_set_ms(pending_.top().ms);
-			midi_out_send(nullptr, pending_.top().msg, 3);
+			midi_out_send(nullptr, pending_.top().msg, pending_.top().size);
 			pending_.pop();
 		}
 	}
@@ -512,7 +537,7 @@ public:
 			char voices[512];
 			snprintf(voices, sizeof voices,
 			         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\nvoicesIx :: (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesIx f = d.polyIx %d f\n"
-			         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
+			         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn ch f = d.polyOn ch %d f",
 			         kVoices, kVoices, kVoices);
 			ok = session_.eval(playerSource(), out) && session_.eval(voices, out);
 			audio_.ready = ok;
@@ -607,6 +632,7 @@ private:
 		double ms;
 		uint64_t seq;
 		unsigned char msg[3];
+		unsigned char size = 3;
 		// later first out of the heap; at one time, note-offs first, so a note that ends
 		// where the next begins is released first
 		bool operator>(const Msg& o) const
@@ -633,6 +659,23 @@ private:
 		// A clip's note-offs end 1 ms before its bar: at the bar they would grow the clip by one,
 		// and within half a frame of it the clip player drops them as it loops.
 		const double end = origin + kCycleMs - 1.;
+		if (!strcmp(step, "step") ? stepControls_ : onceControls_) {
+			for (long i = 0; i < n && i < kCap; i++) {
+				const double at = origin + buf_[3 * i] / 1000.;
+				const long m = buf_[3 * i + 1], length = buf_[3 * i + 2];
+				const unsigned char st = m & 255, d1 = (m >> 8) & 255, d2 = (m >> 16) & 255, size = (m >> 24) & 3;
+				double latest = at;
+				if ((st & 0xF0) == 0x90 && length >= 0) {
+					double off = at + std::max(length / 1000., 0.001);
+					if (!live_) off = std::min(off, end);
+					pending_.push({off, seq_++, {(unsigned char)(0x80 | (st & 15)), d1, 0}});
+					latest = off;
+				}
+				pending_.push({at, seq_++, {st, d1, d2}, size});
+				if (last) *last = std::max(*last, latest);
+			}
+			return true;
+		}
 		for (long i = 0; i < n && i < kCap; i++) {
 			const double at = origin + buf_[3 * i] / 1000.;
 			double off = at + std::max(buf_[3 * i + 1] / 1000., 0.001);
@@ -660,6 +703,7 @@ private:
 		bool haveSig = false; // sig is defined, and plays once ready
 	} audio_;
 	bool live_ = false, looping_ = false;
+	bool stepControls_ = false, onceControls_ = false; // step's or stepOnce's pattern is of Controls
 	double grid_ = 0.; // pat's next window, in script ms
 	uint64_t seq_ = 0;
 	std::priority_queue<Msg, std::vector<Msg>, std::greater<Msg>> pending_;

@@ -1745,7 +1745,10 @@ static void parse_header(P *p, Module *m) {
       im.qual = next(p)->s;
     }
     if (word(p, 0, "hiding")) cerror(cur(p)->line, cur(p)->col, "`hiding` is not supported; list the names to import instead");
-    if (is(p, T_LPAREN)) {
+    if (is(p, T_LPAREN) && ahead(p, 1)->k == T_DOTDOT && ahead(p, 2)->k == T_RPAREN) {
+      next(p), next(p), next(p);
+      im.listed = im.everything = true;
+    } else if (is(p, T_LPAREN)) {
       im.listed = true;
       im.items = parse_items(p);
     }

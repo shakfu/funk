@@ -276,6 +276,21 @@ mini s = mapP mvInt (mParse MInt s)
 miniS :: String -> Pattern String
 miniS s = mapP mvStr (mParse MStr s)
 
+-- mini-notation of Floats, as Tidal's for Double and Note: decimals, and
+-- note names as Tidal's, c5 being 0, which SuperDirt plays as MIDI 60
+miniF :: String -> Pattern Float
+miniF s = mapP (\v -> case mvRat v of
+    (a, b) -> toFloat a / toFloat b) (mParse MNum s)
+
+-- mini-notation of Ints, with Tidal's note names, c5 being 0
+-- miniF for notes, as Tidal's Note: "e" is note 4, where miniF reads 1/8
+miniN :: String -> Pattern Float
+miniN s = mapP (\v -> case mvRat v of
+    (a, b) -> toFloat a / toFloat b) (mParse MNote s)
+
+miniTI :: String -> Pattern Int
+miniTI s = mapP mvInt (mParse MTInt s)
+
 mParse :: MMode -> String -> Pattern MV
 mParse mode s = case unpack s of
   cs -> case mStack (length cs) mode True (0, cs) of
@@ -286,7 +301,14 @@ mParse mode s = case unpack s of
 -- what a parse yields: values, chord intervals, or chord modifiers
 data MV = VInt Int | VRat Int Int | VStr [Char] | VChord [Int] | VMods [Mod]
 data Mod = Range Int | Drop Int | Invert | Open
-data MMode = MInt | MRat | MStr | MName | MMod deriving (Eq)
+-- MInt's note names are MIDI's, c4 60; MTInt's, MNum's and MNote's Tidal's,
+-- c5 0. MNum is Tidal's Double, whose ratio letters, such as e for 1/8, come
+-- before note names; MNote is its Note, whose note names come first.
+data MMode = MInt | MTInt | MNum | MNote | MRat | MStr | MName | MMod deriving (Eq)
+
+-- a mode whose atoms are numbers
+mNumeric :: MMode -> Bool
+mNumeric mode = mode == MInt || mode == MTInt || mode == MNum || mode == MNote || mode == MRat
 
 mvInt :: MV -> Int
 mvInt v = case v of
@@ -368,7 +390,7 @@ mFeet n mode acc done (sd, cs) = case mSkip cs of
 -- after a part: '..' and a part, or weights, or copies
 mAfter :: Int -> MMode -> Pattern MV -> (Int, [Char]) -> ([((Int, Int), Pattern MV)], (Int, [Char]))
 mAfter n mode p (sd, cs) = case cs of
-  '.' : '.' : r -> if mode /= MInt && mode /= MStr then mFail n cs "'..' needs numbers or names" else case mPart n mode (sd, mSkip r) of
+  '.' : '.' : r -> if mode == MRat || not (mNumeric mode || mode == MStr) then mFail n cs "'..' needs numbers or names" else case mPart n mode (sd, mSkip r) of
     (b, st2) -> ([((1, 1), if mode == MStr then fastcat [p, b] else mRange p b)], st2)
   c : _ -> if c == '@' || c == '_' then mWeights n p (1, 1) (sd, cs)
     else if c == '!' then mCopies n p 1 (sd, cs)
@@ -409,7 +431,7 @@ mPart n mode st = case mBase n mode st of
 mBase :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
 mBase n mode (sd, cs) = case cs of
   '~' : r -> (silence, (sd, r))
-  '-' : r -> if any isDigit (take 1 r) && (mode == MInt || mode == MRat) then mAtom n mode (sd, cs) else (silence, (sd, r))
+  '-' : r -> if any isDigit (take 1 r) && mNumeric mode then mAtom n mode (sd, cs) else (silence, (sd, r))
   '[' : r -> case mStack n mode True (sd, r) of
     (p, (sd2, r2)) -> (p, (sd2, mClose n ']' r2))
   '<' : r -> case mSized n mode (sd, r) of
@@ -456,9 +478,20 @@ mMods n p (sd, cs) = case cs of
 mEuclid :: Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV
 mEuclid k m r p = innerJoin (apP (apP (mapP (\a b c -> euclidOff (mvInt a) (mvInt b) (mvInt c) p) k) m) r)
 
+-- a to b by 1, or b to a reversed, as Tidal's enumFromTo'; ratios as
+-- Haskell's for Double, up to b + 1/2
 mRange :: Pattern MV -> Pattern MV -> Pattern MV
-mRange a b = joinP (apP (mapP (\x y -> case (mvInt x, mvInt y) of
-    (i, j) -> fastcat (map (\v -> atom (VInt v)) (if i > j then reverse (enumFromTo j i) else enumFromTo i j))) a) b)
+mRange a b = joinP (apP (mapP (\x y -> fastcat (map atom (case (x, y) of
+    (VInt i, VInt j) -> map VInt (if i > j then reverse (enumFromTo j i) else enumFromTo i j)
+    _ -> case (mvRat x, mvRat y) of
+      (i, j) -> map (\(u, v) -> VRat u v) (if ratLess j i then reverse (ratSteps j i) else ratSteps i j)))) a) b)
+
+ratLess :: (Int, Int) -> (Int, Int) -> Bool
+ratLess (a, b) (c, d) = a * d < c * b
+
+-- i, i + 1, ... up to j + 1/2
+ratSteps :: (Int, Int) -> (Int, Int) -> [(Int, Int)]
+ratSteps i j = if ratLess (ratAdd j (1, 2)) i then [] else i : ratSteps (ratAdd i (1, 1)) j
 
 -- a value: a number, a note name or a chord; a chord name; or chord modifiers
 mAtom :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
@@ -483,19 +516,37 @@ mAtom n mode (sd, cs) = case mode of
         (name, r2) -> (atom (VStr (c : name)), (sd, r2)))
       else mFail n cs "expected a name, '~', '[', '<' or '{'"
     [] -> mFail n cs "expected a name"
-  MInt -> case cs of
-    '\'' : _ -> mChord n (atom (VInt 0)) (sd, cs)
-    _ -> case mValue n cs of
+  _ -> case cs of
+    '\'' : _ -> mChord n (atom (if mode == MNum || mode == MNote then VRat 0 1 else VInt 0)) (sd, cs)
+    _ -> case mNumber n mode cs of
       (v, r) -> case r of
-        '\'' : _ -> mChord n (atom (VInt v)) (sd, r)
-        _ -> (atom (VInt v), (sd, r))
+        '\'' : _ -> mChord n (atom v) (sd, r)
+        _ -> (atom v, (sd, r))
 
--- a number, or a note name: a letter, then s, f or n for sharp, flat or natural, then an octave
-mValue :: Int -> [Char] -> (Int, [Char])
-mValue n cs = case cs of
+-- MInt's and MTInt's values are Ints; MNum's and MNote's ratios, from decimals, ratio letters or note names
+mNumber :: Int -> MMode -> [Char] -> (MV, [Char])
+mNumber n mode cs = if mode /= MNum && mode /= MNote then (case mValue n (mode == MTInt) cs of
+    (v, r) -> (VInt v, r)) else case cs of
+    c : r0 -> if elem c (unpack "whqestfx") && not (any isAlpha (take 1 r0)) && (mode == MNum || not (elem c (unpack "cdefgab")))
+      then (case ratChar c of
+        (a, b) -> (VRat a b, r0))
+      else if elem c (unpack "cdefgab") then (case mValue n True cs of
+        (v, r) -> (VRat v 1, r))
+      else (case (case cs of
+          '-' : r -> (True, r)
+          _ -> (False, cs)) of
+        (neg, r) -> case mRatio n r of
+          ((a, b), r2) -> (VRat (if neg then negate a else a) b, r2))
+    [] -> mFail n cs "expected a number"
+
+-- a number, or a note name: a letter, then s, f or n for sharp, flat or
+-- natural, then an octave; MIDI's, c4 60 and octave 4 if none, or Tidal's,
+-- c5 0 and octave 5 if none
+mValue :: Int -> Bool -> [Char] -> (Int, [Char])
+mValue n tidal cs = case cs of
   c : r -> if elem c (unpack "cdefgab") then (case span (\x -> elem x (unpack "sfn")) r of
-      (accs, r2) -> case (if any isDigit (take 1 r2) then mDigits n r2 else (4, r2)) of
-        (oct, r3) -> (12 * (oct + 1) + noteStep c + sum (map (\x -> if x == 's' then 1 else if x == 'f' then -1 else 0) accs), r3))
+      (accs, r2) -> case (if any isDigit (take 1 r2) then mDigits n r2 else (if tidal then 5 else 4, r2)) of
+        (oct, r3) -> ((if tidal then 12 * (oct - 5) else 12 * (oct + 1)) + noteStep c + sum (map (\x -> if x == 's' then 1 else if x == 'f' then -1 else 0) accs), r3))
     else if c == '-' then (case mWhole n r of
       (v, r2) -> (negate v, r2))
     else mWhole n cs
@@ -511,7 +562,7 @@ mChord :: Int -> Pattern MV -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
 mChord n root (sd, cs) = case cs of
   '\'' : r -> case mPart n MName (sd, r) of
     (name, st2) -> case mChordMods n [] st2 of
-      (mods, st3) -> (mapP VInt (chordOf (mapP mvInt root) (mapP mvChord name) (map (mapP mvMods) mods)), st3)
+      (mods, st3) -> (chordOf addMV root (mapP mvChord name) (map (mapP mvMods) mods), st3)
   _ -> mFail n cs "expected '"
 
 mChordMods :: Int -> [Pattern MV] -> (Int, [Char]) -> ([Pattern MV], (Int, [Char]))
@@ -520,9 +571,17 @@ mChordMods n acc (sd, cs) = case cs of
     (m, st2) -> mChordMods n (m : acc) st2
   _ -> (reverse acc, (sd, cs))
 
--- Tidal's chord: each root, name and modifier event, joined, then a note per interval
-chordOf :: Pattern Int -> Pattern [Int] -> [Pattern [Mod]] -> Pattern Int
-chordOf root names mods = uncollect (joinP (mapP (\r -> joinP (mapP (\ns -> withMods (map (+ r) ns) mods) names)) root))
+-- Tidal's chord: each root, name and modifier event, joined, then a note
+-- per interval; modifiers act on the intervals, which add to the root last,
+-- since every modifier commutes with a transposition
+chordOf :: (r -> Int -> r) -> Pattern r -> Pattern [Int] -> [Pattern [Mod]] -> Pattern r
+chordOf add root names mods = uncollect (joinP (mapP (\r -> joinP (mapP (\ns -> mapP (map (add r)) (withMods ns mods)) names)) root))
+
+addMV :: MV -> Int -> MV
+addMV v k = case v of
+  VInt a -> VInt (a + k)
+  VRat a b -> VRat (a + k * b) b
+  _ -> v
 
 withMods :: [Int] -> [Pattern [Mod]] -> Pattern [Int]
 withMods ch mods = case mods of
@@ -551,7 +610,7 @@ mModifiers n cs = case cs of
       (k, r2) -> (replicate k Invert, r2))
     else (case span (== 'i') cs of
       (is, r2) -> (map (\_ -> Invert) is, r2))
-  _ -> case mValue n cs of
+  _ -> case mValue n False cs of
     (k, r) -> ([Range k], r)
 
 -- a ratio a / b: digits, a fraction and an exponent, or %d; or Tidal's w h q e s t f x

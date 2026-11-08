@@ -297,11 +297,17 @@ static Exports *list_exports(Q *q, Module *m, Exports *all) {
   return ex;
 }
 
-/* An import list's names, unqualified in this file. */
+/* An import list's names, unqualified in this file. (..) lists every
+   top-level export, a type or class with its members, so its names meet
+   the same checks as a list's. */
 static void import_list(Q *q, ImportInfo *in) {
   Exports *ex = in->ex;
-  for (int i = 0; ex && i < in->im->items.n; i++) {
-    ListItem *it = &in->im->items.a[i];
+  ListItems every = {0};
+  for (int k = 0; in->im->everything && ex && k < ex->n; k++)
+    if (!ex->a[k].parent) VPUSH(every, ((ListItem){.name = ex->a[k].name, .all = ex->a[k].ns != NS_VALUE, .line = in->im->line, .col = in->im->col}));
+  ListItems *items = in->im->everything ? &every : &in->im->items;
+  for (int i = 0; ex && i < items->n; i++) {
+    ListItem *it = &items->a[i];
     Unq us[64];
     int nu = 0;
     const char *x = it->name;
@@ -329,6 +335,7 @@ static void import_list(Q *q, ImportInfo *in) {
       if (!prev) VPUSH(q->unq, us[k]);
     }
   }
+  xfree(every.a);
 }
 
 Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nimps) {

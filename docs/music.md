@@ -231,6 +231,33 @@ A name not in the kit is dropped. A folder with no WAV file fails `sig`, and the
 
 Not supported: `^name`, since there are no control inputs.
 
+### Control patterns
+
+`pat` may also be a control pattern, as Tidal's: events of named parameters, from `lib/control.fk`. `funk-midi` and the plugin import every name of it unqualified, as Tidal's are, with `import control (..)`:
+
+```haskell
+pat = note "0 [4 7]" # ccn "74" # ccv "<64 100>"
+pat = n "0 12" # midichan "1" # gain "1.2" |+ n "<0 2>"
+```
+
+The controls are Tidal's, `gain`, `cutoff`, `legato` and 254 more, each taking mini-notation. The operators are Tidal's: `#` keeps the left's structure and takes the right's values; `|+|`, `|+` and `+|` add, with structure from both sides, the left or the right, and `||+` squeezes the right into each left event; `-`, `*`, `/`, `%`, `<` and `>` have the same forms. Tidal's `|>` is the prelude's `x |> f` here; `#` is the same operator. Notes are Tidal's: `note "0"` and `note "c5"` are middle C.
+
+An event plays as SuperDirt's MIDI target plays it, if it has no `s` or `s` is `"midi"`:
+
+| Control | MIDI |
+|-|-|
+| `note`, else `n`, plus `12 * octave` (5) | the note; `note "0"` is 60. `freq` overrides it |
+| `amp` (0.4), `gain` (1), `overgain` (0) | velocity `amp * (min gain 2 + overgain)^4 * 127`, so 50 by default |
+| `sustain`, else `legato` | the note's length: seconds, or a share of the event, less 1 ms |
+| `midichan` | the channel, from 0 |
+| `ccn` and `ccv`; `nrpn` and `val` | a CC; an NRPN's six CCs |
+| `progNum`, `midibend`, `miditouch`, `polyTouch` | program change, pitch bend (0 to 16383), aftertouch, poly aftertouch in place of the note |
+| `midicmd` | `start`, `stop`, `continue`, `midiClock`, `allNotesOff`, `control`, `songPtr`, and `bend` or `touch` by `val` |
+
+Each message goes out at the event's onset, before its note. Sample names, `s "bd"`, do not play yet.
+
+The control names are taken at the top level of these sessions: `speed = 2` is an error, "`speed` is imported from `control`; choose another name". A parameter or `let` of that name is fine, and `control.speed` always means the control.
+
 ## MIDI values
 
 `funk-midi` and the CLAP plugin play a `Pattern Int`. Each value is:

@@ -296,10 +296,11 @@ typedef struct {
 } ListItem;
 typedef VEC(ListItem) ListItems;
 
-/* import a.b [as q] [(items)] */
+/* import a.b [as q] [(items) | (..)] */
 typedef struct {
   const char *path, *qual;
   bool listed, base; /* base: a Haskell base module, Data.List, for which the prelude stands in */
+  bool everything;   /* (..): every exported name, unqualified */
   ListItems items;
   int line, col;
 } Import;

@@ -46,6 +46,7 @@ Modules need no change to this structure. An imported module is one more chunk, 
 |-|-|
 | `import geometry` | `geometry.area`, `geometry.Shape`, `geometry.Circle` |
 | `import geometry (area, Shape(..))` | the above, plus `area`, `Shape`, `Circle` unqualified |
+| `import geometry (..)` | the above, plus every name `geometry` exports, unqualified |
 | `import shapes.geometry as g` | `g.area`, `g.Shape` |
 
 - **The qualifier is one identifier**: the path's last segment, or the `as` name. `shapes.geometry.area` is not a name. Allowing it would make `a.b.c` ambiguous between a module path and a chain of field reads, and the parser would need the import list to tell them apart.
@@ -53,6 +54,8 @@ Modules need no change to this structure. An imported module is one more chunk, 
 - **Qualified by default.** A plain `import` adds no unqualified names. Adding a function to a module then cannot break a program that imports it, which is the problem design.md records for the prelude.
 
 - **Unqualified names come from a list.** Two lists that bring in the same name are an error at the second `import`.
+
+- **`(..)` lists every export**, each type and class with its members, for a module written to be opened, such as `control`, whose 257 controls are unqualified in Tidal. Its names meet a list's checks: another import of the same name and a top-level definition of it are errors, and a local binding shadows it. It gives up the guarantee above for the files that use it: a name added to the module can then fail their compile, though it cannot change what they mean. A module meant for `(..)` keeps its helpers out of its export list.
 
 - **Prelude names stay reserved** in every module, for the same reason as today. An unqualified `map` always means the prelude's.
 

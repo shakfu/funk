@@ -58,6 +58,9 @@
 
 enum { WINDOW_US = 10000, LOOKAHEAD_US = 50000, CAP = 512, CYCLE_TICKS = 720720 };
 #define STEP "step buf cs ot a b = p.writeEvents (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) cs a b"
+/* for a control pattern: time, MIDI bytes and note length (control.fk) */
+#define STEP_CONTROLS "step buf cs ot a b = writeControls (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) cs 1000000 a b"
+#define CONTROL_IMPORT "import control (..)"
 
 static bool virtual_time, print_sink, audio;
 static volatile sig_atomic_t interrupted;
@@ -147,21 +150,23 @@ static bool open_out(int port, const char *name) {
 #endif
 
 /* t: the message's time. Printed in virtual time; in real time, the time it is sent, which shows jitter. */
-static void send_msg(int64_t t, const unsigned char *m) {
+static void send_msg(int64_t t, const unsigned char *m, size_t size) {
   if (print_sink) {
     if (!virtual_time) t = now_us();
-    printf("%9.3f %s ch%d %d %d\n", (double)t / 1000, (m[0] & 0xf0) == 0x90 ? "on " : "off", (m[0] & 15) + 1, m[1], m[2]);
+    static const char *const kinds[] = {"off", "on ", "poly", "cc ", "pc ", "touch", "bend"};
+    if (m[0] >= 0xf0) printf("%9.3f sys %d %d %d\n", (double)t / 1000, m[0], size > 1 ? m[1] : 0, size > 2 ? m[2] : 0);
+    else printf("%9.3f %s ch%d %d %d\n", (double)t / 1000, kinds[(m[0] >> 4) - 8], (m[0] & 15) + 1, m[1], size > 2 ? m[2] : 0);
     fflush(stdout);
     return;
   }
 #ifdef HAVE_LIBREMIDI
-  libremidi_midi_out_send_message(out, m, 3);
+  libremidi_midi_out_send_message(out, m, size);
 #endif
 }
 
 /* ------------------------------------------------- the queue of messages */
 
-typedef struct { int64_t t; uint64_t seq; unsigned char m[3]; } Msg;
+typedef struct { int64_t t; uint64_t seq; unsigned char m[3], size; } Msg;
 static Msg *heap;
 static size_t nheap, capheap;
 static uint64_t nseq;
@@ -204,12 +209,14 @@ static Msg heap_pop(void) {
   return top;
 }
 
-static void enqueue(int64_t t, unsigned char status, unsigned char d1, unsigned char d2) {
+static void enqueue_sized(int64_t t, unsigned char status, unsigned char d1, unsigned char d2, unsigned char size) {
   pthread_mutex_lock(&mu);
-  heap_push((Msg){t, nseq++, {status, d1, d2}});
+  heap_push((Msg){t, nseq++, {status, d1, d2}, size});
   pthread_cond_signal(&queued);
   pthread_mutex_unlock(&mu);
 }
+
+static void enqueue(int64_t t, unsigned char status, unsigned char d1, unsigned char d2) { enqueue_sized(t, status, d1, d2, 3); }
 
 /* Drops the queued note-ons and moves the note-offs to now: every note
    sounding or due stops. */
@@ -226,7 +233,7 @@ static void hush(void) {
   nheap = 0;
   int64_t now = now_us();
   for (size_t i = 0; i < n; i++)
-    if ((all[i].m[0] & 0xf0) == 0x80) heap_push((Msg){now, all[i].seq, {all[i].m[0], all[i].m[1], all[i].m[2]}});
+    if ((all[i].m[0] & 0xf0) == 0x80) heap_push((Msg){now, all[i].seq, {all[i].m[0], all[i].m[1], all[i].m[2]}, 3});
   free(all);
   pthread_cond_signal(&queued);
   pthread_mutex_unlock(&mu);
@@ -236,7 +243,7 @@ static void hush(void) {
 static void flush_until(int64_t t) {
   while (nheap && heap[0].t < t) {
     Msg m = heap_pop();
-    send_msg(m.t, m.m);
+    send_msg(m.t, m.m, m.size);
   }
 }
 
@@ -272,7 +279,7 @@ static void *sender(void *arg) {
     }
     Msg m = heap_pop();
     pthread_mutex_unlock(&mu);
-    send_msg(m.t, m.m);
+    send_msg(m.t, m.m, m.size);
     pthread_mutex_lock(&mu);
   }
   pthread_mutex_unlock(&mu);
@@ -282,7 +289,7 @@ static void *sender(void *arg) {
 /* --------------------------------------------------------- the pattern */
 
 static long buf[3 * CAP]; /* start, duration, value */
-static bool playing = true, have_step;
+static bool playing = true, have_step, step_controls; /* step_controls: pat is of c.Controls */
 static int64_t cs = 2000000; /* microseconds per cycle */
 static int64_t origin_us, origin_tick, win; /* tick origin_tick sounds at origin_us; win: the next window */
 
@@ -299,7 +306,14 @@ static void schedule(void) {
         fputs("funk-midi: pat failed; stopped until it is defined again\n", stderr);
       } else {
         if (n > CAP) fprintf(stderr, "funk-midi: %ld events in a window; played %d\n", n, CAP);
-        for (long i = 0; i < n && i < CAP; i++) {
+        for (long i = 0; i < n && i < CAP && step_controls; i++) {
+          int64_t at = origin_us + buf[3 * i];
+          long m = buf[3 * i + 1], length = buf[3 * i + 2];
+          unsigned char st = m & 255, d1 = (m >> 8) & 255, d2 = (m >> 16) & 255, size = (m >> 24) & 3;
+          enqueue_sized(at, st, d1, d2, size);
+          if ((st & 0xf0) == 0x90 && length >= 0) enqueue(at + (length > 0 ? length : 1), (unsigned char)(0x80 | (st & 15)), d1, 0);
+        }
+        for (long i = 0; i < n && i < CAP && !step_controls; i++) {
           int64_t at = origin_us + buf[3 * i], dur = buf[3 * i + 1] > 0 ? buf[3 * i + 1] : 1;
           long v = buf[3 * i + 2];
           unsigned char note = v & 127, vel = (v >> 7) & 127, ch = (v >> 14) & 15;
@@ -392,7 +406,13 @@ static int by_start(const void *a, const void *b) {
 static void voice_notes(long n) {
   voice_sync();
   qsort(buf, (size_t)n, 3 * sizeof *buf, by_start);
-  for (long i = 0; i < n; i++) {
+  for (long i = 0; i < n && step_controls; i++) { /* the note-ons */
+    int64_t at = origin_us + buf[3 * i];
+    long m = buf[3 * i + 1], length = buf[3 * i + 2];
+    if ((m & 0xf0) != 0x90 || length < 0) continue;
+    voice_check(funk_voices_on(voices, frame_at(at), frame_at(at + (length > 0 ? length : 1)), (int)(m & 15), (int)((m >> 8) & 127), (int)((m >> 16) & 127)));
+  }
+  for (long i = 0; i < n && !step_controls; i++) {
     int64_t at = origin_us + buf[3 * i], dur = buf[3 * i + 1] > 0 ? buf[3 * i + 1] : 1;
     long v = buf[3 * i + 2], vel = (v >> 7) & 127;
     voice_check(funk_voices_on(voices, frame_at(at), frame_at(at + dur), (int)((v >> 14) & 15), (int)(v & 127), vel ? (int)vel : 100));
@@ -452,7 +472,7 @@ static bool start_audio(const char *kernels_path) {
   free(src);
   if (!ok || asprintf(&src,
                        "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\nvoicesIx :: (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesIx f = d.polyIx %d f\n"
-                       "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn c f = d.polyOn c %d f",
+                       "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn ch f = d.polyOn ch %d f",
                        nvoices, nvoices, nvoices) < 0) return false;
   ok = eval(src);
   free(src);
@@ -510,8 +530,11 @@ static bool eval(const char *src) {
 
 /* After pat may have changed: step is compiled again so it names the new pat. */
 static void rebind(void) {
-  if (eval(STEP)) have_step = true;
-  else fputs("funk-midi: pat is not playing: it must be a Pattern Int\n", stderr);
+  char *type = funk_type_of(session, "pat", "<input>");
+  bool controls = type && strstr(type, "Pattern") && strstr(type, "Controls");
+  free(type);
+  if (eval(controls ? STEP_CONTROLS : STEP)) have_step = true, step_controls = controls;
+  else fputs("funk-midi: pat is not playing: it must be a Pattern Int or of Controls\n", stderr);
 }
 
 static bool defines(const char *s, const char *name) {
@@ -621,7 +644,7 @@ static int run(funk *f, void *arg) {
   session = f;
   if (audio) { GRAPH_FUNCTIONS(PROVIDE) }
   funk_module_dir(f, o->lib);
-  if (!eval("import pattern as p") || !eval("import midi as m")) return 1;
+  if (!eval("import pattern as p") || !eval("import midi as m") || !eval(CONTROL_IMPORT)) return 1;
   if (audio && (!eval("import graph as g") || !eval("import dsp as d") || !start_audio(o->kernels))) return 1;
   t0 = mono_us();
   pthread_t send_th = 0;

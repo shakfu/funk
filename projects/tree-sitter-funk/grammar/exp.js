@@ -269,6 +269,13 @@ module.exports = {
     braces($, sep(',', field('field', $.field_update)))),
   ),
 
+  // funk: f .{ x = 1 }, a call by named arguments (docs/dev/named-args.md); `.{` follows a name
+  _exp_named_args: $ => prec('record', seq(
+    field('function', choice($.variable, $._vars, alias($._exp_projection, $.projection))), // `d.adsr` reads as a projection
+    $._prefix_dot,
+    braces($, sep(',', field('field', $.field_update))),
+  )),
+
   _exp_projection_selector: $ => parens(
     $,
     $._any_prefix_dot,
@@ -373,6 +380,7 @@ module.exports = {
     alias($._exp_negation, $.negation),
     alias($._exp_apply, $.apply),
     alias($._exp_record, $.record),
+    alias($._exp_named_args, $.named_arguments),
     alias($._exp_projection, $.projection),
     alias($._exp_arithmetic_sequence, $.arithmetic_sequence),
     alias($._exp_list_comprehension, $.list_comprehension),

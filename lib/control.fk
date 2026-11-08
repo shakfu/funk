@@ -1,0 +1,1196 @@
+-- control.fk -- Tidal's control patterns (docs/dev/delivery.md): events of
+-- named parameters, as Tidal's ValueMap, and its operators that combine
+-- them. Import every name unqualified, as Tidal's are:
+--   import control (..)
+-- Controls take mini-notation, as Tidal's take strings: s "bd*2" # gain "0.8".
+-- pF, pI, pS and pN take a pattern instead. Notes are Tidal's: note "0" and
+-- "c5" are middle C. The helpers are not exported, so (..) takes no common
+-- names; the classes are exported without their methods, for the same reason.
+module control
+  ( Value(..), Controls(..), Unionable, Divide, Moddable, (|+|), (|+), (+|), (||+), (|-|), (|-),
+    (-|), (||-), (|*|), (|*), (*|), (||*), (|/|), (|/), (/|), (||/), (|%|), (|%), (%|), (||%),
+    (|**|), (|**), (**|), (||**), (|++|), (|++), (++|), (||++), (|>|), (>|), (||>), (|<|), (|<),
+    (<|), (||<), (#), controlPairs, getControl, controlsFromList, pF, pI, pS, pN, grp, mF, mI, mS,
+    midiOf, writeControls, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
+    bank, begin, binshift, button0, button1, button10, button11, button12, button13, button14,
+    button15, button2, button3, button4, button5, button6, button7, button8, button9, ccn, ccv,
+    channel, clhatdecay, coarse, comb, control, cps, crush, ctlNum, ctranspose, cut, cutoff,
+    cutoffegint, decay, degree, delay, delayfeedback, delaytime, detune, distort, djf, dry, dur,
+    end, enhance, expression, fadeInTime, fadeTime, frameRate, frames, freeze, freq, from, fshift,
+    fshiftnote, fshiftphase, gain, gate, harmonic, hatgrain, hbrick, hcutoff, hold, hours,
+    hresonance, imag, kcutoff, krush, lagogo, lbrick, lclap, lclaves, lclhat, lcrash, legato,
+    leslie, lfo, lfocutoffint, lfodelay, lfoint, lfopitchint, lfoshape, lfosync, lhitom, lkick,
+    llotom, lock, loop, lophat, lrate, lsize, lsnare, metatune, midibend, midichan, midicmd,
+    miditouch, minutes, modwheel, mtranspose, n, note, nudge, octave, octaveR, octer, octersub,
+    octersubsub, offset, ophatdecay, orbit, overgain, overshape, pan, panorient, panspan, pansplay,
+    panwidth, partials, phaserdepth, phaserrate, pitch1, pitch2, pitch3, polyTouch, portamento,
+    progNum, rate, real, release, resonance, ring, ringdf, ringf, room, sagogo, sclap, sclaves,
+    scram, scrash, seconds, semitone, shape, size, slide, slider0, slider1, slider10, slider11,
+    slider12, slider13, slider14, slider15, slider2, slider3, slider4, slider5, slider6, slider7,
+    slider8, slider9, smear, songPtr, speed, squiz, stepsPerOctave, stutterdepth, stuttertime,
+    sustain, sustainpedal, timescale, timescalewin, to, toArg, tomdecay, tremolodepth, tremolorate,
+    triode, tsdelay, uid, unit, val, vcfegint, vcoegint, velocity, voice, vowel, waveloss, xsdelay,
+    clip, voi, vco, vcf, up, tremr, tremdp, tdecay, sz, sus, stt, std, sld, scr, scp, scl, sag, s,
+    rel, por, pit3, pit2, pit1, phasr, phasdp, ohdecay, number, lsn, lpq, lpf, loh, llt, lht, lfop,
+    lfoi, lfoc, lcr, lcp, lcl, lch, lbd, lag, hpq, hpf, hg, gat, fadeOutTime, dt, dfb, det, delayt,
+    delayfb, ctfg, ctf, chdecay, bpq, bpf, att
+  ) where
+import pattern as p
+
+data Value = VF Float | VI Int | VS String deriving (Eq, Ord, Show)
+
+-- names and values, sorted by name, each name once
+data Controls = Controls [(String, Value)] deriving (Eq, Ord, Show)
+
+controlPairs :: Controls -> [(String, Value)]
+controlPairs (Controls kvs) = kvs
+
+-- the value of name, if any
+getControl :: String -> Controls -> Maybe Value
+getControl name cs = lookup name (controlPairs cs)
+
+-- kvs sorted by name; of equal names, the first
+controlsFromList :: [(String, Value)] -> Controls
+controlsFromList kvs = Controls (foldl (\acc kv -> mergeWith (\x _ -> x) acc [kv]) [] kvs)
+
+-- the names of both, f joining the values of a name in both
+mergeWith :: (Value -> Value -> Value) -> [(String, Value)] -> [(String, Value)] -> [(String, Value)]
+mergeWith f a b = case (a, b) of
+  ([], _) -> b
+  (_, []) -> a
+  ((ka, va) : ra, (kb, vb) : rb) ->
+    if ka < kb then (ka, va) : mergeWith f ra b
+    else if kb < ka then (kb, vb) : mergeWith f a rb
+    else (ka, f va vb) : mergeWith f ra rb
+
+-- Tidal's fNum2: Ints by fi, Floats or a mix by ff; otherwise the left value
+num2 :: (Int -> Int -> Int) -> (Float -> Float -> Float) -> Value -> Value -> Value
+num2 fi ff x y = case (x, y) of
+  (VI a, VI b) -> VI (fi a b)
+  (VF a, VF b) -> VF (ff a b)
+  (VI a, VF b) -> VF (ff (toFloat a) b)
+  (VF a, VI b) -> VF (ff a (toFloat b))
+  _ -> x
+
+-- Tidal's applyFIS
+num1 :: (Float -> Float) -> (Int -> Int) -> Value -> Value
+num1 ff fi v = case v of
+  VF a -> VF (ff a)
+  VI a -> VI (fi a)
+  _ -> v
+
+mapValues :: (Value -> Value) -> Controls -> Controls
+mapValues f cs = Controls (map (\(k, v) -> (k, f v)) (controlPairs cs))
+
+-- As Tidal's Num ValueMap: a name in one only keeps its value, so a - b
+-- negates b's own names; a literal is n.
+instance Num Controls where
+  a + b = Controls (mergeWith (num2 (+) (+)) (controlPairs a) (controlPairs b))
+  a - b = a + negate b
+  a * b = Controls (mergeWith (num2 (*) (*)) (controlPairs a) (controlPairs b))
+  negate a = mapValues (num1 negate negate) a
+  abs a = mapValues (num1 abs abs) a
+  fromInt i = Controls [("n", VI i)]
+
+-- a left-biased union: Controls keep the left's value of a shared name;
+-- any other value is the left one, as Tidal's default
+class Unionable a where
+  union :: a -> a -> a
+
+instance Unionable Controls where
+  union a b = Controls (mergeWith (\x _ -> x) (controlPairs a) (controlPairs b))
+
+instance Unionable Int where
+  union a _ = a
+
+instance Unionable Float where
+  union a _ = a
+
+instance Unionable String where
+  union a _ = a
+
+-- Tidal's Fractional: Controls divide Floats, and leave Ints as they are,
+-- since Tidal's recip leaves them
+class Divide a where
+  divide :: a -> a -> a
+
+instance Divide Float where
+  divide a b = a / b
+
+instance Divide Controls where
+  divide a b = a * mapValues (num1 (\x -> 1.0 / x) (\i -> i)) b
+
+-- Tidal's Moddable: mod' for Floats, a result with b's sign
+class Moddable a where
+  gmod :: a -> a -> a
+
+instance Moddable Int where
+  gmod a b = mod a b
+
+instance Moddable Float where
+  gmod a b = modF a b
+
+instance Moddable Controls where
+  gmod a b = Controls (mergeWith (num2 mod modF) (controlPairs a) (controlPairs b))
+
+modF :: Float -> Float -> Float
+modF a b = a - b * toFloat (floor (a / b))
+
+-- Operators, as Tidal's (Core.hs): the bars mark where structure comes
+-- from. |op| both sides, |op the left, op| the right, ||op the left with
+-- the right squeezed into each of its events.
+both :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
+both f a b = p.apP (p.mapP f a) b
+
+left :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
+left f a b = p.apLeft (p.mapP f a) b
+
+right :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
+right f a b = p.apRight (p.mapP f a) b
+
+squeezed :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
+squeezed f a b = p.squeezeJoin (p.mapP (\x -> p.mapP (f x) b) a)
+
+(|+|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |+| b = both (+) a b
+(|+) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |+ b = left (+) a b
+(+|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a +| b = right (+) a b
+(||+) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||+ b = squeezed (+) a b
+
+(|-|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |-| b = both (-) a b
+(|-) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |- b = left (-) a b
+(-|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a -| b = right (-) a b
+(||-) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||- b = squeezed (-) a b
+
+(|*|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |*| b = both (*) a b
+(|*) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |* b = left (*) a b
+(*|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a *| b = right (*) a b
+(||*) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||* b = squeezed (*) a b
+
+(|/|) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |/| b = both divide a b
+(|/) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |/ b = left divide a b
+(/|) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a /| b = right divide a b
+(||/) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||/ b = squeezed divide a b
+
+(|%|) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |%| b = both gmod a b
+(|%) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |% b = left gmod a b
+(%|) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a %| b = right gmod a b
+(||%) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||% b = squeezed gmod a b
+
+(|**|) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
+a |**| b = both (**) a b
+(|**) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
+a |** b = left (**) a b
+(**|) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
+a **| b = right (**) a b
+(||**) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
+a ||** b = squeezed (**) a b
+
+(|++|) :: p.Pattern String -> p.Pattern String -> p.Pattern String
+a |++| b = both (++) a b
+(|++) :: p.Pattern String -> p.Pattern String -> p.Pattern String
+a |++ b = left (++) a b
+(++|) :: p.Pattern String -> p.Pattern String -> p.Pattern String
+a ++| b = right (++) a b
+(||++) :: p.Pattern String -> p.Pattern String -> p.Pattern String
+a ||++ b = squeezed (++) a b
+
+-- values from the right
+(|>|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |>| b = both (flip union) a b
+(>|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a >| b = right (flip union) a b
+(||>) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||> b = squeezed (flip union) a b
+
+-- values from the left
+(|<|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |<| b = both union a b
+(|<) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |< b = left union a b
+(<|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a <| b = right union a b
+(||<) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||< b = squeezed union a b
+
+-- structure from the left, values from the right: Tidal's |>, which the
+-- prelude's x |> f = f x keeps from this module
+(#) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a # b = left (flip union) a b
+
+-- Param makers, as Tidal's: a pattern of one name's values
+pF :: String -> p.Pattern Float -> p.Pattern Controls
+pF name pat = p.mapP (\x -> Controls [(name, VF x)]) pat
+
+pI :: String -> p.Pattern Int -> p.Pattern Controls
+pI name pat = p.mapP (\x -> Controls [(name, VI x)]) pat
+
+pS :: String -> p.Pattern String -> p.Pattern Controls
+pS name pat = p.mapP (\x -> Controls [(name, VS x)]) pat
+
+-- a note, as Tidal's Note: a Float
+pN :: String -> p.Pattern Float -> p.Pattern Controls
+pN name pat = pF name pat
+
+-- Grouped params, as Tidal's grp: a name split at ':' fills each field in
+-- turn; a field that does not parse is left out. sound "bd:3" is s "bd"
+-- and n 3.
+grp :: [String -> [(String, Value)]] -> p.Pattern String -> p.Pattern Controls
+grp fs pat = p.mapP (\name -> controlsFromList (concat (zipWith (\f v -> f v) fs (splitColons name)))) pat
+
+splitColons :: String -> [String]
+splitColons s = map pack (wordsBy (unpack s))
+
+-- the runs between ':', empty ones dropped, as Data.List.Split's wordsBy
+wordsBy :: [Char] -> [[Char]]
+wordsBy cs = case dropWhile (== ':') cs of
+  [] -> []
+  rest -> case span (/= ':') rest of
+    (w, more) -> w : wordsBy more
+
+mF :: String -> String -> [(String, Value)]
+mF name v = case vReadFloat (unpack v) of
+  Just x -> [(name, VF x)]
+  Nothing -> []
+
+mI :: String -> String -> [(String, Value)]
+mI name v = case vReadInt (unpack v) of
+  Just x -> [(name, VI x)]
+  Nothing -> []
+
+mS :: String -> String -> [(String, Value)]
+mS name v = [(name, VS v)]
+
+-- Haskell's read for Int: an optional '-', then digits
+vReadInt :: [Char] -> Maybe Int
+vReadInt cs = case cs of
+  '-' : ds -> (case vReadNat ds of
+    Just n -> Just (negate n)
+    Nothing -> Nothing)
+  _ -> vReadNat cs
+
+vReadNat :: [Char] -> Maybe Int
+vReadNat ds = if not (null ds) && all isDigit ds then Just (foldl (\a d -> a * 10 + ord d - 48) 0 ds) else Nothing
+
+-- Haskell's read for Double: an optional '-', digits, then .digits and e[-]digits
+vReadFloat :: [Char] -> Maybe Float
+vReadFloat cs = case cs of
+  '-' : r -> (case vReadFloat r of
+    Just x -> if take 1 r == ['-'] then Nothing else Just (negate x)
+    Nothing -> Nothing)
+  _ -> case span isDigit cs of
+    ([], _) -> Nothing
+    (ds, r) -> case (case r of
+        '.' : r1 -> (case span isDigit r1 of
+          ([], _) -> (Nothing, r)
+          (fs, r2) -> (Just fs, r2))
+        _ -> (Just [], r)) of
+      (Nothing, _) -> Nothing
+      (Just fs, r3) -> case (case r3 of
+          'e' : r4 -> vReadInt r4
+          [] -> Just 0
+          _ -> Nothing) of
+        Just e -> if r3 /= [] && vReadInt (drop 1 r3) == Nothing then Nothing else Just (digitsF ds fs * 10.0 ** toFloat e)
+        Nothing -> Nothing
+
+digitsF :: [Char] -> [Char] -> Float
+digitsF ds fs = toFloat (foldl (\a d -> a * 10 + ord d - 48) 0 (ds ++ fs)) / 10.0 ** toFloat (length fs)
+
+-- MIDI, as SuperDirt's MIDI target plays an event (DirtEventTypes.sc,
+-- DirtOrbit.sc). An event plays if it has no s or s is "midi". In order:
+-- ccn and ccv's CC; nrpn and val's six CCs; progNum; midibend; miditouch;
+-- then, if it has n or note, a note-on, or polyTouch's message instead;
+-- then midicmd's. The note is note, else n, plus 12 * octave, octave 5
+-- unless given, or freq's nearest. Velocity is amp * (min gain 2 +
+-- overgain)^4 * 127, amp 0.4 unless given. The note lasts sustain seconds,
+-- else legato times the event, else the event, less SuperDirt's fade:
+-- min 1 ms (sustain * 0.19098). midichan counts from 0.
+-- Each message is (bytes, length): bytes is status + 256 * data1 + 65536 *
+-- data2 + 16777216 * size; length is the note's, in units, or -1. dur is
+-- the event's length in units; ups, units per second.
+midiOf :: Int -> Int -> Controls -> [(Int, Int)]
+midiOf ups dur cs = if not midiTarget then [] else
+    ccs ++ nrpns ++ msg2 "progNum" 192 ++ bend ++ msg2 "miditouch" 208 ++ note ++ command
+  where
+    midiTarget = case getControl "s" cs of
+      Nothing -> True
+      Just (VS x) -> x == "midi"
+      Just _ -> False
+    num k = case getControl k cs of
+      Just (VF x) -> Just x
+      Just (VI i) -> Just (toFloat i)
+      _ -> Nothing
+    int k = case num k of
+      Just x -> Just (truncate x)
+      Nothing -> Nothing
+    orF k d = case num k of
+      Just x -> x
+      Nothing -> d
+    orI k d = case int k of
+      Just x -> x
+      Nothing -> d
+    chan = clampTo 0 15 (orI "midichan" 0)
+    bytes st xs = (st + chan + sum (zipWith (\k x -> k * clampTo 0 127 x) [256, 65536] xs) + 16777216 * (length xs + 1), -1)
+    cc a b = bytes 176 [a, b]
+    ccs = case (int "ccn", int "ccv") of
+      (Just a, Just b) -> [cc a b]
+      _ -> []
+    nrpns = case int "nrpn" of
+      Just r -> (case orI "val" 0 of
+        v -> [cc 99 (div r 128), cc 98 (mod r 128), cc 6 (div v 128), cc 38 (mod v 128), cc 101 127, cc 100 127])
+      Nothing -> []
+    msg2 k st = case int k of
+      Just v -> [bytes st [v]]
+      Nothing -> []
+    bend = case int "midibend" of
+      Just v -> (case clampTo 0 16383 v of
+        b -> [bytes 224 [mod b 128, div b 128]])
+      Nothing -> []
+    hasNote = getControl "n" cs /= Nothing || getControl "note" cs /= Nothing
+    midinote = clampTo 0 127 (floor (0.5 + (case num "freq" of
+      Just f -> 69.0 + 12.0 * log (f / 440.0) / log 2.0
+      Nothing -> (case num "note" of
+        Just x -> x
+        Nothing -> orF "n" 0.0) + 12.0 * orF "octave" 5.0)))
+    level = orF "amp" 0.4 * fourth (min (orF "gain" 1.0) 2.0 + orF "overgain" 0.0) * 127.0
+    velocity = clampTo 0 127 (truncate level)
+    sustain = case num "sustain" of
+      Just x -> x * toFloat ups
+      Nothing -> toFloat dur * orF "legato" 1.0
+    noteLength = max 1 (truncate (sustain - min (0.001 * toFloat ups) (sustain * 0.19098)))
+    note = if not hasNote then [] else case int "polyTouch" of
+      Just v -> [bytes 160 [midinote, v]]
+      Nothing -> [(fst (bytes 144 [midinote, velocity]), noteLength)]
+    -- midicmd: start, continue, stop, midiClock, allNotesOff, control
+    -- (ctlNum, control), songPtr, and touch and bend by val unless
+    -- miditouch or midibend sent them; program is progNum's
+    command = case getControl "midicmd" cs of
+      Just (VS x) -> commandOf (unpack x)
+      _ -> []
+    commandOf x =
+      if x == unpack "start" then [realtime 250]
+      else if x == unpack "continue" then [realtime 251]
+      else if x == unpack "stop" then [realtime 252]
+      else if x == unpack "midiClock" then [realtime 248]
+      else if x == unpack "allNotesOff" then [cc 123 0]
+      else if x == unpack "control" then [cc (orI "ctlNum" 0) (orI "control" 0)]
+      else if x == unpack "songPtr" then (case clampTo 0 16383 (orI "songPtr" 0) of
+        v -> [(242 + 256 * mod v 128 + 65536 * div v 128 + 16777216 * 3, -1)])
+      else if x == unpack "touch" && int "miditouch" == Nothing then (case int "val" of
+        Just v -> [bytes 208 [v]]
+        Nothing -> [])
+      else if x == unpack "bend" && int "midibend" == Nothing then (case int "val" of
+        Just v -> (case clampTo 0 16383 v of
+          b -> [bytes 224 [mod b 128, div b 128]])
+        Nothing -> [])
+      else []
+    realtime st = (st + 16777216, -1)
+
+fourth :: Float -> Float
+fourth x = x * x * x * x
+
+clampTo :: Int -> Int -> Int -> Int
+clampTo lo hi x = max lo (min hi x)
+
+-- For a host that owns the memory, as p.writeEvents: writes the first cap
+-- MIDI messages of the events that start in units [a, b), three Ints each:
+-- start, midiOf's bytes and length. cs is units per cycle, ups per second.
+-- Returns how many there were.
+writeControls :: Ptr Int -> Int -> p.Pattern Controls -> Int -> Int -> Int -> Int ->> Int
+writeControls buf cap pat cs ups a b = p.writeEach buf cap 0 (concatMap (\(s, d, v) -> map (\(m, l) -> (s, m, l)) (midiOf ups d v)) (p.sampleEvents pat cs a b))
+
+-- Grouped controls
+sound :: String -> p.Pattern Controls
+sound s = grp [mS "s", mF "n"] (p.miniS s)
+
+cc :: String -> p.Pattern Controls
+cc s = grp [mF "ccn", mF "ccv"] (p.miniS s)
+
+nrpn :: String -> p.Pattern Controls
+nrpn s = grp [mI "nrpn", mI "val"] (p.miniS s)
+
+-- Tidal's other controls, generated from its Params.hs: each takes
+-- mini-notation for one name. Bus and recv forms are left out: there are
+-- no control buses.
+
+nrpnn :: String -> p.Pattern Controls
+nrpnn s = pI "nrpn" (p.miniTI s)
+
+nrpnv :: String -> p.Pattern Controls
+nrpnv s = pI "val" (p.miniTI s)
+
+accelerate :: String -> p.Pattern Controls
+accelerate s = pF "accelerate" (p.miniF s)
+
+amp :: String -> p.Pattern Controls
+amp s = pF "amp" (p.miniF s)
+
+attack :: String -> p.Pattern Controls
+attack s = pF "attack" (p.miniF s)
+
+bandf :: String -> p.Pattern Controls
+bandf s = pF "bandf" (p.miniF s)
+
+bandq :: String -> p.Pattern Controls
+bandq s = pF "bandq" (p.miniF s)
+
+bank :: String -> p.Pattern Controls
+bank s = pS "bank" (p.miniS s)
+
+begin :: String -> p.Pattern Controls
+begin s = pF "begin" (p.miniF s)
+
+binshift :: String -> p.Pattern Controls
+binshift s = pF "binshift" (p.miniF s)
+
+button0 :: String -> p.Pattern Controls
+button0 s = pF "button0" (p.miniF s)
+
+button1 :: String -> p.Pattern Controls
+button1 s = pF "button1" (p.miniF s)
+
+button10 :: String -> p.Pattern Controls
+button10 s = pF "button10" (p.miniF s)
+
+button11 :: String -> p.Pattern Controls
+button11 s = pF "button11" (p.miniF s)
+
+button12 :: String -> p.Pattern Controls
+button12 s = pF "button12" (p.miniF s)
+
+button13 :: String -> p.Pattern Controls
+button13 s = pF "button13" (p.miniF s)
+
+button14 :: String -> p.Pattern Controls
+button14 s = pF "button14" (p.miniF s)
+
+button15 :: String -> p.Pattern Controls
+button15 s = pF "button15" (p.miniF s)
+
+button2 :: String -> p.Pattern Controls
+button2 s = pF "button2" (p.miniF s)
+
+button3 :: String -> p.Pattern Controls
+button3 s = pF "button3" (p.miniF s)
+
+button4 :: String -> p.Pattern Controls
+button4 s = pF "button4" (p.miniF s)
+
+button5 :: String -> p.Pattern Controls
+button5 s = pF "button5" (p.miniF s)
+
+button6 :: String -> p.Pattern Controls
+button6 s = pF "button6" (p.miniF s)
+
+button7 :: String -> p.Pattern Controls
+button7 s = pF "button7" (p.miniF s)
+
+button8 :: String -> p.Pattern Controls
+button8 s = pF "button8" (p.miniF s)
+
+button9 :: String -> p.Pattern Controls
+button9 s = pF "button9" (p.miniF s)
+
+ccn :: String -> p.Pattern Controls
+ccn s = pF "ccn" (p.miniF s)
+
+ccv :: String -> p.Pattern Controls
+ccv s = pF "ccv" (p.miniF s)
+
+channel :: String -> p.Pattern Controls
+channel s = pI "channel" (p.miniTI s)
+
+clhatdecay :: String -> p.Pattern Controls
+clhatdecay s = pF "clhatdecay" (p.miniF s)
+
+coarse :: String -> p.Pattern Controls
+coarse s = pF "coarse" (p.miniF s)
+
+comb :: String -> p.Pattern Controls
+comb s = pF "comb" (p.miniF s)
+
+control :: String -> p.Pattern Controls
+control s = pF "control" (p.miniF s)
+
+cps :: String -> p.Pattern Controls
+cps s = pF "cps" (p.miniF s)
+
+crush :: String -> p.Pattern Controls
+crush s = pF "crush" (p.miniF s)
+
+ctlNum :: String -> p.Pattern Controls
+ctlNum s = pF "ctlNum" (p.miniF s)
+
+ctranspose :: String -> p.Pattern Controls
+ctranspose s = pF "ctranspose" (p.miniF s)
+
+cut :: String -> p.Pattern Controls
+cut s = pI "cut" (p.miniTI s)
+
+cutoff :: String -> p.Pattern Controls
+cutoff s = pF "cutoff" (p.miniF s)
+
+cutoffegint :: String -> p.Pattern Controls
+cutoffegint s = pF "cutoffegint" (p.miniF s)
+
+decay :: String -> p.Pattern Controls
+decay s = pF "decay" (p.miniF s)
+
+degree :: String -> p.Pattern Controls
+degree s = pF "degree" (p.miniF s)
+
+delay :: String -> p.Pattern Controls
+delay s = pF "delay" (p.miniF s)
+
+delayfeedback :: String -> p.Pattern Controls
+delayfeedback s = pF "delayfeedback" (p.miniF s)
+
+delaytime :: String -> p.Pattern Controls
+delaytime s = pF "delaytime" (p.miniF s)
+
+detune :: String -> p.Pattern Controls
+detune s = pF "detune" (p.miniF s)
+
+distort :: String -> p.Pattern Controls
+distort s = pF "distort" (p.miniF s)
+
+djf :: String -> p.Pattern Controls
+djf s = pF "djf" (p.miniF s)
+
+dry :: String -> p.Pattern Controls
+dry s = pF "dry" (p.miniF s)
+
+dur :: String -> p.Pattern Controls
+dur s = pF "dur" (p.miniF s)
+
+end :: String -> p.Pattern Controls
+end s = pF "end" (p.miniF s)
+
+enhance :: String -> p.Pattern Controls
+enhance s = pF "enhance" (p.miniF s)
+
+expression :: String -> p.Pattern Controls
+expression s = pF "expression" (p.miniF s)
+
+fadeInTime :: String -> p.Pattern Controls
+fadeInTime s = pF "fadeInTime" (p.miniF s)
+
+fadeTime :: String -> p.Pattern Controls
+fadeTime s = pF "fadeTime" (p.miniF s)
+
+frameRate :: String -> p.Pattern Controls
+frameRate s = pF "frameRate" (p.miniF s)
+
+frames :: String -> p.Pattern Controls
+frames s = pF "frames" (p.miniF s)
+
+freeze :: String -> p.Pattern Controls
+freeze s = pF "freeze" (p.miniF s)
+
+freq :: String -> p.Pattern Controls
+freq s = pF "freq" (p.miniF s)
+
+from :: String -> p.Pattern Controls
+from s = pF "from" (p.miniF s)
+
+fshift :: String -> p.Pattern Controls
+fshift s = pF "fshift" (p.miniF s)
+
+fshiftnote :: String -> p.Pattern Controls
+fshiftnote s = pF "fshiftnote" (p.miniF s)
+
+fshiftphase :: String -> p.Pattern Controls
+fshiftphase s = pF "fshiftphase" (p.miniF s)
+
+gain :: String -> p.Pattern Controls
+gain s = pF "gain" (p.miniF s)
+
+gate :: String -> p.Pattern Controls
+gate s = pF "gate" (p.miniF s)
+
+harmonic :: String -> p.Pattern Controls
+harmonic s = pF "harmonic" (p.miniF s)
+
+hatgrain :: String -> p.Pattern Controls
+hatgrain s = pF "hatgrain" (p.miniF s)
+
+hbrick :: String -> p.Pattern Controls
+hbrick s = pF "hbrick" (p.miniF s)
+
+hcutoff :: String -> p.Pattern Controls
+hcutoff s = pF "hcutoff" (p.miniF s)
+
+hold :: String -> p.Pattern Controls
+hold s = pF "hold" (p.miniF s)
+
+hours :: String -> p.Pattern Controls
+hours s = pF "hours" (p.miniF s)
+
+hresonance :: String -> p.Pattern Controls
+hresonance s = pF "hresonance" (p.miniF s)
+
+imag :: String -> p.Pattern Controls
+imag s = pF "imag" (p.miniF s)
+
+kcutoff :: String -> p.Pattern Controls
+kcutoff s = pF "kcutoff" (p.miniF s)
+
+krush :: String -> p.Pattern Controls
+krush s = pF "krush" (p.miniF s)
+
+lagogo :: String -> p.Pattern Controls
+lagogo s = pF "lagogo" (p.miniF s)
+
+lbrick :: String -> p.Pattern Controls
+lbrick s = pF "lbrick" (p.miniF s)
+
+lclap :: String -> p.Pattern Controls
+lclap s = pF "lclap" (p.miniF s)
+
+lclaves :: String -> p.Pattern Controls
+lclaves s = pF "lclaves" (p.miniF s)
+
+lclhat :: String -> p.Pattern Controls
+lclhat s = pF "lclhat" (p.miniF s)
+
+lcrash :: String -> p.Pattern Controls
+lcrash s = pF "lcrash" (p.miniF s)
+
+legato :: String -> p.Pattern Controls
+legato s = pF "legato" (p.miniF s)
+
+leslie :: String -> p.Pattern Controls
+leslie s = pF "leslie" (p.miniF s)
+
+lfo :: String -> p.Pattern Controls
+lfo s = pF "lfo" (p.miniF s)
+
+lfocutoffint :: String -> p.Pattern Controls
+lfocutoffint s = pF "lfocutoffint" (p.miniF s)
+
+lfodelay :: String -> p.Pattern Controls
+lfodelay s = pF "lfodelay" (p.miniF s)
+
+lfoint :: String -> p.Pattern Controls
+lfoint s = pF "lfoint" (p.miniF s)
+
+lfopitchint :: String -> p.Pattern Controls
+lfopitchint s = pF "lfopitchint" (p.miniF s)
+
+lfoshape :: String -> p.Pattern Controls
+lfoshape s = pF "lfoshape" (p.miniF s)
+
+lfosync :: String -> p.Pattern Controls
+lfosync s = pF "lfosync" (p.miniF s)
+
+lhitom :: String -> p.Pattern Controls
+lhitom s = pF "lhitom" (p.miniF s)
+
+lkick :: String -> p.Pattern Controls
+lkick s = pF "lkick" (p.miniF s)
+
+llotom :: String -> p.Pattern Controls
+llotom s = pF "llotom" (p.miniF s)
+
+lock :: String -> p.Pattern Controls
+lock s = pF "lock" (p.miniF s)
+
+loop :: String -> p.Pattern Controls
+loop s = pF "loop" (p.miniF s)
+
+lophat :: String -> p.Pattern Controls
+lophat s = pF "lophat" (p.miniF s)
+
+lrate :: String -> p.Pattern Controls
+lrate s = pF "lrate" (p.miniF s)
+
+lsize :: String -> p.Pattern Controls
+lsize s = pF "lsize" (p.miniF s)
+
+lsnare :: String -> p.Pattern Controls
+lsnare s = pF "lsnare" (p.miniF s)
+
+metatune :: String -> p.Pattern Controls
+metatune s = pF "metatune" (p.miniF s)
+
+midibend :: String -> p.Pattern Controls
+midibend s = pF "midibend" (p.miniF s)
+
+midichan :: String -> p.Pattern Controls
+midichan s = pF "midichan" (p.miniF s)
+
+midicmd :: String -> p.Pattern Controls
+midicmd s = pS "midicmd" (p.miniS s)
+
+miditouch :: String -> p.Pattern Controls
+miditouch s = pF "miditouch" (p.miniF s)
+
+minutes :: String -> p.Pattern Controls
+minutes s = pF "minutes" (p.miniF s)
+
+modwheel :: String -> p.Pattern Controls
+modwheel s = pF "modwheel" (p.miniF s)
+
+mtranspose :: String -> p.Pattern Controls
+mtranspose s = pF "mtranspose" (p.miniF s)
+
+n :: String -> p.Pattern Controls
+n s = pN "n" (p.miniN s)
+
+note :: String -> p.Pattern Controls
+note s = pN "note" (p.miniN s)
+
+nudge :: String -> p.Pattern Controls
+nudge s = pF "nudge" (p.miniF s)
+
+octave :: String -> p.Pattern Controls
+octave s = pI "octave" (p.miniTI s)
+
+octaveR :: String -> p.Pattern Controls
+octaveR s = pF "octaveR" (p.miniF s)
+
+octer :: String -> p.Pattern Controls
+octer s = pF "octer" (p.miniF s)
+
+octersub :: String -> p.Pattern Controls
+octersub s = pF "octersub" (p.miniF s)
+
+octersubsub :: String -> p.Pattern Controls
+octersubsub s = pF "octersubsub" (p.miniF s)
+
+offset :: String -> p.Pattern Controls
+offset s = pF "offset" (p.miniF s)
+
+ophatdecay :: String -> p.Pattern Controls
+ophatdecay s = pF "ophatdecay" (p.miniF s)
+
+orbit :: String -> p.Pattern Controls
+orbit s = pI "orbit" (p.miniTI s)
+
+overgain :: String -> p.Pattern Controls
+overgain s = pF "overgain" (p.miniF s)
+
+overshape :: String -> p.Pattern Controls
+overshape s = pF "overshape" (p.miniF s)
+
+pan :: String -> p.Pattern Controls
+pan s = pF "pan" (p.miniF s)
+
+panorient :: String -> p.Pattern Controls
+panorient s = pF "panorient" (p.miniF s)
+
+panspan :: String -> p.Pattern Controls
+panspan s = pF "panspan" (p.miniF s)
+
+pansplay :: String -> p.Pattern Controls
+pansplay s = pF "pansplay" (p.miniF s)
+
+panwidth :: String -> p.Pattern Controls
+panwidth s = pF "panwidth" (p.miniF s)
+
+partials :: String -> p.Pattern Controls
+partials s = pF "partials" (p.miniF s)
+
+phaserdepth :: String -> p.Pattern Controls
+phaserdepth s = pF "phaserdepth" (p.miniF s)
+
+phaserrate :: String -> p.Pattern Controls
+phaserrate s = pF "phaserrate" (p.miniF s)
+
+pitch1 :: String -> p.Pattern Controls
+pitch1 s = pF "pitch1" (p.miniF s)
+
+pitch2 :: String -> p.Pattern Controls
+pitch2 s = pF "pitch2" (p.miniF s)
+
+pitch3 :: String -> p.Pattern Controls
+pitch3 s = pF "pitch3" (p.miniF s)
+
+polyTouch :: String -> p.Pattern Controls
+polyTouch s = pF "polyTouch" (p.miniF s)
+
+portamento :: String -> p.Pattern Controls
+portamento s = pF "portamento" (p.miniF s)
+
+progNum :: String -> p.Pattern Controls
+progNum s = pF "progNum" (p.miniF s)
+
+rate :: String -> p.Pattern Controls
+rate s = pF "rate" (p.miniF s)
+
+real :: String -> p.Pattern Controls
+real s = pF "real" (p.miniF s)
+
+release :: String -> p.Pattern Controls
+release s = pF "release" (p.miniF s)
+
+resonance :: String -> p.Pattern Controls
+resonance s = pF "resonance" (p.miniF s)
+
+ring :: String -> p.Pattern Controls
+ring s = pF "ring" (p.miniF s)
+
+ringdf :: String -> p.Pattern Controls
+ringdf s = pF "ringdf" (p.miniF s)
+
+ringf :: String -> p.Pattern Controls
+ringf s = pF "ringf" (p.miniF s)
+
+room :: String -> p.Pattern Controls
+room s = pF "room" (p.miniF s)
+
+sagogo :: String -> p.Pattern Controls
+sagogo s = pF "sagogo" (p.miniF s)
+
+sclap :: String -> p.Pattern Controls
+sclap s = pF "sclap" (p.miniF s)
+
+sclaves :: String -> p.Pattern Controls
+sclaves s = pF "sclaves" (p.miniF s)
+
+scram :: String -> p.Pattern Controls
+scram s = pF "scram" (p.miniF s)
+
+scrash :: String -> p.Pattern Controls
+scrash s = pF "scrash" (p.miniF s)
+
+seconds :: String -> p.Pattern Controls
+seconds s = pF "seconds" (p.miniF s)
+
+semitone :: String -> p.Pattern Controls
+semitone s = pF "semitone" (p.miniF s)
+
+shape :: String -> p.Pattern Controls
+shape s = pF "shape" (p.miniF s)
+
+size :: String -> p.Pattern Controls
+size s = pF "size" (p.miniF s)
+
+slide :: String -> p.Pattern Controls
+slide s = pF "slide" (p.miniF s)
+
+slider0 :: String -> p.Pattern Controls
+slider0 s = pF "slider0" (p.miniF s)
+
+slider1 :: String -> p.Pattern Controls
+slider1 s = pF "slider1" (p.miniF s)
+
+slider10 :: String -> p.Pattern Controls
+slider10 s = pF "slider10" (p.miniF s)
+
+slider11 :: String -> p.Pattern Controls
+slider11 s = pF "slider11" (p.miniF s)
+
+slider12 :: String -> p.Pattern Controls
+slider12 s = pF "slider12" (p.miniF s)
+
+slider13 :: String -> p.Pattern Controls
+slider13 s = pF "slider13" (p.miniF s)
+
+slider14 :: String -> p.Pattern Controls
+slider14 s = pF "slider14" (p.miniF s)
+
+slider15 :: String -> p.Pattern Controls
+slider15 s = pF "slider15" (p.miniF s)
+
+slider2 :: String -> p.Pattern Controls
+slider2 s = pF "slider2" (p.miniF s)
+
+slider3 :: String -> p.Pattern Controls
+slider3 s = pF "slider3" (p.miniF s)
+
+slider4 :: String -> p.Pattern Controls
+slider4 s = pF "slider4" (p.miniF s)
+
+slider5 :: String -> p.Pattern Controls
+slider5 s = pF "slider5" (p.miniF s)
+
+slider6 :: String -> p.Pattern Controls
+slider6 s = pF "slider6" (p.miniF s)
+
+slider7 :: String -> p.Pattern Controls
+slider7 s = pF "slider7" (p.miniF s)
+
+slider8 :: String -> p.Pattern Controls
+slider8 s = pF "slider8" (p.miniF s)
+
+slider9 :: String -> p.Pattern Controls
+slider9 s = pF "slider9" (p.miniF s)
+
+smear :: String -> p.Pattern Controls
+smear s = pF "smear" (p.miniF s)
+
+songPtr :: String -> p.Pattern Controls
+songPtr s = pF "songPtr" (p.miniF s)
+
+speed :: String -> p.Pattern Controls
+speed s = pF "speed" (p.miniF s)
+
+squiz :: String -> p.Pattern Controls
+squiz s = pF "squiz" (p.miniF s)
+
+stepsPerOctave :: String -> p.Pattern Controls
+stepsPerOctave s = pF "stepsPerOctave" (p.miniF s)
+
+stutterdepth :: String -> p.Pattern Controls
+stutterdepth s = pF "stutterdepth" (p.miniF s)
+
+stuttertime :: String -> p.Pattern Controls
+stuttertime s = pF "stuttertime" (p.miniF s)
+
+sustain :: String -> p.Pattern Controls
+sustain s = pF "sustain" (p.miniF s)
+
+sustainpedal :: String -> p.Pattern Controls
+sustainpedal s = pF "sustainpedal" (p.miniF s)
+
+timescale :: String -> p.Pattern Controls
+timescale s = pF "timescale" (p.miniF s)
+
+timescalewin :: String -> p.Pattern Controls
+timescalewin s = pF "timescalewin" (p.miniF s)
+
+to :: String -> p.Pattern Controls
+to s = pF "to" (p.miniF s)
+
+toArg :: String -> p.Pattern Controls
+toArg s = pS "toArg" (p.miniS s)
+
+tomdecay :: String -> p.Pattern Controls
+tomdecay s = pF "tomdecay" (p.miniF s)
+
+tremolodepth :: String -> p.Pattern Controls
+tremolodepth s = pF "tremolodepth" (p.miniF s)
+
+tremolorate :: String -> p.Pattern Controls
+tremolorate s = pF "tremolorate" (p.miniF s)
+
+triode :: String -> p.Pattern Controls
+triode s = pF "triode" (p.miniF s)
+
+tsdelay :: String -> p.Pattern Controls
+tsdelay s = pF "tsdelay" (p.miniF s)
+
+uid :: String -> p.Pattern Controls
+uid s = pF "uid" (p.miniF s)
+
+unit :: String -> p.Pattern Controls
+unit s = pS "unit" (p.miniS s)
+
+val :: String -> p.Pattern Controls
+val s = pF "val" (p.miniF s)
+
+vcfegint :: String -> p.Pattern Controls
+vcfegint s = pF "vcfegint" (p.miniF s)
+
+vcoegint :: String -> p.Pattern Controls
+vcoegint s = pF "vcoegint" (p.miniF s)
+
+velocity :: String -> p.Pattern Controls
+velocity s = pF "velocity" (p.miniF s)
+
+voice :: String -> p.Pattern Controls
+voice s = pF "voice" (p.miniF s)
+
+vowel :: String -> p.Pattern Controls
+vowel s = pS "vowel" (p.miniS s)
+
+waveloss :: String -> p.Pattern Controls
+waveloss s = pF "waveloss" (p.miniF s)
+
+xsdelay :: String -> p.Pattern Controls
+xsdelay s = pF "xsdelay" (p.miniF s)
+
+clip :: String -> p.Pattern Controls
+clip s = legato s
+
+voi :: String -> p.Pattern Controls
+voi s = voice s
+
+vco :: String -> p.Pattern Controls
+vco s = vcoegint s
+
+vcf :: String -> p.Pattern Controls
+vcf s = vcfegint s
+
+up :: String -> p.Pattern Controls
+up s = note s
+
+tremr :: String -> p.Pattern Controls
+tremr s = tremolorate s
+
+tremdp :: String -> p.Pattern Controls
+tremdp s = tremolodepth s
+
+tdecay :: String -> p.Pattern Controls
+tdecay s = tomdecay s
+
+sz :: String -> p.Pattern Controls
+sz s = size s
+
+sus :: String -> p.Pattern Controls
+sus s = sustain s
+
+stt :: String -> p.Pattern Controls
+stt s = stuttertime s
+
+std :: String -> p.Pattern Controls
+std s = stutterdepth s
+
+sld :: String -> p.Pattern Controls
+sld s = slide s
+
+scr :: String -> p.Pattern Controls
+scr s = scrash s
+
+scp :: String -> p.Pattern Controls
+scp s = sclap s
+
+scl :: String -> p.Pattern Controls
+scl s = sclaves s
+
+sag :: String -> p.Pattern Controls
+sag s = sagogo s
+
+s :: String -> p.Pattern Controls
+s s = sound s
+
+rel :: String -> p.Pattern Controls
+rel s = release s
+
+por :: String -> p.Pattern Controls
+por s = portamento s
+
+pit3 :: String -> p.Pattern Controls
+pit3 s = pitch3 s
+
+pit2 :: String -> p.Pattern Controls
+pit2 s = pitch2 s
+
+pit1 :: String -> p.Pattern Controls
+pit1 s = pitch1 s
+
+phasr :: String -> p.Pattern Controls
+phasr s = phaserrate s
+
+phasdp :: String -> p.Pattern Controls
+phasdp s = phaserdepth s
+
+ohdecay :: String -> p.Pattern Controls
+ohdecay s = ophatdecay s
+
+number :: String -> p.Pattern Controls
+number s = n s
+
+lsn :: String -> p.Pattern Controls
+lsn s = lsnare s
+
+lpq :: String -> p.Pattern Controls
+lpq s = resonance s
+
+lpf :: String -> p.Pattern Controls
+lpf s = cutoff s
+
+loh :: String -> p.Pattern Controls
+loh s = lophat s
+
+llt :: String -> p.Pattern Controls
+llt s = llotom s
+
+lht :: String -> p.Pattern Controls
+lht s = lhitom s
+
+lfop :: String -> p.Pattern Controls
+lfop s = lfopitchint s
+
+lfoi :: String -> p.Pattern Controls
+lfoi s = lfoint s
+
+lfoc :: String -> p.Pattern Controls
+lfoc s = lfocutoffint s
+
+lcr :: String -> p.Pattern Controls
+lcr s = lcrash s
+
+lcp :: String -> p.Pattern Controls
+lcp s = lclap s
+
+lcl :: String -> p.Pattern Controls
+lcl s = lclaves s
+
+lch :: String -> p.Pattern Controls
+lch s = lclhat s
+
+lbd :: String -> p.Pattern Controls
+lbd s = lkick s
+
+lag :: String -> p.Pattern Controls
+lag s = lagogo s
+
+hpq :: String -> p.Pattern Controls
+hpq s = hresonance s
+
+hpf :: String -> p.Pattern Controls
+hpf s = hcutoff s
+
+hg :: String -> p.Pattern Controls
+hg s = hatgrain s
+
+gat :: String -> p.Pattern Controls
+gat s = gate s
+
+fadeOutTime :: String -> p.Pattern Controls
+fadeOutTime s = fadeTime s
+
+dt :: String -> p.Pattern Controls
+dt s = delaytime s
+
+dfb :: String -> p.Pattern Controls
+dfb s = delayfeedback s
+
+det :: String -> p.Pattern Controls
+det s = detune s
+
+delayt :: String -> p.Pattern Controls
+delayt s = delaytime s
+
+delayfb :: String -> p.Pattern Controls
+delayfb s = delayfeedback s
+
+ctfg :: String -> p.Pattern Controls
+ctfg s = cutoffegint s
+
+ctf :: String -> p.Pattern Controls
+ctf s = cutoff s
+
+chdecay :: String -> p.Pattern Controls
+chdecay s = clhatdecay s
+
+bpq :: String -> p.Pattern Controls
+bpq s = bandq s
+
+bpf :: String -> p.Pattern Controls
+bpf s = bandf s
+
+att :: String -> p.Pattern Controls
+att s = attack s
+

@@ -1,0 +1,58 @@
+-- lib/control.fk (docs/dev/delivery.md): Tidal's controls and the operators
+-- that combine them, with Tidal's arithmetic, note names and grouped params;
+-- and onsets in blocks equal to one query. Then MIDI, as SuperDirt's MIDI
+-- target sends it.
+import pattern as p
+import control (..)
+
+t = p.cycleTicks
+
+-- each onset's start and parameters
+onsets :: p.Pattern Controls -> Int -> [(Int, [(String, Value)])]
+onsets pat cycles = map (\e -> (e.whole.start, controlPairs e.value)) (p.onsets pat (p.Span 0 (cycles * t)))
+
+-- the values of one name, onset by onset
+values :: String -> p.Pattern Controls -> [Value]
+values k pat = concatMap (\(_, kvs) -> map snd (filter (\(k2, _) -> k2 == k) kvs)) (onsets pat 1)
+
+brief :: p.Event a -> (Int, a)
+brief e = (e.whole.start, e.value)
+
+starts :: Ord a => p.Pattern a -> Int -> Int -> [(Int, a)]
+starts pat a b = map brief (p.onsets pat (p.Span a b))
+
+blocked :: Ord a => p.Pattern a -> Int -> Int -> Int -> [(Int, a)]
+blocked pat n a b = if a >= b then [] else starts pat a (min b (a + n)) ++ blocked pat n (a + n) b
+
+same :: Ord a => p.Pattern a -> (Int, Bool)
+same pat = case starts pat 0 (20 * t) of
+  w -> (length w, sort (blocked pat 7919 0 (20 * t)) == sort w)
+
+-- the first event's messages, at 1000000 units a second for an event of
+-- 500000: (status, data1, data2, size, note length)
+msgs :: p.Pattern Controls -> [(Int, Int, Int, Int, Int)]
+msgs pat = case p.onsets pat (p.Span 0 t) of
+  e : _ -> map (\(m, l) -> (mod m 256, mod (div m 256) 256, mod (div m 65536) 256, div m 16777216, l)) (midiOf 1000000 500000 e.value)
+  [] -> []
+
+main = do
+  print (onsets (s "bd*2" # gain "0.8") 1)
+  print (onsets (sound "bd:3 sn") 1, onsets (sound "a:1.5 b:x c:-2 d:1e3") 1)
+  print (values "n" (n "0 .. 3"), values "note" (note "c5 e a4 cs'maj"))
+  print (values "gain" (gain "e f fs 0.5"))
+  print (values "n" (n "0 1" |+ n "10"), values "n" (n "0 1" +| n "10 20 30"))
+  print (values "n" (n "0 1" |+| n "10 20 30"), values "n" (n "0 1" ||+ n "10 20"))
+  print (onsets (n "1" # n "2") 1, onsets (n "1" |< n "2") 1, onsets (s "bd" # n "1" # gain "0.5") 1)
+  print (onsets (n "1" + 1) 1, onsets (n "5" |- gain "1") 1)
+  print (onsets (speed "3" |/ speed "2") 1, onsets (cut "3" |/ cut "2") 1)
+  print (onsets (n "7 -1" |% n "3") 1, onsets (cut "c c6 2") 1)
+  print (onsets (nrpn "3:4") 1, onsets (cc "64:127") 1)
+  print (onsets (up "2") 1, onsets (lpf "1000") 1, onsets (vowel "a") 1)
+  print (onsets (n "1" |<| n "2 3") 1, onsets (n "1 2" >| n "10 20 30") 1)
+  print (starts (p.mini "1 2" |*| p.mini "10 20 30") 0 t, starts (p.miniS "a b" |++ p.miniS "x") 0 t, starts (p.miniF "2" |** p.miniF "0.5 3") 0 t)
+  print (same (s "bd*2 [sn cp]? hh*1.5" # n "<0 3> 1" |+ speed "1 2" |* gain "0.5"))
+  print (msgs (note "0"), msgs (n "0" # s "bd"), msgs (n "2" # s "midi" # midichan "9"))
+  print (msgs (note "c6" # gain "1.2" # amp "1"), msgs (note "0" # octave "4" # legato "0.5"), msgs (note "0" # sustain "0.002"))
+  print (msgs (ccn "74" # ccv "64"), msgs (nrpn "300:200"), msgs (progNum "5" # midibend "10000" # miditouch "70"))
+  print (msgs (note "0" # polyTouch "33"), msgs (freq "440"), msgs (freq "261.63" # n "5"), msgs (midicmd "start midiClock"))
+  print (msgs (midicmd "allNotesOff" # midichan "2"), msgs (midicmd "bend" # val "0"), msgs (midicmd "songPtr" # songPtr "200"))

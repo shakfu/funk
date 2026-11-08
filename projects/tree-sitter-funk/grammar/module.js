@@ -77,9 +77,10 @@ module.exports = {
     field('module', $._module_path),
     optional('qualified'),
     optional(seq('as', field('alias', $._module_path))),
-    optional(seq(
-      optional('hiding'),
-      field('names', $.import_list),
+    optional(choice(
+      seq(optional('hiding'), field('names', $.import_list)),
+      // funk: import m (..), every export (docs/dev/modules.md)
+      field('names', alias(parens($, '..'), $.import_all)),
     )),
   ),
 

@@ -6,7 +6,7 @@
  3000.000 off ch1 60 0
 <input>:1:63: error: type mismatch: expected `pattern.Pattern Int`, found `pattern.Pattern Char`
   (cannot match `Int` with `Char`)
-funk-midi: pat is not playing: it must be a Pattern Int
+funk-midi: pat is not playing: it must be a Pattern Int or of Controls
  4000.000 on  ch2 67 80
  5000.000 off ch2 67 0
  6000.000 on  ch2 67 80

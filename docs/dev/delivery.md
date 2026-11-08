@@ -1,6 +1,6 @@
 # Control patterns: delivery
 
-Status: proposal, 2026-11-07, for 0.11's control patterns ([roadmap.md](roadmap.md#011----tidal-expressive-patterns)). Nothing here is decided; the decisions are listed at the end.
+Status: decided 2026-11-07, for 0.11's control patterns ([roadmap.md](roadmap.md#011----tidal-expressive-patterns)); step 1 of the plan is done. The decisions are at the end.
 
 The question: how an event with named parameters, such as Tidal's `s "bd*2" # speed "<1 2>" # pan 0.3`, reaches MIDI output, the plugin's voices and `d.kit`.
 
@@ -103,8 +103,32 @@ Step 1 is useful alone: patterns can be written and tested before any host plays
 
 ## Decisions
 
-1. Payload: P1, open keys?
-2. Transport: T2, with T1's mapping for MIDI output?
-3. `note` and `n`: in Tidal, `note 0` is middle C, which SuperDirt plays as MIDI 60. Should `c.note` follow Tidal, so ported patches keep their pitch, while `p.mini` stays MIDI numbers? Or should both be MIDI?
-4. Module name and alias: `control as c`?
-5. `pat` as a `ControlPattern`: should the hosts accept one in place of `Pattern Int` (the plugin's type check would grow), or should a control pattern have a name of its own, such as `ctl`?
+Taken 2026-11-07.
+
+1. Payload: P1, open keys.
+2. Transport: T2, with T1's mapping for MIDI output, in the plan's order.
+3. Controls keep Tidal's values and note names: in `c.note` and `c.n`, `0` and `c5` are middle C, and a consumer converts them. `n` is also a sample's index, so no fixed offset applies when parsing. `p.mini` keeps MIDI's numbering, `c4` being 60.
+4. `control as c`, its operators imported by name; replaced the same day by `import control (..)`, below.
+5. `pat` may be a control pattern; the hosts' type check grows, and a `Pattern Int` becomes controls inside the host.
+
+## Step 1
+
+`lib/control.fk`, tested by `tests/lib/controls.fk`:
+
+- `Value`, `Controls` (sorted pairs), `get`, `fromList`, and `Num Controls`, with Tidal's arithmetic, quirks included: `|-` negates a name only on the right, and `|/` multiplies `Int`s, since Tidal's `recip` leaves them.
+- The operators `+ - * / % ** ++ < >` in the forms `|op|`, `|op`, `op|` and `||op`, and `#`. `|>` is the prelude's `x |> f`, so `#`, its Tidal synonym, stands for it.
+- `pF`, `pI`, `pS`, `pN`, `grp`, and Tidal's controls, generated from `Params.hs`: 196 single controls, 3 grouped (`sound`, `cc`, `nrpn`) and 58 aliases. The bus and recv forms and `array`, an OSC blob, are left out.
+- In `lib/pattern.fk`, `miniF` and `miniN` read Tidal's `Double` and `Note`: decimals, ratio letters, and note names with `c5` 0. In `miniF` the ratio letters come first, so `gain "e"` is 1/8; in `miniN` the note names do. `miniTI` reads Tidal's `Int`.
+- Importing `control` costs about 10 ms when a session starts.
+
+## Step 2
+
+Done 2026-11-07: control patterns play as MIDI in `funk-midi` and the plugin.
+
+- `c.midiOf` follows SuperDirt's MIDI event (`DirtEventTypes.sc`, defaults from `DirtOrbit.sc`), on Tidal's `develop` branch as of 2026-11-07. `c.writeControls` writes three `Int`s a message: its time, its bytes with their size, and a note-on's length. The length rides with the note-on because `funk_voices` sends in time order: an off queued ahead of the next window would hold that window's notes back.
+- The hosts choose `step`'s form by `pat`'s type, through `funk_type_of`. A `Pattern Int` keeps its own path rather than becoming controls, since the two produce the same messages.
+- Messages keep their size from `step` to the output, so a program change sends 2 bytes and a clock 1.
+- Every CC is sent by `ccn`/`ccv` or `midicmd`, as in SuperDirt; no control maps to a CC by default.
+- Not sent: `midicmd`'s `sysex` and `smpte`, which need more than 3 bytes, the framework's limit, and `noteOn`, `noteOff` and `polyTouch`, whose defaults without a note were not checked.
+- The alias `c` cost something not foreseen in decision 4: a session that imports `control as c` cannot use `c` as a variable, so `\c -> ...` fails. The hosts' own `voicesOn c f` failed so, and now says `ch`.
+- The hosts now `import control (..)`, a new form ([modules.md](modules.md#imports)), so patterns read as Tidal's, `s "bd*2" # gain "0.8"`, and `c` is free. An unqualified import blocks only top-level definitions of its names, where an alias blocks the name as a variable too. `control.fk` exports its controls, operators, types and param makers, not its helpers, and its classes without their methods, so the session takes no common name such as `left` or `union`; `get`, `pairs` and `fromList` became `getControl`, `controlPairs` and `controlsFromList`.

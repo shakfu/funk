@@ -175,6 +175,7 @@ struct Event {
 
 struct Events {
 	std::vector<Event> list;
+	std::vector<Event> others; // the messages that are not notes, such as CC
 	std::vector<float> audio; // the first channel's output, with an audio port
 	long long blockStart = 0;
 	bool sorted = true;
@@ -192,7 +193,10 @@ const clap_output_events_t* MakeOut(Events& events)
 		if (h->time < ev->last || h->time >= kBlock) ev->sorted = false;
 		// The checks are about notes; a language may add program and control changes.
 		const uint8_t status = midi->data[0] & 0xF0;
-		if (status != 0x80 && status != 0x90) return true;
+		if (status != 0x80 && status != 0x90) {
+			ev->others.push_back({ev->blockStart + h->time, {midi->data[0], midi->data[1], midi->data[2]}});
+			return true;
+		}
 		ev->last = h->time;
 		ev->list.push_back({ev->blockStart + h->time, {midi->data[0], midi->data[1], midi->data[2]}});
 		return true;
@@ -594,6 +598,17 @@ void CheckClip(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 
 	reply = Eval(cases["forever"]);
 	check(reply.find("stopped") != std::string::npos, "a clip that never ends is cut off: " + reply);
+
+	// A control pattern's clip, as SuperDirt's MIDI target plays it: the CC and program change before
+	// the note, at velocity 50 from amp's 0.4, ending 1 ms early.
+	if (!cases.count("controls")) return;
+	reply = Eval(cases["controls"]);
+	check(reply.find("clip: 4 events, 4 beats") != std::string::npos, "controls become a clip: " + reply);
+	ev = Play(plugin, 0., (int)(2 * kBeatFrames / kBlock));
+	check(ev.others.size() == 2 && Is(ev.others[0], 0, 0xB0, 74) && ev.others[0].data[2] == 64 && Is(ev.others[1], 0, 0xC0, 3)
+	          && ev.list.size() == 2 && Is(ev.list[0], 0, 0x90, 60) && ev.list[0].data[2] == 50
+	          && Is(ev.list[1], kBeatFrames * 499 / 500, 0x80, 60),
+	      "a control pattern plays its CC, program and note:" + Describe(ev) + " and " + std::to_string(ev.others.size()) + " others");
 }
 
 void CheckStop(const clap_plugin_t* plugin, std::map<std::string, std::string>& cases)

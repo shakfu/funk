@@ -8,7 +8,9 @@ Upstream parsed 166 of funk's 239 files. Its layout scanner handled funk's layou
 - lowercase qualifiers on constructors, types and operators: `g.Node`, `vec.Vec`, `vec.<+>`, `stack.Stack.size`. `g.play` stays a `projection`, as funk reads `.x` after a name; whether `g` is a module is known only from the imports;
 - definitions in a type's namespace: `Shape.area (Circle _ r) = ...`, `Event.onset :: ...`;
 - `foreign library "m"` and `foreign struct ["header.h ctype"] T { field ["c.member"] :: type }`;
-- `->>`, a function arrow, in the scanner and the grammar.
+- `->>`, a function arrow, in the scanner and the grammar;
+- named arguments: a default in a signature, `attack:Sig = 0.01 -> ...`, and `adsr .{ attack = 0.2 }`, a `named_arguments` node. `.{` follows a name, or a projection such as `d.adsr`, which is how a lowercase qualifier reads;
+- `import m (..)`, an `import_all` node.
 
 `queries/highlights.scm` drops upstream's `(variable) @type`, as Helix's copy does: where a later pattern wins, it made every variable a type. The CLAP plugin's editor colours with this query too ([docs/dev/plugin.md](../../docs/dev/plugin.md#syntax-colours)).
 
@@ -22,7 +24,7 @@ make check      # every .fk file in the repository parses without ERROR or MISSI
 make helix      # helix/queries from queries/, with Helix's capture names
 ```
 
-`make check` skips `tests/errors/layout.fk`, whose layout error is its test. `src/parser.c` is generated, 20 MB, and not committed.
+`make check` skips three files whose syntax error is their test: `tests/errors/layout.fk`, and `named_default_atom.fk` and `named_position.fk` in `tests/errors`, which the grammar rejects as funk does. `src/parser.c` is generated, 20 MB, and not committed.
 
 ## Helix
 

@@ -1,0 +1,17 @@
+-- funk-midi --audio --voices 2 --no-sleep --script (tests/CMakeLists.txt):
+-- control patterns (lib/control.fk), as SuperDirt's MIDI target plays them,
+-- on MIDI and on the voices. The sum of the gates is printed: velocity 50
+-- of 127 a note, from amp's 0.4. pat is redefined 100 ms before a cycle.
+sig = voices (\gate freq -> gate)
+-- note 0 is MIDI 60; a CC before each note, at its time
+pat = note "0 [4 7]" # ccn "74" # ccv "<64 100>"
+:wait 1900
+-- channel 2 (midichan 1), velocity from gain, a program change and a bend;
+-- |+ adds 2 to n in the second cycle; legato halves the notes
+pat = n "0 12" # midichan "1" # gain "1.2" # progNum "3" # midibend "8192" # legato "0.5" |+ n "<0 2>"
+:wait 4000
+-- a sample's event sends no MIDI; a Pattern Int plays as before
+pat = s "bd sn"
+:wait 2000
+pat = p.mini "72"
+:wait 1000
