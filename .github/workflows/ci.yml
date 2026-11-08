@@ -139,4 +139,7 @@ jobs:
           cmake --build build --target test_clap_host
 
       - name: Run the plugin
+        # the plugin listens on this port, the host's argument only says where it sends, as ctest's hosts/clap
+        env:
+          FUNK_MIDI_CLAP_UDP_PORT: "57291"
         run: build/test_clap_host zig-plugin/funk-midi.clap tests/hosts/clap.txt 57291
