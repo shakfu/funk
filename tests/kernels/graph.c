@@ -263,6 +263,34 @@ int main(int argc, char **argv) {
   funk_voices_free(vs);
   funk_player_free(vp);
 
+  /* parameters: a note's go to its voice's "vK.name" before its gate rises,
+     and a trigger sets "prefix.name" and pulses "prefix.gate" for a frame;
+     names the graph lacks are skipped */
+  vp = funk_player_new();
+  g = funk_graph_new(8, 8000.0);
+  funk_graph_output(g, funk_graph_control(g, 0.0f));
+  funk_graph_name(g, 0, "v1.level");
+  funk_graph_output(g, funk_graph_control(g, 0.0f));
+  funk_graph_name(g, 1, "s.bd:0.gate");
+  funk_graph_control(g, 0.0f);
+  funk_graph_name(g, 2, "v1.gate");
+  funk_graph_control(g, 1.0f);
+  funk_graph_name(g, 3, "s.bd:0.speed");
+  funk_player_play(vp, g);
+  vs = funk_voices_new(vp, 1, true);
+  const char *pn[] = {"level", "cutoff"};
+  const float pv[] = {0.5f, 300.0f};
+  funk_voices_on_with(vs, 2, INT64_MAX, 0, 60, 127, 2, pn, pv);
+  const char *tn[] = {"speed", "level"};
+  const float tv[] = {2.0f, 0.25f};
+  funk_voices_trigger(vs, 5, "s.bd:0", 2, tn, tv);
+  funk_player_render_channels(vp, vo, 2, N);
+  printf("params ");
+  for (int i = 0; i < N; i++) printf(" %g/%g", vl[i], vr[i]);
+  printf("\n");
+  funk_voices_free(vs);
+  funk_player_free(vp);
+
   /* channels: channel 10 (9 here) has its own voices, channel 2 shares;
      an off ends its own channel's note, not the oldest of its pitch */
   vp = funk_player_new();

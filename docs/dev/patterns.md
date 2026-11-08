@@ -42,7 +42,7 @@ Plain combinators first, e.g. `seq [bd, sn]`. Mini-notation, a compact string sy
 
 - Whether `do` over patterns is wanted. funk's `do` sequences effects (`->>`, [typed-effects.md](typed-effects.md)); a monadic `do` would conflict with that design.
 
-- Event payload: a fixed record (note, velocity, channel) or open parameters, as in Tidal's control maps.
+- ~~Event payload: a fixed record (note, velocity, channel) or open parameters, as in Tidal's control maps.~~ Open parameters, 2026-11-07: `lib/control.fk` ([delivery.md](delivery.md#decisions)).
 
 ## Friction program
 

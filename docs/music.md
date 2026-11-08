@@ -254,7 +254,23 @@ An event plays as SuperDirt's MIDI target plays it, if it has no `s` or `s` is `
 | `progNum`, `midibend`, `miditouch`, `polyTouch` | program change, pitch bend (0 to 16383), aftertouch, poly aftertouch in place of the note |
 | `midicmd` | `start`, `stop`, `continue`, `midiClock`, `allNotesOff`, `control`, `songPtr`, and `bend` or `touch` by `val` |
 
-Each message goes out at the event's onset, before its note. Sample names, `s "bd"`, do not play yet.
+Each message goes out at the event's onset, before its note.
+
+The plugin's voices, and `funk-midi --audio`'s, read an event's other parameters through `voicesWith`, whose function also takes `param`: `param name default` is the voice's value of `name`, which its event sets as its note starts. A parameter MIDI takes, such as `note`, `gain` or `ccn`, is not sent to the voice.
+
+```haskell
+sig = voicesWith (\gate freq param -> d.lowpass1 (param "cutoff" 2000.0) (d.saw freq) * gate)
+pat = note "0 4 7" # cutoff "<400 1200>"
+```
+
+An event whose `s` is a sample's name, not `"midi"`, plays that sample of `d.kit`, with SuperDirt's `speed`, `pan` (0 left, 1 right) and level, `amp / 0.4 * (min gain 2 + overgain)^4`, so 1 by default. It sends no MIDI. `s "bd:3"` and `s "bd" # n 3` are the same sample:
+
+```haskell
+sig = d.kit "/abs/path/Dirt-Samples" ["bd", "bd:3", "sn"]
+pat = s "bd*2 [sn bd:3]" # speed "<1 2>" # gain "0.9"
+```
+
+A name not in the kit is silent. One sample plays once at a time: a new event restarts it, where SuperDirt would play both.
 
 The control names are taken at the top level of these sessions: `speed = 2` is an error, "`speed` is imported from `control`; choose another name". A parameter or `let` of that name is fine, and `control.speed` always means the control.
 

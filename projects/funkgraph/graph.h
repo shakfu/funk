@@ -158,6 +158,19 @@ void funk_voices_free(funk_voices *v);
    notes' offs before on go out first. */
 bool funk_voices_on(funk_voices *v, int64_t on, int64_t off, int chan, int note, int vel);
 
+/* funk_voices_on, and before the gate rises, each of the n names[i] to
+   values[i] on the note's voice: control "vK.name", or "cC.vK.name", if
+   the graph has it. A control pattern's parameters (lib/control.fk). */
+bool funk_voices_on_with(funk_voices *v, int64_t on, int64_t off, int chan, int note, int vel, int n,
+                         const char *const *names, const float *values);
+
+/* A sample's trigger, as lib/dsp.fk's d.kit reads it: from frame, each of
+   the n names[i] to values[i] on control "prefix.name", then "prefix.gate"
+   to 1 for one frame. Controls the graph lacks are skipped. Earlier offs go
+   out first, as for a note. */
+bool funk_voices_trigger(funk_voices *v, int64_t frame, const char *prefix, int n, const char *const *names,
+                         const float *values);
+
 /* The oldest held voice of note on chan ends at frame. */
 bool funk_voices_off(funk_voices *v, int64_t frame, int chan, int note);
 

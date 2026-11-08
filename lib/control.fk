@@ -11,7 +11,7 @@ module control
     (-|), (||-), (|*|), (|*), (*|), (||*), (|/|), (|/), (/|), (||/), (|%|), (|%), (%|), (||%),
     (|**|), (|**), (**|), (||**), (|++|), (|++), (++|), (||++), (|>|), (>|), (||>), (|<|), (|<),
     (<|), (||<), (#), controlPairs, getControl, controlsFromList, pF, pI, pS, pN, grp, mF, mI, mS,
-    midiOf, writeControls, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
+    midiOf, Record(..), recordsOf, sampleKey, writeControls, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
     bank, begin, binshift, button0, button1, button10, button11, button12, button13, button14,
     button15, button2, button3, button4, button5, button6, button7, button8, button9, ccn, ccv,
     channel, clhatdecay, coarse, comb, control, cps, crush, ctlNum, ctranspose, cut, cutoff,
@@ -411,12 +411,80 @@ fourth x = x * x * x * x
 clampTo :: Int -> Int -> Int -> Int
 clampTo lo hi x = max lo (min hi x)
 
+-- What an event sends the hosts (docs/dev/delivery.md, step 3): MIDI
+-- messages, a name's chunks, a parameter's value, which takes the chunks
+-- before it as its name, and a sample's trigger, which takes them as its
+-- key. A MIDI event's other parameters go before its messages, for its
+-- voice; a sample event's speed, level and pan, then its trigger, for d.kit.
+data Record = RMidi Int Int | RName Int | RParam Float | RTrigger deriving (Eq, Show)
+
+-- the names midiOf reads, which a voice is not sent
+midiNames :: [String]
+midiNames = ["s", "n", "note", "octave", "freq", "amp", "gain", "overgain", "sustain", "legato", "midichan",
+  "velocity", "ccn", "ccv", "nrpn", "val", "progNum", "midibend", "miditouch", "polyTouch", "midicmd", "ctlNum",
+  "control", "songPtr"]
+
+recordsOf :: Int -> Int -> Controls -> [Record]
+recordsOf ups dur cs = case getControl "s" cs of
+  Just (VS x) -> if x == "midi" then forVoice else forSample x
+  Just _ -> []
+  Nothing -> forVoice
+  where
+    num k d = case getControl k cs of
+      Just (VF x) -> x
+      Just (VI i) -> toFloat i
+      _ -> d
+    named k v = map RName (chunks (unpack k)) ++ [RParam v]
+    forVoice = concatMap (\(k, v) -> case v of
+        VF x -> if elem k midiNames then [] else named k x
+        VI i -> if elem k midiNames then [] else named k (toFloat i)
+        VS _ -> []) (controlPairs cs)
+      ++ map (\(m, l) -> RMidi m l) (midiOf ups dur cs)
+    -- SuperDirt's: amp * (min gain 2 + overgain)^4, relative to amp's 0.4, so 1 by default
+    level = num "amp" 0.4 / 0.4 * fourth (min (num "gain" 1.0) 2.0 + num "overgain" 0.0)
+    forSample x = named "speed" (num "speed" 1.0) ++ named "level" level ++ named "pan" (num "pan" 0.5)
+      ++ map RName (chunks (unpack (sampleKey x (truncate (num "n" 0.0))))) ++ [RTrigger]
+
+-- a sample's key, as d.kit names its controls: "bd:3"
+sampleKey :: String -> Int -> String
+sampleKey name index = case p.soundParts name of
+  (folder, i) -> folder ++ ":" ++ show (if i /= 0 then i else index)
+
+-- 8 characters an Int, low byte first
+chunks :: [Char] -> [Int]
+chunks cs = if null cs then [] else foldr (\c acc -> acc * 256 + mod (ord c) 256) 0 (take 8 cs) : chunks (drop 8 cs)
+
 -- For a host that owns the memory, as p.writeEvents: writes the first cap
--- MIDI messages of the events that start in units [a, b), three Ints each:
--- start, midiOf's bytes and length. cs is units per cycle, ups per second.
--- Returns how many there were.
+-- records of the events that start in units [a, b), three Ints each: the
+-- start, a tag, and a payload. A MIDI message's tag is midiOf's bytes and
+-- its payload the note's length; a name chunk's tag is 244 (0xF4) and its
+-- payload 8 characters; a parameter's tag is 245 (0xF5) and its payload
+-- a Float; a trigger's tag is 253 (0xFD). cs is units per cycle, ups per
+-- second. Returns how many there were.
 writeControls :: Ptr Int -> Int -> p.Pattern Controls -> Int -> Int -> Int -> Int ->> Int
-writeControls buf cap pat cs ups a b = p.writeEach buf cap 0 (concatMap (\(s, d, v) -> map (\(m, l) -> (s, m, l)) (midiOf ups d v)) (p.sampleEvents pat cs a b))
+writeControls buf cap pat cs ups a b = writeRecords buf cap 0 (concatMap (\(s, d, v) -> map (\r -> (s, r)) (recordsOf ups d v)) (p.sampleEvents pat cs a b))
+
+writeRecords :: Ptr Int -> Int -> Int -> [(Int, Record)] ->> Int
+writeRecords buf cap i rs = case rs of
+  [] -> i
+  (t, r) : rest -> do
+    if i < cap then do
+      poke (plusPtr buf (i * 24)) t
+      case r of
+        RMidi m l -> do
+          poke (plusPtr buf (i * 24 + 8)) m
+          poke (plusPtr buf (i * 24 + 16)) l
+        RName c -> do
+          poke (plusPtr buf (i * 24 + 8)) 244
+          poke (plusPtr buf (i * 24 + 16)) c
+        RParam x -> do
+          poke (plusPtr buf (i * 24 + 8)) 245
+          poke (plusPtr buf (i * 24 + 16)) x
+        RTrigger -> do
+          poke (plusPtr buf (i * 24 + 8)) 253
+          poke (plusPtr buf (i * 24 + 16)) 0
+    else ()
+    writeRecords buf cap (i + 1) rest
 
 -- Grouped controls
 sound :: String -> p.Pattern Controls

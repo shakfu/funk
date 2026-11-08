@@ -140,15 +140,15 @@ Library, in `lib/pattern.fk`:
 
 - ~~**Mini-notation:** an explicit parse call, `p "bd*2 sn"` ([patterns.md](patterns.md#literals)). Overloaded string literals are not planned.~~ `p.mini`, for `Int` values ([music.md](../music.md#mini-notation)).
 
-- **Control patterns:** named parameters on events, and a `#` that combines them, as Tidal's `ValueMap` and `Unionable` do. This settles the event payload question in [patterns.md](patterns.md#open).
+- ~~**Control patterns:** named parameters on events, and a `#` that combines them, as Tidal's `ValueMap` and `Unionable` do. This settles the event payload question in [patterns.md](patterns.md#open).~~ `lib/control.fk`: Tidal's 257 controls and its operators, played as MIDI, on the voices and on `d.kit` ([delivery.md](delivery.md)).
 
-- **Combinators:** Tidal's common transformations, such as `rev`, `every` and `degradeBy`. The list comes from porting real patches.
+- **Combinators:** Tidal's common transformations, such as `rev`, `every` and `degradeBy`. The list comes from porting real patches. Done so far: `rev`.
 
 Host and time decisions these depend on:
 
-- **Delivery:** `sampleEvents`, `pushOnsets` and `writeEvents` carry an `Int` value, and `pushOnsets` only 16 bits. Control patterns need a path to the voices and the graph. Proposal: [delivery.md](delivery.md).
+- ~~**Delivery:** `sampleEvents`, `pushOnsets` and `writeEvents` carry an `Int` value, and `pushOnsets` only 16 bits. Control patterns need a path to the voices and the graph.~~ `writeControls`' records, decided and built in three steps ([delivery.md](delivery.md)).
 
-- **Time:** ticks divide exactly by factors of 720720. Tidal's `Rational` allows `fast 1.5` and `0.25 ~> p`. Decide whether fractional factors round, or time changes.
+- ~~**Time:** ticks divide exactly by factors of 720720. Tidal's `Rational` allows `fast 1.5` and `0.25 ~> p`. Decide whether fractional factors round, or time changes.~~ They round: `_fastR n d` is `_fast n (_slow d p)`, and time stays in ticks. `~>` is a combinator still to write.
 
 Language features, each only if the library work shows the need:
 

@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "graph.h"
 
@@ -110,7 +111,19 @@ bool funk_voices_until(funk_voices *vs, int64_t f) {
   }
 }
 
+/* prefix.name, if the graph has that control, to value from frame */
+static bool send_named(funk_voices *vs, int64_t frame, const char *prefix, size_t n, const char *name, float value) {
+  char c[96];
+  if (snprintf(c, sizeof c, "%.*s.%s", (int)n, prefix, name) >= (int)sizeof c || !funk_player_has(vs->p, c)) return true;
+  return send(vs, frame, c, value);
+}
+
 bool funk_voices_on(funk_voices *vs, int64_t s, int64_t e, int chan, int note, int vel) {
+  return funk_voices_on_with(vs, s, e, chan, note, vel, 0, NULL, NULL);
+}
+
+bool funk_voices_on_with(funk_voices *vs, int64_t s, int64_t e, int chan, int note, int vel, int n,
+                         const char *const *names, const float *values) {
   bool ok = funk_voices_until(vs, s + 1);
   if (s < vs->sent) s = vs->sent;
   chan &= 15;
@@ -129,6 +142,7 @@ bool funk_voices_on(funk_voices *vs, int64_t s, int64_t e, int chan, int note, i
   }
   ok &= key_off(vs, v, s); /* a stolen voice's note */
   ok &= send(vs, s, v->freq, (float)(440 * pow(2, (note - 69) / 12.0)));
+  for (int i = 0; i < n; i++) ok &= send_named(vs, s, v->gate, strlen(v->gate) - 5, names[i], values[i]); /* "vK.gate" less ".gate" */
   ok &= send(vs, at, v->gate, vel / 127.0f);
   v->on = s;
   v->off = e > at ? e : at + 1;
@@ -151,6 +165,16 @@ bool funk_voices_off(funk_voices *vs, int64_t frame, int chan, int note) {
   if (!v->held) return ok; /* its own off came first */
   v->off = frame;
   return ok & release(vs, v, frame);
+}
+
+bool funk_voices_trigger(funk_voices *vs, int64_t frame, const char *prefix, int n, const char *const *names,
+                         const float *values) {
+  bool ok = funk_voices_until(vs, frame + 1);
+  if (frame < vs->sent) frame = vs->sent;
+  size_t len = strlen(prefix);
+  for (int i = 0; i < n; i++) ok &= send_named(vs, frame, prefix, len, names[i], values[i]);
+  ok &= send_named(vs, frame, prefix, len, "gate", 1);
+  return ok & send_named(vs, frame + 1, prefix, len, "gate", 0);
 }
 
 bool funk_voices_hush(funk_voices *vs, int64_t frame) {

@@ -289,7 +289,11 @@ static void *sender(void *arg) {
 /* --------------------------------------------------------- the pattern */
 
 static long buf[3 * CAP]; /* start, duration, value */
-static bool playing = true, have_step, step_controls; /* step_controls: pat is of c.Controls */
+static bool playing = true, have_step, step_controls; /* step_controls: pat is of Controls */
+
+/* A control record's tags that are not MIDI (writeControls, lib/control.fk). */
+enum { TAG_NAME = 0xf4, TAG_PARAM = 0xf5, TAG_TRIGGER = 0xfd };
+static bool internal_tag(long m) { return (m & 255) == TAG_NAME || (m & 255) == TAG_PARAM || (m & 255) == TAG_TRIGGER; }
 static int64_t cs = 2000000; /* microseconds per cycle */
 static int64_t origin_us, origin_tick, win; /* tick origin_tick sounds at origin_us; win: the next window */
 
@@ -310,6 +314,7 @@ static void schedule(void) {
           int64_t at = origin_us + buf[3 * i];
           long m = buf[3 * i + 1], length = buf[3 * i + 2];
           unsigned char st = m & 255, d1 = (m >> 8) & 255, d2 = (m >> 16) & 255, size = (m >> 24) & 3;
+          if (internal_tag(m)) continue;
           enqueue_sized(at, st, d1, d2, size);
           if ((st & 0xf0) == 0x90 && length >= 0) enqueue(at + (length > 0 ? length : 1), (unsigned char)(0x80 | (st & 15)), d1, 0);
         }
@@ -402,17 +407,52 @@ static int by_start(const void *a, const void *b) {
   return (x > y) - (x < y);
 }
 
+/* A control pattern's records, in order: a name's chunks, then a
+   parameter with that name; a note-on takes the parameters before it, for
+   its voice, and a trigger takes them, and the name before it as its key,
+   for d.kit's sample. The records come in time order, so they are not sorted. */
+static void voice_controls(long n) {
+  enum { MAX = 32, NAME = 64 };
+  char name[NAME], names[MAX][NAME];
+  const char *np[MAX];
+  float values[MAX];
+  size_t nl = 0;
+  int k = 0;
+  for (long i = 0; i < n; i++) {
+    int64_t at = origin_us + buf[3 * i];
+    long m = buf[3 * i + 1], length = buf[3 * i + 2];
+    if ((m & 255) == TAG_NAME) {
+      for (int b = 0; b < 8 && nl + 1 < NAME && ((unsigned long)length >> (8 * b) & 255); b++) name[nl++] = (char)((unsigned long)length >> (8 * b) & 255);
+    } else if ((m & 255) == TAG_PARAM) {
+      double x;
+      memcpy(&x, &length, sizeof x);
+      if (k < MAX) {
+        memcpy(names[k], name, nl), names[k][nl] = 0;
+        np[k] = names[k], values[k++] = (float)x;
+      }
+      nl = 0;
+    } else if ((m & 255) == TAG_TRIGGER) {
+      char prefix[NAME + 2];
+      snprintf(prefix, sizeof prefix, "s.%.*s", (int)nl, name);
+      voice_check(funk_voices_trigger(voices, frame_at(at), prefix, k, np, values));
+      k = 0, nl = 0;
+    } else if ((m & 0xf0) == 0x90 && length >= 0) {
+      voice_check(funk_voices_on_with(voices, frame_at(at), frame_at(at + (length > 0 ? length : 1)), (int)(m & 15), (int)((m >> 8) & 127),
+                                      (int)((m >> 16) & 127), k, np, values));
+      k = 0;
+    }
+  }
+}
+
 /* the window's n events in buf */
 static void voice_notes(long n) {
   voice_sync();
-  qsort(buf, (size_t)n, 3 * sizeof *buf, by_start);
-  for (long i = 0; i < n && step_controls; i++) { /* the note-ons */
-    int64_t at = origin_us + buf[3 * i];
-    long m = buf[3 * i + 1], length = buf[3 * i + 2];
-    if ((m & 0xf0) != 0x90 || length < 0) continue;
-    voice_check(funk_voices_on(voices, frame_at(at), frame_at(at + (length > 0 ? length : 1)), (int)(m & 15), (int)((m >> 8) & 127), (int)((m >> 16) & 127)));
+  if (step_controls) {
+    voice_controls(n);
+    return;
   }
-  for (long i = 0; i < n && !step_controls; i++) {
+  qsort(buf, (size_t)n, 3 * sizeof *buf, by_start);
+  for (long i = 0; i < n; i++) {
     int64_t at = origin_us + buf[3 * i], dur = buf[3 * i + 1] > 0 ? buf[3 * i + 1] : 1;
     long v = buf[3 * i + 2], vel = (v >> 7) & 127;
     voice_check(funk_voices_on(voices, frame_at(at), frame_at(at + dur), (int)((v >> 14) & 15), (int)(v & 127), vel ? (int)vel : 100));
@@ -472,8 +512,9 @@ static bool start_audio(const char *kernels_path) {
   free(src);
   if (!ok || asprintf(&src,
                        "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\nvoicesIx :: (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesIx f = d.polyIx %d f\n"
+                       "voicesWith :: (g.Sig -> g.Sig -> (String -> Float -> g.Sig) -> g.Sig) -> g.Sig\nvoicesWith f = d.polyWith %d f\n"
                        "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn ch f = d.polyOn ch %d f",
-                       nvoices, nvoices, nvoices) < 0) return false;
+                       nvoices, nvoices, nvoices, nvoices) < 0) return false;
   ok = eval(src);
   free(src);
   if (!ok || !(voices = funk_voices_new(player, nvoices, false))) return false;

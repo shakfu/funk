@@ -159,12 +159,26 @@ sampleOf dir name gate speed = case p.soundParts name of
 sampleFrom :: String -> String -> Int -> Int -> g.Sig -> g.Sig -> g.Sig
 sampleFrom dir folder index c gate speed = g.Reader "dsp_sampler" (g.Sample dir folder index c) [0.0, 0.0, 0.0, 1.0e30, 0.0] [gate, speed]
 
--- samples on notes: names !! k, such as "bd" or "sn:3", plays on note k's
--- key; m.kit names plays a pattern of the names on those notes
+-- samples on notes and by name: names !! k, such as "bd" or "sn:3", plays
+-- on note k's key, as m.kit names sends them, and on a control pattern's
+-- event with s "bd" or s "sn:3", which sets its controls "s.sn:3.gate",
+-- ".speed", ".level" and ".pan" (funk_voices_trigger in graph.h). Pan is
+-- Tidal's, 0 left to 1 right, linear and 1 on both sides at its 0.5.
 kit :: String -> [String] -> g.Sig
-kit dir names = case zipWith (\k name -> sampleOf dir name (key k) (dc 1.0)) (enumFromTo 0 (length names - 1)) names of
+kit dir names = case zipWith (kitSample dir) (enumFromTo 0 (length names - 1)) names of
   [] -> g.Silence
   v : vs -> foldl (+) v vs
+
+kitSample :: String -> Int -> String -> g.Sig
+kitSample dir k name = case "s." ++ kitKey name of
+  pre -> case (g.control (pre ++ ".level") 1.0, g.control (pre ++ ".pan") 0.5) of
+    (level, place) -> stereo (dc 2.0 * (dc 1.0 - place)) (dc 2.0 * place)
+      * (sampleOf dir name (key k + g.control (pre ++ ".gate") 0.0) (g.control (pre ++ ".speed") 1.0) * level)
+
+-- "bd" is "bd:0", as a control pattern's s and n make it
+kitKey :: String -> String
+kitKey name = case p.soundParts name of
+  (folder, index) -> folder ++ ":" ++ show index
 
 -- data, frames, rate, position, gate: the first three from graph.h
 tableState :: [Float]
@@ -188,6 +202,13 @@ poly n f = voicesAt "v" n (\k -> f)
 -- that channel's notes play these instead of poly's
 polyOn :: Int -> Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig
 polyOn c n f = voicesAt ("c" ++ show c ++ ".v") n (\k -> f)
+
+-- poly whose f also takes param: param name default is the voice's
+-- control "vk.name", which a control pattern's event sets at its onset,
+-- before the gate rises, for each of its parameters that MIDI does not
+-- take (funk_voices_on_with in graph.h)
+polyWith :: Int -> (g.Sig -> g.Sig -> (String -> Float -> g.Sig) -> g.Sig) -> g.Sig
+polyWith n f = voicesAt "v" n (\k gate freq -> f gate freq (\name d -> g.control ("v" ++ show k ++ "." ++ name) d))
 
 -- poly whose f also takes the voice's number, from 1 to n, to give each voice
 -- its own noise seed or detune

@@ -15,3 +15,14 @@ pat = s "bd sn"
 :wait 2000
 pat = p.mini "72"
 :wait 1000
+:wait 1000
+-- a voice reads its event's parameters: its gate times level, which the
+-- event sets before the gate rises; the graph has no cutoff, which is skipped
+sig = voicesWith (\gate freq param -> gate * param "level" 1.0)
+pat = note "0 4" # pF "level" (p.miniF "<0.5 0.25>") # cutoff "300"
+:wait 4000
+-- samples by name, as d.kit's controls: bd:1 is b.wav, sn x.WAV; level is
+-- (min gain 2)^4, so gain 0.5 plays at 1/16; nosuch has no controls
+sig = d.kit "tests/hosts/samples" ["bd", "bd:1", "sn"]
+pat = s "bd bd:1 sn nosuch" # gain "<1 0.5>"
+:wait 4000

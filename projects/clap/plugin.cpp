@@ -470,7 +470,7 @@ private:
 		if (audio) takeNoteInput(process->in_events, frames);
 		auto emit = [this, out, audio](uint32_t offset, const uint8_t* data, uint8_t size) {
 			if (audio && size == 3) notes_.add(offset, data);
-			if (!out) return;
+			if (!out || Notes::internal(data[0])) return;
 			clap_event_midi_t ev{};
 			ev.header.size = sizeof(ev);
 			ev.header.time = offset;
@@ -764,8 +764,11 @@ private:
 	double freeBeat_ = 0.;
 	double liveBeat_ = 0.;
 	ClipPlayer clipPlayer_;
-	// A block's note-ons and note-offs for Language::audioNote; ones past the capacity are dropped.
+	// A block's note-ons and note-offs for Language::audioNote, and a language's internal messages,
+	// which reach it in their place but not the host; ones past the capacity are dropped.
 	struct Notes {
+		// Undefined in MIDI 1.0: 0xF4 and 0xF5 system common, 0xFD real time.
+		static bool internal(uint8_t status) { return status == 0xF4 || status == 0xF5 || status == 0xFD; }
 		struct Note {
 			uint32_t offset;
 			uint8_t data[3];
@@ -776,7 +779,7 @@ private:
 		void add(uint32_t offset, const uint8_t* data)
 		{
 			const uint8_t status = data[0] & 0xF0;
-			if ((status != 0x80 && status != 0x90) || n == sizeof a / sizeof a[0]) return;
+			if ((status != 0x80 && status != 0x90 && !internal(data[0])) || n == sizeof a / sizeof a[0]) return;
 			a[n++] = {offset, {data[0], data[1], data[2]}};
 		}
 		void sort() // by offset, stable; insertion: no allocation, and the notes come nearly in order

@@ -611,6 +611,35 @@ void CheckClip(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 	      "a control pattern plays its CC, program and note:" + Describe(ev) + " and " + std::to_string(ev.others.size()) + " others");
 }
 
+// A control pattern's parameters reach the plugin's voices, and its sample events d.kit's named
+// controls, through the language's internal messages, which the host never sees.
+void CheckParams(const clap_plugin_t* plugin, std::map<std::string, std::string>& cases)
+{
+	if (!gAudioChannels || !cases.count("params_sig") || !cases.count("params") || !cases.count("trigger_sig") || !cases.count("trigger")) {
+		printf("SKIP: control parameters on the voices (no audio port or no [params] cases)\n");
+		return;
+	}
+	std::string reply = Eval(cases["params_sig"]);
+	check(reply.find("error") == std::string::npos, "the [params_sig] case evaluates: " + reply);
+	reply = Eval(cases["params"]);
+	check(reply.find("clip: ") != std::string::npos, "params become a clip: " + reply);
+	Events ev = Play(plugin, 0., 2);
+	const float want = 50.f / 127.f * 0.5f;
+	check(ev.others.empty() && ev.audio.size() > 10 && std::fabs(ev.audio[0] - want) < 1e-6f && std::fabs(ev.audio[10] - want) < 1e-6f,
+	      "a voice reads its event's level: " + std::to_string(ev.audio.empty() ? -1.f : ev.audio[0]) + " of " + std::to_string(want)
+	          + ", " + std::to_string(ev.others.size()) + " other messages out");
+	reply = Eval(cases["trigger_sig"]);
+	check(reply.find("error") == std::string::npos, "the [trigger_sig] case evaluates: " + reply);
+	reply = Eval(cases["trigger"]);
+	ev = Play(plugin, 0., 2);
+	// the last clip's note-off may go out as this one starts; no note-on does
+	bool noteOn = false;
+	for (const Event& e : ev.list) noteOn |= (e.data[0] & 0xF0) == 0x90;
+	check(ev.others.empty() && !noteOn && ev.audio.size() > 10 && std::fabs(ev.audio[10] - 2.0736f) < 1e-5f,
+	      "a sample event sets its controls, level 1.2^4, and sends no MIDI: " + std::to_string(ev.audio.empty() ? -1.f : ev.audio[10]));
+	Eval(cases["audio"]); // the sig the later checks expect
+}
+
 void CheckStop(const clap_plugin_t* plugin, std::map<std::string, std::string>& cases)
 {
 	if (!cases.count("busy")) {
@@ -876,6 +905,7 @@ int main(int argc, char** argv)
 	CheckEval(cases);
 	CheckAudio(plugin, cases);
 	CheckClip(plugin, cases);
+	CheckParams(plugin, cases);
 	CheckStop(plugin, cases);
 	std::string saved;
 	CheckState(plugin, cases, saved);

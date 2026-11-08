@@ -35,6 +35,12 @@ msgs pat = case p.onsets pat (p.Span 0 t) of
   e : _ -> map (\(m, l) -> (mod m 256, mod (div m 256) 256, mod (div m 65536) 256, div m 16777216, l)) (midiOf 1000000 500000 e.value)
   [] -> []
 
+-- the first event's records, as writeControls writes them
+recs :: p.Pattern Controls -> [Record]
+recs pat = case p.onsets pat (p.Span 0 t) of
+  e : _ -> recordsOf 1000000 500000 e.value
+  [] -> []
+
 main = do
   print (onsets (s "bd*2" # gain "0.8") 1)
   print (onsets (sound "bd:3 sn") 1, onsets (sound "a:1.5 b:x c:-2 d:1e3") 1)
@@ -56,3 +62,5 @@ main = do
   print (msgs (ccn "74" # ccv "64"), msgs (nrpn "300:200"), msgs (progNum "5" # midibend "10000" # miditouch "70"))
   print (msgs (note "0" # polyTouch "33"), msgs (freq "440"), msgs (freq "261.63" # n "5"), msgs (midicmd "start midiClock"))
   print (msgs (midicmd "allNotesOff" # midichan "2"), msgs (midicmd "bend" # val "0"), msgs (midicmd "songPtr" # songPtr "200"))
+  print (recs (note "0" # cutoff "1000" # pan "0.25"), recs (s "midi" # n "0"))
+  print (recs (s "bd:3" # speed "2" # gain "1.2"), recs (s "sn"), recs (pF "delayfeedback" (p.atom 1.0)))

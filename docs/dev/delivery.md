@@ -132,3 +132,14 @@ Done 2026-11-07: control patterns play as MIDI in `funk-midi` and the plugin.
 - Not sent: `midicmd`'s `sysex` and `smpte`, which need more than 3 bytes, the framework's limit, and `noteOn`, `noteOff` and `polyTouch`, whose defaults without a note were not checked.
 - The alias `c` cost something not foreseen in decision 4: a session that imports `control as c` cannot use `c` as a variable, so `\c -> ...` fails. The hosts' own `voicesOn c f` failed so, and now says `ch`.
 - The hosts now `import control (..)`, a new form ([modules.md](modules.md#imports)), so patterns read as Tidal's, `s "bd*2" # gain "0.8"`, and `c` is free. An unqualified import blocks only top-level definitions of its names, where an alias blocks the name as a variable too. `control.fk` exports its controls, operators, types and param makers, not its helpers, and its classes without their methods, so the session takes no common name such as `left` or `union`; `get`, `pairs` and `fromList` became `getControl`, `controlPairs` and `controlsFromList`.
+
+## Step 3
+
+Done 2026-11-08: an event's parameters reach the voices, and a sample event `d.kit`, in `funk-midi` and the plugin.
+
+- `c.recordsOf` adds records to `writeControls`' stream: a name's chunks, 8 characters each, then a value, a `Float` in the payload's 8 bytes; and a trigger, which takes the chunks before it as a sample's key. A MIDI event's parameters precede its note-on, except the names `midiOf` reads.
+- `funk_voices_on_with` sends each parameter to the note's voice, `vK.name`, before the gate rises; `funk_voices_trigger` sets `prefix.name` and pulses `prefix.gate` for one frame. Both use `funk_voices`' ordered send, since the player needs its events in time order (`graph.c:375`), and skip controls the graph lacks, so an event does not fill the 4096-event queue with names no node reads.
+- The plugin carries them to its audio thread as 3-byte messages of statuses 0xF4, 0xF5 and 0xFD, undefined in MIDI 1.0: a parameter is a name's id and 32 bits of float in 7-bit pieces, a trigger a key's id. The framework passes them to `audioNote` and not to the host. This replaces the plan's pool beside `Timeline`: a clip loops its messages for as long as it plays, so a pool's entries would have needed the clip's lifetime; inline, the parameters are recorded with their note. The names live in append-only tables, 128 parameters and 4096 samples a session, written before the messages that use them.
+- `d.kit` reads, for each sample, `s.bd:3.gate`, `.speed`, `.level` and `.pan`, so a control pattern names its sample rather than a note, and the 128-note limit does not apply. `m.kit` and `d.key` still play it by note.
+- Not done: one sample plays once at a time, where SuperDirt starts a synth per event; and only `speed`, `level` and `pan` reach a sample, not `begin`, `end` or `cut`, which `dsp_sampler` would need first.
+

@@ -534,11 +534,12 @@ public:
 		bool ok = false;
 		std::string out;
 		session_.call([&] {
-			char voices[512];
+			char voices[768];
 			snprintf(voices, sizeof voices,
 			         "voices :: (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoices f = d.poly %d f\nvoicesIx :: (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesIx f = d.polyIx %d f\n"
+			         "voicesWith :: (g.Sig -> g.Sig -> (String -> Float -> g.Sig) -> g.Sig) -> g.Sig\nvoicesWith f = d.polyWith %d f\n"
 			         "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn ch f = d.polyOn ch %d f",
-			         kVoices, kVoices, kVoices);
+			         kVoices, kVoices, kVoices, kVoices);
 			ok = session_.eval(playerSource(), out) && session_.eval(voices, out);
 			audio_.ready = ok;
 			if (ok && audio_.haveSig) playSig(out);
@@ -552,8 +553,26 @@ public:
 	{
 		if (!audio_.voices) return;
 		const int64_t frame = funk_player_frames(audio_.player) + offset;
-		if ((data[0] & 0xF0) == 0x90 && data[2]) funk_voices_on(audio_.voices, frame, INT64_MAX, data[0] & 15, data[1], data[2]);
-		else funk_voices_off(audio_.voices, frame, data[0] & 15, data[1]);
+		auto& q = params_;
+		if (data[0] == kTagParam) {
+			q.id = data[1], q.bits = data[2], q.part = 1;
+		} else if (data[0] == kTagMore && q.part == 1) {
+			q.bits |= (uint32_t)data[1] << 7 | (uint32_t)data[2] << 14, q.part = 2;
+		} else if (data[0] == kTagMore && q.part == 2) {
+			q.bits |= (uint32_t)data[1] << 21 | (uint32_t)data[2] << 28, q.part = 0;
+			if (q.n < 32) {
+				q.names[q.n] = paramNames_[q.id];
+				memcpy(&q.values[q.n++], &q.bits, sizeof q.bits);
+			}
+		} else if (data[0] == kTagTrigger) {
+			funk_voices_trigger(audio_.voices, frame, sampleKeys_[data[1] | data[2] << 7], q.n, q.names, q.values);
+			q.n = 0;
+		} else if ((data[0] & 0xF0) == 0x90 && data[2]) {
+			funk_voices_on_with(audio_.voices, frame, INT64_MAX, data[0] & 15, data[1], data[2], q.n, q.names, q.values);
+			q.n = 0;
+		} else if ((data[0] & 0xF0) == 0x80 || (data[0] & 0xF0) == 0x90) {
+			funk_voices_off(audio_.voices, frame, data[0] & 15, data[1]);
+		}
 	}
 
 	void audioRender(float* const* out, uint32_t channels, uint32_t frames) override
@@ -660,10 +679,35 @@ private:
 		// and within half a frame of it the clip player drops them as it loops.
 		const double end = origin + kCycleMs - 1.;
 		if (!strcmp(step, "step") ? stepControls_ : onceControls_) {
+			std::string name; // a name's chunks so far
 			for (long i = 0; i < n && i < kCap; i++) {
 				const double at = origin + buf_[3 * i] / 1000.;
 				const long m = buf_[3 * i + 1], length = buf_[3 * i + 2];
 				const unsigned char st = m & 255, d1 = (m >> 8) & 255, d2 = (m >> 16) & 255, size = (m >> 24) & 3;
+				if (st == kRecordName) {
+					for (int b = 0; b < 8 && ((unsigned long)length >> (8 * b) & 255); b++) name += (char)((unsigned long)length >> (8 * b) & 255);
+					continue;
+				}
+				if (st == kRecordParam) { // its name's id, then 32 bits of float, 7 a byte
+					double x;
+					memcpy(&x, &length, sizeof x);
+					const float v = (float)x;
+					uint32_t bits;
+					memcpy(&bits, &v, sizeof bits);
+					const int id = internName(paramIds_, paramNames_[0], kParamNames, sizeof paramNames_[0], name);
+					name.clear();
+					if (id < 0) continue;
+					pending_.push({at, seq_++, {kTagParam, (unsigned char)id, (unsigned char)(bits & 127)}});
+					pending_.push({at, seq_++, {kTagMore, (unsigned char)(bits >> 7 & 127), (unsigned char)(bits >> 14 & 127)}});
+					pending_.push({at, seq_++, {kTagMore, (unsigned char)(bits >> 21 & 127), (unsigned char)(bits >> 28)}});
+					continue;
+				}
+				if (st == kRecordTrigger) {
+					const int id = internName(sampleIds_, sampleKeys_[0], kSampleKeys, sizeof sampleKeys_[0], "s." + name);
+					name.clear();
+					if (id >= 0) pending_.push({at, seq_++, {kTagTrigger, (unsigned char)(id & 127), (unsigned char)(id >> 7)}});
+					continue;
+				}
 				double latest = at;
 				if ((st & 0xF0) == 0x90 && length >= 0) {
 					double off = at + std::max(length / 1000., 0.001);
@@ -688,6 +732,36 @@ private:
 		}
 		return true;
 	}
+
+	// A control pattern's parameter and sample names, by the ids of the internal messages that
+	// carry them to the audio thread: kTagParam with a name's id and a float's first 7 bits,
+	// kTagMore twice with the other 25, kTagTrigger with a sample key's id. Ids are given on
+	// the evaluator thread before the messages that use them, and never reused, so the audio
+	// thread reads the names without a lock. The id, or -1 once the table is full.
+	static constexpr unsigned char kTagParam = 0xF4, kTagMore = 0xF5, kTagTrigger = 0xFD;
+	// writeControls' records that are not MIDI (lib/control.fk)
+	static constexpr unsigned char kRecordName = 0xF4, kRecordParam = 0xF5, kRecordTrigger = 0xFD;
+	static constexpr int kParamNames = 128, kSampleKeys = 4096;
+	char paramNames_[kParamNames][32] = {};
+	char sampleKeys_[kSampleKeys][64] = {}; // "s.bd:3"
+	std::unordered_map<std::string, int> paramIds_, sampleIds_;
+	static int internName(std::unordered_map<std::string, int>& ids, char* table, int cap, size_t width, const std::string& name)
+	{
+		const auto found = ids.find(name);
+		if (found != ids.end()) return found->second;
+		const int id = (int)ids.size();
+		if (id >= cap || name.size() >= width) return -1;
+		memcpy(table + id * width, name.c_str(), name.size() + 1);
+		ids.emplace(name, id);
+		return id;
+	}
+	// The audio thread's: the parameters before the next note-on or trigger.
+	struct {
+		const char* names[32];
+		float values[32];
+		int n = 0, id = 0, part = 0;
+		uint32_t bits = 0;
+	} params_;
 
 	Session session_;
 	// The player, built at the first activation; voices and player are the audio thread's

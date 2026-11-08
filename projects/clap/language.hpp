@@ -36,6 +36,8 @@ public:
 	virtual void audioDeactivate() {}
 	// Each note-on or note-off of the block, offset frames into it, in time order, before
 	// audioRender: the ones the plugin sends and the ones the host sends to its note input.
+	// Also the language's own 3-byte messages of status 0xF4, 0xF5 or 0xFD, undefined in
+	// MIDI 1.0, in their place among them; those never reach the host.
 	virtual void audioNote(uint32_t offset, const uint8_t* data) { (void)offset, (void)data; }
 	virtual void audioRender(float* const* out, uint32_t channels, uint32_t frames)
 	{
