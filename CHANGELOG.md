@@ -4,7 +4,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-08
+
 ### Added
+
+- CI uploads the plugin for macOS, for Linux and cross-built for Linux with `zig cc`, and `funk` with `lib/` for macOS and Linux, as one artifact, `funk-builds`, once every plugin has passed its run. Each build is a tarball, since an artifact's zip drops the executable bits.
 
 - `import m (..)` brings in every name `m` exports, unqualified, each type and class with its members. The names meet an import list's checks: another import of the same name, or a top-level definition of it, is an error naming the module, and a local binding shadows it. For a module written to be opened, such as `control`; others stay qualified, so that a name added to them cannot fail an importer's compile ([docs/dev/modules.md](docs/dev/modules.md#imports)).
 
