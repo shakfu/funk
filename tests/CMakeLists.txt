@@ -345,6 +345,12 @@ foreach(n cberror cbthread)
   funk_test(ffi/${n} ffi error tests/ffi/${n}.fk ${LINK})
 endforeach()
 
+# Tidal's OSC /ctrl and MIDI CC into a host's controls (projects/funkgraph/controls.h)
+add_executable(test_controls kernels/controls.c ${PROJECT_SOURCE_DIR}/projects/funkgraph/controls.c)
+target_include_directories(test_controls PRIVATE ${PROJECT_SOURCE_DIR}/projects/funkgraph)
+add_test(NAME kernels/controls COMMAND sh -c "\"$<TARGET_FILE:test_controls>\" | diff tests/kernels/controls.expected -" WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(kernels/controls PROPERTIES LABELS kernels)
+
 # the combinators against Tidal, where ghc has the tidal package (tests/tidal/compare.sh)
 find_program(GHC ghc)
 find_program(GHC_PKG ghc-pkg)

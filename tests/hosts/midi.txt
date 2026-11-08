@@ -20,3 +20,27 @@ pat = p.mini "60 [64"
 :wait 1000
 pat = p.mapP (\x -> div x 0) (p.atom 60)
 :wait 1000
+-- the host's controls (docs/dev/controls-in.md): trigger plays pat from its
+-- cycle 0 at the window it is defined in, qtrigger from the next cycle:
+-- 60, an even cycle's, in cycle 15, where p.cat alone plays 72
+:wait 300
+pat = p.trigger (p.fastcat [60, 62, 64, 65])
+:wait 1000
+pat = p.qtrigger (p.cat [p.atom 60, p.atom 72])
+:wait 2000
+-- sec, by _cps: 0.25 s is a quarter cycle at 1000 ms a cycle
+pat = p.mapP (\x -> round (x * 100.0)) (p.sec (p.atom 0.25))
+:wait 1000
+-- CC in, by controls' p.midiCC: cc21 is any channel's last, 0 to 1, and
+-- 2:cc21 channel 2's; with no p.midiCC the controls are gone, so cF's 0
+controls = [p.midiCC]
+:cc 1 21 64
+pat = p.mapP (\x -> round (x * 100.0)) (p.cF 0.0 "cc21")
+:wait 1000
+:cc 2 21 127
+:wait 1000
+pat = p.mapP (\x -> round (x * 100.0)) (p.cF 0.0 "1:cc21")
+:wait 1000
+controls = []
+:cc 1 21 0
+:wait 1000

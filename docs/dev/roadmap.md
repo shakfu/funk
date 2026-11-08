@@ -144,7 +144,7 @@ Library, in `lib/pattern.fk`:
 
 - ~~**Control patterns:** named parameters on events, and a `#` that combines them, as Tidal's `ValueMap` and `Unionable` do. This settles the event payload question in [patterns.md](patterns.md#open).~~ `lib/control.fk`: Tidal's 257 controls and its operators, played as MIDI, on the voices and on `d.kit` ([delivery.md](delivery.md)).
 
-- **Combinators:** Tidal's transformations, such as `rev`, `every` and `degradeBy`. All of `Core.hs`, `UI.hs` and `Control.hs` that is not commented out, with continuous patterns, but for two groups that need host work: `d.kit` playing `begin` and `end`, and queries that see the host's state, for `cF` and `trigger` ([combinators.md](combinators.md#status)).
+- **Combinators:** Tidal's transformations, such as `rev`, `every` and `degradeBy`. All of `Core.hs`, `UI.hs` and `Control.hs` that is not commented out, with continuous patterns, and queries that carry controls, for `cF` and `trigger`, from OSC, MIDI CC and plugin parameters ([controls-in.md](controls-in.md)) ([combinators.md](combinators.md#status)).
 
 Host and time decisions these depend on:
 

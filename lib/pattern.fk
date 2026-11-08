@@ -24,39 +24,58 @@ Event.onset e = case e.whole of
 wholeOrPart :: Event a -> Span
 wholeOrPart e = fromMaybe e.part e.whole
 
-data Pattern a = Pattern (Span -> [Event a])
+-- What a query asks: the span, and the values of controls from outside
+-- the pattern, by name, as Tidal's State (docs/dev/controls-in.md).
+data State = State { arc :: Span, controls :: [(String, Ctl)] }
 
+-- a control's value, as Tidal's VF, VI and VS
+data Ctl = CtlF Float | CtlI Int | CtlS String deriving (Eq, Show)
+
+data Pattern a = Pattern (State -> [Event a])
+
+-- the events over q, with no controls
 query :: Pattern a -> Span -> [Event a]
-query (Pattern f) q = f q
+query p q = queryState p (State q [])
+
+queryState :: Pattern a -> State -> [Event a]
+queryState (Pattern f) st = f st
+
+-- the events over q, with st's controls
+queryIn :: State -> Pattern a -> Span -> [Event a]
+queryIn st p q = queryState p (State q st.controls)
 
 -- the events that start in q
 onsets :: Pattern a -> Span -> [Event a]
 onsets p q = filter (.onset) (query p q)
+
+-- onsets, with st's controls
+onsetsState :: Pattern a -> State -> [Event a]
+onsetsState p st = filter (.onset) (queryState p st)
 
 silence :: Pattern a
 silence = Pattern (\_ -> [])
 
 -- v once per cycle
 atom :: a -> Pattern a
-atom v = Pattern (\q -> map (\s -> Event (Just (cycleOf s.start)) s v) (cycleSpans q))
+atom v = Pattern (\qst -> let q = qst.arc in map (\s -> Event (Just (cycleOf s.start)) s v) (cycleSpans q))
 
 -- f must be pure: Pattern's field holds a pure function
 mapP :: (a -> b) -> Pattern a -> Pattern b
-mapP f p = Pattern (\q -> map (\e -> Event e.whole e.part (f e.value)) (query p q))
+mapP f p = Pattern (\qst -> let q = qst.arc in map (\e -> Event e.whole e.part (f e.value)) (queryIn qst p q))
 
 -- all at once
 stack :: [Pattern a] -> Pattern a
-stack ps = Pattern (\q -> concatMap (\p -> query p q) ps)
+stack ps = Pattern (\qst -> let q = qst.arc in concatMap (\p -> queryIn qst p q) ps)
 
 -- one per cycle, in turn; each pattern sees its own cycles in order
 cat :: [Pattern a] -> Pattern a
 cat [] = silence
-cat ps = Pattern (\q -> concatMap one (cycleSpans q))
+cat ps = Pattern (\qst -> let q = qst.arc in concatMap (one qst) (cycleSpans q))
   where
     n = length ps
-    one s = case div s.start cycleTicks of
+    one qst s = case div s.start cycleTicks of
       c -> case (c - div c n) * cycleTicks of
-        off -> map (withSpans (move off)) (query (ps !! mod c n) (move (negate off) s))
+        off -> map (withSpans (move off)) (queryIn qst (ps !! mod c n) (move (negate off) s))
 
 -- all in one cycle, in equal steps
 fastcat :: [Pattern a] -> Pattern a
@@ -68,17 +87,17 @@ fastcat ps = if null ps then silence else _fast (length ps) (cat ps)
 _fast :: Int -> Pattern a -> Pattern a
 _fast k p
   | k <= 0 = error "pattern.fast: factor must be positive"
-  | otherwise = Pattern (\q -> map (withSpans (\s -> Span (div s.start k) (div s.stop k))) (query p (Span (q.start * k) (q.stop * k))))
+  | otherwise = Pattern (\qst -> let q = qst.arc in map (withSpans (\s -> Span (div s.start k) (div s.stop k))) (queryIn qst p (Span (q.start * k) (q.stop * k))))
 
 -- k times as slow; exact
 _slow :: Int -> Pattern a -> Pattern a
 _slow k p
   | k <= 0 = error "pattern.slow: factor must be positive"
-  | otherwise = Pattern (\q -> concatMap (clip q . withSpans (\s -> Span (s.start * k) (s.stop * k))) (query p (Span (div q.start k) (ceilDiv q.stop k))))
+  | otherwise = Pattern (\qst -> let q = qst.arc in concatMap (clip q . withSpans (\s -> Span (s.start * k) (s.stop * k))) (queryIn qst p (Span (div q.start k) (ceilDiv q.stop k))))
 
 -- later by t ticks
 _shift :: Int -> Pattern a -> Pattern a
-_shift t p = Pattern (\q -> map (withSpans (move t)) (query p (move (negate t) q)))
+_shift t p = Pattern (\qst -> let q = qst.arc in map (withSpans (move t)) (queryIn qst p (move (negate t) q)))
 
 -- n / d times as fast or as slow, by _fast and _slow, so times round as
 -- _fast's do. As Tidal's, 0 is silence and a negative factor reverses.
@@ -107,8 +126,8 @@ shift tp p = innerJoin (mapP (\t -> _shift t p) tp)
 
 -- each cycle backwards, as Tidal's rev
 rev :: Pattern a -> Pattern a
-rev p = Pattern (\q -> concatMap (\s -> case cycleOf s.start of
-    c -> map (withSpans (reflect c)) (query p (reflect c s))) (cycleSpans q))
+rev p = Pattern (\qst -> let q = qst.arc in concatMap (\s -> case cycleOf s.start of
+    c -> map (withSpans (reflect c)) (queryIn qst p (reflect c s))) (cycleSpans q))
 
 -- s mirrored within cycle c
 reflect :: Span -> Span -> Span
@@ -135,25 +154,25 @@ euclid kp np a = innerJoin (apP (mapP (\k n -> _euclid k n a) kp) np)
 -- none where either is continuous. As Tidal's, a discrete f meets only
 -- discrete xs over its whole, and a continuous one any x over its part.
 apP :: Pattern (a -> b) -> Pattern a -> Pattern b
-apP pf px = Pattern (\q -> concatMap (\ef -> case ef.whole of
-      Just w -> concatMap (apBoth ef) (filter discrete (query px w))
-      Nothing -> concatMap (apBoth ef) (query px ef.part)) (query pf q)
-  ++ concatMap (\ex -> concatMap (\ef -> apBoth ef ex) (filter discrete (query pf ex.part))) (filter (not . discrete) (query px q)))
+apP pf px = Pattern (\qst -> let q = qst.arc in concatMap (\ef -> case ef.whole of
+      Just w -> concatMap (apBoth ef) (filter discrete (queryIn qst px w))
+      Nothing -> concatMap (apBoth ef) (queryIn qst px ef.part)) (queryIn qst pf q)
+  ++ concatMap (\ex -> concatMap (\ef -> apBoth ef ex) (filter discrete (queryIn qst pf ex.part))) (filter (not . discrete) (queryIn qst px q)))
 
 apBoth :: Event (a -> b) -> Event a -> [Event b]
 apBoth ef ex = concatMap (\w -> map (\s -> Event w s ((ef.value) (ex.value))) (sect ef.part ex.part)) (sectW ef.whole ex.whole)
 
 -- wholes from f
 apLeft :: Pattern (a -> b) -> Pattern a -> Pattern b
-apLeft pf px = Pattern (\q -> concatMap (\ef -> concatMap (\ex ->
+apLeft pf px = Pattern (\qst -> let q = qst.arc in concatMap (\ef -> concatMap (\ex ->
     map (\s -> Event ef.whole s ((ef.value) (ex.value))) (sect ef.part ex.part))
-  (query px (wholeOrPart ef))) (query pf q))
+  (queryIn qst px (wholeOrPart ef))) (queryIn qst pf q))
 
 -- wholes from x
 apRight :: Pattern (a -> b) -> Pattern a -> Pattern b
-apRight pf px = Pattern (\q -> concatMap (\ex -> concatMap (\ef ->
+apRight pf px = Pattern (\qst -> let q = qst.arc in concatMap (\ex -> concatMap (\ef ->
     map (\s -> Event ex.whole s ((ef.value) (ex.value))) (sect ef.part ex.part))
-  (query pf (wholeOrPart ex))) (query px q))
+  (queryIn qst pf (wholeOrPart ex))) (queryIn qst px q))
 
 -- Flattening a pattern of patterns, as Tidal's unwrap, innerJoin,
 -- outerJoin and squeezeJoin. Each outer event plays its inner pattern
@@ -161,29 +180,29 @@ apRight pf px = Pattern (\q -> concatMap (\ex -> concatMap (\ef ->
 
 -- wholes from both, intersected
 joinP :: Pattern (Pattern a) -> Pattern a
-joinP pp = Pattern (\q -> concatMap (\eo -> concatMap (\ei ->
+joinP pp = Pattern (\qst -> let q = qst.arc in concatMap (\eo -> concatMap (\ei ->
     map (\w -> Event w ei.part ei.value) (sectW eo.whole ei.whole))
-  (query eo.value eo.part)) (query pp q))
+  (queryIn qst eo.value eo.part)) (queryIn qst pp q))
 
 -- wholes from the inner pattern
 innerJoin :: Pattern (Pattern a) -> Pattern a
-innerJoin pp = Pattern (\q -> concatMap (\eo -> query eo.value eo.part) (query pp q))
+innerJoin pp = Pattern (\qst -> let q = qst.arc in concatMap (\eo -> queryIn qst eo.value eo.part) (queryIn qst pp q))
 
 -- wholes from the outer pattern; values from the inner one at the outer
 -- whole's start
 outerJoin :: Pattern (Pattern a) -> Pattern a
-outerJoin pp = Pattern (\q -> concatMap (\eo ->
+outerJoin pp = Pattern (\qst -> let q = qst.arc in concatMap (\eo ->
     case (wholeOrPart eo).start of
-      t -> map (\ei -> Event eo.whole eo.part ei.value) (query eo.value (Span t (t + 1))))
-  (query pp q))
+      t -> map (\ei -> Event eo.whole eo.part ei.value) (queryIn qst eo.value (Span t (t + 1))))
+  (queryIn qst pp q))
 
 -- Each outer event plays one cycle of its inner pattern within its whole:
 -- the cycle its whole starts in, as Tidal's. Times round down.
 squeezeJoin :: Pattern (Pattern a) -> Pattern a
-squeezeJoin pp = Pattern (\q -> concatMap squeezeOne (query pp q))
+squeezeJoin pp = Pattern (\qst -> let q = qst.arc in concatMap (squeezeOne qst) (queryIn qst pp q))
 
-squeezeOne :: Event (Pattern a) -> [Event a]
-squeezeOne eo = concatMap fit (query eo.value (Span (back eo.part.start) (ceilDiv ((eo.part.stop - ws) * cycleTicks) n + c)))
+squeezeOne :: State -> Event (Pattern a) -> [Event a]
+squeezeOne qst eo = concatMap fit (queryIn qst eo.value (Span (back eo.part.start) (ceilDiv ((eo.part.stop - ws) * cycleTicks) n + c)))
   where
     ws = (wholeOrPart eo).start
     n = (wholeOrPart eo).stop - ws
@@ -195,7 +214,7 @@ squeezeOne eo = concatMap fit (query eo.value (Span (back eo.part.start) (ceilDi
 -- Each pattern in turn within a cycle, for its weight's share of it, as
 -- Tidal's timeCat: cycle c of each plays in its share of cycle c.
 timecat :: [(Int, Pattern a)] -> Pattern a
-timecat wps = Pattern (\q -> concatMap (\s -> concatMap (squeezeInto s) segs) (cycleSpans q))
+timecat wps = Pattern (\qst -> let q = qst.arc in concatMap (\s -> concatMap (squeezeInto qst s) segs) (cycleSpans q))
   where
     w = sum (map fst wps)
     segs = edges 0 (filter (\(k, _) -> k > 0) wps)
@@ -203,15 +222,15 @@ timecat wps = Pattern (\q -> concatMap (\s -> concatMap (squeezeInto s) segs) (c
     edges o ((k, v) : rest) = (div (o * cycleTicks) w, div ((o + k) * cycleTicks) w, v) : edges (o + k) rest
 
 -- the part of s inside [a, b) of its cycle, with p's cycle mapped onto [a, b)
-squeezeInto :: Span -> (Int, Int, Pattern a) -> [Event a]
-squeezeInto s (a, b, p) = concatMap one (sect (Span (c + a) (c + b)) s)
+squeezeInto :: State -> Span -> (Int, Int, Pattern a) -> [Event a]
+squeezeInto qst s (a, b, p) = concatMap one (sect (Span (c + a) (c + b)) s)
   where
     c = div s.start cycleTicks * cycleTicks
     lo = c + a
     n = b - a
     out (Span x y) = Span (lo + div ((x - c) * n) cycleTicks) (lo + div ((y - c) * n) cycleTicks)
     one qs = concatMap (\e -> map (\pt -> Event (mapSpan out e.whole) pt e.value) (sect (out e.part) qs))
-      (query p (Span (c + div ((qs.start - lo) * cycleTicks) n) (c + ceilDiv ((qs.stop - lo) * cycleTicks) n)))
+      (queryIn qst p (Span (c + div ((qs.start - lo) * cycleTicks) n) (c + ceilDiv ((qs.stop - lo) * cycleTicks) n)))
 
 -- pat on k of n steps, by Bjorklund's algorithm as Tidal's; a negative k plays the others
 _euclid :: Int -> Int -> Pattern a -> Pattern a
@@ -249,18 +268,18 @@ xorwise x = case xor (shiftL x 13) x of
 
 -- the events whose random value at their start is at least a / b, as Tidal's degradeBy
 degradeWith :: Int -> Int -> Int -> Pattern a -> Pattern a
-degradeWith seed a b p = Pattern (\q -> filter (\e -> randAt (wholeOrPart e).start seed * b >= a * 536870912) (query p q))
+degradeWith seed a b p = Pattern (\qst -> let q = qst.arc in filter (\e -> randAt (wholeOrPart e).start seed * b >= a * 536870912) (queryIn qst p q))
 
 -- one of ps per cycle, chosen at random, as Tidal's '|'
 chooseCycle :: Int -> [Pattern a] -> Pattern a
-chooseCycle seed ps = joinP (Pattern (\q -> map (\s -> case cycleOf s.start of
+chooseCycle seed ps = joinP (Pattern (\qst -> let q = qst.arc in map (\s -> case cycleOf s.start of
     w -> Event (Just w) s (ps !! mod (div (randAt w.start seed * length ps) 536870912) (length ps))) (cycleSpans q)))
 
 -- the events whose value f maps to Just, with that value
 mapMaybeP :: (a -> Maybe b) -> Pattern a -> Pattern b
-mapMaybeP f p = Pattern (\q -> concatMap (\e -> case f e.value of
+mapMaybeP f p = Pattern (\qst -> let q = qst.arc in concatMap (\e -> case f e.value of
     Just v -> [Event e.whole e.part v]
-    Nothing -> []) (query p q))
+    Nothing -> []) (queryIn qst p q))
 
 -- a Tidal sample name's folder and index: "sn:3" is ("sn", 3), "bd" ("bd", 0)
 soundParts :: String -> (String, Int)
@@ -270,7 +289,7 @@ soundParts s = case span (/= ':') (unpack s) of
 
 -- each event's list, as events of its own
 uncollect :: Pattern [a] -> Pattern a
-uncollect p = Pattern (\q -> concatMap (\e -> map (\v -> Event e.whole e.part v) e.value) (query p q))
+uncollect p = Pattern (\qst -> let q = qst.arc in concatMap (\e -> map (\v -> Event e.whole e.part v) e.value) (queryIn qst p q))
 
 -- Tidal's Core.hs, with what it needs from Pattern.hs. Times in cycles are
 -- Floats, rounded to the nearest tick (docs/dev/combinators.md).
@@ -296,7 +315,7 @@ fract x = x - toFloat (floor x)
 
 -- continuous: one event over the query, with no whole, f of its start
 sig :: (Float -> a) -> Pattern a
-sig f = Pattern (\q -> if q.start > q.stop then [] else [Event Nothing q (f (cycles q.start))])
+sig f = Pattern (\qst -> let q = qst.arc in if q.start > q.stop then [] else [Event Nothing q (f (cycles q.start))])
 
 -- 0 to 1 and back once a cycle; the forms ending in 2 run from -1 to 1
 sine :: Pattern Float
@@ -394,7 +413,7 @@ overlay a b = stack [a, b]
 -- one event at a time: an event starting while another sounds starts when
 -- it ends, as Tidal's mono
 mono :: Pattern a -> Pattern a
-mono p = Pattern (\q -> concatMap monoPart (monoCut (sortBy (\a b -> compareWhole a.whole b.whole) (query p q))))
+mono p = Pattern (\qst -> let q = qst.arc in concatMap monoPart (monoCut (sortBy (\a b -> compareWhole a.whole b.whole) (queryIn qst p q))))
 
 monoCut :: [Event a] -> [Event a]
 monoCut es = case es of
@@ -454,8 +473,8 @@ zoompat sp ep p = innerJoin (apP (mapP (\s e -> zoom (s, e) p) sp) ep)
 
 -- As Tidal's zoomArc, each span maps within the cycle its start is in.
 zoomTicks :: Int -> Int -> Pattern a -> Pattern a
-zoomTicks s e p = if s >= e then silence else Pattern (\q -> concatMap (\qs ->
-    concatMap (clip qs . withSpans (zoomOut s (e - s))) (query p (zoomIn s (e - s) qs))) (cycleSpans q))
+zoomTicks s e p = if s >= e then silence else Pattern (\qst -> let q = qst.arc in concatMap (\qs ->
+    concatMap (clip qs . withSpans (zoomOut s (e - s))) (queryIn qst p (zoomIn s (e - s) qs))) (cycleSpans q))
 
 zoomIn :: Int -> Int -> Span -> Span
 zoomIn s d (Span a b) = case div a cycleTicks * cycleTicks of
@@ -477,10 +496,10 @@ _fastGap :: Int -> Int -> Pattern a -> Pattern a
 _fastGap n d p = if n == 0 then silence else if n < d then gapBy 1 1 p else gapBy n d p
 
 gapBy :: Int -> Int -> Pattern a -> Pattern a
-gapBy n d p = Pattern (\q -> concatMap (\qs -> case div qs.start cycleTicks * cycleTicks of
+gapBy n d p = Pattern (\qst -> let q = qst.arc in concatMap (\qs -> case div qs.start cycleTicks * cycleTicks of
     c -> case c + min cycleTicks (div ((qs.start - c) * n) d) of
       a -> if a == c + cycleTicks then []
-        else concatMap (clip qs . withSpans (gapOut n d)) (query p (Span a (c + min cycleTicks (ceilDiv ((qs.stop - c) * n) d))))) (cycleSpans q))
+        else concatMap (clip qs . withSpans (gapOut n d)) (queryIn qst p (Span a (c + min cycleTicks (ceilDiv ((qs.stop - c) * n) d))))) (cycleSpans q))
 
 gapOut :: Int -> Int -> Span -> Span
 gapOut n d (Span x y) = case div x cycleTicks * cycleTicks of
@@ -529,12 +548,538 @@ foldEvery ns f p = foldr (\n acc -> _every n f acc) p ns
 -- f p in the cycles whose number passes test
 when :: (Int -> Bool) -> (Pattern a -> Pattern a) -> Pattern a -> Pattern a
 when test f p = case f p of
-  fp -> Pattern (\q -> concatMap (\s -> if test (div s.start cycleTicks) then query fp s else query p s) (cycleSpans q))
+  fp -> Pattern (\qst -> let q = qst.arc in concatMap (\s -> if test (div s.start cycleTicks) then queryIn qst fp s else queryIn qst p s) (cycleSpans q))
 
--- when, testing the time in cycles where each cycle's query starts
+-- when, testing the time in cycles where each cycle's queryIn qst starts
 whenT :: (Float -> Bool) -> (Pattern a -> Pattern a) -> Pattern a -> Pattern a
 whenT test f p = case f p of
-  fp -> Pattern (\q -> concatMap (\s -> if test (cycles s.start) then query fp s else query p s) (cycleSpans q))
+  fp -> Pattern (\qst -> let q = qst.arc in concatMap (\s -> if test (cycles s.start) then queryIn qst fp s else queryIn qst p s) (cycleSpans q))
+
+-- Controls from outside the pattern, as Tidal's (Core.hs): cF d name is
+-- name's value at each query, once a cycle, or d where it is absent; the _
+-- forms are silent there, the 0 forms 0. As Tidal's getB, cB finds no
+-- value, since OSC sends none (docs/dev/controls-in.md).
+_cX :: a -> (Ctl -> Maybe a) -> String -> Pattern a
+_cX d f name = Pattern (\qst -> query (case lookup name qst.controls of
+    Just v -> atom (fromMaybe d (f v))
+    Nothing -> atom d) qst.arc)
+
+_cX_ :: (Ctl -> Maybe a) -> String -> Pattern a
+_cX_ f name = Pattern (\qst -> case lookup name qst.controls of
+  Just v -> case f v of
+    Just x -> query (atom x) qst.arc
+    Nothing -> []
+  Nothing -> [])
+
+ctlF :: Ctl -> Maybe Float
+ctlF v = case v of
+  CtlF x -> Just x
+  CtlI i -> Just (toFloat i)
+  CtlS _ -> Nothing
+
+ctlI :: Ctl -> Maybe Int
+ctlI v = case v of
+  CtlI i -> Just i
+  CtlF x -> Just (floor x)
+  CtlS _ -> Nothing
+
+ctlS :: Ctl -> Maybe String
+ctlS v = case v of
+  CtlS x -> Just x
+  _ -> Nothing
+
+ctlB :: Ctl -> Maybe Bool
+ctlB _ = Nothing
+
+cF :: Float -> String -> Pattern Float
+cF d name = _cX d ctlF name
+
+cF_ :: String -> Pattern Float
+cF_ name = _cX_ ctlF name
+
+cF0 :: String -> Pattern Float
+cF0 name = _cX 0.0 ctlF name
+
+cN :: Float -> String -> Pattern Float
+cN d name = _cX d ctlF name
+
+cN_ :: String -> Pattern Float
+cN_ name = _cX_ ctlF name
+
+cN0 :: String -> Pattern Float
+cN0 name = _cX 0.0 ctlF name
+
+cI :: Int -> String -> Pattern Int
+cI d name = _cX d ctlI name
+
+cI_ :: String -> Pattern Int
+cI_ name = _cX_ ctlI name
+
+cI0 :: String -> Pattern Int
+cI0 name = _cX 0 ctlI name
+
+cB :: Bool -> String -> Pattern Bool
+cB d name = _cX d ctlB name
+
+cB_ :: String -> Pattern Bool
+cB_ name = _cX_ ctlB name
+
+cB0 :: String -> Pattern Bool
+cB0 name = _cX False ctlB name
+
+cR :: Float -> String -> Pattern Float
+cR d name = _cX d ctlF name
+
+cR_ :: String -> Pattern Float
+cR_ name = _cX_ ctlF name
+
+cR0 :: String -> Pattern Float
+cR0 name = _cX 0.0 ctlF name
+
+cT :: Float -> String -> Pattern Float
+cT d name = cR d name
+
+cT0 :: String -> Pattern Float
+cT0 name = cR0 name
+
+cT_ :: String -> Pattern Float
+cT_ name = cR_ name
+
+cS :: String -> String -> Pattern String
+cS d name = _cX d ctlS name
+
+cS_ :: String -> Pattern String
+cS_ name = _cX_ ctlS name
+
+cS0 :: String -> Pattern String
+cS0 name = _cX "" ctlS name
+
+-- in0 to in127: cF 0 "0" to cF 0 "127", as Tidal's
+in0 :: Pattern Float
+in0 = cF 0.0 "0"
+
+in1 :: Pattern Float
+in1 = cF 0.0 "1"
+
+in2 :: Pattern Float
+in2 = cF 0.0 "2"
+
+in3 :: Pattern Float
+in3 = cF 0.0 "3"
+
+in4 :: Pattern Float
+in4 = cF 0.0 "4"
+
+in5 :: Pattern Float
+in5 = cF 0.0 "5"
+
+in6 :: Pattern Float
+in6 = cF 0.0 "6"
+
+in7 :: Pattern Float
+in7 = cF 0.0 "7"
+
+in8 :: Pattern Float
+in8 = cF 0.0 "8"
+
+in9 :: Pattern Float
+in9 = cF 0.0 "9"
+
+in10 :: Pattern Float
+in10 = cF 0.0 "10"
+
+in11 :: Pattern Float
+in11 = cF 0.0 "11"
+
+in12 :: Pattern Float
+in12 = cF 0.0 "12"
+
+in13 :: Pattern Float
+in13 = cF 0.0 "13"
+
+in14 :: Pattern Float
+in14 = cF 0.0 "14"
+
+in15 :: Pattern Float
+in15 = cF 0.0 "15"
+
+in16 :: Pattern Float
+in16 = cF 0.0 "16"
+
+in17 :: Pattern Float
+in17 = cF 0.0 "17"
+
+in18 :: Pattern Float
+in18 = cF 0.0 "18"
+
+in19 :: Pattern Float
+in19 = cF 0.0 "19"
+
+in20 :: Pattern Float
+in20 = cF 0.0 "20"
+
+in21 :: Pattern Float
+in21 = cF 0.0 "21"
+
+in22 :: Pattern Float
+in22 = cF 0.0 "22"
+
+in23 :: Pattern Float
+in23 = cF 0.0 "23"
+
+in24 :: Pattern Float
+in24 = cF 0.0 "24"
+
+in25 :: Pattern Float
+in25 = cF 0.0 "25"
+
+in26 :: Pattern Float
+in26 = cF 0.0 "26"
+
+in27 :: Pattern Float
+in27 = cF 0.0 "27"
+
+in28 :: Pattern Float
+in28 = cF 0.0 "28"
+
+in29 :: Pattern Float
+in29 = cF 0.0 "29"
+
+in30 :: Pattern Float
+in30 = cF 0.0 "30"
+
+in31 :: Pattern Float
+in31 = cF 0.0 "31"
+
+in32 :: Pattern Float
+in32 = cF 0.0 "32"
+
+in33 :: Pattern Float
+in33 = cF 0.0 "33"
+
+in34 :: Pattern Float
+in34 = cF 0.0 "34"
+
+in35 :: Pattern Float
+in35 = cF 0.0 "35"
+
+in36 :: Pattern Float
+in36 = cF 0.0 "36"
+
+in37 :: Pattern Float
+in37 = cF 0.0 "37"
+
+in38 :: Pattern Float
+in38 = cF 0.0 "38"
+
+in39 :: Pattern Float
+in39 = cF 0.0 "39"
+
+in40 :: Pattern Float
+in40 = cF 0.0 "40"
+
+in41 :: Pattern Float
+in41 = cF 0.0 "41"
+
+in42 :: Pattern Float
+in42 = cF 0.0 "42"
+
+in43 :: Pattern Float
+in43 = cF 0.0 "43"
+
+in44 :: Pattern Float
+in44 = cF 0.0 "44"
+
+in45 :: Pattern Float
+in45 = cF 0.0 "45"
+
+in46 :: Pattern Float
+in46 = cF 0.0 "46"
+
+in47 :: Pattern Float
+in47 = cF 0.0 "47"
+
+in48 :: Pattern Float
+in48 = cF 0.0 "48"
+
+in49 :: Pattern Float
+in49 = cF 0.0 "49"
+
+in50 :: Pattern Float
+in50 = cF 0.0 "50"
+
+in51 :: Pattern Float
+in51 = cF 0.0 "51"
+
+in52 :: Pattern Float
+in52 = cF 0.0 "52"
+
+in53 :: Pattern Float
+in53 = cF 0.0 "53"
+
+in54 :: Pattern Float
+in54 = cF 0.0 "54"
+
+in55 :: Pattern Float
+in55 = cF 0.0 "55"
+
+in56 :: Pattern Float
+in56 = cF 0.0 "56"
+
+in57 :: Pattern Float
+in57 = cF 0.0 "57"
+
+in58 :: Pattern Float
+in58 = cF 0.0 "58"
+
+in59 :: Pattern Float
+in59 = cF 0.0 "59"
+
+in60 :: Pattern Float
+in60 = cF 0.0 "60"
+
+in61 :: Pattern Float
+in61 = cF 0.0 "61"
+
+in62 :: Pattern Float
+in62 = cF 0.0 "62"
+
+in63 :: Pattern Float
+in63 = cF 0.0 "63"
+
+in64 :: Pattern Float
+in64 = cF 0.0 "64"
+
+in65 :: Pattern Float
+in65 = cF 0.0 "65"
+
+in66 :: Pattern Float
+in66 = cF 0.0 "66"
+
+in67 :: Pattern Float
+in67 = cF 0.0 "67"
+
+in68 :: Pattern Float
+in68 = cF 0.0 "68"
+
+in69 :: Pattern Float
+in69 = cF 0.0 "69"
+
+in70 :: Pattern Float
+in70 = cF 0.0 "70"
+
+in71 :: Pattern Float
+in71 = cF 0.0 "71"
+
+in72 :: Pattern Float
+in72 = cF 0.0 "72"
+
+in73 :: Pattern Float
+in73 = cF 0.0 "73"
+
+in74 :: Pattern Float
+in74 = cF 0.0 "74"
+
+in75 :: Pattern Float
+in75 = cF 0.0 "75"
+
+in76 :: Pattern Float
+in76 = cF 0.0 "76"
+
+in77 :: Pattern Float
+in77 = cF 0.0 "77"
+
+in78 :: Pattern Float
+in78 = cF 0.0 "78"
+
+in79 :: Pattern Float
+in79 = cF 0.0 "79"
+
+in80 :: Pattern Float
+in80 = cF 0.0 "80"
+
+in81 :: Pattern Float
+in81 = cF 0.0 "81"
+
+in82 :: Pattern Float
+in82 = cF 0.0 "82"
+
+in83 :: Pattern Float
+in83 = cF 0.0 "83"
+
+in84 :: Pattern Float
+in84 = cF 0.0 "84"
+
+in85 :: Pattern Float
+in85 = cF 0.0 "85"
+
+in86 :: Pattern Float
+in86 = cF 0.0 "86"
+
+in87 :: Pattern Float
+in87 = cF 0.0 "87"
+
+in88 :: Pattern Float
+in88 = cF 0.0 "88"
+
+in89 :: Pattern Float
+in89 = cF 0.0 "89"
+
+in90 :: Pattern Float
+in90 = cF 0.0 "90"
+
+in91 :: Pattern Float
+in91 = cF 0.0 "91"
+
+in92 :: Pattern Float
+in92 = cF 0.0 "92"
+
+in93 :: Pattern Float
+in93 = cF 0.0 "93"
+
+in94 :: Pattern Float
+in94 = cF 0.0 "94"
+
+in95 :: Pattern Float
+in95 = cF 0.0 "95"
+
+in96 :: Pattern Float
+in96 = cF 0.0 "96"
+
+in97 :: Pattern Float
+in97 = cF 0.0 "97"
+
+in98 :: Pattern Float
+in98 = cF 0.0 "98"
+
+in99 :: Pattern Float
+in99 = cF 0.0 "99"
+
+in100 :: Pattern Float
+in100 = cF 0.0 "100"
+
+in101 :: Pattern Float
+in101 = cF 0.0 "101"
+
+in102 :: Pattern Float
+in102 = cF 0.0 "102"
+
+in103 :: Pattern Float
+in103 = cF 0.0 "103"
+
+in104 :: Pattern Float
+in104 = cF 0.0 "104"
+
+in105 :: Pattern Float
+in105 = cF 0.0 "105"
+
+in106 :: Pattern Float
+in106 = cF 0.0 "106"
+
+in107 :: Pattern Float
+in107 = cF 0.0 "107"
+
+in108 :: Pattern Float
+in108 = cF 0.0 "108"
+
+in109 :: Pattern Float
+in109 = cF 0.0 "109"
+
+in110 :: Pattern Float
+in110 = cF 0.0 "110"
+
+in111 :: Pattern Float
+in111 = cF 0.0 "111"
+
+in112 :: Pattern Float
+in112 = cF 0.0 "112"
+
+in113 :: Pattern Float
+in113 = cF 0.0 "113"
+
+in114 :: Pattern Float
+in114 = cF 0.0 "114"
+
+in115 :: Pattern Float
+in115 = cF 0.0 "115"
+
+in116 :: Pattern Float
+in116 = cF 0.0 "116"
+
+in117 :: Pattern Float
+in117 = cF 0.0 "117"
+
+in118 :: Pattern Float
+in118 = cF 0.0 "118"
+
+in119 :: Pattern Float
+in119 = cF 0.0 "119"
+
+in120 :: Pattern Float
+in120 = cF 0.0 "120"
+
+in121 :: Pattern Float
+in121 = cF 0.0 "121"
+
+in122 :: Pattern Float
+in122 = cF 0.0 "122"
+
+in123 :: Pattern Float
+in123 = cF 0.0 "123"
+
+in124 :: Pattern Float
+in124 = cF 0.0 "124"
+
+in125 :: Pattern Float
+in125 = cF 0.0 "125"
+
+in126 :: Pattern Float
+in126 = cF 0.0 "126"
+
+in127 :: Pattern Float
+in127 = cF 0.0 "127"
+
+-- values in seconds or milliseconds as cycles, by the host's _cps, with p's
+-- structure, as Tidal's (Control.hs)
+sec :: Pattern Float -> Pattern Float
+sec p = apRight (mapP (\c v -> c * v) (cF 1.0 "_cps")) p
+
+msec :: Pattern Float -> Pattern Float
+msec p = apRight (mapP (\c v -> c * v) (mapP (\c -> c / 1000.0) (cF 1.0 "_cps"))) p
+
+-- p from the cycle it was last evaluated at, the host's _t_pattern, as
+-- Tidal's trigger; qtrigger from the next cycle, rtrigger the nearest,
+-- ftrigger the last, mtrigger n the next multiple of n
+triggerWith :: (Float -> Float) -> Pattern a -> Pattern a
+triggerWith f p = Pattern (\qst -> case lookup "_t_pattern" qst.controls of
+  Just v -> case ctlF v of
+    Just t -> queryState (rotR (f t) p) qst
+    Nothing -> queryState p qst
+  Nothing -> queryState p qst)
+
+trigger :: Pattern a -> Pattern a
+trigger p = triggerWith id p
+
+qtrigger :: Pattern a -> Pattern a
+qtrigger p = ctrigger p
+
+qt :: Pattern a -> Pattern a
+qt p = qtrigger p
+
+ctrigger :: Pattern a -> Pattern a
+ctrigger p = triggerWith (\t -> toFloat (ceiling t)) p
+
+rtrigger :: Pattern a -> Pattern a
+rtrigger p = triggerWith (\t -> toFloat (round t)) p
+
+ftrigger :: Pattern a -> Pattern a
+ftrigger p = triggerWith (\t -> toFloat (floor t)) p
+
+mtrigger :: Int -> Pattern a -> Pattern a
+mtrigger n p = triggerWith (\t -> toFloat (n * ceiling (t / toFloat n))) p
+
+mt :: Int -> Pattern a -> Pattern a
+mt n p = mtrigger n p
 
 -- Tidal's UI.hs: randomness, then transformations. Each follows its Tidal
 -- definition; where Tidal's Time is a count, as for iter, funk takes an Int.
@@ -563,7 +1108,7 @@ randsFrom seed n = if n <= 0 then [] else intSeedToRand seed : randsFrom (xorwis
 
 -- continuous: from 0 to 1, a new value at each time
 rand :: Pattern Float
-rand = Pattern (\q -> [Event Nothing q (toFloat (randAt q.start 0) / 536870912.0)])
+rand = Pattern (\qst -> let q = qst.arc in [Event Nothing q (toFloat (randAt q.start 0) / 536870912.0)])
 
 brand :: Pattern Bool
 brand = _brandBy 0.5
@@ -806,7 +1351,7 @@ spreadr f vs p = spreadChoose f vs p
 -- f1 p in the cycles that pass test, f2 p in the others
 ifp :: (Int -> Bool) -> (Pattern a -> Pattern a) -> (Pattern a -> Pattern a) -> Pattern a -> Pattern a
 ifp test f1 f2 p = case (f1 p, f2 p) of
-  (a, b) -> Pattern (\q -> concatMap (\s -> if test (div s.start cycleTicks) then query a s else query b s) (cycleSpans q))
+  (a, b) -> Pattern (\qst -> let q = qst.arc in concatMap (\s -> if test (div s.start cycleTicks) then queryIn qst a s else queryIn qst b s) (cycleSpans q))
 
 -- a squeezed into the first t of each cycle, b into the rest
 wedge :: Pattern Float -> Pattern a -> Pattern a -> Pattern a
@@ -870,23 +1415,23 @@ filterWhen :: (Float -> Bool) -> Pattern a -> Pattern a
 filterWhen test p = filterTicks (\t -> test (cycles t)) p
 
 filterTicks :: (Int -> Bool) -> Pattern a -> Pattern a
-filterTicks test p = Pattern (\q -> filter (\e -> test (wholeOrPart e).start) (query p q))
+filterTicks test p = Pattern (\qst -> let q = qst.arc in filter (\e -> test (wholeOrPart e).start) (queryIn qst p q))
 
 filterValues :: (a -> Bool) -> Pattern a -> Pattern a
-filterValues f p = Pattern (\q -> filter (\e -> f e.value) (query p q))
+filterValues f p = Pattern (\qst -> let q = qst.arc in filter (\e -> f e.value) (queryIn qst p q))
 
 filterJust :: Pattern (Maybe a) -> Pattern a
 filterJust p = mapMaybeP id p
 
 filterOnsets :: Pattern a -> Pattern a
-filterOnsets p = Pattern (\q -> onsets p q)
+filterOnsets p = Pattern (\qst -> let q = qst.arc in onsets p q)
 
 -- the events with, or without, a whole
 filterDigital :: Pattern a -> Pattern a
-filterDigital p = Pattern (\q -> filter discrete (query p q))
+filterDigital p = Pattern (\qst -> let q = qst.arc in filter discrete (queryIn qst p q))
 
 filterAnalog :: Pattern a -> Pattern a
-filterAnalog p = Pattern (\q -> filter (not . discrete) (query p q))
+filterAnalog p = Pattern (\qst -> let q = qst.arc in filter (not . discrete) (queryIn qst p q))
 
 -- a on the steps of k of n, b on the others
 euclidFull :: Pattern Int -> Pattern Int -> Pattern a -> Pattern a -> Pattern a
@@ -937,7 +1482,7 @@ rot :: Eq a => Pattern Int -> Pattern a -> Pattern a
 rot ip p = innerJoin (mapP (\i -> _rot i p) ip)
 
 _rot :: Eq a => Int -> Pattern a -> Pattern a
-_rot i p = Pattern (\q -> concatMap (\s -> case sortBy compareEvent (defragParts (query p (cycleOf s.start))) of
+_rot i p = Pattern (\qst -> let q = qst.arc in concatMap (\s -> case sortBy compareEvent (defragParts (queryIn qst p (cycleOf s.start))) of
     es -> concatMap (\e -> map (\pt -> Event e.whole pt e.value) (sect e.part s)) (rotValues i es)) (cycleSpans q))
 
 rotValues :: Int -> [Event a] -> [Event a]
@@ -979,7 +1524,7 @@ fit :: Pattern Int -> [a] -> Pattern Int -> Pattern a
 fit np xs p = innerJoin (mapP (\n -> _fit n xs p) np)
 
 _fit :: Int -> [a] -> Pattern Int -> Pattern a
-_fit perCycle xs p = Pattern (\q -> map (\e -> Event e.whole e.part (cyc xs (e.value + perCycle * div e.part.start cycleTicks))) (query p q))
+_fit perCycle xs p = Pattern (\qst -> let q = qst.arc in map (\e -> Event e.whole e.part (cyc xs (e.value + perCycle * div e.part.start cycleTicks))) (queryIn qst p q))
 
 -- the events of pv where ps is True, with ps's structure
 struct :: Pattern Bool -> Pattern a -> Pattern a
@@ -987,8 +1532,8 @@ struct ps pv = filterJust (apLeft (mapP (\a b -> if a then Just b else Nothing) 
 
 -- a cycle of p squeezed into each True event of s
 substruct :: Pattern Bool -> Pattern a -> Pattern a
-substruct s p = Pattern (\q -> concatMap (\e -> case wholeOrPart e of
-    w -> query (compressTo (cycles w.start, cycles w.stop) p) w) (filter (\e -> e.value) (query s q)))
+substruct s p = Pattern (\qst -> let q = qst.arc in concatMap (\e -> case wholeOrPart e of
+    w -> queryIn qst (compressTo (cycles w.start, cycles w.stop) p) w) (filter (\e -> e.value) (queryIn qst s q)))
 
 -- p's values where b is True, with p's structure
 mask :: Pattern Bool -> Pattern a -> Pattern a
@@ -996,10 +1541,10 @@ mask b p = apLeft (mapP (\v _ -> v) p) (filterValues id b)
 
 -- p's cycle stretched over the span of its events
 stretch :: Pattern a -> Pattern a
-stretch p = Pattern (\q -> concatMap (\s -> case map wholeOrPart (query p (cycleOf s.start)) of
+stretch p = Pattern (\qst -> let q = qst.arc in concatMap (\s -> case map wholeOrPart (queryIn qst p (cycleOf s.start)) of
     ws -> case (if null ws then Span 0 cycleTicks else Span (minimum (map (\w -> w.start) ws)) (maximum (map (\w -> w.stop) ws))) of
       a -> case div a.start cycleTicks * cycleTicks of
-        c -> query (zoomTicks (a.start - c) (a.stop - c) p) s) (cycleSpans q))
+        c -> queryIn qst (zoomTicks (a.start - c) (a.stop - c) p) s) (cycleSpans q))
 
 -- f within each of n parts of the cycle, one per cycle in turn; a negative n goes backwards
 chunk :: Pattern Int -> (Pattern a -> Pattern a) -> Pattern a -> Pattern a
@@ -1035,8 +1580,8 @@ _outside n f p = case ticks n of
 
 -- cycle 0, every cycle
 loopFirst :: Pattern a -> Pattern a
-loopFirst p = Pattern (\q -> concatMap (\s -> case div s.start cycleTicks * cycleTicks of
-    c -> map (withSpans (move c)) (query p (move (negate c) s))) (cycleSpans q))
+loopFirst p = Pattern (\qst -> let q = qst.arc in concatMap (\s -> case div s.start cycleTicks * cycleTicks of
+    c -> map (withSpans (move c)) (queryIn qst p (move (negate c) s))) (cycleSpans q))
 
 timeLoop :: Pattern Float -> Pattern a -> Pattern a
 timeLoop np p = outside np loopFirst p
@@ -1078,7 +1623,7 @@ _scramble n p = _rearrangeWith (_segment n (_irand n)) n p
 
 -- 0 to n - 1 in a random order each cycle
 randrun :: Int -> Pattern Int
-randrun n = if n == 0 then silence else Pattern (\q -> concatMap (\s -> case div s.start cycleTicks of
+randrun n = if n == 0 then silence else Pattern (\qst -> let q = qst.arc in concatMap (\s -> case div s.start cycleTicks of
     c -> case map snd (sortBy (\a b -> compare (fst a) (fst b)) (zip (timeToRands (c * cycleTicks) n) [0 .. n - 1])) of
       vs -> concatMap (\(k, v) -> case Span (c * cycleTicks + div (k * cycleTicks) n) (c * cycleTicks + div ((k + 1) * cycleTicks) n) of
         w -> map (\pt -> Event (Just w) pt v) (sect s w)) (zip [0 .. n - 1] vs)) (cycleSpans q))
@@ -1089,7 +1634,7 @@ seqP ps = stack (map (\(s, e, p) -> playFor s e (rotR (toFloat (floor s)) p)) ps
 
 playFor :: Float -> Float -> Pattern a -> Pattern a
 playFor s e p = case Span (ticks s) (ticks e) of
-  w -> Pattern (\q -> concatMap (\a -> query p a) (sect w q))
+  w -> Pattern (\qst -> let q = qst.arc in concatMap (\a -> queryIn qst p a) (sect w q))
 
 seqPLoop :: [(Float, Float, Pattern a)] -> Pattern a
 seqPLoop ps = case (minimum (map (\(x, _, _) -> x) ps), maximum (map (\(_, x, _) -> x) ps)) of
@@ -1124,7 +1669,7 @@ arpg :: Pattern a -> Pattern a
 arpg p = arpeggiate p
 
 arpWith :: ([Event a] -> [Event b]) -> Pattern a -> Pattern b
-arpWith f p = Pattern (\q -> concatMap (\g -> spreadOut (f g)) (groupWholes (sortBy (\a b -> compareWhole a.whole b.whole) (query p q))))
+arpWith f p = Pattern (\qst -> let q = qst.arc in concatMap (\g -> spreadOut (f g)) (groupWholes (sortBy (\a b -> compareWhole a.whole b.whole) (queryIn qst p q))))
 
 groupWholes :: [Event a] -> [[Event a]]
 groupWholes es = case es of
@@ -1184,7 +1729,7 @@ rolledBy :: Pattern Float -> Pattern a -> Pattern a
 rolledBy tp p = innerJoin (mapP (\t -> rolledWith t p) (segment 1 tp))
 
 rolledWith :: Float -> Pattern a -> Pattern a
-rolledWith t p = Pattern (\q -> concatMap (rollIn t) (groupWholes ((if t > 0.0 then id else reverse) (query p q))))
+rolledWith t p = Pattern (\qst -> let q = qst.arc in concatMap (rollIn t) (groupWholes ((if t > 0.0 then id else reverse) (queryIn qst p q))))
 
 rollIn :: Float -> [Event a] -> [Event a]
 rollIn t xs = if t == 0.0 then xs else concatMap (\(k, e) -> case e.whole of
@@ -1221,9 +1766,9 @@ _pressBy r p = squeezeJoin (mapP (\v -> compressTo (r, 1.0) (atom v)) p)
 
 -- a where pb is True, b where it is False, each keeping its own structure
 sew :: Pattern Bool -> Pattern a -> Pattern a -> Pattern a
-sew pb a b = Pattern (\q -> case query pb q of
+sew pb a b = Pattern (\qst -> let q = qst.arc in case queryIn qst pb q of
   evs -> if null evs then [] else case Span (minimum (map (\e -> e.part.start) evs)) (maximum (map (\e -> e.part.stop) evs)) of
-    sub -> case (query a sub, query b sub) of
+    sub -> case (queryIn qst a sub, queryIn qst b sub) of
       (xa, xb) -> concatMap (\ev -> concatMap (\x -> map (\pt -> Event x.whole pt x.value) (sect ev.part x.part)) (if ev.value then xa else xb)) evs)
 
 -- a where pb is True and b where False, with pb's structure
@@ -1339,10 +1884,10 @@ inv p = mapP not p
 -- values joined linearly from each event to the next
 smooth :: Pattern Float -> Pattern Float
 smooth p = case mono p of
-  mp -> Pattern (\q -> case div (q.start + q.stop) 2 of
-    m -> case query mp (Span m (m + 1)) of
+  mp -> Pattern (\qst -> let q = qst.arc in case div (q.start + q.stop) 2 of
+    m -> case queryIn qst mp (Span m (m + 1)) of
       [] -> []
-      e : _ -> case query mp (Span (wholeOrPart e).stop ((wholeOrPart e).stop + 1)) of
+      e : _ -> case queryIn qst mp (Span (wholeOrPart e).stop ((wholeOrPart e).stop + 1)) of
         [] -> [Event (Just q) q e.value]
         n : _ -> case wholeOrPart e of
           w -> [Event (Just q) q (e.value + (n.value - e.value) * (if w.stop == w.start then 0.0 else toFloat (e.part.start - w.start) / toFloat (w.stop - w.start)))])
@@ -1471,7 +2016,7 @@ markovPat :: Pattern Int -> Pattern Int -> [[Float]] -> Pattern Int
 markovPat np xp tp = innerJoin (apP (mapP (\n xi -> _markovPat n xi tp) np) xp)
 
 _markovPat :: Int -> Int -> [[Float]] -> Pattern Int
-_markovPat n xi tp = Pattern (\q -> concatMap (\s -> query (listToPat (runMarkov n tp xi (toFloat (div s.start cycleTicks)))) s) (cycleSpans q))
+_markovPat n xi tp = Pattern (\qst -> let q = qst.arc in concatMap (\s -> queryIn qst (listToPat (runMarkov n tp xi (toFloat (div s.start cycleTicks)))) s) (cycleSpans q))
 
 -- each event squeezed into step t of d of its cycle
 beat :: Pattern Float -> Pattern Float -> Pattern a -> Pattern a
@@ -1518,18 +2063,18 @@ pairUp' xs = case xs of
 
 -- randArcs' spans as events, numbered
 randStruct :: Int -> Pattern Int
-randStruct n = Pattern (\q -> concatMap (\s -> case div s.start cycleTicks * cycleTicks of
-    c -> case query (randArcs n) (Span c (c + cycleTicks)) of
+randStruct n = Pattern (\qst -> let q = qst.arc in concatMap (\s -> case div s.start cycleTicks * cycleTicks of
+    c -> case queryIn qst (randArcs n) (Span c (c + cycleTicks)) of
       [] -> []
       e : _ -> concatMap (\(i, a) -> case move c a of
         w -> map (\pt -> Event (Just w) pt i) (sect s w)) (zip [0 .. length e.value - 1] e.value)) (cycleSpans q))
 
 -- a cycle of p, moved by each event's value, squeezed into it
 substruct' :: Pattern Int -> Pattern a -> Pattern a
-substruct' s p = Pattern (\q -> concatMap (\e -> case e.whole of
-    Just w -> case length (query s (cycleOf q.start)) of
-      k -> concatMap (clip q) (query (compressTo (cycles w.start, cycles w.stop) (_inside (1.0 / toFloat k) (rotR (toFloat e.value)) p)) w)
-    Nothing -> []) (query s q))
+substruct' s p = Pattern (\qst -> let q = qst.arc in concatMap (\e -> case e.whole of
+    Just w -> case length (queryIn qst s (cycleOf q.start)) of
+      k -> concatMap (clip q) (queryIn qst (compressTo (cycles w.start, cycles w.stop) (_inside (1.0 / toFloat k) (rotR (toFloat e.value)) p)) w)
+    Nothing -> []) (queryIn qst s q))
 
 -- p in n random parts of each cycle
 stripe :: Pattern Int -> Pattern a -> Pattern a
@@ -1544,11 +2089,11 @@ slowstripe np p = slow np (stripe np p)
 -- Tidal's ur: a pattern of named patterns over t cycles, a name:f naming a
 -- function to apply too
 ur :: Float -> Pattern String -> [(String, Pattern a)] -> [(String, Pattern a -> Pattern a)] -> Pattern a
-ur t outer ps fs = slowT t (joinP (Pattern (\q -> concatMap (\e -> case e.whole of
+ur t outer ps fs = slowT t (joinP (Pattern (\qst -> let q = qst.arc in concatMap (\e -> case e.whole of
     Just w -> case filter (\x -> not (null x)) (splitOnChar ':' (unpack e.value)) of
       name : rest -> [Event e.whole e.part (urTransform fs rest w (fromMaybe silence (lookup (pack name) (map (\(k, v) -> (k, fastT t v)) ps))))]
       [] -> []
-    Nothing -> []) (query outer q))))
+    Nothing -> []) (queryIn qst outer q))))
 
 urTransform :: [(String, Pattern a -> Pattern a)] -> [[Char]] -> Span -> Pattern a -> Pattern a
 urTransform fs rest w p = case rest of
@@ -1603,10 +2148,10 @@ trigZeroJoin :: Pattern (Pattern a) -> Pattern a
 trigZeroJoin pp = trigJoinWith True pp
 
 trigJoinWith :: Bool -> Pattern (Pattern a) -> Pattern a
-trigJoinWith zero pp = Pattern (\q -> concatMap (\eo -> case eo.whole of
+trigJoinWith zero pp = Pattern (\qst -> let q = qst.arc in concatMap (\eo -> case eo.whole of
     Just w -> concatMap (\ei -> concatMap (\nw -> map (\pt -> Event nw pt ei.value) (sect eo.part ei.part)) (sectW eo.whole ei.whole))
-      (query (_shift (if zero then w.start else mod w.start cycleTicks) eo.value) q)
-    Nothing -> []) (query pp q))
+      (queryIn qst (_shift (if zero then w.start else mod w.start cycleTicks) eo.value) q)
+    Nothing -> []) (queryIn qst pp q))
 
 -- p started again, from its cycle position or from cycle 0, at each True
 reset :: Pattern Bool -> Pattern a -> Pattern a
@@ -1634,9 +2179,9 @@ _ribbon offset cyc p = restart (slowT cyc (atom True)) (rotL offset p)
 
 -- each True event of pieces holding f of p looped over it, the others p
 unjoinfunc :: Pattern Bool -> (Pattern a -> Pattern a) -> Pattern a -> Pattern (Pattern a)
-unjoinfunc pieces f p = Pattern (\q -> map (\e -> Event e.whole e.part (if e.value then case wholeOrPart e of
+unjoinfunc pieces f p = Pattern (\qst -> let q = qst.arc in map (\e -> Event e.whole e.part (if e.value then case wholeOrPart e of
       w -> f (_ribbon (cycles w.start) (cycles (w.stop - w.start)) p)
-    else p)) (query pieces q))
+    else p)) (queryIn qst pieces q))
 
 unjoin :: Pattern Bool -> Pattern a -> Pattern (Pattern a)
 unjoin pieces p = unjoinfunc pieces id p
@@ -2140,11 +2685,15 @@ chordTable = map (\(k, v) -> (unpack k, v))
 
 -- the events that start in samples [a, b), as (start, duration, value), in time order
 sampleEvents :: Pattern a -> Int -> Int -> Int -> [(Int, Int, a)]
-sampleEvents p cs a b =
+sampleEvents p cs a b = sampleEventsWith [] p cs a b
+
+-- sampleEvents, queried with controls ctls
+sampleEventsWith :: [(String, Ctl)] -> Pattern a -> Int -> Int -> Int -> [(Int, Int, a)]
+sampleEventsWith ctls p cs a b =
   sortBy (\(x, _, _) (y, _, _) -> compare x y)
     (map (\e -> case (wholeOrPart e, div ((wholeOrPart e).start * cs) cycleTicks) of
             (w, s) -> (s, div (w.stop * cs) cycleTicks - s, e.value))
-      (onsets p (Span (ceilDiv (a * cycleTicks) cs) (ceilDiv (b * cycleTicks) cs))))
+      (onsetsState p (State (Span (ceilDiv (a * cycleTicks) cs) (ceilDiv (b * cycleTicks) cs)) ctls)))
 
 -- sampleEvents without durations
 sampleOnsets :: Pattern a -> Int -> Int -> Int -> [(Int, a)]
@@ -2170,6 +2719,51 @@ pushOnsets r p cs a b = length (filter (\(s, v) -> not (ringPush r (encodeEvent 
 -- means some were lost.
 writeEvents :: Ptr Int -> Int -> Pattern Int -> Int -> Int -> Int ->> Int
 writeEvents buf cap p cs a b = writeEach buf cap 0 (sampleEvents p cs a b)
+
+-- writeEvents, queried with the host's controls (readControls)
+writeEventsWith :: Ptr Int -> Int -> Pattern Int -> [(String, Ctl)] -> Int -> Int -> Int ->> Int
+writeEventsWith buf cap p ctls cs a b = writeEach buf cap 0 (sampleEventsWith ctls p cs a b)
+
+-- Where a host's controls come from, as a top-level controls lists them
+-- (docs/dev/controls-in.md): Tidal's OSC /ctrl on a UDP port, MIDI CC as
+-- "cc21" and "1:cc21", 0 to 1, or the plugin's parameters "p1" to "p16".
+data ControlIn = Osc Int | MidiCC | Params
+
+osc :: Int -> ControlIn
+osc port = Osc port
+
+midiCC :: ControlIn
+midiCC = MidiCC
+
+params :: ControlIn
+params = Params
+
+-- for the host: each source as an Int, a port for OSC, -1 for MIDI CC, -2
+-- for parameters; at most 8; how many there were
+writeControlIns :: Ptr Int -> [ControlIn] ->> Int
+writeControlIns buf ins = writeInts buf 0 (take 8 (map (\c -> case c of
+    Osc port -> port
+    MidiCC -> -1
+    Params -> -2) ins))
+
+writeInts :: Ptr Int -> Int -> [Int] ->> Int
+writeInts buf i xs = case xs of
+  [] -> i
+  x : rest -> do
+    poke (plusPtr buf (8 * i)) x
+    writeInts buf (i + 1) rest
+
+-- A host's controls (docs/dev/controls-in.md): n entries of 128 bytes from
+-- buf, each a name of up to 47 bytes and a NUL, at 48 its kind, an Int: 0 a
+-- Float at 56, 1 an Int at 56, 2 a string from 64, of up to 63 bytes.
+readControls :: Ptr () -> Int ->> [(String, Ctl)]
+readControls buf n = if n <= 0 then [] else readControl (plusPtr buf (128 * (n - 1))) : readControls buf (n - 1)
+
+readControl :: Ptr () ->> (String, Ctl)
+readControl e = case (peekByteOff e 48 :: Int) of
+  0 -> (peekCString (castPtr e), CtlF (peekByteOff e 56))
+  1 -> (peekCString (castPtr e), CtlI (peekByteOff e 56))
+  _ -> (peekCString (castPtr e), CtlS (peekCString (castPtr (plusPtr e 64))))
 
 writeEach :: Ptr Int -> Int -> Int -> [(Int, Int, Int)] ->> Int
 writeEach buf cap i es = case es of

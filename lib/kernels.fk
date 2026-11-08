@@ -23,6 +23,7 @@ foreign export ccall "dsp_comb" combK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloa
 foreign export ccall "dsp_allpass" allpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_wavetable" wavetableK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_sampler" samplerK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt" dirtK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_zita" zitaK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign import ccall "math.h sin" csin :: Float -> Float
 foreign import ccall "math.h tan" ctan :: Float -> Float
@@ -48,6 +49,9 @@ foreign struct Line { mem :: Ptr CFloat, frames :: Int, pos :: Int, y :: Float }
 -- data, frames and srate come from funk_graph_table_* (graph.h)
 foreign struct Table { dat :: Ptr CFloat, frames :: Int, srate :: Float, pos :: Float, gate :: Float }
 foreign struct Svf { ic1 :: Float, ic2 :: Float }
+-- d.kit's sample voice: data, frames and srate as Table's, then the last
+-- gate and stop, and the playing event's state
+foreign struct Dirt { dat :: Ptr CFloat, frames :: Int, srate :: Float, gate :: Float, stop :: Float, active :: Float, phase :: Float, t :: Float, fadeIn :: Float, hold :: Float, fade :: Float, s1 :: Float, e1 :: Float, b :: Float, e :: Float, pitch :: Float, cutAt :: Float }
 -- stage: 0 idle, 1 attack, 2 decay or sustain, 3 release
 foreign struct Env { stage :: Float, level :: Float, gate :: Float }
 
@@ -462,6 +466,98 @@ samplerFrom s gate speed out rate n = samplerLoop s gate speed (readField s Tabl
 -- Its first position is past any end, so it is silent until a gate rises.
 samplerK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 samplerK st ins out n cx = samplerFrom (castPtr st) (input ins 0) (input ins 1) out (rateOf cx) (fromIntegral n)
+
+-- SuperDirt's sample event (dirt_sample and dirt_gate in its core-synths.scd,
+-- DirtEvent.sc's calcTimeSpan): at each rising gate, [begin, end) of the
+-- data, backwards for a negative speed, loop times, or for sustain seconds if
+-- that is not negative, never past the part's end. Speed ramps to speed *
+-- (1 + accelerate) over the event, unless accelerate is 1e30, Tidal's absent;
+-- pitch multiplies it; cps above 0 is unit "c": speed in plays per cycle.
+-- Fades of min 1 ms (sustain * 0.19098), a sine's half, at the end, and at
+-- the start unless it starts at frame 0; a rising stop ends it in a linear
+-- fade as long, as a cut group does. Interpolation is linear, where
+-- SuperDirt's is cubic. Inputs: gate, stop, speed, begin, end, loop,
+-- accelerate, sustain, pitch, cps.
+dirtK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+dirtK st ins out n cx = dirtLoop (castPtr st) ins out (rateOf cx) 0 (fromIntegral n)
+
+dirtLoop :: Ptr Dirt -> Ptr (Ptr CFloat) -> Ptr CFloat -> Float -> Int -> Int ->> ()
+dirtLoop s ins out rate i n = if i == n then () else do
+  g <- at (input ins 0) i
+  if g > 0.0 && readField s Dirt.gate <= 0.0 then dirtStart s ins rate i else ()
+  writeField s Dirt.gate g
+  sp <- at (input ins 1) i
+  if sp > 0.0 && readField s Dirt.stop <= 0.0 && readField s Dirt.active > 0.0 && readField s Dirt.cutAt < 0.0 then writeField s Dirt.cutAt (readField s Dirt.t) else ()
+  writeField s Dirt.stop sp
+  if readField s Dirt.active > 0.0 then dirtStep s out rate i else put out i 0.0
+  dirtLoop s ins out rate (i + 1) n
+
+dirtStart :: Ptr Dirt -> Ptr (Ptr CFloat) -> Float -> Int ->> ()
+dirtStart s ins rate i = do
+  frames <- readField s Dirt.frames
+  speed <- at (input ins 2) i
+  b <- at (input ins 3) i
+  e <- at (input ins 4) i
+  loop <- at (input ins 5) i
+  acc <- at (input ins 6) i
+  susIn <- at (input ins 7) i
+  pitch <- at (input ins 8) i
+  cps <- at (input ins 9) i
+  unitDur <- toFloat frames / readField s Dirt.srate / pitch
+  s1 <- if cps > 0.0 then speed * cps * unitDur else speed
+  absent <- acc > 1.0e29
+  e1 <- if absent then s1 else s1 * (1.0 + acc)
+  avg <- if absent then abs s1 else abs s1 + abs e1 * 0.5
+  len <- abs (e - b)
+  natural <- unitDur * len / avg
+  sus <- if susIn >= 0.0 then min natural susIn else natural * abs loop
+  if frames < 1 || len == 0.0 || avg == 0.0 || not (sus >= 8.0 / rate) then writeField s Dirt.active 0.0 else do
+    fade <- min 0.001 (sus * 0.19098)
+    fadeIn <- if (if speed < 0.0 then e else b) /= 0.0 then fade else 0.0
+    writeField s Dirt.active 1.0
+    writeField s Dirt.phase 0.0
+    writeField s Dirt.t 0.0
+    writeField s Dirt.fadeIn fadeIn
+    writeField s Dirt.hold (sus - fade - fadeIn)
+    writeField s Dirt.fade fade
+    writeField s Dirt.s1 s1
+    writeField s Dirt.e1 e1
+    writeField s Dirt.b b
+    writeField s Dirt.e e
+    writeField s Dirt.pitch pitch
+    writeField s Dirt.cutAt (-1.0)
+
+dirtStep :: Ptr Dirt -> Ptr CFloat -> Float -> Int ->> ()
+dirtStep s out rate i = do
+  frames <- readField s Dirt.frames
+  t <- readField s Dirt.t
+  fadeIn <- readField s Dirt.fadeIn
+  hold <- readField s Dirt.hold
+  fade <- readField s Dirt.fade
+  s1 <- readField s Dirt.s1
+  e1 <- readField s Dirt.e1
+  b <- readField s Dirt.b
+  e <- readField s Dirt.e
+  cutAt <- readField s Dirt.cutAt
+  f <- readField s Dirt.phase
+  cut <- if cutAt >= 0.0 then max 0.0 (1.0 - (t - cutAt) / fade) else 1.0
+  x <- (if s1 >= 0.0 then b + f * (e - b) else e - f * (e - b)) * toFloat frames
+  put out i (between (readField s Dirt.dat) frames x False * dirtEnv t fadeIn hold fade * cut)
+  speed <- if hold > 0.0 then s1 + (e1 - s1) * min 1.0 (t / hold) else e1
+  inc <- abs (speed * readField s Dirt.pitch) * readField s Dirt.srate / rate / (abs (e - b) * toFloat frames)
+  writeField s Dirt.phase (fract (f + inc))
+  writeField s Dirt.t (t + 1.0 / rate)
+  if t + 1.0 / rate >= fadeIn + hold + fade || (cutAt >= 0.0 && t + 1.0 / rate - cutAt >= fade) then writeField s Dirt.active 0.0 else ()
+
+-- dirt_gate's envelope: up over fadeIn, held, down over fade, each a sine's half
+dirtEnv :: Float -> Float -> Float -> Float -> Float
+dirtEnv t fadeIn hold fade = if t < fadeIn then (1.0 - ccos (pi2 * 0.5 * t / fadeIn)) * 0.5
+  else if t < fadeIn + hold then 1.0
+  else if t < fadeIn + hold + fade then (1.0 + ccos (pi2 * 0.5 * (t - fadeIn - hold) / fade)) * 0.5
+  else 0.0
+
+fract :: Float -> Float
+fract x = x - cfloor x
 
 -- Zita-Rev1 by Fons Adriaensen, ported from Faust's re.zita_rev1_stereo (reverbs.lib,
 -- by Julius O. Smith III), with a dry/wet mix added. tests/kernels/zita.c compares it

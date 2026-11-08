@@ -53,6 +53,7 @@
 #include <unistd.h>
 
 extern "C" {
+#include "controls.h"
 #include "graph.h"
 #include "libfunk.h"
 #include "midi_clock.h"
@@ -64,15 +65,16 @@ namespace {
 
 const double kCycleMs = 2000.;
 const double kWindowMs = 10.;
+const uint32_t kControlParams = 16; // "p1" to "p16", for controls' p.params
 const int kCap = 4096; // events per window, as in kStep
 const size_t kHeapLimit = (size_t)512 << 20, kThreshold = (size_t)16 << 20, kStackSize = (size_t)256 << 20;
 // Each instance has a heap: kThreshold, not the default 128 MiB, cut a session's resident set
 // from 119 to 43 MiB at the same speed (docs/dev/realtime.md, "Pacer").
-const char* const kStep = "step buf a b = p.writeEvents (plusPtr nullPtr buf) 4096 pat 2000000 a b";
-const char* const kStepOnce = "stepOnce buf a b = p.writeEvents (plusPtr nullPtr buf) 4096 once 2000000 a b";
+const char* const kStep = "step buf ctl nctl a b = p.writeEventsWith (plusPtr nullPtr buf) 4096 pat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 a b";
+const char* const kStepOnce = "stepOnce buf ctl nctl a b = p.writeEventsWith (plusPtr nullPtr buf) 4096 once (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 a b";
 // for a control pattern: three Ints a MIDI message, its time, bytes and note length (control.fk)
-const char* const kStepControls = "step buf a b = writeControls (plusPtr nullPtr buf) 4096 pat 2000000 1000000 a b";
-const char* const kStepOnceControls = "stepOnce buf a b = writeControls (plusPtr nullPtr buf) 4096 once 2000000 1000000 a b";
+const char* const kStepControls = "step buf ctl nctl a b = writeControlsWith (plusPtr nullPtr buf) 4096 pat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
+const char* const kStepOnceControls = "stepOnce buf ctl nctl a b = writeControlsWith (plusPtr nullPtr buf) 4096 once (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
 // control.fk, every name unqualified, as Tidal's are
 const char* const kControlImport = "import control (..)";
 
@@ -271,11 +273,12 @@ private:
 	std::thread thread_;
 };
 
-// A paragraph line that defines name, of three letters.
+// A paragraph line that defines name.
 bool Defines(const std::string& code, const char* name)
 {
 	for (size_t at = 0; at < code.size(); at = code.find('\n', at) + 1) {
-		if (code.compare(at, 3, name) == 0 && at + 3 < code.size() && strchr(" =\t", code[at + 3])) return true;
+		const size_t n = strlen(name);
+		if (code.compare(at, n, name) == 0 && at + n < code.size() && strchr(" =\t", code[at + n])) return true;
 		if (code.find('\n', at) == std::string::npos) break;
 	}
 	return false;
@@ -399,6 +402,7 @@ class FunkLanguage : public Language {
 public:
 	~FunkLanguage() override
 	{
+		for (int i = 0; i < nOsc_; i++) funk_osc_close(oscFds_[i]);
 		funk_voices_free(audio_.voices);
 		funk_player_free(audio_.player); // the host deactivated: the audio thread is done with it
 		if (audio_.kernels) dlclose(audio_.kernels);
@@ -434,6 +438,7 @@ public:
 			const bool interrupted = s.call([&] {
 				if (!s.eval(code, out)) return;
 				if (Defines(code, "sig")) playSig(out);
+				if (Defines(code, "controls")) bindControls(out);
 				if (!Defines(code, "pat")) return;
 				// Compiled again, so that it names the new pat; as a clip, pat plays once.
 				char* type = funk_type_of(s.handle(), "pat", "<eval>");
@@ -452,6 +457,7 @@ public:
 		if (pat && live_) {
 			if (!looping_) grid_ = start;
 			looping_ = true;
+			patternCycle_ = grid_ / kCycleMs;
 		} else if (once || pat) {
 			// Its cycle is queued now. While pat loops, messages before grid_ are sent: it starts there at the earliest.
 			const double from = looping_ ? std::max(start, grid_) : start;
@@ -575,6 +581,16 @@ public:
 		}
 	}
 
+	void midiIn(const uint8_t* data) override
+	{
+		if ((data[0] & 0xF0) == 0xB0) ccIn_[data[0] & 15][data[1] & 127].store((int16_t)((data[2] & 127) + 1), std::memory_order_relaxed);
+	}
+
+	void param(uint32_t index, double value) override
+	{
+		if (index < kControlParams) paramIn_[index].store(value, std::memory_order_relaxed);
+	}
+
 	void audioRender(float* const* out, uint32_t channels, uint32_t frames) override
 	{
 		if (audio_.player) funk_player_render_channels(audio_.player, out, (int)channels, (int)frames);
@@ -667,9 +683,21 @@ private:
 	// last, if given, gets the latest message time. False if the pattern failed, which out reports.
 	bool query(const char* step, double a, double b, double origin, double* last, std::string& out)
 	{
-		long args[3] = {(long)buf_, std::lround(a * 1000), std::lround(b * 1000)}, n = 0;
+		// a clip plays from its own cycle 0; a loop from the cycle pat changed at
+		for (int i = 0; i < nOsc_; i++) funk_osc_poll(oscFds_[i], &controls_);
+		for (int c = 0; c < 16; c++)
+			for (int k = 0; k < 128; k++) {
+				const int16_t v = ccIn_[c][k].exchange(0, std::memory_order_relaxed);
+				if (v && ccOn_) funk_control_cc(&controls_, c, k, v - 1);
+			}
+		if (paramsOn_)
+			for (uint32_t i = 0; i < kControlParams; i++)
+				funk_control_float(&controls_, ("p" + std::to_string(i + 1)).c_str(), paramIn_[i].load(std::memory_order_relaxed));
+		funk_control_float(&controls_, "_cps", 1000. / kCycleMs);
+		funk_control_float(&controls_, "_t_pattern", strcmp(step, "step") ? 0. : patternCycle_);
+		long args[5] = {(long)buf_, (long)controls_.e, controls_.n, std::lround(a * 1000), std::lround(b * 1000)}, n = 0;
 		bool ok = false;
-		session_.call([&] { ok = funk_call(session_.handle(), step, 3, args, &n); }, &out);
+		session_.call([&] { ok = funk_call(session_.handle(), step, 5, args, &n); }, &out);
 		if (!ok) {
 			out += "funk-midi: the pattern failed; it stops until it is evaluated again\n";
 			return false;
@@ -744,6 +772,30 @@ private:
 	static constexpr int kParamNames = 128, kSampleKeys = 4096;
 	char paramNames_[kParamNames][32] = {};
 	char sampleKeys_[kSampleKeys][64] = {}; // "s.bd:3"
+	funk_controls controls_ = {}; // step's (docs/dev/controls-in.md)
+	int oscFds_[8] = {}, nOsc_ = 0;  // controls' p.osc ports
+	bool ccOn_ = false, paramsOn_ = false;
+	std::atomic<int16_t> ccIn_[16][128] = {};          // value + 1 since last taken, from the audio thread
+	std::atomic<double> paramIn_[kControlParams] = {}; // from the host's audio or main thread
+
+	// After controls may have changed: its sources, from scratch. On the evaluator's thread.
+	void bindControls(std::string& out)
+	{
+		for (int i = 0; i < nOsc_; i++) funk_osc_close(oscFds_[i]);
+		nOsc_ = 0, ccOn_ = paramsOn_ = false, controls_.n = 0;
+		long ins[8], n = 0, arg = (long)ins;
+		if (!session_.eval("controlIns buf = p.writeControlIns (plusPtr nullPtr buf) controls", out) || !funk_call(session_.handle(), "controlIns", 1, &arg, &n)) {
+			out += "funk-midi: controls is not used: it must be a [p.ControlIn]\n";
+			return;
+		}
+		for (long i = 0; i < n && i < 8; i++) {
+			if (ins[i] == -1) ccOn_ = true;
+			else if (ins[i] == -2) paramsOn_ = true;
+			else if ((oscFds_[nOsc_] = funk_osc_open((int)ins[i])) >= 0) nOsc_++;
+			else out += "funk-midi: cannot listen for OSC on port " + std::to_string(ins[i]) + "\n";
+		}
+	}
+	double patternCycle_ = 0;     // the cycle pat last changed at, for trigger
 	std::unordered_map<std::string, int> paramIds_, sampleIds_;
 	static int internName(std::unordered_map<std::string, int>& ids, char* table, int cap, size_t width, const std::string& name)
 	{
@@ -807,4 +859,5 @@ const LanguageInfo kLanguage = {
 	nullptr,
 #endif
 	"FUNK_MIDI_CLAP_SIM",
+	kControlParams,
 };

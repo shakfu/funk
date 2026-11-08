@@ -291,6 +291,33 @@ int main(int argc, char **argv) {
   funk_voices_free(vs);
   funk_player_free(vp);
 
+  /* a sample's voices, as d.kit gives them: triggers take them in turn; a
+     cut stops the voices last played with a cut of its size, of the same
+     sample if negative, of any if positive; printed as gate/stop pairs */
+  vp = funk_player_new();
+  g = funk_graph_new(8, 8000.0);
+  const char *snames[] = {"s.bd:0.1.gate", "s.bd:0.1.stop", "s.bd:0.2.gate", "s.bd:0.2.stop", "s.sn:0.1.gate", "s.sn:0.1.stop"};
+  for (int i = 0; i < 6; i++) {
+    funk_graph_output(g, funk_graph_control(g, 0.0f));
+    funk_graph_name(g, i, snames[i]);
+  }
+  funk_player_play(vp, g);
+  vs = funk_voices_new(vp, 1, true);
+  const char *cn[] = {"cut"};
+  const float cut1[] = {1.0f}, cutm1[] = {-1.0f};
+  funk_voices_trigger(vs, 0, "s.bd:0", 1, cn, cut1);  /* voice 1 */
+  funk_voices_trigger(vs, 2, "s.bd:0", 1, cn, cut1);  /* voice 2, stops voice 1 */
+  funk_voices_trigger(vs, 4, "s.sn:0", 1, cn, cutm1); /* only its own sample */
+  funk_voices_trigger(vs, 6, "s.sn:0", 1, cn, cut1);  /* any sample: bd's voices */
+  float sb[6][N], *so[6];
+  for (int i = 0; i < 6; i++) so[i] = sb[i];
+  funk_player_render_channels(vp, so, 6, N);
+  printf("samples");
+  for (int i = 0; i < N; i++) printf(" %g%g.%g%g.%g%g", sb[0][i], sb[1][i], sb[2][i], sb[3][i], sb[4][i], sb[5][i]);
+  printf("\n");
+  funk_voices_free(vs);
+  funk_player_free(vp);
+
   /* channels: channel 10 (9 here) has its own voices, channel 2 shares;
      an off ends its own channel's note, not the oldest of its pitch */
   vp = funk_player_new();

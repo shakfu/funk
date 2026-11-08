@@ -38,7 +38,7 @@ msgs pat = case p.onsets pat (p.Span 0 t) of
 -- the first event's records, as writeControls writes them
 recs :: p.Pattern Controls -> [Record]
 recs pat = case p.onsets pat (p.Span 0 t) of
-  e : _ -> recordsOf 1000000 500000 e.value
+  e : _ -> recordsOf 1000000 1000000 500000 e.value
   [] -> []
 
 main = do

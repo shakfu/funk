@@ -39,6 +39,12 @@ public:
 	// Also the language's own 3-byte messages of status 0xF4, 0xF5 or 0xFD, undefined in
 	// MIDI 1.0, in their place among them; those never reach the host.
 	virtual void audioNote(uint32_t offset, const uint8_t* data) { (void)offset, (void)data; }
+	// A 3-byte message from the host's input that is not a note, such as a CC; on the host's
+	// audio thread, an instrument's only. The language's own messages never come here.
+	virtual void midiIn(const uint8_t* data) { (void)data; }
+	// Parameter index's new value, 0 to 1, of LanguageInfo::params; on the host's audio thread,
+	// or its main thread when it flushes parameters.
+	virtual void param(uint32_t index, double value) { (void)index, (void)value; }
 	virtual void audioRender(float* const* out, uint32_t channels, uint32_t frames)
 	{
 		for (uint32_t c = 0; c < channels; c++)
@@ -62,6 +68,8 @@ struct LanguageInfo {
 	void (*highlight)(const std::string& text, std::vector<uint8_t>& tokens);
 	// Names the simulator's variables (simulator.hpp); nullptr: no simulator.
 	const char* simEnv;
+	// Automatable parameters "p1" to "pN", 0 to 1, at most 64; 0: none.
+	uint32_t params;
 };
 
 extern const LanguageInfo kLanguage;

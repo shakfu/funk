@@ -18,7 +18,7 @@
  2250.000 audio peak 7500
  2500.000 audio peak 0
  2750.000 audio peak 0
-runtime error: graph: dsp_sampler has no sample nosuch:0 in tests/hosts/samples: no such sample folder
+runtime error: graph: dsp_dirt has no sample nosuch:0 in tests/hosts/samples: no such sample folder
 funk-midi: sig failed; the last graph plays on until sig is defined again
  3000.000 audio peak 0
  3000.000 off ch1 2 0

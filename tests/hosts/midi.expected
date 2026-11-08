@@ -4,7 +4,7 @@
  2000.000 off ch1 64 0
  2000.000 on  ch1 60 100
  3000.000 off ch1 60 0
-<input>:1:63: error: type mismatch: expected `pattern.Pattern Int`, found `pattern.Pattern Char`
+<input>:1:76: error: type mismatch: expected `pattern.Pattern Int`, found `pattern.Pattern Char`
   (cannot match `Int` with `Char`)
 funk-midi: pat is not playing: it must be a Pattern Int or of Controls
  4000.000 on  ch2 67 80
@@ -41,4 +41,26 @@ funk-midi: pat failed; stopped until it is defined again
 12025.000 on  ch1 48 100
 12025.000 on  ch1 72 100
 12150.000 off ch1 72 0
-13000.000 off ch1 48 0
+13025.000 off ch1 48 0
+13350.000 on  ch1 60 100
+13600.000 off ch1 60 0
+13600.000 on  ch1 62 100
+13850.000 off ch1 62 0
+13850.000 on  ch1 64 100
+14100.000 off ch1 64 0
+14100.000 on  ch1 65 100
+14350.000 off ch1 65 0
+15025.000 on  ch1 60 100
+16025.000 off ch1 60 0
+16025.000 on  ch1 72 100
+17025.000 off ch1 72 0
+17025.000 on  ch1 25 100
+18025.000 off ch1 25 0
+18025.000 on  ch1 50 100
+19025.000 off ch1 50 0
+19025.000 on  ch1 100 100
+20025.000 off ch1 100 0
+20025.000 on  ch1 50 100
+21025.000 off ch1 50 0
+21025.000 on  ch1 0 100
+21300.000 off ch1 0 0

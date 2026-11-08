@@ -1,0 +1,5 @@
+a second socket on the port: -1
+nothing waiting: 0
+set: 4; cutoff=0.25 21=0.5 steps=7 vowel='a'
+bundle: 2; cutoff=1.5 21=0.5 steps=7 vowel='a' s='bd'
+cc: cc21=0 1:cc21=1 10:cc21=0

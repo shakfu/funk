@@ -24,7 +24,18 @@ typedef struct {
   char gate[12];
 } Key;
 
+/* A sample name's voices, as d.kit gives them: the next to take, and the cut
+   group and orbit each last played in (DirtGateCutGroup in SuperDirt). */
+enum { SAMPLE_KEYS = 256, SAMPLE_VOICES = 16, SAMPLE_KEY = 64 };
+
+typedef struct {
+  char key[SAMPLE_KEY]; /* "s.bd:3"; empty if unused */
+  int next;
+  float cut[SAMPLE_VOICES], orbit[SAMPLE_VOICES];
+} Sample;
+
 struct funk_voices {
+  Sample samples[SAMPLE_KEYS];
   funk_player *p;
   bool (*send)(funk_player *, int64_t, const char *, float);
   int n;       /* voices per group */
@@ -167,14 +178,73 @@ bool funk_voices_off(funk_voices *vs, int64_t frame, int chan, int note) {
   return ok & release(vs, v, frame);
 }
 
+/* names[i]'s value, or d */
+static float named(int n, const char *const *names, const float *values, const char *name, float d) {
+  for (int i = 0; i < n; i++)
+    if (!strcmp(names[i], name)) return values[i];
+  return d;
+}
+
+/* prefix's entry, made if new; NULL when the table is full */
+static Sample *sample_for(funk_voices *vs, const char *prefix) {
+  if (strlen(prefix) >= SAMPLE_KEY) return NULL;
+  for (int i = 0; i < SAMPLE_KEYS; i++) {
+    Sample *s = &vs->samples[i];
+    if (!s->key[0]) {
+      snprintf(s->key, sizeof s->key, "%s", prefix);
+      return s;
+    }
+    if (!strcmp(s->key, prefix)) return s;
+  }
+  return NULL;
+}
+
+/* how many voices the graph gives prefix: prefix.1.gate, prefix.2.gate, ... */
+static int voices_of(funk_voices *vs, const char *prefix) {
+  char c[96];
+  int v = 0;
+  while (v < SAMPLE_VOICES && snprintf(c, sizeof c, "%s.%d.gate", prefix, v + 1) < (int)sizeof c && funk_player_has(vs->p, c)) v++;
+  return v;
+}
+
 bool funk_voices_trigger(funk_voices *vs, int64_t frame, const char *prefix, int n, const char *const *names,
                          const float *values) {
   bool ok = funk_voices_until(vs, frame + 1);
   if (frame < vs->sent) frame = vs->sent;
-  size_t len = strlen(prefix);
-  for (int i = 0; i < n; i++) ok &= send_named(vs, frame, prefix, len, names[i], values[i]);
-  ok &= send_named(vs, frame, prefix, len, "gate", 1);
-  return ok & send_named(vs, frame + 1, prefix, len, "gate", 0);
+  Sample *s = sample_for(vs, prefix);
+  int count = s ? voices_of(vs, prefix) : 0;
+  char voice[96];
+  if (!count) snprintf(voice, sizeof voice, "%s", prefix); /* a graph without voices */
+  else {
+    if (s->next >= count) s->next = 0;
+    snprintf(voice, sizeof voice, "%s.%d", prefix, s->next + 1);
+  }
+  /* A cut group, as SuperDirt's: a voice of the same orbit last played with
+     this cut's size stops, of any sample for a positive cut, of this one for
+     a negative. */
+  float cut = named(n, names, values, "cut", 0), orbit = named(n, names, values, "orbit", 0);
+  char stops[64][96];
+  int nstops = 0;
+  if (cut != 0)
+    for (int i = 0; i < SAMPLE_KEYS && vs->samples[i].key[0]; i++)
+      for (int v = 0; v < SAMPLE_VOICES; v++) {
+        Sample *o = &vs->samples[i];
+        if (o->cut[v] == 0 || o->cut[v] != fabsf(cut) || o->orbit[v] != orbit || (cut < 0 && o != s) || nstops == 64) continue;
+        if (o == s && v == s->next && count) continue; /* the voice this event takes */
+        snprintf(stops[nstops], sizeof stops[0], "%s.%d", o->key, v + 1);
+        ok &= send_named(vs, frame, stops[nstops], strlen(stops[nstops]), "stop", 1);
+        nstops++;
+      }
+  size_t len = strlen(voice);
+  for (int i = 0; i < n; i++) ok &= send_named(vs, frame, voice, len, names[i], values[i]);
+  ok &= send_named(vs, frame, voice, len, "gate", 1);
+  for (int i = 0; i < nstops; i++) ok &= send_named(vs, frame + 1, stops[i], strlen(stops[i]), "stop", 0);
+  ok &= send_named(vs, frame + 1, voice, len, "gate", 0);
+  if (count) {
+    s->cut[s->next] = fabsf(cut), s->orbit[s->next] = orbit;
+    s->next = (s->next + 1) % count;
+  }
+  return ok;
 }
 
 bool funk_voices_hush(funk_voices *vs, int64_t frame) {

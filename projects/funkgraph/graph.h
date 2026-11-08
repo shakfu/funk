@@ -165,9 +165,13 @@ bool funk_voices_on_with(funk_voices *v, int64_t on, int64_t off, int chan, int 
                          const char *const *names, const float *values);
 
 /* A sample's trigger, as lib/dsp.fk's d.kit reads it: from frame, each of
-   the n names[i] to values[i] on control "prefix.name", then "prefix.gate"
-   to 1 for one frame. Controls the graph lacks are skipped. Earlier offs go
-   out first, as for a note. */
+   the n names[i] to values[i] on control "prefix.V.name", then
+   "prefix.V.gate" to 1 for one frame. V is prefix's next voice, 1 up to the
+   last the graph has, in turn; a graph with none takes "prefix.name".
+   Controls the graph lacks are skipped. A nonzero "cut" first stops, by
+   "prefix.V.stop", each voice last played in the same orbit with a cut of
+   that size: of any sample if the cut is positive, of this one if negative,
+   as SuperDirt's cut groups. Earlier offs go out first, as for a note. */
 bool funk_voices_trigger(funk_voices *v, int64_t frame, const char *prefix, int n, const char *const *names,
                          const float *values);
 

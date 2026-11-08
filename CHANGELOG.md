@@ -6,7 +6,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Tidal's combinators, ported from tidal-core 1.10.2: all of `Core.hs`, `UI.hs` and `Control.hs` but what is commented out there and what needs the host's state, such as `cF` and `trigger`. `lib/pattern.fk` has about 260 functions, from `every`, `whenmod`, `iter`, `chunk`, `ply`, `off`, `struct`, `arp` and `rolled` to `ur` and `markovPat`; `lib/control.fk` has those on control patterns, such as `jux`, `chop`, `striate`, `splice`, `stut` and `fix`. Arguments keep Tidal's types, but a time in cycles is a `Float`, rounded to a tick, and a speed factor an `Int`. `d.kit` does not yet play `begin` and `end`, so `chop` and `striate` play whole samples. The test `lib/tidal` runs 158 cases through the installed Tidal too and requires the same events; all match ([docs/dev/combinators.md](docs/dev/combinators.md)).
+- Tidal's combinators, ported from tidal-core 1.10.2: all of `Core.hs`, `UI.hs` and `Control.hs` but what is commented out there and what needs the host's state, such as `cF` and `trigger`. `lib/pattern.fk` has about 260 functions, from `every`, `whenmod`, `iter`, `chunk`, `ply`, `off`, `struct`, `arp` and `rolled` to `ur` and `markovPat`; `lib/control.fk` has those on control patterns, such as `jux`, `chop`, `striate`, `splice`, `stut` and `fix`. Arguments keep Tidal's types, but a time in cycles is a `Float`, rounded to a tick, and a speed factor an `Int`. The test `lib/tidal` runs 178 cases through the installed Tidal too and requires the same events; all match ([docs/dev/combinators.md](docs/dev/combinators.md)).
 
   ```haskell
   import pattern ((~>))
@@ -15,7 +15,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Continuous patterns, as Tidal's: `sine`, `saw`, `tri`, `square`, the `env` shapes, `rand`, `irand`, `perlin` and `normal`. An event's `whole` is now a `Maybe Span`, `Nothing` for a continuous event, which never has an onset. A separate signal type was the alternative; Tidal's `fast 2 sine` and `0.25 ~> rand` would not then port as written. A float literal is an atom, as a number literal is.
 
+- A query carries controls from outside the pattern, as Tidal's `State` does, so Tidal's `cF`, `cI`, `cS` and the rest, `in0`..`in127`, `sec`, `msec` and the `trigger` family port. `p.query pat span` queries with none, and `p.queryState` with some. The hosts give `_cps` and `_t_pattern`, the cycle `pat` last changed at, so `trigger` and `sec` play in them, and the sources a top-level `controls` lists: Tidal's OSC `/ctrl`, MIDI CC as `"cc74"` and `"1:cc74"`, and the plugin's 16 CLAP parameters, `"p1"` to `"p16"`. `funk-midi` takes MIDI in with `--in` and `:cc` ([docs/music.md](docs/music.md#controls-from-outside), design in [docs/dev/controls-in.md](docs/dev/controls-in.md)). Queries cost about 12% more in the interpreter.
+
 ### Changed
+
+- `d.kit` plays a sample event as SuperDirt does: `begin`, `end`, a negative `speed` backwards, `loop`, `accelerate`, `sustain` or `legato`, `note` and `octave` for pitch, `unit "c"`, `cut` groups, and its fades. Each name has 4 voices, so its events overlap, as SuperDirt's synths do; `d.kitWith n` sets the number. It played one event of a name at a time, from the start of its file. Interpolation is linear, where SuperDirt's is cubic.
 
 - `p.euclid` takes Tidal's arguments: patterns of hits and steps, and a pattern to play. `p.euclid 3 8 36` still works; `p.euclid 3 8 'x'` needs `p.atom 'x'`.
 

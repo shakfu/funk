@@ -36,6 +36,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "controls.h"
 #include "graph.h"
 #include "libfunk.h"
 
@@ -57,9 +58,9 @@
 #endif
 
 enum { WINDOW_US = 10000, LOOKAHEAD_US = 50000, CAP = 512, CYCLE_TICKS = 720720 };
-#define STEP "step buf cs ot a b = p.writeEvents (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) cs a b"
+#define STEP "step buf ctl nctl cs ot a b = p.writeEventsWith (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) (p.readControls (plusPtr nullPtr ctl) nctl) cs a b"
 /* for a control pattern: time, MIDI bytes and note length (control.fk) */
-#define STEP_CONTROLS "step buf cs ot a b = writeControls (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) cs 1000000 a b"
+#define STEP_CONTROLS "step buf ctl nctl cs ot a b = writeControlsWith (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) (p.readControls (plusPtr nullPtr ctl) nctl) cs 1000000 a b"
 #define CONTROL_IMPORT "import control (..)"
 
 static bool virtual_time, print_sink, audio;
@@ -90,6 +91,17 @@ static struct timespec after_us(int64_t d) {
 
 /* ------------------------------------------------------------------ output */
 
+/* MIDI CC in, for controls' p.midiCC (docs/dev/controls-in.md): the input's
+   thread and :cc set a value, the thread that calls step takes them */
+static pthread_mutex_t cc_mu = PTHREAD_MUTEX_INITIALIZER;
+static short cc_in[16][128]; /* value + 1; 0: none since last taken */
+
+static void cc_set(int channel, int num, int value) {
+  pthread_mutex_lock(&cc_mu);
+  cc_in[channel & 15][num & 127] = (short)((value & 127) + 1);
+  pthread_mutex_unlock(&cc_mu);
+}
+
 #ifdef HAVE_LIBREMIDI
 static libremidi_midi_out_handle *out;
 static libremidi_midi_out_port *ports[64];
@@ -113,7 +125,68 @@ static void find_ports(void) {
   libremidi_midi_observer_free(obs);
 }
 
+static libremidi_midi_in_handle *in;
+static libremidi_midi_in_port *in_ports[64];
+static int nin_ports;
+
+static void on_in_port(void *ctx, const libremidi_midi_in_port *port) {
+  (void)ctx;
+  if (nin_ports < 64) libremidi_midi_in_port_clone(port, &in_ports[nin_ports++]);
+}
+
+static void on_in(void *ctx, libremidi_timestamp ts, const libremidi_midi1_symbol *m, size_t len) {
+  (void)ctx, (void)ts;
+  if (len == 3 && (m[0] & 0xf0) == 0xb0) cc_set(m[0] & 15, m[1], m[2]);
+}
+
+static void find_in_ports(void) {
+  libremidi_observer_configuration oc;
+  libremidi_api_configuration ac;
+  libremidi_midi_observer_handle *obs;
+  libremidi_midi_observer_configuration_init(&oc);
+  oc.track_hardware = oc.track_virtual = oc.track_any = true;
+  libremidi_midi_api_configuration_init(&ac);
+  ac.configuration_type = Observer;
+  if (libremidi_midi_observer_new(&oc, &ac, &obs) != 0) return;
+  libremidi_midi_observer_enumerate_input_ports(obs, NULL, on_in_port);
+  libremidi_midi_observer_free(obs);
+}
+
+/* port is an index, or -1 for a virtual input named name */
+static bool open_in(int port, const char *name) {
+  libremidi_midi_configuration mc;
+  libremidi_api_configuration ac;
+  libremidi_midi_configuration_init(&mc);
+  libremidi_midi_api_configuration_init(&ac);
+  ac.configuration_type = Input;
+  mc.version = MIDI1;
+  mc.on_midi1_message.context = NULL;
+  mc.on_midi1_message.callback = on_in;
+  if (port < 0) {
+    mc.virtual_port = true;
+    mc.port_name = name;
+  } else {
+    find_in_ports();
+    if (port >= nin_ports) {
+      fprintf(stderr, "funk-midi: no input port %d; --list shows them\n", port);
+      return false;
+    }
+    mc.in_port = in_ports[port];
+  }
+  if (libremidi_midi_in_new(&mc, &ac, &in) != 0) {
+    fputs("funk-midi: cannot open the MIDI input\n", stderr);
+    return false;
+  }
+  return true;
+}
+
 static void list_ports(void) {
+  find_in_ports();
+  for (int i = 0; i < nin_ports; i++) {
+    const char *name;
+    size_t len;
+    if (libremidi_midi_in_port_name(in_ports[i], &name, &len) == 0) printf("in %d: %.*s\n", i, (int)len, name);
+  }
   find_ports();
   for (int i = 0; i < nports; i++) {
     const char *name;
@@ -296,6 +369,23 @@ enum { TAG_NAME = 0xf4, TAG_PARAM = 0xf5, TAG_TRIGGER = 0xfd };
 static bool internal_tag(long m) { return (m & 255) == TAG_NAME || (m & 255) == TAG_PARAM || (m & 255) == TAG_TRIGGER; }
 static int64_t cs = 2000000; /* microseconds per cycle */
 static int64_t origin_us, origin_tick, win; /* tick origin_tick sounds at origin_us; win: the next window */
+/* step's controls (docs/dev/controls-in.md): _cps, and _t_pattern, the cycle
+   pat last changed at */
+static funk_controls controls;
+static int osc_fds[8], nosc; /* controls' p.osc ports */
+static bool cc_on;          /* controls has p.midiCC */
+
+/* the CCs set since the last call, into controls if p.midiCC is on */
+static void cc_take(void) {
+  pthread_mutex_lock(&cc_mu);
+  for (int c = 0; c < 16; c++)
+    for (int k = 0; k < 128; k++)
+      if (cc_in[c][k]) {
+        if (cc_on) funk_control_cc(&controls, c, k, cc_in[c][k] - 1);
+        cc_in[c][k] = 0;
+      }
+  pthread_mutex_unlock(&cc_mu);
+}
 
 static void voice_notes(long n);
 static void voice_release_until(int64_t t);
@@ -304,8 +394,12 @@ static void voice_release_until(int64_t t);
 static void schedule(void) {
   while (win <= now_us() + LOOKAHEAD_US) {
     if (playing && have_step) {
-      long args[5] = {(long)buf, (long)cs, (long)origin_tick, (long)(win - origin_us), (long)(win + WINDOW_US - origin_us)}, n;
-      if (!funk_call(session, "step", 5, args, &n)) {
+      for (int i = 0; i < nosc; i++) funk_osc_poll(osc_fds[i], &controls);
+      cc_take();
+      funk_control_float(&controls, "_cps", 1e6 / (double)cs);
+      long args[7] = {(long)buf, (long)controls.e, controls.n, (long)cs, (long)origin_tick, (long)(win - origin_us),
+                      (long)(win + WINDOW_US - origin_us)}, n;
+      if (!funk_call(session, "step", 7, args, &n)) {
         have_step = false; /* a runtime error, reported: silence until pat is defined again */
         fputs("funk-midi: pat failed; stopped until it is defined again\n", stderr);
       } else {
@@ -569,19 +663,54 @@ static bool eval(const char *src) {
   return ok;
 }
 
+/* pat changes from the next window: its cycle, for trigger */
+static void mark_pattern_time(void) {
+  funk_control_float(&controls, "_t_pattern", ((double)origin_tick + (double)(win - origin_us) * CYCLE_TICKS / (double)cs) / CYCLE_TICKS);
+}
+
 /* After pat may have changed: step is compiled again so it names the new pat. */
 static void rebind(void) {
   char *type = funk_type_of(session, "pat", "<input>");
   bool controls = type && strstr(type, "Pattern") && strstr(type, "Controls");
   free(type);
+  mark_pattern_time();
   if (eval(controls ? STEP_CONTROLS : STEP)) have_step = true, step_controls = controls;
   else fputs("funk-midi: pat is not playing: it must be a Pattern Int or of Controls\n", stderr);
+}
+
+
+/* After controls may have changed: its sources, from scratch */
+static void rebind_controls(void) {
+  for (int i = 0; i < nosc; i++) funk_osc_close(osc_fds[i]);
+  nosc = 0, cc_on = false, controls.n = 0;
+  mark_pattern_time();
+  long ins[8], n = 0, arg = (long)ins;
+  if (!eval("controlIns buf = p.writeControlIns (plusPtr nullPtr buf) controls") || !funk_call(session, "controlIns", 1, &arg, &n)) {
+    fputs("funk-midi: controls is not used: it must be a [p.ControlIn]\n", stderr);
+    return;
+  }
+  for (long i = 0; i < n && i < 8; i++) {
+    if (ins[i] == -1) cc_on = true;
+    else if (ins[i] == -2) fputs("funk-midi: p.params is the plugin's; funk-midi has none\n", stderr);
+    else if ((osc_fds[nosc] = funk_osc_open((int)ins[i])) >= 0) nosc++;
+    else fprintf(stderr, "funk-midi: cannot listen for OSC on port %ld\n", ins[i]);
+  }
 }
 
 static bool defines(const char *s, const char *name) {
   s += strspn(s, " \t");
   size_t n = strlen(name);
   return strncmp(s, name, n) == 0 && (s[n] == ' ' || s[n] == '=' || s[n] == '\t');
+}
+
+/* a line of file path defines name at the top level */
+static bool file_defines(const char *path, const char *name) {
+  FILE *f = fopen(path, "r");
+  char line[512];
+  bool found = false;
+  while (f && !found && fgets(line, sizeof line, f)) found = line[0] != ' ' && line[0] != '\t' && defines(line, name);
+  if (f) fclose(f);
+  return found;
 }
 
 /* After sig may have changed. */
@@ -604,6 +733,14 @@ static bool handle(char *line) {
     bool ok = eval(s);
     if (ok && defines(s, "pat")) rebind();
     if (ok && defines(s, "sig")) rebind_sig();
+    if (ok && defines(s, "controls")) rebind_controls();
+    return true;
+  }
+  /* :cc CHANNEL NUM VALUE, a CC as if it came in, channel 1 to 16 */
+  if (!strncmp(s, ":cc ", 4)) {
+    int ch, num, v;
+    if (sscanf(s + 4, "%d %d %d", &ch, &num, &v) == 3 && ch >= 1 && ch <= 16 && num >= 0 && num < 128 && v >= 0 && v < 128) cc_set(ch - 1, num, v);
+    else fputs("funk-midi: :cc needs a channel 1 to 16, a number and a value 0 to 127\n", stderr);
     return true;
   }
   char *arg = s + strcspn(s, " \t"); /* after the command's name */
@@ -614,6 +751,7 @@ static bool handle(char *line) {
     if (funk_load_file(session, arg)) {
       rebind();
       rebind_sig();
+      if (file_defines(arg, "controls")) rebind_controls();
     }
     return true;
   case 'w': advance_until(now_us() + (int64_t)(atof(arg) * 1000)); return true;
@@ -629,7 +767,7 @@ static bool handle(char *line) {
     else fputs("funk-midi: :cycle needs a length in ms\n", stderr);
     return true;
   default:
-    fputs("commands: :l FILE, :cycle MS, :wait MS, :stop, :play, :q\n", stderr);
+    fputs("commands: :l FILE, :cycle MS, :wait MS, :cc CH NUM VALUE, :stop, :play, :q\n", stderr);
     return true;
   }
 }
@@ -693,6 +831,7 @@ static int run(funk *f, void *arg) {
   if (o->file && funk_load_file(f, o->file)) {
     rebind();
     rebind_sig();
+    if (file_defines(o->file, "controls")) rebind_controls();
   }
 
   if (o->script) {
@@ -748,6 +887,8 @@ static void usage(FILE *f) {
         "  --script FILE  run FILE's lines as input, then exit; `:wait MS` plays for MS\n"
         "  --port N       output port N; --list shows them. Default: a virtual port\n"
         "  --virtual NAME a virtual output port named NAME (default funk-midi)\n"
+        "  --in N         MIDI input port N, for controls' p.midiCC; --list shows them\n"
+        "  --in-virtual NAME  a virtual MIDI input named NAME\n"
         "  --cycle MS     the length of a cycle (default 2000)\n"
         "  --print        print the messages instead of sending them\n"
         "  --no-sleep     run on a virtual clock, as fast as possible; implies --print\n"
@@ -757,14 +898,16 @@ static void usage(FILE *f) {
         "  --voices N     voices for pat's notes: `voices f` sums N of f gate freq (default 8)\n"
         "Input is funk REPL input, with `pattern as p` and `midi as m` imported (and\n"
         "`graph as g` and `dsp as d` with --audio), or\n"
-        ":l FILE, :cycle MS, :wait MS, :stop, :play, :q\n",
+        ":l FILE, :cycle MS, :wait MS, :cc CH NUM VALUE, :stop, :play, :q\n"
+        "A top-level `controls`, such as [p.osc 6010, p.midiCC], gives pat Tidal's cF\n"
+        "and the rest: OSC /ctrl on a port, and CC from --in or :cc.\n",
         f);
 }
 
 int main(int argc, char **argv) {
   Opts o = {FUNK_LIB_DIR, NULL, NULL, FUNK_DSP_LIB};
-  int port = -1;
-  const char *vname = "funk-midi";
+  int port = -1, in_port = -2; /* -2: no input */
+  const char *vname = "funk-midi", *in_name = NULL;
   bool list = false;
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i], *next = i + 1 < argc ? argv[i + 1] : NULL;
@@ -775,6 +918,8 @@ int main(int argc, char **argv) {
     else if (next && !strcmp(a, "--script")) o.script = argv[++i];
     else if (next && !strcmp(a, "--port")) port = atoi(argv[++i]);
     else if (next && !strcmp(a, "--virtual")) vname = argv[++i];
+    else if (next && !strcmp(a, "--in")) in_port = atoi(argv[++i]);
+    else if (next && !strcmp(a, "--in-virtual")) in_port = -1, in_name = argv[++i];
     else if (next && !strcmp(a, "--cycle")) cs = (int64_t)(atof(argv[++i]) * 1000);
     else if (next && !strcmp(a, "-M")) o.lib = argv[++i];
     else if (!strcmp(a, "--audio")) audio = true;
@@ -788,9 +933,10 @@ int main(int argc, char **argv) {
 #ifdef HAVE_LIBREMIDI
   if (list) { list_ports(); return 0; }
   if (!print_sink && !open_out(port, vname)) return 1;
+  if (in_port != -2 && !open_in(in_port, in_name)) return 1;
 #else
-  (void)port, (void)vname;
-  if (list || !print_sink) {
+  (void)port, (void)vname, (void)in_name;
+  if (list || !print_sink || in_port != -2) {
     fputs("funk-midi: built without libremidi: only --print and --no-sleep work\n", stderr);
     return 1;
   }
@@ -809,6 +955,7 @@ int main(int argc, char **argv) {
   funk_free(f);
 #ifdef HAVE_LIBREMIDI
   if (out) libremidi_midi_out_free(out);
+  if (in) libremidi_midi_in_free(in);
 #endif
   return status;
 }

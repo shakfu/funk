@@ -8,6 +8,12 @@ nosuch 1
 p.fastcat [p.atom 60, p.silence, p.silence, p.silence]
 [controls]
 note "0 ~ ~ ~" # ccn "74" # ccv "64" # progNum "3"
+[sec]
+p.mapP (\x -> round (x * 100.0)) (p.sec (p.atom 1.0))
+[controls_in]
+controls = [p.osc 57296, p.midiCC, p.params]
+[controls_read]
+p.fastcat (map (\name -> p.mapP (\x -> round (x * 100.0)) (p.cF 0.0 name)) ["x", "cc21", "2:cc21", "1:cc21", "p3"])
 [params_sig]
 sig = voicesWith (\gate freq param -> gate * param "level" 1.0)
 [params]

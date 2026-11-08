@@ -274,16 +274,31 @@ sig = voicesWith (\gate freq param -> d.lowpass1 (param "cutoff" 2000.0) (d.saw 
 pat = note "0 4 7" # cutoff "<400 1200>"
 ```
 
-An event whose `s` is a sample's name, not `"midi"`, plays that sample of `d.kit`, with SuperDirt's `speed`, `pan` (0 left, 1 right) and level, `amp / 0.4 * (min gain 2 + overgain)^4`, so 1 by default. It sends no MIDI. `s "bd:3"` and `s "bd" # n 3` are the same sample:
+An event whose `s` is a sample's name, not `"midi"`, plays that sample of `d.kit` as SuperDirt plays it: `begin`, `end`, `speed` (negative plays backwards), `loop`, `accelerate`, `sustain` or `legato`, `note` and `octave` for pitch, `unit "c"`, `cut` groups, `pan` (0 left, 1 right) and level, `amp / 0.4 * (min gain 2 + overgain)^4`, so 1 by default. So `chop`, `striate`, `slice` and `splice` play their parts. It sends no MIDI. `s "bd:3"` and `s "bd" # n 3` are the same sample:
 
 ```haskell
 sig = d.kit "/abs/path/Dirt-Samples" ["bd", "bd:3", "sn"]
 pat = s "bd*2 [sn bd:3]" # speed "<1 2>" # gain "0.9"
 ```
 
-A name not in the kit is silent. One sample plays once at a time: a new event restarts it, where SuperDirt would play both.
+A name not in the kit is silent. Each name has 4 voices, so 4 of its events overlap; a fifth takes the oldest's voice. `d.kitWith n dir names` gives `n`, up to 16. Interpolation is linear, where SuperDirt's is cubic, and `unit "s"` plays as `unit "r"`.
 
 The control names are taken at the top level of these sessions: `speed = 2` is an error, "`speed` is imported from `control`; choose another name". A parameter or `let` of that name is fine, and `control.speed` always means the control.
+
+### Controls from outside
+
+A top-level `controls` lists where values come from, and Tidal's `cF`, `cI`, `cS` and the rest read them, as do `in0` to `in127`:
+
+```haskell
+controls = [p.osc 6010, p.midiCC, p.params]
+pat = p.segment 8 (p.range 48.0 72.0 (p.cF 0.0 "cc74")) -- a Pattern Float, mapped to notes as you need
+```
+
+- `p.osc port`: Tidal's OSC `/ctrl name value` on 127.0.0.1, under its own name. Tidal's port is 6010.
+- `p.midiCC`: CC 74 as `"cc74"`, from any channel, and `"1:cc74"` from channel 1, 0 to 1. The plugin takes it from its MIDI input; `funk-midi` from `--in N` or `--in-virtual NAME`, and from `:cc CHANNEL NUM VALUE`.
+- `p.params`: the plugin's parameters `"p1"` to `"p16"`, 0 to 1, which a DAW can automate.
+
+`trigger` and `qtrigger` start a pattern from the cycle it was defined at, and `sec` and `msec` turn seconds into cycles, from the hosts' `_t_pattern` and `_cps` ([dev/controls-in.md](dev/controls-in.md)).
 
 ## MIDI values
 

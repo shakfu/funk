@@ -19,6 +19,16 @@ cycOn k r p = concatMap one [0 .. k - 1]
     one c = sort $ map (\e -> let Arc a b = wholeOrPart e in (tk a, tk b, r (value e)))
               $ filter eventHasOnset $ queryArc p (Arc (fromIntegral c) (fromIntegral c + 1))
 
+-- cycOn, each query with controls m
+cycOnC :: Int -> (a -> String) -> ValueMap -> Pattern a -> [(Integer, Integer, String)]
+cycOnC k r m p = concatMap one [0 .. k - 1]
+  where
+    one c = sort $ map (\e -> let Arc a b = wholeOrPart e in (tk a, tk b, r (value e)))
+              $ filter eventHasOnset $ query p (State (Arc (fromIntegral c) (fromIntegral c + 1)) m)
+
+outC :: String -> Int -> (a -> String) -> [(String, Value)] -> Pattern a -> IO ()
+outC name k r m p = putStrLn (name ++ " " ++ show (cycOnC k r (Map.fromList m) p))
+
 out :: String -> Int -> (a -> String) -> Pattern a -> IO ()
 out name k r p = putStrLn (name ++ " " ++ show (cycOn k r p))
 
@@ -218,3 +228,23 @@ main = do
   out "timeCat" 2 rS (timeCat [(1, fastFromList ["a", "b"]), (2, abcd)])
   out "markov2" 2 rI (markovPat 8 0 [[0.2, 0, 0.8], [0, 0, 1], [0.5, 0.5, 0]])
   putStrLn ("runMarkov2 " ++ show (runMarkov 12 [[0.2, 0, 0.8], [0, 0, 1], [0.5, 0.5, 0]] 0 3))
+  outC "cF" 2 rF [("x", VF 0.25)] (cF 0.5 "x")
+  outC "cFabsent" 1 rF [] (cF 0.5 "x")
+  outC "cF_" 1 rF [] (cF_ "x")
+  outC "cF0" 1 rF [] (cF0 "x")
+  outC "cFint" 1 rF [("x", VI 3)] (cF 0 "x")
+  outC "cI" 1 rI [("x", VF 2.7)] (cI 0 "x")
+  outC "cS" 1 rS [("x", VS "hi")] (cS "" "x")
+  outC "cSfloat" 1 rS [("x", VF 1)] (cS "d" "x")
+  outC "in3" 1 rF [("3", VF 0.75)] in3
+  outC "sec" 1 rF [("_cps", VF 0.5)] (sec (fastFromList [2, 4]))
+  outC "msec" 1 rF [("_cps", VF 0.5)] (msec (pure 1000))
+  outC "trigger" 2 rS [("_t_pattern", VR 0.25)] (trigger abcd)
+  outC "qtrigger" 2 rS [("_t_pattern", VR 0.25)] (qtrigger (slow 4 abcd))
+  outC "rtrigger" 2 rS [("_t_pattern", VR 1.6)] (rtrigger (slow 4 abcd))
+  outC "ftrigger" 2 rS [("_t_pattern", VR 1.6)] (ftrigger (slow 4 abcd))
+  outC "mtrigger" 2 rS [("_t_pattern", VR 5.5)] (mtrigger 4 (slow 4 abcd))
+  outC "fastcI" 1 rS [("f", VI 2)] (fast (fromIntegral <$> cI 1 "f") abcd)
+  outC "rangecF" 1 rF [("x", VF 0.5)] (segment 2 (range 1 (cF 3 "y") (cF 0 "x")))
+  outC "everytrig" 4 rS [("_t_pattern", VR 1)] (every 2 (fast 2) (trigger (slow 2 abcd)))
+  outC "juxcF" 1 rC [("p", VF 0.25)] (jux rev (T.s (fastFromList ["a", "b"]) # pan (cF 0 "p")))

@@ -609,6 +609,12 @@ void CheckClip(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 	          && ev.list.size() == 2 && Is(ev.list[0], 0, 0x90, 60) && ev.list[0].data[2] == 50
 	          && Is(ev.list[1], kBeatFrames * 499 / 500, 0x80, 60),
 	      "a control pattern plays its CC, program and note:" + Describe(ev) + " and " + std::to_string(ev.others.size()) + " others");
+
+	// the plugin's controls (docs/dev/controls-in.md): _cps is 0.5, a 2 s cycle, so 1 s is half a cycle
+	if (!cases.count("sec")) return;
+	reply = Eval(cases["sec"]);
+	ev = Play(plugin, 0., (int)(2 * kBeatFrames / kBlock));
+	check(!ev.list.empty() && Is(ev.list[0], 0, 0x90, 50), "sec reads the plugin's _cps:" + Describe(ev) + " after " + reply);
 }
 
 // A control pattern's parameters reach the plugin's voices, and its sample events d.kit's named
@@ -638,6 +644,51 @@ void CheckParams(const clap_plugin_t* plugin, std::map<std::string, std::string>
 	check(ev.others.empty() && !noteOn && ev.audio.size() > 10 && std::fabs(ev.audio[10] - 2.0736f) < 1e-5f,
 	      "a sample event sets its controls, level 1.2^4, and sends no MIDI: " + std::to_string(ev.audio.empty() ? -1.f : ev.audio[10]));
 	Eval(cases["audio"]); // the sig the later checks expect
+}
+
+// Controls from outside a pattern (docs/dev/controls-in.md): with [controls_in]'s sources, an OSC
+// /ctrl, a CC from the host's input and a parameter reach [controls_read]'s cF; the parameters
+// show as "p1" to "p16", 0 to 1.
+void CheckControlsIn(const clap_plugin_t* plugin, std::map<std::string, std::string>& cases)
+{
+	auto* params = (const clap_plugin_params_t*)plugin->get_extension(plugin, CLAP_EXT_PARAMS);
+	clap_param_info_t info{};
+	check(params && params->count(plugin) == 16 && params->get_info(plugin, 0, &info) && !strcmp(info.name, "p1") && info.max_value == 1.,
+	      "16 parameters, p1 first");
+	if (!params || !gAudioChannels || !cases.count("controls_in") || !cases.count("controls_read")) {
+		printf("SKIP: controls in (no audio port or no [controls_in] cases)\n");
+		return;
+	}
+	std::string reply = Eval(cases["controls_in"]);
+	check(reply.find("error") == std::string::npos && reply.find("cannot") == std::string::npos, "the sources bind: " + reply);
+	// /ctrl "x" 0.5, as Tidal's listener takes it, to the port [controls_in] names
+	const unsigned char ctrl[] = {'/', 'c', 't', 'r', 'l', 0, 0, 0, ',', 's', 'f', 0, 'x', 0, 0, 0, 0x3f, 0, 0, 0};
+	const int fd = socket(AF_INET, SOCK_DGRAM, 0);
+	sockaddr_in to{};
+	to.sin_family = AF_INET;
+	to.sin_port = htons(57296);
+	to.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	sendto(fd, (const char*)ctrl, sizeof ctrl, 0, (sockaddr*)&to, sizeof to);
+	close(fd);
+	// a CC on channel 2 and p3 from the host
+	const clap_event_midi_t cc = Midi(0, 0xB1, 21, 127);
+	clap_event_param_value_t p3{};
+	p3.header = {sizeof p3, 0, CLAP_CORE_EVENT_SPACE_ID, CLAP_EVENT_PARAM_VALUE, 0};
+	p3.param_id = 2, p3.note_id = p3.port_index = p3.channel = p3.key = -1, p3.value = 0.25;
+	const Input in{{&cc.header, &p3.header}};
+	Events ev;
+	Process(plugin, ev, -1., false, &in);
+	double v = 0;
+	check(params->get_value(plugin, 2, &v) && v == 0.25, "the host reads p3 back");
+	std::this_thread::sleep_for(std::chrono::milliseconds(20));
+	reply = Eval(cases["controls_read"]);
+	ev = Play(plugin, 0., (int)(4 * kBeatFrames / kBlock));
+	std::vector<int> keys;
+	for (const auto& e : ev.list)
+		if ((e.data[0] & 0xF0) == 0x90) keys.push_back(e.data[1]);
+	check(keys == std::vector<int>({50, 100, 100, 0, 25}), "OSC, CC and a parameter reach cF:" + Describe(ev) + " after " + reply);
+	plugin->reset(plugin); // the clip's last note-off, then nothing
+	Play(plugin, 0., 1);
 }
 
 void CheckStop(const clap_plugin_t* plugin, std::map<std::string, std::string>& cases)
@@ -906,6 +957,7 @@ int main(int argc, char** argv)
 	CheckAudio(plugin, cases);
 	CheckClip(plugin, cases);
 	CheckParams(plugin, cases);
+	CheckControlsIn(plugin, cases);
 	CheckStop(plugin, cases);
 	std::string saved;
 	CheckState(plugin, cases, saved);

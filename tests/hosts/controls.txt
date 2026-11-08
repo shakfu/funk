@@ -26,3 +26,11 @@ pat = note "0 4" # pF "level" (p.miniF "<0.5 0.25>") # cutoff "300"
 sig = d.kit "tests/hosts/samples" ["bd", "bd:1", "sn"]
 pat = s "bd bd:1 sn nosuch" # gain "<1 0.5>"
 :wait 4000
+-- a name's events overlap on its voices: bd's last 0.05 s from its middle,
+-- every 31.25 ms, sum to about 0.5. With a cut group each stops the one
+-- before in a 1 ms linear fade as the next fades in on a sine, as SuperDirt's,
+-- and the two sum to at most 1.105 times one: 0.276
+pat = s "bd*64" # begin "0.5"
+:wait 2000
+pat = s "bd*64" # begin "0.5" # cut "1"
+:wait 2000

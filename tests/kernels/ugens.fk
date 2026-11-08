@@ -68,6 +68,19 @@ skip p n = if n <= 0 then () else do
   frames p (min n 64)
   skip p (n - 64)
 
+-- dsp_dirt over wav's first channel, with xs its inputs after the gate and
+-- stop: speed, begin, end, loop, accelerate, sustain, pitch, cps. The gate
+-- rises at frame 0, and the stop at frame st if st >= 0. Its first n frames.
+dirtRun :: g.Player -> String -> [Float] -> Int -> Int ->> [Int]
+dirtRun p wav xs st n = do
+  g.play p g.Silence
+  frames p 0
+  g.play p (g.Reader "dsp_dirt" (g.File wav 0) dsp.dirtState (g.control "dg" 0.0 : g.control "ds" 0.0 : map dsp.dc xs))
+  f <- g.frames p
+  g.send p f "dg" 1.0
+  if st >= 0 then g.send p (f + st) "ds" 1.0 else True
+  frames p n
+
 -- s's first n frames on a fresh graph: after silence, no state carries over
 first :: g.Player -> Int -> g.Sig ->> [Int]
 first p n s = do
@@ -378,6 +391,22 @@ main = do
   print (fresh p 2 (dsp.sample wav 0 1))
   -- the speed scales pitch, here half
   print (fresh p 3 (dsp.sample wav 1 0.5))
+  -- d.kit's voice, as SuperDirt plays a sample: the whole file, with a fade
+  -- of min 1 ms (sustain * 0.19098) at its end; from begin, faded in too;
+  -- backwards; twice; for sustain; at twice the pitch; cut by a stop, in a
+  -- linear fade as long; speeding up, its length by SuperDirt's avgSpeed;
+  -- for unit "c", speed 1 a cycle; dropped below 8 frames, as minSustain
+  writeWav wav 1 (map (\i -> 1000 * i) [1 .. 16])
+  print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 1.0, 0.0] (-1) 18)
+  print (dirtRun p wav [1.0, 0.5, 1.0, 1.0, 1.0e30, -1.0, 1.0, 0.0] (-1) 10)
+  print (dirtRun p wav [-1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 1.0, 0.0] (-1) 18)
+  print (dirtRun p wav [1.0, 0.0, 1.0, 2.0, 1.0e30, -1.0, 1.0, 0.0] (-1) 34)
+  print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, 0.001, 1.0, 0.0] (-1) 10)
+  print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 2.0, 0.0] (-1) 10)
+  print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 1.0, 0.0] 4 10)
+  print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0, -1.0, 1.0, 0.0] (-1) 14)
+  print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 1.0, 1000.0] (-1) 10)
+  print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 1.0, 4000.0] (-1) 4)
   cremove wav
   -- named arguments: the same samples as positional, and the rest from defaults
   print (fresh p 4 (dsp.adsr .{ attack = 0.001, decay = 0.001, sustain = 0.5, release = 0.001 } 1) == fresh p 4 (dsp.adsr 0.001 0.001 0.5 0.001 1))

@@ -15,7 +15,7 @@ module control
     slice, randslice, splice, loopAt, hurry, smash, smash', echo, echoWith, stut, stutWith,
     stut', jux, juxBy, juxcut, juxcut', jux', jux4, ghost', ghost, contrast, contrastBy, contrastRange,
     fix, unfix, fixRange, unfixRange, grain, squeezeJoinUp, chew, stackwith, splat, chopArc,
-    midiOf, Record(..), recordsOf, sampleKey, writeControls, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
+    midiOf, Record(..), recordsOf, sampleKey, writeControls, writeControlsWith, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
     bank, begin, binshift, button0, button1, button10, button11, button12, button13, button14,
     button15, button2, button3, button4, button5, button6, button7, button8, button9, ccn, ccv,
     channel, clhatdecay, coarse, comb, control, cps, crush, ctlNum, ctranspose, cut, cutoff,
@@ -433,11 +433,11 @@ splice :: p.Pattern Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Cont
 splice bp ip pat = p.innerJoin (p.mapP (\bits -> _splice bits ip pat) bp)
 
 _splice :: Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
-_splice bits ip pat = p.Pattern (\q -> map (\e -> case p.wholeOrPart e of
+_splice bits ip pat = p.Pattern (\qst -> let q = qst.arc in map (\e -> case p.wholeOrPart e of
     w -> case (1.0 / toFloat bits) / p.cycles (w.stop - w.start) of
       d -> p.Event e.whole e.part (case getControl "speed" e.value of
         Just (VF sp) -> setControl "speed" (VF (d * sp)) e.value
-        _ -> setControl "speed" (VF d) e.value)) (p.query (slice (p.atom bits) ip pat) q)) # pS "unit" (p.atom "c")
+        _ -> setControl "speed" (VF d) e.value)) (p.queryIn qst (slice (p.atom bits) ip pat) q)) # pS "unit" (p.atom "c")
 
 -- p slowed to n cycles, its speed set to fit
 loopAt :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
@@ -521,10 +521,10 @@ contrast f g a pat = contrastBy (\x y -> x == y) f g (p.mapP controlPairs a) pat
 
 -- contrast, matching each name's value by comp
 contrastBy :: (a -> Value -> Bool) -> (p.Pattern Controls -> p.Pattern b) -> (p.Pattern Controls -> p.Pattern b) -> p.Pattern [(String, a)] -> p.Pattern Controls -> p.Pattern b
-contrastBy comp f g a pat = case p.Pattern (\q -> map (\e -> case (p.wholeOrPart e).start of
+contrastBy comp f g a pat = case p.Pattern (\qst -> let q = qst.arc in map (\e -> case (p.wholeOrPart e).start of
     t -> p.Event e.whole e.part (any (\ea -> all (\(k, v) -> case getControl k e.value of
         Just x -> comp v x
-        Nothing -> False) ea.value) (p.query a (p.Span t (t + 1))), e.value)) (p.query pat q)) of
+        Nothing -> False) ea.value) (p.queryIn qst a (p.Span t (t + 1))), e.value)) (p.queryIn qst pat q)) of
   m -> p.overlay (f (p.mapMaybeP (\(t, v) -> if t then Just v else Nothing) m)) (g (p.mapMaybeP (\(t, v) -> if t then Nothing else Just v) m))
 
 -- contrast, matching a value within each name's range
@@ -557,13 +557,13 @@ grain s w = pF "begin" s # pF "end" (s + w)
 
 -- squeezeJoin, each inner pattern's speed raised by its event's shortness
 squeezeJoinUp :: p.Pattern (p.Pattern Controls) -> p.Pattern Controls
-squeezeJoinUp pp = p.Pattern (\q -> concatMap (\eo -> case eo.whole of
+squeezeJoinUp pp = p.Pattern (\qst -> let q = qst.arc in concatMap (\eo -> case eo.whole of
     Just w -> case mod w.start p.cycleTicks of
       c -> concatMap (\ei -> case ei.whole of
           Just iw -> concatMap (\nw -> map (\np -> p.Event (Just nw) np ei.value) (p.sect eo.part ei.part)) (p.sect w iw)
           Nothing -> [])
-        (p.query (p.compressTicks c (c + w.stop - w.start) (eo.value |* pF "speed" (p.atom (1.0 / p.cycles (w.stop - w.start))))) eo.part)
-    Nothing -> []) (p.query pp q))
+        (p.queryIn qst (p.compressTicks c (c + w.stop - w.start) (eo.value |* pF "speed" (p.atom (1.0 / p.cycles (w.stop - w.start))))) eo.part)
+    Nothing -> []) (p.queryIn qst pp q))
 
 -- bite, changing speed with the length of each part
 chew :: p.Pattern Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
@@ -683,7 +683,7 @@ clampTo lo hi x = max lo (min hi x)
 -- messages, a name's chunks, a parameter's value, which takes the chunks
 -- before it as its name, and a sample's trigger, which takes them as its
 -- key. A MIDI event's other parameters go before its messages, for its
--- voice; a sample event's speed, level and pan, then its trigger, for d.kit.
+-- voice; a sample event's parameters, then its trigger, for d.kit.
 data Record = RMidi Int Int | RName Int | RParam Float | RTrigger deriving (Eq, Show)
 
 -- the names midiOf reads, which a voice is not sent
@@ -692,8 +692,8 @@ midiNames = ["s", "n", "note", "octave", "freq", "amp", "gain", "overgain", "sus
   "velocity", "ccn", "ccv", "nrpn", "val", "progNum", "midibend", "miditouch", "polyTouch", "midicmd", "ctlNum",
   "control", "songPtr"]
 
-recordsOf :: Int -> Int -> Controls -> [Record]
-recordsOf ups dur cs = case getControl "s" cs of
+recordsOf :: Int -> Int -> Int -> Controls -> [Record]
+recordsOf ups cyc dur cs = case getControl "s" cs of
   Just (VS x) -> if x == "midi" then forVoice else forSample x
   Just _ -> []
   Nothing -> forVoice
@@ -710,7 +710,21 @@ recordsOf ups dur cs = case getControl "s" cs of
       ++ map (\(m, l) -> RMidi m l) (midiOf ups dur cs)
     -- SuperDirt's: amp * (min gain 2 + overgain)^4, relative to amp's 0.4, so 1 by default
     level = num "amp" 0.4 / 0.4 * fourth (min (num "gain" 1.0) 2.0 + num "overgain" 0.0)
-    forSample x = named "speed" (num "speed" 1.0) ++ named "level" level ++ named "pan" (num "pan" 0.5)
+    -- SuperDirt's: sustain, else legato times the event, else -1 for the
+    -- sample's own; the pitch of note and octave, or of freq; for unit "c",
+    -- cycles per second; accelerate 1e30 if absent (dsp_dirt in lib/kernels.fk)
+    sustain = case getControl "sustain" cs of
+      Just _ -> num "sustain" 0.0
+      Nothing -> case getControl "legato" cs of
+        Just _ -> toFloat dur / toFloat ups * num "legato" 1.0
+        Nothing -> -1.0
+    pitch = case getControl "freq" cs of
+      Just _ -> num "freq" 261.6255653005986 / 261.6255653005986
+      Nothing -> 2.0 ** ((num "note" 0.0 + 12.0 * (num "octave" 5.0 - 5.0)) / 12.0)
+    cps = if getControl "unit" cs == Just (VS "c") then toFloat ups / toFloat cyc else 0.0
+    forSample x = concatMap (\(k, v) -> named k v) [("speed", num "speed" 1.0), ("level", level), ("pan", num "pan" 0.5),
+        ("begin", num "begin" 0.0), ("end", num "end" 1.0), ("loop", num "loop" 1.0), ("accelerate", num "accelerate" 1.0e30),
+        ("sustain", sustain), ("pitch", pitch), ("cps", cps), ("cut", num "cut" 0.0), ("orbit", num "orbit" 0.0)]
       ++ map RName (chunks (unpack (sampleKey x (truncate (num "n" 0.0))))) ++ [RTrigger]
 
 -- a sample's key, as d.kit names its controls: "bd:3"
@@ -730,7 +744,11 @@ chunks cs = if null cs then [] else foldr (\c acc -> acc * 256 + mod (ord c) 256
 -- a Float; a trigger's tag is 253 (0xFD). cs is units per cycle, ups per
 -- second. Returns how many there were.
 writeControls :: Ptr Int -> Int -> p.Pattern Controls -> Int -> Int -> Int -> Int ->> Int
-writeControls buf cap pat cs ups a b = writeRecords buf cap 0 (concatMap (\(s, d, v) -> map (\r -> (s, r)) (recordsOf ups d v)) (p.sampleEvents pat cs a b))
+writeControls buf cap pat cs ups a b = writeControlsWith buf cap pat [] cs ups a b
+
+-- writeControls, queried with the host's controls (p.readControls)
+writeControlsWith :: Ptr Int -> Int -> p.Pattern Controls -> [(String, p.Ctl)] -> Int -> Int -> Int -> Int ->> Int
+writeControlsWith buf cap pat ctls cs ups a b = writeRecords buf cap 0 (concatMap (\(s, d, v) -> map (\r -> (s, r)) (recordsOf ups cs d v)) (p.sampleEventsWith ctls pat cs a b))
 
 writeRecords :: Ptr Int -> Int -> Int -> [(Int, Record)] ->> Int
 writeRecords buf cap i rs = case rs of

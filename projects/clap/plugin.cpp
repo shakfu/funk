@@ -467,6 +467,7 @@ private:
 		if ((!out && !audio) || frames == 0 || sampleRate_ <= 0.) return CLAP_PROCESS_CONTINUE;
 		// An instrument's notes, the host's and its own, go to audio in time order once all are known.
 		notes_.clear();
+		if (kLanguage.params) takeParams(process->in_events);
 		if (audio) takeNoteInput(process->in_events, frames);
 		auto emit = [this, out, audio](uint32_t offset, const uint8_t* data, uint8_t size) {
 			if (audio && size == 3) notes_.add(offset, data);
@@ -546,6 +547,11 @@ private:
 			const uint32_t offset = std::min(h->time, frames - 1);
 			if (h->type == CLAP_EVENT_MIDI) {
 				const auto* m = reinterpret_cast<const clap_event_midi_t*>(h);
+				const uint8_t kind = m->data[0] & 0xF0;
+				if (kind != 0x80 && kind != 0x90) {
+					if (Language* language = evaluator_->language()) language->midiIn(m->data);
+					continue;
+				}
 				notes_.add(offset, m->data);
 			} else if (h->type == CLAP_EVENT_NOTE_ON || h->type == CLAP_EVENT_NOTE_OFF || h->type == CLAP_EVENT_NOTE_CHOKE) {
 				const auto* e = reinterpret_cast<const clap_event_note_t*>(h);
@@ -640,6 +646,7 @@ private:
 		if (!strcmp(id, CLAP_EXT_RENDER)) return &kRender;
 		if (!strcmp(id, CLAP_EXT_GUI)) return &kGui;
 		if (!strcmp(id, CLAP_EXT_TIMER_SUPPORT)) return &kTimer;
+		if (!strcmp(id, CLAP_EXT_PARAMS) && kLanguage.params) return &kParams;
 		return nullptr;
 	}
 
@@ -649,6 +656,24 @@ private:
 	static const clap_plugin_render_t kRender;
 	static const clap_plugin_gui_t kGui;
 	static const clap_plugin_timer_support_t kTimer;
+	static const clap_plugin_params_t kParams;
+
+	// The parameters' values, for the host to read back, and the language's.
+	std::atomic<double> params_[64] = {};
+
+	void takeParams(const clap_input_events_t* in)
+	{
+		const uint32_t count = in ? in->size(in) : 0;
+		Language* language = evaluator_->language();
+		for (uint32_t i = 0; i < count; ++i) {
+			const clap_event_header_t* h = in->get(in, i);
+			if (h->space_id != CLAP_CORE_EVENT_SPACE_ID || h->type != CLAP_EVENT_PARAM_VALUE) continue;
+			const auto* e = reinterpret_cast<const clap_event_param_value_t*>(h);
+			if (e->param_id >= kLanguage.params || e->param_id >= 64) continue;
+			params_[e->param_id] = e->value;
+			if (language) language->param(e->param_id, e->value);
+		}
+	}
 
 	// State: version byte, flags byte, u64 text length, editor text, clip (timeline.hpp).
 	// "No wrap" is a flag so a zero flags byte means the defaults.
@@ -823,6 +848,39 @@ const clap_plugin_audio_ports_t Plugin::kAudioPorts = {
 		info->in_place_pair = CLAP_INVALID_ID;
 		return true;
 	},
+};
+
+// "p1" to "pN", 0 to 1, for the language's controls (docs/dev/controls-in.md)
+const clap_plugin_params_t Plugin::kParams = {
+	[](const clap_plugin_t*) -> uint32_t { return std::min<uint32_t>(kLanguage.params, 64); },
+	[](const clap_plugin_t*, uint32_t index, clap_param_info_t* info) {
+		if (index >= kLanguage.params || index >= 64) return false;
+		*info = {};
+		info->id = index;
+		info->flags = CLAP_PARAM_IS_AUTOMATABLE;
+		snprintf(info->name, sizeof(info->name), "p%u", index + 1);
+		info->min_value = 0.;
+		info->max_value = 1.;
+		info->default_value = 0.;
+		return true;
+	},
+	[](const clap_plugin_t* p, clap_id id, double* value) {
+		if (id >= kLanguage.params || id >= 64) return false;
+		*value = self(p)->params_[id];
+		return true;
+	},
+	[](const clap_plugin_t*, clap_id id, double value, char* text, uint32_t size) {
+		if (id >= kLanguage.params) return false;
+		snprintf(text, size, "%.3f", value);
+		return true;
+	},
+	[](const clap_plugin_t*, clap_id id, const char* text, double* value) {
+		if (id >= kLanguage.params) return false;
+		char* end;
+		*value = strtod(text, &end);
+		return end != text;
+	},
+	[](const clap_plugin_t* p, const clap_input_events_t* in, const clap_output_events_t*) { self(p)->takeParams(in); },
 };
 
 const clap_plugin_state_t Plugin::kState = {

@@ -18,6 +18,9 @@ cycOn k r pat = concatMap (\c -> sort (map (\e -> case p.wholeOrPart e of
 
 out name k r pat = putStrLn (name ++ " " ++ show (cycOn k r pat))
 
+outC name k r m pat = putStrLn (name ++ " " ++ show (concatMap (\c -> sort (map (\e -> case p.wholeOrPart e of
+    w -> (w.start, w.stop, r e.value)) (p.onsetsState pat (p.State (p.Span (c * t) ((c + 1) * t)) m)))) [0 .. k - 1]))
+
 sampled name pat = putStrLn (name ++ " " ++ show (map (\i -> case div (i * t) 4 of
     a -> cat' (map (\e -> fmt e.value) (p.query pat (p.Span a (a + 1))))) [0 .. 7]))
 
@@ -206,3 +209,23 @@ main = do
   out "timeCat" 2 rS (p.timeCat [(1, p.fastFromList ["a", "b"]), (2, abcd)])
   out "markov2" 2 rI (p.markovPat 8 0 [[0.2, 0.0, 0.8], [0.0, 0.0, 1.0], [0.5, 0.5, 0.0]])
   putStrLn ("runMarkov2 " ++ show (p.runMarkov 12 [[0.2, 0.0, 0.8], [0.0, 0.0, 1.0], [0.5, 0.5, 0.0]] 0 3.0))
+  outC "cF" 2 rF [("x", p.CtlF 0.25)] (p.cF 0.5 "x")
+  outC "cFabsent" 1 rF [] (p.cF 0.5 "x")
+  outC "cF_" 1 rF [] (p.cF_ "x")
+  outC "cF0" 1 rF [] (p.cF0 "x")
+  outC "cFint" 1 rF [("x", p.CtlI 3)] (p.cF 0.0 "x")
+  outC "cI" 1 rI [("x", p.CtlF 2.7)] (p.cI 0 "x")
+  outC "cS" 1 rS [("x", p.CtlS "hi")] (p.cS "" "x")
+  outC "cSfloat" 1 rS [("x", p.CtlF 1.0)] (p.cS "d" "x")
+  outC "in3" 1 rF [("3", p.CtlF 0.75)] p.in3
+  outC "sec" 1 rF [("_cps", p.CtlF 0.5)] (p.sec (p.fastFromList [2.0, 4.0]))
+  outC "msec" 1 rF [("_cps", p.CtlF 0.5)] (p.msec (p.atom 1000.0))
+  outC "trigger" 2 rS [("_t_pattern", p.CtlF 0.25)] (p.trigger abcd)
+  outC "qtrigger" 2 rS [("_t_pattern", p.CtlF 0.25)] (p.qtrigger (p.slow 4 abcd))
+  outC "rtrigger" 2 rS [("_t_pattern", p.CtlF 1.6)] (p.rtrigger (p.slow 4 abcd))
+  outC "ftrigger" 2 rS [("_t_pattern", p.CtlF 1.6)] (p.ftrigger (p.slow 4 abcd))
+  outC "mtrigger" 2 rS [("_t_pattern", p.CtlF 5.5)] (p.mtrigger 4 (p.slow 4 abcd))
+  outC "fastcI" 1 rS [("f", p.CtlI 2)] (p.fast (p.cI 1 "f") abcd)
+  outC "rangecF" 1 rF [("x", p.CtlF 0.5)] (p.segment 2 (p.range 1.0 (p.cF 3.0 "y") (p.cF 0.0 "x")))
+  outC "everytrig" 4 rS [("_t_pattern", p.CtlF 1.0)] (p.every 2 (p.fast 2) (p.trigger (p.slow 2 abcd)))
+  outC "juxcF" 1 rC [("p", p.CtlF 0.25)] (jux p.rev (pS "s" (p.fastFromList ["a", "b"]) # pF "pan" (p.cF 0.0 "p")))

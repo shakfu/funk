@@ -2,7 +2,7 @@
 
 Tidal's transformations in `lib/pattern.fk`, for roadmap 0.11 ([roadmap.md](roadmap.md#011----tidal-expressive-patterns)). Source: tidal-core 1.10.2 from Hackage, `src/Sound/Tidal/`: `Core.hs`, `UI.hs` and `Control.hs`, about 540 top-level definitions. Each port follows the source, not Tidal's documentation. The `main` branch of [Tidal](https://github.com/tidalcycles/Tidal) at `fefb1c3` is older than the release: it lacks `chunkInto`, `ribbon` and `into`, and its `runMarkov` differs.
 
-`lib/tidal` (`tests/tidal/compare.sh`) runs 158 cases through Tidal and through funk and diffs the output: each case's onsets over its first cycles, in ticks, with values to 1e-9. It runs where `ghc` has the `tidal` package, and is skipped elsewhere.
+`lib/tidal` (`tests/tidal/compare.sh`) runs 178 cases through Tidal and through funk and diffs the output: each case's onsets over its first cycles, in ticks, with values to 1e-9. It runs where `ghc` has the `tidal` package, and is skipped elsewhere.
 
 ## Scope
 
@@ -32,11 +32,7 @@ Tidal's times are `Rational` cycles. A funk combinator that takes a time takes a
 
 ## Status
 
-Groups 1 and 2 are done, as are group 3's control functions, which set `begin`, `end`, `speed` and `unit`, and Pattern.hs's `reset`, `restart` and `trigJoin` (2026-11-08). All 158 cases of `lib/tidal` match. Left:
-
-- **Group 3 playback.** `d.kit` ignores `begin`, `end`, `cut`, `loop` and `unit`, so `chop`, `striate` and `splice` play whole samples in the plugin. MIDI ignores them, as SuperDirt's MIDI target does.
-- **Group 4.** A query sees only its span. `cF` and its kind, `in0`..`in127`, `sec`, `msec` and the `trigger` family need it to see the host's state too, as Tidal's `State` gives `controls`.
-- **`|>`**, which is `#`: the prelude's `x |> f` takes the name.
+All four groups are done (2026-11-08): `d.kit` plays `begin`, `end`, `cut` and the rest ([delivery.md](delivery.md)), and `cF` and the `trigger` family read controls from OSC, MIDI CC and the plugin's parameters ([controls-in.md](controls-in.md)). Pattern.hs's `reset`, `restart` and `trigJoin` too. All 178 cases of `lib/tidal` match. Not ported: `|>`, which is `#`, as the prelude's `x |> f` takes the name.
 
 Not ported, as Tidal's source has them inside block comments: `fill`, `pequal`, `preplace` and its kind (`prep`, `prr`, `prrw`, `prw`, `protate`, `<~>`), `scrumple`, `toMIDI`, `striateL`, `striateL'` and `en`.
 
