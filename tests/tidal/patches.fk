@@ -1,0 +1,28 @@
+-- tests/tidal/ports.fk's patches, printed as tests/tidal/Patches.hs prints
+-- Tidal's (tests/tidal/patches.sh).
+import pattern as p
+import control (Controls, Value (..), controlPairs)
+import ports (patches)
+
+t = p.cycleTicks
+
+fmt :: Float -> String
+fmt x = show (round (x * 1000000000.0))
+
+cat' :: [String] -> String
+cat' xs = foldr (++) "" xs
+
+rV :: Value -> String
+rV v = case v of
+  VF x -> "f" ++ fmt x
+  VI i -> "i" ++ show i
+  VS x -> "s" ++ x
+
+rC :: Controls -> String
+rC m = cat' (map (\(k, v) -> k ++ "=" ++ rV v ++ ";") (controlPairs m))
+
+-- the onsets of cycles [0, k), each cycle sorted, one line per cycle
+out name k pat = mapM_ (\c -> putStrLn (name ++ " " ++ show c ++ " " ++ show (sort (map (\e -> case p.wholeOrPart e of
+    w -> (w.start, w.stop, rC e.value)) (p.onsets pat (p.Span (c * t) ((c + 1) * t))))))) [0 .. k - 1]
+
+main = mapM_ (\(name, k, pat) -> out name k pat) patches

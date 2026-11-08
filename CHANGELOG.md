@@ -17,6 +17,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A query carries controls from outside the pattern, as Tidal's `State` does, so Tidal's `cF`, `cI`, `cS` and the rest, `in0`..`in127`, `sec`, `msec` and the `trigger` family port. `p.query pat span` queries with none, and `p.queryState` with some. The hosts give `_cps` and `_t_pattern`, the cycle `pat` last changed at, so `trigger` and `sec` play in them, and the sources a top-level `controls` lists: Tidal's OSC `/ctrl`, MIDI CC as `"cc74"` and `"1:cc74"`, and the plugin's 16 CLAP parameters, `"p1"` to `"p16"`. `funk-midi` takes MIDI in with `--in` and `:cc` ([docs/music.md](docs/music.md#controls-from-outside), design in [docs/dev/controls-in.md](docs/dev/controls-in.md)). Queries cost about 12% more in the interpreter.
 
+- The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match, 1604 of them after rounding to ticks, by at most 30 ticks. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.sh` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
+
 ### Changed
 
 - `d.kit` plays a sample event as SuperDirt does: `begin`, `end`, a negative `speed` backwards, `loop`, `accelerate`, `sustain` or `legato`, `note` and `octave` for pitch, `unit "c"`, `cut` groups, and its fades. Each name has 4 voices, so its events overlap, as SuperDirt's synths do; `d.kitWith n` sets the number. It played one event of a name at a time, from the start of its file. Interpolation is linear, where SuperDirt's is cubic.
@@ -24,6 +26,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `p.euclid` takes Tidal's arguments: patterns of hits and steps, and a pattern to play. `p.euclid 3 8 36` still works; `p.euclid 3 8 'x'` needs `p.atom 'x'`.
 
 - `p.fastcat []` is silence, as Tidal's is. It failed, as `fast 0`.
+
+- A sample folder or file path may start with `~/`, for `$HOME`: `d.kit "~/.local/share/funk/Dirt-Samples" ["bd"]`. The plugin's working directory is its host's, so a relative path never worked there.
+
+### Fixed
+
+- A mini-notation step longer than a cycle, such as `[lt*2]/5` in `"[sid/4]*3 [lt*2]/5 mt*3"`, had a different whole from Tidal's, so a join over it, as in `spread'`, gained or lost onsets. funk built an equal-weight sequence with `fastcat`, where Tidal's parser uses `timeCat`. funk's `timecat` also mapped a whole from the query's cycle, where Tidal's `_fastGap` maps it from its own. `rev "60*1.5 [61 62]*<2.5 3>"` has 130 onsets in 20 cycles, as in Tidal, not 140.
 
 ## [0.10.0] - 2026-11-08
 

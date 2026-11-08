@@ -1,0 +1,32 @@
+-- The slowest query of each of tests/tidal/ports.fk's patches, in 10 ms
+-- windows at 0.5 cycles per second, as the plugin queries (kCycleMs, kWindowMs).
+-- Not a test: run as funk run tests/tidal/bench.fk -M lib -M tests/tidal
+-- (docs/dev/patch-port.md#timing).
+import pattern as p
+import control (Controls)
+import ports (patches)
+
+foreign import ccall "time.h clock" clock :: () ->> CULong
+
+windows = 200
+
+win = div p.cycleTicks windows
+
+-- its argument, evaluated before the call
+force :: Int ->> Int
+force x = x
+
+-- the slowest window's microseconds, the total, and the most onsets in a window
+timeWindows :: p.Pattern Controls -> Int -> Int -> (Int, Int, Int) ->> (Int, Int, Int)
+timeWindows pat i n acc = if i == n then acc else do
+  a <- clock ()
+  k <- force (length (p.onsets pat (p.Span (i * win) ((i + 1) * win))))
+  b <- clock ()
+  case acc of
+    (mx, tot, km) -> case fromIntegral (b - a) of
+      us -> timeWindows pat (i + 1) n (max mx us, tot + us, max km k)
+
+main = mapM_ (\(name, k, pat) -> do
+    r <- timeWindows pat 0 (k * windows) (0, 0, 0)
+    case r of
+      (mx, tot, km) -> putStrLn (name ++ " max_us " ++ show mx ++ " mean_us " ++ show (div tot (k * windows)) ++ " max_onsets " ++ show km)) patches

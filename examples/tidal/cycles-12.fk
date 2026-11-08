@@ -1,0 +1,17 @@
+-- Tidal's old/examples/cycles.tidal, # 12, ported to funk (README.md):
+--
+-- d1 $ (jux (spread' (<~) (toRational <$> (slow 16 sinewave1))) $ sound "bd*2 pluck/2 sn/2 [pluck/0 pluck/1]") |+| speed "1 2 3 2"
+--
+-- jux's right channel is silent, as in Tidal 1.10.2 (docs/dev/patch-port.md).
+
+import pattern as p
+import pattern ((<~))
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+sig = d.kit dirt ["bd", "pluck", "sn"]
+
+pat = (jux (p.spread' ((<~) . p.atom) (p.slow 16 p.sine)) $ sound "bd*2 pluck/2 sn/2 [pluck/0 pluck/1]") # speed "1 2 3 2"

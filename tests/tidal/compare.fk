@@ -198,6 +198,7 @@ main = do
   out "smash" 3 rC (smash 2 [1, 2] (sa "a"))
   out "grain" 1 rC (grain 0.2 0.1)
   out "interlace" 1 rC (interlace (sa "a") (sa "b"))
+  out "miniStep" 4 rS (p.spread' (p.slow . p.atom) (p.fastFromList [3, 4, 5, 2]) (p.miniS "[bd*5 ht*5, [sid/4]*3 [lt*2]/5 mt*3, [sid/3]*3]"))
   out "chunkInto" 4 rI (p.chunkInto 4 (\x -> x + 10) nums)
   out "chunkIntoneg" 4 rI (p.chunkInto (-4) (\x -> x + 10) nums)
   out "ribbon" 4 rS (p.ribbon 0.5 2.0 (p.cat [abcd, p.fastFromList ["e", "f"], p.atom "g"]))

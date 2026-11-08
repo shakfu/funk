@@ -45,3 +45,7 @@ sample path '../bd': '', a sample name is one folder's name
 sample path 'bd/a.WAV': '', a sample name is one folder's name
 sample path '': '', a sample name is one folder's name
 sample path '..': '', a sample name is one folder's name
+sample path in '~': a.WAV
+sample path in '~/': a.WAV
+sample path in '~x': no such sample folder
+a table from '~/bd/b.wav': loaded

@@ -1,0 +1,19 @@
+-- Tidal's old/examples/cycles.tidal, # 13, ported to funk (README.md):
+--
+-- let sinerat1 = fmap toRational sinewave1 in stack [smash 4 [1..16] $ (jux (spread' (<~) (slow 64 $ sinerat1)) $ sound $ samples "[bd bd*4, jvbass*8]" (slow 4 $ run 8)), sound "future/1"]
+
+import pattern as p
+import pattern ((<~))
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+-- Tidal's sound, of a pattern of names
+soundP :: p.Pattern String -> p.Pattern Controls
+soundP pat = grp [mS "s", mF "n"] pat
+
+sig = d.kit dirt ["bd", "bd:1", "bd:2", "bd:3", "bd:4", "bd:5", "bd:6", "bd:7", "future", "jvbass", "jvbass:1", "jvbass:2", "jvbass:3", "jvbass:4", "jvbass:5", "jvbass:6", "jvbass:7"]
+
+pat = let sinerat1 = p.sine in p.stack [smash 4 (map p.atom [1 .. 16]) $ (jux (p.spread' ((<~) . p.atom) (p.slow 64 $ sinerat1)) $ soundP $ p.samples (p.miniS "[bd bd*4, jvbass*8]") (p.slow 4 $ p.run 8)), sound "future/1"]

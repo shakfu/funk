@@ -162,9 +162,9 @@ Language features, each only if the library work shows the need:
 
 Acceptance test:
 
-- A set of real Tidal patches ported to funk, with each remaining difference listed.
+- ~~A set of real Tidal patches ported to funk, with each remaining difference listed.~~ The 22 of Tidal's `old/examples/cycles.tidal`: every event matches Tidal 1.10.2's, 1604 of 6456 by rounding to ticks ([patch-port.md](patch-port.md)).
 
-- Patterned arguments and control patterns keep the slowest query well inside its window, measured in the interpreter.
+- ~~Patterned arguments and control patterns keep the slowest query well inside its window, measured in the interpreter.~~ The slowest 10 ms window took 2.0 ms, and every mean was at most 0.8 ms ([patch-port.md](patch-port.md#timing)).
 
 ## 0.12+ -- possible language growth
 

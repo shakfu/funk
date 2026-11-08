@@ -1,0 +1,18 @@
+-- Tidal's old/examples/cycles.tidal, # 11, ported to funk (README.md):
+--
+-- d1 $ superimpose ((|+|vowel"a").iter 4)$jux rev$sound (samples "[amencutup*8 bass3*2,[jvbass*8]/3]" $ slow (3/5)$run 12)
+
+import pattern as p
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+-- Tidal's sound, of a pattern of names
+soundP :: p.Pattern String -> p.Pattern Controls
+soundP pat = grp [mS "s", mF "n"] pat
+
+sig = d.kit dirt ["amencutup", "amencutup:1", "amencutup:10", "amencutup:11", "amencutup:2", "amencutup:3", "amencutup:4", "amencutup:5", "amencutup:6", "amencutup:7", "amencutup:8", "amencutup:9", "bass3", "bass3:1", "bass3:10", "bass3:11", "bass3:2", "bass3:3", "bass3:4", "bass3:5", "bass3:6", "bass3:7", "bass3:8", "bass3:9", "jvbass", "jvbass:1", "jvbass:10", "jvbass:11", "jvbass:2", "jvbass:3", "jvbass:4", "jvbass:5", "jvbass:6", "jvbass:7", "jvbass:8", "jvbass:9"]
+
+pat = p.superimpose ((# vowel "a") . p.iter 4) $ jux p.rev $ soundP (p.samples (p.miniS "[amencutup*8 bass3*2,[jvbass*8]/3]") $ p._fastR 5 3 $ p.run 12)

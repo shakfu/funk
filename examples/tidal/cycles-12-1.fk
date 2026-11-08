@@ -1,0 +1,19 @@
+-- Tidal's old/examples/cycles.tidal, # 12.1, ported to funk (README.md):
+--
+-- d1 $ (jux (spread' (<~) (toRational <$> (slow 2 sinewave1))) $ striate 2 $ sound (samples "odx*2" (slow 3 $ run 4)))
+
+import pattern as p
+import pattern ((<~))
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+-- Tidal's sound, of a pattern of names
+soundP :: p.Pattern String -> p.Pattern Controls
+soundP pat = grp [mS "s", mF "n"] pat
+
+sig = d.kit dirt ["odx", "odx:1", "odx:2", "odx:3"]
+
+pat = (jux (p.spread' ((<~) . p.atom) (p.slow 2 p.sine)) $ striate 2 $ soundP (p.samples (p.miniS "odx*2") (p.slow 3 $ p.run 4)))

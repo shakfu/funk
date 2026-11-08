@@ -4,8 +4,8 @@ The Linux CLAP plugin builds on macOS with `zig cc`. CI's `plugin-zig` job does 
 
 ```sh
 make                                          # the host tools: build/funk, build/embed
-tools/linux-sysroot.sh /tmp/sysroot           # X11, OpenGL, ALSA from Debian bookworm
-FUNK_SYSROOT=/tmp/sysroot cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=tools/zig-linux.cmake \
+scripts/linux-sysroot.sh /tmp/sysroot           # X11, OpenGL, ALSA from Debian bookworm
+FUNK_SYSROOT=/tmp/sysroot cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=scripts/zig-linux.cmake \
   -DFUNK_CLAP=ON -DLIBREMIDI_NO_UDEV=ON -DFUNK_HOST_TOOLS=$PWD/build
 cmake --build xbuild --target funk_midi_clap
 ```

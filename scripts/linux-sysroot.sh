@@ -1,6 +1,6 @@
 #!/bin/sh
 # linux-sysroot.sh DIR -- unpacks Debian bookworm amd64's X11, OpenGL and ALSA
-# headers and libraries into DIR, for tools/zig-linux.cmake. Packages are found
+# headers and libraries into DIR, for scripts/zig-linux.cmake. Packages are found
 # in the current index, so point releases do not break the URLs.
 set -eu
 mkdir -p "$1"

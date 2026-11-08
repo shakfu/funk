@@ -69,7 +69,8 @@ const char *funk_table_error(void);
 /* The index-th WAV file of dir/name, sorted by name, the index wrapping as
    SuperDirt's does: a Tidal sample such as "sn:3". "", with
    funk_table_error, if name is not one folder's name or the folder has no
-   WAV file. The result lasts until the thread's next call. */
+   WAV file. A leading "~/" in dir is $HOME. The result lasts until the
+   thread's next call. */
 const char *funk_sample_path(const char *dir, const char *name, int index);
 
 /* Adds a control, whose output starts at value; its index, or -1 if

@@ -311,6 +311,25 @@ static void sample_paths(void) {
     const char *p = funk_sample_path(dir, bad[i], 0);
     printf("sample path '%s': '%s', %s\n", bad[i], p, funk_table_error());
   }
+  /* "~" and "~/" are $HOME, for a plugin, whose working directory is its host's;
+     "~x" is not */
+  const char *home = getenv("HOME");
+  char saved[4096];
+  snprintf(saved, sizeof saved, "%s", home ? home : "");
+  setenv("HOME", dir, 1);
+  const char *homes[] = {"~", "~/", "~x"};
+  for (int i = 0; i < 3; i++) {
+    const char *p = funk_sample_path(homes[i], "bd", 0);
+    printf("sample path in '%s': %s\n", homes[i], *p ? strrchr(p, '/') + 1 : funk_table_error());
+  }
+  snprintf(f, sizeof f, "%s/bd/b.wav", dir);
+  FILE *w = wav(1, 1, 16, 44100, 2, false);
+  put16(w, 0), fclose(w), rename(path, f);
+  funk_table *t = funk_table_file("~/bd/b.wav", 0);
+  printf("a table from '~/bd/b.wav': %s\n", t ? "loaded" : funk_table_error());
+  if (t) funk_table_release(t);
+  if (home) setenv("HOME", saved, 1);
+  else unsetenv("HOME");
   for (int i = 0; i < 4; i++) snprintf(f, sizeof f, "%s/%s", bd, files[i]), unlink(f);
   rmdir(bd), rmdir(empty), rmdir(dir);
 }

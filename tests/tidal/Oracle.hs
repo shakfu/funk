@@ -5,6 +5,7 @@ import Sound.Tidal.Context hiding (s, n)
 import qualified Sound.Tidal.Context as T
 import Data.List (sortOn, sort)
 import qualified Data.Map as Map
+import Data.String (fromString)
 
 tk :: Rational -> Integer
 tk r = floor (r * 720720)
@@ -217,6 +218,8 @@ main = do
   out "smash" 3 rC (smash 2 [1, 2] (T.s (pure "a")))
   out "grain" 1 rC (grain 0.2 0.1)
   out "interlace" 1 rC (interlace (T.s (pure "a")) (T.s (pure "b")))
+  -- a mini-notation step longer than a cycle: its whole is from its own cycle
+  out "miniStep" 4 rS (spread' (slow . pure) (fastFromList [3, 4, 5, 2]) (fromString "[bd*5 ht*5, [sid/4]*3 [lt*2]/5 mt*3, [sid/3]*3]"))
   out "chunkInto" 4 rI (chunkInto 4 (+ 10) nums)
   out "chunkIntoneg" 4 rI (chunkInto (-4) (+ 10) nums)
   out "ribbon" 4 rS (ribbon 0.5 2 (cat [abcd, fastFromList ["e", "f"], pure "g"]))

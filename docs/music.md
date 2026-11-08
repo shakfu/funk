@@ -230,11 +230,11 @@ Randomness is Tidal's: a value is a function of the event's start time and the `
 `p.miniS` parses the same notation into a `Pattern String`, for names such as Tidal's samples: `p.miniS "bd*2 [hh sn:3] ~ cp?"`. A name starts with a letter or digit and goes on with letters, digits and `: . - _`; `bd .. sn` is `bd sn`, as in Tidal. `pat` plays a `Pattern Int`, so names become notes, in one of two ways:
 
 - `m.drums` plays General MIDI drums on channel 10, for a drum instrument in the host: `pat = m.drums (p.miniS "bd*2 [hh sn:3]")`. `bd` is 36, `sn` 38, `hh` 42, `cp` 39, `oh` 46; an index picks a variant, so `bd:1` is 35. `m.gmDrums` lists the names. A name not in it is dropped.
-- `d.kit` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
+- `d.kit` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `scripts/dirt-samples.sh` fetches Dirt-Samples to `~/.local/share/funk/Dirt-Samples`. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
 
 ```haskell
 kit = ["bd", "sn:3", "hh"]
-sig = d.kit "/abs/path/Dirt-Samples" kit
+sig = d.kit "~/.local/share/funk/Dirt-Samples" kit
 pat = m.kit kit (p.miniS "bd*2 [hh sn:3]")
 ```
 
@@ -277,7 +277,7 @@ pat = note "0 4 7" # cutoff "<400 1200>"
 An event whose `s` is a sample's name, not `"midi"`, plays that sample of `d.kit` as SuperDirt plays it: `begin`, `end`, `speed` (negative plays backwards), `loop`, `accelerate`, `sustain` or `legato`, `note` and `octave` for pitch, `unit "c"`, `cut` groups, `pan` (0 left, 1 right) and level, `amp / 0.4 * (min gain 2 + overgain)^4`, so 1 by default. So `chop`, `striate`, `slice` and `splice` play their parts. It sends no MIDI. `s "bd:3"` and `s "bd" # n 3` are the same sample:
 
 ```haskell
-sig = d.kit "/abs/path/Dirt-Samples" ["bd", "bd:3", "sn"]
+sig = d.kit "~/.local/share/funk/Dirt-Samples" ["bd", "bd:3", "sn"]
 pat = s "bd*2 [sn bd:3]" # speed "<1 2>" # gain "0.9"
 ```
 
@@ -410,7 +410,7 @@ sig = voices (\gate freq -> d.sample "/abs/path/piano.wav" gate (freq * d.dc (1.
 sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.wavetable (d.cycleOf 256 (\x -> if x < 0.5 then 1.0 else -1.0)) freq * 0.2)
 ```
 
-Use an absolute path: a plugin's working directory is its host's. A replaced file plays from the next `sig`.
+Use an absolute path, or one from `~/`, your home: a plugin's working directory is its host's. A replaced file plays from the next `sig`.
 
 `d.key k` is note `k`'s gate, on any channel, while it is held; `d.kit` plays each sample on its note's key, and `d.sampleOf dir name gate speed` plays one name as `d.sample` plays a file.
 

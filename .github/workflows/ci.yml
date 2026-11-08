@@ -114,12 +114,12 @@ jobs:
           cmake --build build --target funk embed
 
       - name: Make a Linux sysroot
-        run: tools/linux-sysroot.sh "$RUNNER_TEMP/sysroot"
+        run: scripts/linux-sysroot.sh "$RUNNER_TEMP/sysroot"
 
       - name: Cross-build the plugin
         run: |
           export FUNK_SYSROOT="$RUNNER_TEMP/sysroot"
-          cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=tools/zig-linux.cmake \
+          cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=scripts/zig-linux.cmake \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFUNK_CLAP=ON -DLIBREMIDI_NO_UDEV=ON -DFUNK_HOST_TOOLS="$PWD/build"
           cmake --build xbuild --target funk_midi_clap
           tar -czf funk-midi-clap-Linux-zig.tar.gz -C xbuild/clap funk-midi.clap funkdsp.so

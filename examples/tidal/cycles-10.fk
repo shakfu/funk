@@ -1,0 +1,14 @@
+-- Tidal's old/examples/cycles.tidal, # 10, ported to funk (README.md):
+--
+-- d1 $ density 2 $ jux (iter 32) $ sound "bass3/2 bass3/0" |+| (speed $ every 2 rev  $ "[8 3 4]/3")
+
+import pattern as p
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+sig = d.kit dirt ["bass3"]
+
+pat = p.density 2 $ jux (p.iter 32) $ sound "bass3/2 bass3/0" # (pF "speed" $ p.every 2 p.rev $ p.miniF "[8 3 4]/3")

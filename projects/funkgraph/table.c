@@ -32,14 +32,23 @@ const char *funk_table_error(void) { return last_error ? last_error : "no error"
 
 static int by_name(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
 
+/* path into out, with a leading "~" or "~/" as $HOME, since a plugin's working
+   directory is its host's; 0 if it does not fit */
+static int home_path(const char *path, char *out, size_t n) {
+  const char *home = getenv("HOME");
+  if (path[0] == '~' && (path[1] == '/' || !path[1]) && home && *home)
+    return snprintf(out, n, "%s%s", home, path + 1) < (int)n;
+  return snprintf(out, n, "%s", path) < (int)n;
+}
+
 const char *funk_sample_path(const char *dir, const char *name, int index) {
   static _Thread_local char out[4096];
   if (!*name || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..")) {
     last_error = "a sample name is one folder's name";
     return "";
   }
-  char folder[4096];
-  if (snprintf(folder, sizeof folder, "%s/%s", dir, name) >= (int)sizeof folder) {
+  char folder[4096], home[4096];
+  if (!home_path(dir, home, sizeof home) || snprintf(folder, sizeof folder, "%s/%s", home, name) >= (int)sizeof folder) {
     last_error = "the sample folder's path is too long";
     return "";
   }
@@ -175,10 +184,15 @@ static funk_table *load(const char *path, int channel, const struct stat *st) {
 #define MTIME_NS(st) ((st).st_mtim.tv_nsec)
 #endif
 
-funk_table *funk_table_file(const char *path, int channel) {
+funk_table *funk_table_file(const char *given, int channel) {
   struct stat st;
-  if (!path || channel < 0) {
+  char path[4096];
+  if (!given || channel < 0) {
     last_error = "bad argument";
+    return NULL;
+  }
+  if (!home_path(given, path, sizeof path)) {
+    last_error = "the path is too long";
     return NULL;
   }
   if (stat(path, &st) || !S_ISREG(st.st_mode)) {

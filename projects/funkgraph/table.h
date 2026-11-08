@@ -8,7 +8,8 @@ typedef struct funk_table funk_table;
 
 /* Channel c of a WAV file (integer of 8 to 32 bits, or float of 32 or 64), or
    its last channel if it has fewer. An unchanged file already loaded is
-   shared; a replaced one is read again. NULL on failure: funk_table_error. */
+   shared; a replaced one is read again. A leading "~/" is $HOME. NULL on
+   failure: funk_table_error. */
 funk_table *funk_table_file(const char *path, int channel);
 
 /* A copy of values as floats; equal tables are shared. */

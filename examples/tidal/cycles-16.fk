@@ -1,0 +1,19 @@
+-- Tidal's old/examples/cycles.tidal, # 16, ported to funk (README.md):
+--
+-- d1 $ slow 2$weave 16(pan sine1)$map sound["[[odx*4[odx*2odx*8],[hh*4,~odx/12]*4],[blue/1]/2~~[~odx/13*2]]",(1/16)~>samples"jvbass*16""2 2[3 4]1"]
+
+import pattern as p
+import pattern ((~>))
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+-- Tidal's sound, of a pattern of names
+soundP :: p.Pattern String -> p.Pattern Controls
+soundP pat = grp [mS "s", mF "n"] pat
+
+sig = d.kit dirt ["blue", "hh", "jvbass:1", "jvbass:2", "jvbass:3", "jvbass:4", "odx"]
+
+pat = p.slow 2 $ weave 16.0 (pF "pan" p.sine) $ map soundP [p.miniS "[[odx*4[odx*2odx*8],[hh*4,~odx/12]*4],[blue/1]/2~~[~[odx/13]*2]]", 0.0625 ~> p.samples (p.miniS "jvbass*16") (p.mini "2 2[3 4]1")]

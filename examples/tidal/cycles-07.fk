@@ -1,0 +1,14 @@
+-- Tidal's old/examples/cycles.tidal, # 7, ported to funk (README.md):
+--
+-- d1 $ slow 2$spread' striate "[4 2 3 8]/3" $ whenmod 4 2 (jux (rev)) $ sound "[[bd mt*3 bd [sn*8 bd] [lt*4 bd] [~ sn*4] ht/5*6 ht*2]]"
+
+import pattern as p
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+sig = d.kit dirt ["bd", "ht", "lt", "mt", "sn"]
+
+pat = p.slow 2 $ p.spread' (striate . p.atom) (p.mini "[4 2 3 8]/3") $ p.whenmod 4 2 (jux (p.rev)) $ sound "[[bd mt*3 bd [sn*8 bd] [lt*4 bd] [~ sn*4] [ht/5]*6 ht*2]]"

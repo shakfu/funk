@@ -228,7 +228,9 @@ squeezeInto qst s (a, b, p) = concatMap one (sect (Span (c + a) (c + b)) s)
     c = div s.start cycleTicks * cycleTicks
     lo = c + a
     n = b - a
-    out (Span x y) = Span (lo + div ((x - c) * n) cycleTicks) (lo + div ((y - c) * n) cycleTicks)
+    -- each span from its own cycle, as Tidal's _fastGap maps it
+    out (Span x y) = case div x cycleTicks * cycleTicks of
+      cx -> Span (cx + a + div ((x - cx) * n) cycleTicks) (cx + a + div ((y - cx) * n) cycleTicks)
     one qs = concatMap (\e -> map (\pt -> Event (mapSpan out e.whole) pt e.value) (sect (out e.part) qs))
       (queryIn qst p (Span (c + div ((qs.start - lo) * cycleTicks) n) (c + ceilDiv ((qs.stop - lo) * cycleTicks) n)))
 
@@ -2401,8 +2403,8 @@ mSteps :: [((Int, Int), Pattern MV)] -> (Pattern MV, (Int, Int))
 mSteps steps = case foldl ratAdd (0, 1) (map fst steps) of
   size -> case steps of
     [] -> (silence, size)
-    _ -> if all (\(w, _) -> w == (1, 1)) steps then (fastcat (map snd steps), size)
-      else case foldl (\m ((_, d), _) -> div (m * d) (gcd m d)) 1 steps of
+    [(_, p)] -> (p, size)
+    _ -> case foldl (\m ((_, d), _) -> div (m * d) (gcd m d)) 1 steps of
         l -> (timecat (map (\((a, d), p) -> (div (a * l) d, p)) steps), size)
 
 -- a term, then its modifiers, adjacent

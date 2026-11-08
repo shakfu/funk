@@ -1,0 +1,17 @@
+-- Tidal's old/examples/cycles.tidal, # 1, ported to funk (README.md):
+--
+-- d1 $ weave 4 (speed $ (1+) <$> sinewave1) [density 4 $ every 5 ((0.25 <~) . rev) $ striate 16 $ sound"[bd sn/2]/2", sound "bd [~ hc]*3"]
+--   |+| speed "3"
+
+import pattern as p
+import pattern ((<~))
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+sig = d.kit dirt ["bd", "hc", "sn"]
+
+pat = weave 4.0 (pF "speed" $ p.mapP (1.0 +) p.sine) [p.density 4 $ p.every 5 ((0.25 <~) . p.rev) $ striate 16 $ sound "[bd sn/2]/2", sound "bd [~ hc]*3"]
+  # speed "3"

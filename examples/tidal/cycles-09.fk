@@ -1,0 +1,18 @@
+-- Tidal's old/examples/cycles.tidal, # 9, ported to funk (README.md):
+--
+-- d1 $ every 2 (density 2) $ jux (spread' (striate) "[1 16 4 8]/3") $ sound (samples "[drum bd*12]" "[1 2 3 0]") |+| speed "[2 1.5 1]/4"
+
+import pattern as p
+import control (..)
+import dsp as d
+
+-- where scripts/dirt-samples.sh puts Dirt-Samples
+dirt = "~/.local/share/funk/Dirt-Samples"
+
+-- Tidal's sound, of a pattern of names
+soundP :: p.Pattern String -> p.Pattern Controls
+soundP pat = grp [mS "s", mF "n"] pat
+
+sig = d.kit dirt ["bd", "bd:3", "drum:1", "drum:2"]
+
+pat = p.every 2 (p.density 2) $ jux (p.spread' (striate . p.atom) (p.mini "[1 16 4 8]/3")) $ soundP (p.samples (p.miniS "[drum bd*12]") (p.mini "[1 2 3 0]")) # speed "[2 1.5 1]/4"
