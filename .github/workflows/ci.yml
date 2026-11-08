@@ -78,6 +78,16 @@ jobs:
           cmake --build build -- -k 0
           ctest --test-dir build -L clap --no-tests=error --output-on-failure
 
+      # a tar keeps the bundle's executable bits, which upload-artifact drops
+      - name: Pack the plugin
+        run: tar -czf funk-midi-clap-${{ runner.os }}.tar.gz -C build/clap .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: funk-midi-clap-${{ runner.os }}
+          path: funk-midi-clap-${{ runner.os }}.tar.gz
+          if-no-files-found: error
+
   # the Linux plugin cross-built on macOS with zig cc (docs/dev/cross-build.md) ...
   plugin-zig:
     name: plugin cross-built with zig cc
@@ -106,13 +116,12 @@ jobs:
           cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=tools/zig-linux.cmake \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFUNK_CLAP=ON -DLIBREMIDI_NO_UDEV=ON -DFUNK_HOST_TOOLS="$PWD/build"
           cmake --build xbuild --target funk_midi_clap
+          tar -czf funk-midi-clap-Linux-zig.tar.gz -C xbuild/clap funk-midi.clap funkdsp.so
 
       - uses: actions/upload-artifact@v4
         with:
           name: funk-midi-clap-zig
-          path: |
-            xbuild/clap/funk-midi.clap
-            xbuild/clap/funkdsp.so
+          path: funk-midi-clap-Linux-zig.tar.gz
           if-no-files-found: error
 
   # ... and run on Linux in the headless host, against the cases hosts/clap runs
@@ -133,6 +142,9 @@ jobs:
           name: funk-midi-clap-zig
           path: zig-plugin
 
+      - name: Unpack the plugin
+        run: tar -xzf zig-plugin/funk-midi-clap-Linux-zig.tar.gz -C zig-plugin
+
       - name: Build the host
         run: |
           cmake -S . -B build -G Ninja -DFUNK_CLAP=ON
@@ -143,3 +155,15 @@ jobs:
         env:
           FUNK_MIDI_CLAP_UDP_PORT: "57291"
         run: build/test_clap_host zig-plugin/funk-midi.clap tests/hosts/clap.txt 57291
+
+  # every plugin in one download, once each has passed its run
+  artifacts:
+    name: plugins in one artifact
+    needs: [plugin, plugin-zig-run]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/upload-artifact/merge@v4
+        with:
+          name: funk-midi-clap
+          pattern: funk-midi-clap-*
+          delete-merged: true
