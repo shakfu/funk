@@ -166,7 +166,26 @@ Acceptance test:
 
 - ~~Patterned arguments and control patterns keep the slowest query well inside its window, measured in the interpreter.~~ The slowest 10 ms window took 2.0 ms, and every mean was at most 0.8 ms ([patch-port.md](patch-port.md#timing)).
 
-## 0.12+ -- possible language growth
+## 0.12 -- Tidal parity: code and runtime
+
+Tidal code runs in funk as written, and plays on SuperDirt. Each item names its entry in [tidal-comparison.md](tidal-comparison.md); a difference that stays needs a reason recorded there.
+
+In order:
+
+1. **String literals as patterns (L1, L2, C1):** a `FromString` class, as `FromFloat`, with a `String` default; controls and patterned arguments take patterns. This closes `sound` of a pattern, `pan sine`, `fast "<2 4>"` and `"<0 0.25>" <~ p`.
+2. **A SuperDirt target (S9):** `/dirt/play` over OSC, as Tidal's `superdirtTarget`, from `funk-midi`.
+3. **Slots and commands (R1-R5):** `d1`..`d16` and `p "name"`, `hush`, `once`, `solo`, `mute` and the rest, `setcps` and `setbpm` with Tidal's default of 0.5625, an event's `cps`, transitions, and `setF` and its kind.
+4. **Time (T1-T3):** 46126080 ticks per cycle; fractional patterned speed factors.
+5. **Library (F1-F8, L3-L5, M1-M3, C3):** scales, `Time.hs`, the exported `Pattern.hs` functions, `Simple.hs`, `drawLine`, steps, `Bool` mini-notation, `^name`, `Params.hs`' generated families, monomorphic `<$>`, `<*>`, `<*`, `*>` and `<<*`, and an unqualified `pattern` import.
+6. **Review items (L7, F10, F11):** decide each.
+
+Acceptance test: the 22 patches of [patch-port.md](patch-port.md) in their Tidal 1.10 form, run unchanged but for the differences kept in [tidal-comparison.md](tidal-comparison.md), with every event matching Tidal's; and a live set on `d1`..`d4` with `hush`, `xfade` and `setcps`, played through SuperDirt.
+
+## 0.13 -- SuperDirt sound in the plugin
+
+`d.kit` and the voices sound as SuperDirt does, for hosts without SuperCollider (S1-S8, S10 in [tidal-comparison.md](tidal-comparison.md)): per-event effects, orbits with their global effects, the synths, the pan law, cubic interpolation and AIFF. Ports of SuperCollider's UGens from its C++, checked against scsynth's non-real-time renders. Needs a design note first: per-event chains in a fixed graph, and node state other than `Float`s ([audio.md](audio.md) item 4). Open: scsynth's RNG for random UGens, and `float32` against a stated error bound.
+
+## 0.14+ -- possible language growth
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 

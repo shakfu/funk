@@ -2,13 +2,29 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). They can include subsections as required for organization.
 
-The plugin with compiled DSP is done as of 0.9.0: patterns run live in the interpreter, and a graph of compiled unit generators, built and rewired at run time, renders on the audio thread ([docs/dev/audio.md](docs/dev/audio.md), option D). The next milestone is not chosen. Direction: [docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md).
+The plugin with compiled DSP is done as of 0.9.0: patterns run live in the interpreter, and a graph of compiled unit generators, built and rewired at run time, renders on the audio thread ([docs/dev/audio.md](docs/dev/audio.md), option D). The next milestone is roadmap 0.12, Tidal parity of code and runtime, then 0.13, SuperDirt's sound in the plugin ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md)). Direction: [docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md).
 
 Generated C speed reached its target: geometric mean 1.18x C on the core suite, 1.16x on the Benchmarks Game (2026-10-27). Keep it: check each change with `bench.py ab` ([docs/dev/performance-first.md](docs/dev/performance-first.md)). Generated code speed comes before compilation speed. Compilation speed matters for compiling unit generators while playing, in desktop live coding.
 
 ## Critical
 
 ## High
+
+### Tidal parity, roadmap 0.12 ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md))
+
+- [ ] L1, L2, C1: `FromString`, so a string literal is a pattern; controls and patterned arguments take patterns.
+
+- [ ] S9: a SuperDirt target, `/dirt/play` over OSC, from `funk-midi`.
+
+- [ ] R1-R5: slots `d1`..`d16` and `p "name"`, their commands, tempo commands and an event's `cps`, transitions, `setF` and its kind.
+
+- [ ] T1-T3: 46126080 ticks per cycle; fractional patterned speed factors.
+
+- [ ] F1-F8, L3-L5, M1-M3, C3: the library gaps.
+
+- [ ] L7, F10, F11: decide the review items.
+
+- [ ] Fix stale docs: `^name`'s reason in `docs/music.md`; `euclid` in `docs/dev/combinators.md`'s differences.
 
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 
@@ -26,7 +42,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] The plugin's simulator mode: scripted steps, rotated or random, evaluated live and logged with each block's `process()` time against its budget ([docs/dev/simulator.md](docs/dev/simulator.md)). Done 2026-11-04.
 
-- [ ] Play a full live set in a DAW, with edits, with no missed blocks; log any friction in [docs/dev/patterns.md](docs/dev/patterns.md#friction-log). Needs a person at the DAW.
+- [x] Play a full live set in a DAW, with edits, with no missed blocks: passed in REAPER on macOS, 2026-11-07 ([docs/dev/roadmap.md](docs/dev/roadmap.md)).
+
+- [ ] The same on Linux, after roadmap 0.12 (decided 2026-11-09). Log any friction in [docs/dev/patterns.md](docs/dev/patterns.md#friction-log). Needs a person at the DAW.
   - Run `projects/funk-clap/sim-set.fk` in REAPER on Linux, several instances, with Stop, transport and tempo changes by hand. Check the log for `slow`, `busy` and `failed`, and REAPER's own underrun count: the log times this plugin only.
 
   - If one script per process proves limiting, read the script from each instance's state instead of the environment.
