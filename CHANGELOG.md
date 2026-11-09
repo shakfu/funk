@@ -17,7 +17,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A query carries controls from outside the pattern, as Tidal's `State` does, so Tidal's `cF`, `cI`, `cS` and the rest, `in0`..`in127`, `sec`, `msec` and the `trigger` family port. `p.query pat span` queries with none, and `p.queryState` with some. The hosts give `_cps` and `_t_pattern`, the cycle `pat` last changed at, so `trigger` and `sec` play in them, and the sources a top-level `controls` lists: Tidal's OSC `/ctrl`, MIDI CC as `"cc74"` and `"1:cc74"`, and the plugin's 16 CLAP parameters, `"p1"` to `"p16"`. `funk-midi` takes MIDI in with `--in` and `:cc` ([docs/music.md](docs/music.md#controls-from-outside), design in [docs/dev/controls-in.md](docs/dev/controls-in.md)). Queries cost about 12% more in the interpreter.
 
-- The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match, 1604 of them after rounding to ticks, by at most 30 ticks. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.sh` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
+- The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match, 1604 of them after rounding to ticks, by at most 30 ticks. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.py` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
 
 ### Changed
 
@@ -26,6 +26,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `p.euclid` takes Tidal's arguments: patterns of hits and steps, and a pattern to play. `p.euclid 3 8 36` still works; `p.euclid 3 8 'x'` needs `p.atom 'x'`.
 
 - `p.fastcat []` is silence, as Tidal's is. It failed, as `fast 0`.
+
+- `tools/` is `scripts/`, and `linux-sysroot.sh` is `linux-sysroot.py`. CMake builds `funkdsp.so` as a library target from `funk emit-c --kernels`'s C, with the compiler and flags of the build, instead of running `kernels.sh`.
 
 - A sample folder or file path may start with `~/`, for `$HOME`: `d.kit "~/.local/share/funk/Dirt-Samples" ["bd"]`. The plugin's working directory is its host's, so a relative path never worked there.
 

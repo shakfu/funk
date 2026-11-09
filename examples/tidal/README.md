@@ -7,7 +7,7 @@
 The kits read Dirt-Samples from `~/.local/share/funk/Dirt-Samples`. funk does not ship it: it has no license file, and it is about 400 MB. Fetch it at the commit the examples were checked with:
 
 ```sh
-scripts/dirt-samples.sh
+scripts/dirt-samples.py
 ```
 
 If SuperDirt already installed a copy, link it instead:

@@ -1,5 +1,5 @@
 # CMake toolchain: x86-64 Linux, glibc 2.36, with zig cc, over the sysroot that
-# $FUNK_SYSROOT names (scripts/linux-sysroot.sh). See docs/dev/cross-build.md.
+# $FUNK_SYSROOT names (scripts/linux-sysroot.py). See docs/dev/cross-build.md.
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)
 
@@ -14,7 +14,7 @@ foreach(lang C CXX)
 endforeach()
 
 if(NOT DEFINED ENV{FUNK_SYSROOT})
-  message(FATAL_ERROR "zig-linux.cmake: set FUNK_SYSROOT to a sysroot from scripts/linux-sysroot.sh")
+  message(FATAL_ERROR "zig-linux.cmake: set FUNK_SYSROOT to a sysroot from scripts/linux-sysroot.py")
 endif()
 set(CMAKE_FIND_ROOT_PATH $ENV{FUNK_SYSROOT})
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

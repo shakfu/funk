@@ -1,8 +1,8 @@
 -- dsp.fk -- signals built from kernels.fk's unit generators, for graph.fk
 -- (docs/dev/audio.md, D). Every parameter is a Sig, so any can be
 -- modulated; a number is a constant.
--- The player needs kernels.fk compiled, as CMake does into funkdsp.so:
---   scripts/kernels.sh funk lib/kernels.fk funkdsp.so
+-- The player needs kernels.fk compiled into funkdsp.so:
+--   cmake --build build --target funkdsp
 module dsp where
 import graph as g
 import pattern as p

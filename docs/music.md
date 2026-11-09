@@ -230,7 +230,7 @@ Randomness is Tidal's: a value is a function of the event's start time and the `
 `p.miniS` parses the same notation into a `Pattern String`, for names such as Tidal's samples: `p.miniS "bd*2 [hh sn:3] ~ cp?"`. A name starts with a letter or digit and goes on with letters, digits and `: . - _`; `bd .. sn` is `bd sn`, as in Tidal. `pat` plays a `Pattern Int`, so names become notes, in one of two ways:
 
 - `m.drums` plays General MIDI drums on channel 10, for a drum instrument in the host: `pat = m.drums (p.miniS "bd*2 [hh sn:3]")`. `bd` is 36, `sn` 38, `hh` 42, `cp` 39, `oh` 46; an index picks a variant, so `bd:1` is 35. `m.gmDrums` lists the names. A name not in it is dropped.
-- `d.kit` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `scripts/dirt-samples.sh` fetches Dirt-Samples to `~/.local/share/funk/Dirt-Samples`. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
+- `d.kit` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `scripts/dirt-samples.py` fetches Dirt-Samples to `~/.local/share/funk/Dirt-Samples`. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
 
 ```haskell
 kit = ["bd", "sn:3", "hh"]

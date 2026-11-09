@@ -6,11 +6,27 @@ set_target_properties(funkgraph PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(funkgraph PRIVATE -Wall -Wextra)
 target_include_directories(funkgraph PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# lib/kernels.fk, compiled for lib/dsp.fk's signals, into FUNK_DSP_LIB, by the build's
-# compiler: $CC at build time may be another, or unset in a cross build
-add_custom_command(OUTPUT ${FUNK_DSP_LIB}
-  COMMAND ${CMAKE_COMMAND} -E env "CC=${CMAKE_C_COMPILER} ${CMAKE_C_COMPILER_ARG1}"
-          sh ${funk_SOURCE_DIR}/scripts/kernels.sh $<TARGET_FILE:funk_tool> ${funk_SOURCE_DIR}/lib/kernels.fk ${FUNK_DSP_LIB}
-  DEPENDS funk_tool ${funk_SOURCE_DIR}/lib/kernels.fk ${funk_SOURCE_DIR}/scripts/kernels.sh
+# lib/kernels.fk, compiled for lib/dsp.fk's signals, into FUNK_DSP_LIB. The C's
+# first line, /* link: -lm */, names its libraries; kernels.rsp holds them.
+set(KERNELS_C ${CMAKE_CURRENT_BINARY_DIR}/kernels.c)
+set(KERNELS_RSP ${CMAKE_CURRENT_BINARY_DIR}/kernels.rsp)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/link-words.cmake [[
+file(STRINGS ${C} line LIMIT_COUNT 1)
+string(REGEX REPLACE "^/\\* link: (.*) \\*/$" "\\1" words "${line}")
+if(words STREQUAL line)
+  set(words "")
+endif()
+file(WRITE ${RSP} "${words}\n")
+]])
+add_custom_command(OUTPUT ${KERNELS_C} ${KERNELS_RSP}
+  COMMAND funk_tool emit-c --kernels ${funk_SOURCE_DIR}/lib/kernels.fk -o ${KERNELS_C}
+  COMMAND ${CMAKE_COMMAND} -DC=${KERNELS_C} -DRSP=${KERNELS_RSP} -P ${CMAKE_CURRENT_BINARY_DIR}/link-words.cmake
+  DEPENDS funk_tool ${funk_SOURCE_DIR}/lib/kernels.fk
   VERBATIM)
-add_custom_target(funkdsp ALL DEPENDS ${FUNK_DSP_LIB})
+add_library(funkdsp MODULE ${KERNELS_C})
+target_compile_options(funkdsp PRIVATE -O2) # in every build type: the audio thread runs it
+# the libraries go after the objects; zig cc takes @file from its driver, not -Wl,@file.
+# This directory's only other target, funkgraph, is static.
+set(CMAKE_C_CREATE_SHARED_MODULE "${CMAKE_C_CREATE_SHARED_MODULE} @${KERNELS_RSP}")
+set_target_properties(funkdsp PROPERTIES PREFIX "" SUFFIX ".so" LINK_DEPENDS ${KERNELS_RSP}
+  LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})

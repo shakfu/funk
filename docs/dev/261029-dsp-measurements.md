@@ -43,7 +43,7 @@ Implications:
 
 ## Compile time
 
-`scripts/kernels.sh` on `lib/kernels.fk`, 11 exports: `emit-c` 10-20 ms, `cc -O2` 140-170 ms. A file with one `dsp_mul` export: 120 ms in all. `cc` on an empty file takes 70-80 ms, so most of a kernel's compile is fixed: process start, the shared library's link, and the 700-line preamble every output carries.
+`tools/kernels.sh` on `lib/kernels.fk`, 11 exports: `emit-c` 10-20 ms, `cc -O2` 140-170 ms. A file with one `dsp_mul` export: 120 ms in all. `cc` on an empty file takes 70-80 ms, so most of a kernel's compile is fixed: process start, the shared library's link, and the 700-line preamble every output carries.
 
 ## Friction writing kernels
 

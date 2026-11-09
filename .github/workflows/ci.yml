@@ -114,7 +114,7 @@ jobs:
           cmake --build build --target funk embed
 
       - name: Make a Linux sysroot
-        run: scripts/linux-sysroot.sh "$RUNNER_TEMP/sysroot"
+        run: scripts/linux-sysroot.py "$RUNNER_TEMP/sysroot"
 
       - name: Cross-build the plugin
         run: |

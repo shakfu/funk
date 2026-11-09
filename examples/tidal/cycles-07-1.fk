@@ -6,7 +6,7 @@ import pattern as p
 import control (..)
 import dsp as d
 
--- where scripts/dirt-samples.sh puts Dirt-Samples
+-- where scripts/dirt-samples.py puts Dirt-Samples
 dirt = "~/.local/share/funk/Dirt-Samples"
 
 sig = d.kit dirt ["drum", "jvbass", "rave", "sn"]
