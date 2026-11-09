@@ -62,6 +62,12 @@ A binding that is not syntactically a lambda does not generalize its constrained
 
 Local functions without a signature do not generalize constrained variables either, which goes further than Haskell. They take those types from their uses. When the enclosing function is specialized, they are specialized with it. Generalizing them would leave `where go` loops passing dictionaries at every iteration: `trees` ran 2x slower that way. The cost is that a local function used at two number types needs a signature.
 
+A REPL or host input (`funk_eval`) generalizes its values too, as GHCi's prompt does, so `riff = "0 2"` stays polymorphic for later inputs. Specialization clones the value once per type used, and once at its default types (`Int`, `Float`, `String`) as it is defined, so its errors show at definition and a host's per-window use does not recompute it. GHCi recomputes it at every use. A file keeps the restriction.
+
+A redefinition in a later input does not change code defined before it, as in GHCi. A copy made after the redefinition, of an overloaded function or a value, renames each global its source names to the definition that was current when the source was compiled. Copies found by name (`f@Int`, `map@{...}`, `f@own0`) are reused only when they were made from the current definition.
+
+A top-level function generalizes, as in Haskell, float and string literals included. Until 2026-11-09 its open literals became `Float` or `String` first, for unboxed code; specialization gives that already: all 25 benchmarks emit the same C without the rule ([tidal-comparison.md](tidal-comparison.md) L4).
+
 ## Equality and ordering at runtime
 
 Instances for `Int`, `Float` and `Char` call primitives that compare tagged words. Derived instances compare field by field, through the fields' instances, and order constructors by declaration order: `False < True` and `[] < (x:xs)`, as in Haskell. The REPL falls back to the structural `show` in `rt.c` for a result type that has no `Show` instance.

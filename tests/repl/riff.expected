@@ -1,0 +1,6 @@
+riff :: FromString a => a
+[Controls [("n",VF 0.0)],Controls [("n",VF 2.0)]]
+[Controls [("s",VS "0")],Controls [("s",VS "2")]]
+[0,1,2,0,1,2]
+[Controls [("n",VF 0.0)],Controls [("n",VF 2.0)]]
+[Controls [("n",VF 5.0)],Controls [("n",VF 7.0)]]

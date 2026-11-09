@@ -19,12 +19,12 @@ instance Fractional V where
 half :: Fractional a => a -> a
 half x = x / 2
 
--- no signature: Float, as a function of float literals is
+-- no signature: generalizes, as in Haskell
 ratio x y = x / y
 
 main = do
   print (3 / 2)
-  print (recip 4.0, ratio 1.0 8.0)
+  print (recip 4.0, ratio 1.0 8.0, ratio (V 1.0 2.0) 2)
   print (map (/ 2.0) [1.0, 3.0], map (2.0 /) [1.0, 4.0])
   print (V 1.0 2.0 / V 4.0 8.0)
   print (half (V 1.0 3.0), half 5.0)

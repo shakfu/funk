@@ -3,7 +3,9 @@
    A REPL over libfunk.h, with `pattern as p` and `midi as m` imported.
    Whenever input defines `pat`, a Pattern Int (lib/midi.fk gives the
    values), it plays from the next window. A clock runs from start-up, so
-   patterns stay on one cycle grid across redefinitions.
+   patterns stay on one cycle grid across redefinitions. With --dirt, a
+   pattern of Controls goes to SuperDirt instead, one OSC bundle per onset
+   (dirt.c, docs/dev/dirt.md).
 
    Threads: funk's runs the REPL input and, every 10 ms window, calls
    `step` through funk_call for the events 50 ms ahead; a sender thread
@@ -33,10 +35,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "controls.h"
+#include "dirt.h"
 #include "graph.h"
 #include "libfunk.h"
 
@@ -57,13 +61,20 @@
 #define FUNK_GRAPH_INCLUDE "hosts/graph"
 #endif
 
-enum { WINDOW_US = 10000, LOOKAHEAD_US = 50000, CAP = 512, CYCLE_TICKS = 720720 };
+enum { WINDOW_US = 10000, CAP = 512, CYCLE_TICKS = 720720, DIRT_BYTES = 65536 };
+/* how far ahead step runs: 50 ms; with --dirt, Tidal's 0.1 s (docs/dev/dirt.md) */
+static int64_t lookahead_us = 50000;
 #define STEP "step buf ctl nctl cs ot a b = p.writeEventsWith (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) (p.readControls (plusPtr nullPtr ctl) nctl) cs a b"
 /* for a control pattern: time, MIDI bytes and note length (control.fk) */
 #define STEP_CONTROLS "step buf ctl nctl cs ot a b = writeControlsWith (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) (p.readControls (plusPtr nullPtr ctl) nctl) cs 1000000 a b"
+/* for --dirt: the onsets with an `s`, for SuperDirt (writeDirtWith, lib/control.fk) */
+#define STEP_DIRT "step buf ctl nctl cs ot a b = writeDirtWith (plusPtr nullPtr buf) 65536 (p._shift (negate ot) pat) (p.readControls (plusPtr nullPtr ctl) nctl) cs ot a b"
 #define CONTROL_IMPORT "import control (..)"
 
-static bool virtual_time, print_sink, audio;
+static bool virtual_time, print_sink, audio, dirt;
+static int dirt_fd = -1;          /* --dirt's socket */
+static volatile int dirt_stop, dirt_connected; /* the handshake's */
+static int64_t unix_at_t0;        /* the Unix time, in us, of now_us() 0: for OSC time tags */
 static volatile sig_atomic_t interrupted;
 
 /* ------------------------------------------------------------------ time */
@@ -362,6 +373,8 @@ static void *sender(void *arg) {
 /* --------------------------------------------------------- the pattern */
 
 static long buf[3 * CAP]; /* start, duration, value */
+static long dbuf[DIRT_BYTES / sizeof(long)]; /* --dirt's events */
+
 static bool playing = true, have_step, step_controls; /* step_controls: pat is of Controls */
 
 /* A control record's tags that are not MIDI (writeControls, lib/control.fk). */
@@ -390,18 +403,37 @@ static void cc_take(void) {
 static void voice_notes(long n);
 static void voice_release_until(int64_t t);
 
+/* --dirt: each event of dbuf as a bundle at its onset, plus its nudge, sent now */
+static void send_dirt(long n) {
+  const unsigned char *p = (const unsigned char *)dbuf, *end = p + sizeof dbuf;
+  static unsigned char out[DIRT_BYTES];
+  long sent = 0;
+  dirt_event e;
+  for (; dirt_next(p, end, &e); p = e.next, sent++) {
+    int64_t at = origin_us + e.start + (int64_t)(dirt_float(&e, "nudge", 0) * 1e6);
+    size_t size = dirt_bundle(&e, dirt_ntp(unix_at_t0 + at), 1e6 / (double)cs, (double)e.dur / 1e6, "1", out, sizeof out);
+    if (!size) fputs("funk-midi: an event too large for one datagram\n", stderr);
+    else if (print_sink) dirt_print(stdout, out, size, 0);
+    else if (send(dirt_fd, out, size, 0) < 0 && dirt_connected) perror("funk-midi: sending to SuperDirt"); /* before, the handshake reports */
+  }
+  if (print_sink) fflush(stdout);
+  if (sent < n) fprintf(stderr, "funk-midi: %ld events in a window; sent %ld\n", n, sent);
+}
+
 /* Calls `step` for every window that starts within the lookahead. */
 static void schedule(void) {
-  while (win <= now_us() + LOOKAHEAD_US) {
+  while (win <= now_us() + lookahead_us) {
     if (playing && have_step) {
       for (int i = 0; i < nosc; i++) funk_osc_poll(osc_fds[i], &controls);
       cc_take();
       funk_control_float(&controls, "_cps", 1e6 / (double)cs);
-      long args[7] = {(long)buf, (long)controls.e, controls.n, (long)cs, (long)origin_tick, (long)(win - origin_us),
+      long args[7] = {dirt ? (long)dbuf : (long)buf, (long)controls.e, controls.n, (long)cs, (long)origin_tick, (long)(win - origin_us),
                       (long)(win + WINDOW_US - origin_us)}, n;
       if (!funk_call(session, "step", 7, args, &n)) {
         have_step = false; /* a runtime error, reported: silence until pat is defined again */
         fputs("funk-midi: pat failed; stopped until it is defined again\n", stderr);
+      } else if (dirt) {
+        send_dirt(n);
       } else {
         if (n > CAP) fprintf(stderr, "funk-midi: %ld events in a window; played %d\n", n, CAP);
         for (long i = 0; i < n && i < CAP && step_controls; i++) {
@@ -634,7 +666,7 @@ static void stop_audio(void) {
 static void advance_until(int64_t t) {
   while (now_us() < t && !interrupted) {
     schedule();
-    int64_t next = win - LOOKAHEAD_US; /* above now: schedule ran */
+    int64_t next = win - lookahead_us; /* above now: schedule ran */
     if (next > t) next = t;
     if (virtual_time) {
       flush_until(next);
@@ -674,7 +706,10 @@ static void rebind(void) {
   bool controls = type && strstr(type, "Pattern") && strstr(type, "Controls");
   free(type);
   mark_pattern_time();
-  if (eval(controls ? STEP_CONTROLS : STEP)) have_step = true, step_controls = controls;
+  if (dirt) {
+    if (controls && eval(STEP_DIRT)) have_step = step_controls = true;
+    else fputs("funk-midi: pat is not playing: with --dirt it must be a pattern of Controls\n", stderr);
+  } else if (eval(controls ? STEP_CONTROLS : STEP)) have_step = true, step_controls = controls;
   else fputs("funk-midi: pat is not playing: it must be a Pattern Int or of Controls\n", stderr);
 }
 
@@ -818,6 +853,12 @@ typedef struct { const char *lib, *file, *script, *kernels; } Opts;
   X(funk_player_render_channels) X(funk_player_free)
 #define PROVIDE(f) funk_provide(session, #f, (void *)f);
 
+static void *handshake(void *arg) {
+  (void)arg;
+  dirt_handshake(dirt_fd, &dirt_stop, &dirt_connected, stderr);
+  return NULL;
+}
+
 static int run(funk *f, void *arg) {
   Opts *o = arg;
   session = f;
@@ -826,8 +867,20 @@ static int run(funk *f, void *arg) {
   if (!eval("import pattern as p") || !eval("import midi as m") || !eval(CONTROL_IMPORT)) return 1;
   if (audio && (!eval("import graph as g") || !eval("import dsp as d") || !start_audio(o->kernels))) return 1;
   t0 = mono_us();
+  if (dirt) origin_us = win = lookahead_us; /* cycle 0 a lookahead after start-up, so its bundles arrive before their time */
+  if (virtual_time) unix_at_t0 = -2208988800LL * 1000000; /* time tags then read as ms since start */
+  else {
+    struct timespec rt;
+    clock_gettime(CLOCK_REALTIME, &rt);
+    unix_at_t0 = (int64_t)rt.tv_sec * 1000000 + rt.tv_nsec / 1000 - (mono_us() - t0);
+  }
   pthread_t send_th = 0;
   if (!virtual_time && pthread_create(&send_th, NULL, sender, NULL)) { perror("funk-midi: pthread_create"); return 1; }
+  if (dirt_fd >= 0) {
+    pthread_t hs_th;
+    if (pthread_create(&hs_th, NULL, handshake, NULL)) { perror("funk-midi: pthread_create"); return 1; }
+    pthread_detach(hs_th); /* it may sit in poll at exit */
+  }
   if (o->file && funk_load_file(f, o->file)) {
     rebind();
     rebind_sig();
@@ -849,7 +902,7 @@ static int run(funk *f, void *arg) {
     for (;;) {
       schedule();
       pthread_mutex_lock(&lmu);
-      struct timespec ts = after_us(win - LOOKAHEAD_US - now_us());
+      struct timespec ts = after_us(win - lookahead_us - now_us());
       while (!pending && !input_eof && !interrupted && pthread_cond_timedwait(&lcond, &lmu, &ts) == 0) {}
       char *line = pending;
       bool eof = input_eof;
@@ -883,7 +936,9 @@ static int run(funk *f, void *arg) {
 static void usage(FILE *f) {
   fputs("usage: funk-midi [FILE] [--script FILE] [--port N | --virtual NAME] [--list]\n"
         "                 [--cycle MS] [--print] [--no-sleep] [-M DIR] [--audio [--kernels LIB] [--voices N]]\n"
-        "Plays `pat`, a Pattern Int, to a MIDI output; FILE is loaded first.\n"
+        "                 [--dirt [HOST:]PORT]\n"
+        "Plays `pat`, a Pattern Int or of Controls, to a MIDI output, or to SuperDirt\n"
+        "with --dirt; FILE is loaded first.\n"
         "  --script FILE  run FILE's lines as input, then exit; `:wait MS` plays for MS\n"
         "  --port N       output port N; --list shows them. Default: a virtual port\n"
         "  --virtual NAME a virtual output port named NAME (default funk-midi)\n"
@@ -896,6 +951,8 @@ static void usage(FILE *f) {
         "  --audio        also play `sig`, a g.Sig of dsp.fk's signals, to the audio output\n"
         "  --kernels LIB  the kernels' library (default " FUNK_DSP_LIB ")\n"
         "  --voices N     voices for pat's notes: `voices f` sums N of f gate freq (default 8)\n"
+        "  --dirt [HOST:]PORT  send pat, a pattern of Controls, to SuperDirt as Tidal\n"
+        "                 does, instead of MIDI (SuperDirt's: 57120)\n"
         "Input is funk REPL input, with `pattern as p` and `midi as m` imported (and\n"
         "`graph as g` and `dsp as d` with --audio), or\n"
         ":l FILE, :cycle MS, :wait MS, :cc CH NUM VALUE, :stop, :play, :q\n"
@@ -907,7 +964,7 @@ static void usage(FILE *f) {
 int main(int argc, char **argv) {
   Opts o = {FUNK_LIB_DIR, NULL, NULL, FUNK_DSP_LIB};
   int port = -1, in_port = -2; /* -2: no input */
-  const char *vname = "funk-midi", *in_name = NULL;
+  const char *vname = "funk-midi", *in_name = NULL, *dirt_to = NULL;
   bool list = false;
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i], *next = i + 1 < argc ? argv[i + 1] : NULL;
@@ -923,20 +980,30 @@ int main(int argc, char **argv) {
     else if (next && !strcmp(a, "--cycle")) cs = (int64_t)(atof(argv[++i]) * 1000);
     else if (next && !strcmp(a, "-M")) o.lib = argv[++i];
     else if (!strcmp(a, "--audio")) audio = true;
+    else if (next && !strcmp(a, "--dirt")) dirt = true, dirt_to = argv[++i];
     else if (next && !strcmp(a, "--kernels")) o.kernels = argv[++i];
     else if (next && !strcmp(a, "--voices")) nvoices = atoi(argv[++i]);
     else if (a[0] != '-' && !o.file) o.file = a;
     else { usage(stderr); return 2; }
   }
   if (cs < 1000) { fputs("funk-midi: --cycle needs at least 1 ms\n", stderr); return 2; }
+  if (dirt) {
+    char host[256] = "127.0.0.1";
+    const char *colon = strrchr(dirt_to, ':');
+    if (colon) snprintf(host, sizeof host, "%.*s", (int)(colon - dirt_to), dirt_to);
+    int dport = atoi(colon ? colon + 1 : dirt_to);
+    if (dport < 1 || dport > 65535) { fputs("funk-midi: --dirt needs a port, as 57120 or 127.0.0.1:57120\n", stderr); return 2; }
+    if (!print_sink && (dirt_fd = dirt_open(host, dport)) < 0) { fprintf(stderr, "funk-midi: cannot reach %s:%d\n", host, dport); return 1; }
+    lookahead_us = 100000;
+  }
   if (nvoices < 1 || nvoices > MAX_VOICES) { fprintf(stderr, "funk-midi: --voices needs 1 to %d\n", MAX_VOICES); return 2; }
 #ifdef HAVE_LIBREMIDI
   if (list) { list_ports(); return 0; }
-  if (!print_sink && !open_out(port, vname)) return 1;
+  if (!print_sink && !dirt && !open_out(port, vname)) return 1;
   if (in_port != -2 && !open_in(in_port, in_name)) return 1;
 #else
   (void)port, (void)vname, (void)in_name;
-  if (list || !print_sink || in_port != -2) {
+  if (list || (!print_sink && !dirt) || in_port != -2) {
     fputs("funk-midi: built without libremidi: only --print and --no-sleep work\n", stderr);
     return 1;
   }

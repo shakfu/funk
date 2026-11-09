@@ -211,6 +211,7 @@ struct Bind {
   struct Pred *preds; /* constraints generalized at this binding: its dictionary parameters */
   int npreds;
   Expr *orig;    /* overloaded function before elaboration, copied for specializations */
+  int orig_globals; /* globals when orig was copied: the definitions its names meant */
   uint32_t linear; /* bit i: parameter i, a list or data, is used at most once on each path (element-reuse.md) */
   bool gain;       /* a copy taking owned parameters can reuse cells, or passes them to one that can */
   uint32_t own_key; /* a copy: each parameter's mode, 2 bits (M_NONE, M_SPINE, M_UNIQUE) */
@@ -380,6 +381,7 @@ typedef struct {
   int mcls, midx;   /* class method: class and method index, else -1 */
   ForeignDecl *ffi; /* a foreign import */
   Sig *named;       /* its signature, if that names a parameter */
+  bool redefined;   /* the name had a definition before: copies keyed by name add the index */
 } Global;
 
 typedef struct { const char *name; int arity; Type *scheme; int tydef; const char **labels; } ConDef;
@@ -421,6 +423,7 @@ void elab_abort(void); /* a compile error left elab.c's passes unfinished */
 const char *infer_type_text(Expr *e);
 int global_lookup(const char *name);
 void global_alias(const char *name, int gidx);
+void pin_globals(Expr *e, int limit);
 Type *repr(Type *t);
 const char *type_str(Type *t);
 bool type_acts(Type *t); /* an arrow of t is `->>` */
@@ -433,6 +436,7 @@ Type *tcon_new(const char *name, int n, Type **args);
 void check_types(Bind **bs, int n); /* report expressions without a type (FK_CHECK_TYPES) */
 int global_add(const char *name, Type *t, Lambda *lam);
 void elab_bind(Bind *b);
+void elab_default_value(Bind *b);
 Bind *dict_bind(InstDef *in);
 Expr *copy_expr(Expr *e);
 void ho_specialize(Bind **bs, int n); /* copies made go to `specialized` */
@@ -482,6 +486,8 @@ typedef struct {
   const char *cur_file;
   jmp_buf *cerr_jmp;
   bool cerr_quiet; /* suppress error messages (REPL probes) */
+  bool interactive; /* a funk_eval input: top-level values generalize, as at GHCi's prompt */
+  int chunk_globals; /* globals before the chunk being compiled */
   Strs sealed_types, hidden_types; /* prefix.T: fields not exported; the type not exported at all */
   const char *cur_module; /* the module being checked: its prefix, or NULL for the program */
   Strs ffi_libs; /* libraries named by `foreign library`, in all chunks so far */

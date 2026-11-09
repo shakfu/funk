@@ -1,0 +1,12 @@
+import lib.pattern as p
+import lib.control (..)
+riff = "0 2"
+:t riff
+map (\e -> e.value) (p.query (n riff) (p.Span 0 p.cycleTicks))
+map (\e -> e.value) (p.query (s riff) (p.Span 0 p.cycleTicks))
+pat = p.fast 2 "0 [1 2]"
+map (\e -> e.value) (p.query pat (p.Span 0 p.cycleTicks)) :: [Int]
+mypat = n riff
+riff = "5 7"
+map (\e -> e.value) (p.query mypat (p.Span 0 p.cycleTicks))
+map (\e -> e.value) (p.query (n riff) (p.Span 0 p.cycleTicks))

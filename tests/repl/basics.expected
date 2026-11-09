@@ -4,7 +4,7 @@ map :: (a -> b) -> [a] -> [b]
 (|>) :: a -> (a -> b) -> b
 (>>>) :: (a -> b) -> (b -> c) -> a -> c
 \f g x -> g (f x) :: (a -> b) -> (b -> c) -> a -> c
-1 + 2.5 :: Float
+1 + 2.5 :: (Num a, FromFloat a) => a
 \x y -> x == y :: Eq a => a -> a -> Bool
 foldr :: (a -> b -> b) -> b -> [a] -> b
 (,) 1 :: Num b => a -> (b, a)

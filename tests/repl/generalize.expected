@@ -1,0 +1,16 @@
+1.5
+1
+k :: Num a => a
+(/) :: Fractional a => a -> a -> a
+0.5 :: FromFloat a => a
+half :: Fractional a => a -> a
+1.5
+[55,56]
+55.5
+7.5
+3
+12
+12
+18
+[0,4,7]
+[2,6,9]

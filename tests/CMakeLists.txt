@@ -52,6 +52,11 @@ add_test(NAME hosts/midi
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/midi PROPERTIES LABELS hosts TIMEOUT 300)
+# ... with --dirt: SuperDirt's bundles, decoded (tests/hosts/dirt.txt)
+add_test(NAME hosts/dirt
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --dirt 57120 --script tests/hosts/dirt.txt 2>&1 | diff tests/hosts/dirt.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/dirt PROPERTIES LABELS hosts TIMEOUT 300)
 # ... with --audio: a graph of lib/kernels.fk, rendered on the virtual clock
 add_test(NAME hosts/audio
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --script tests/hosts/audio.txt 2>&1 | diff tests/hosts/audio.expected -"
@@ -355,6 +360,9 @@ set_tests_properties(kernels/controls PROPERTIES LABELS kernels)
 find_program(PYTHON3 python3)
 if(PYTHON3)
   add_test(NAME lib/tidal-examples COMMAND ${PYTHON3} -I tests/tidal/examples.py WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  # funk-midi --dirt's handshake, against a stand-in for SuperDirt, in real time
+  add_test(NAME hosts/dirt-handshake COMMAND ${PYTHON3} -I tests/hosts/dirt_handshake.py $<TARGET_FILE:funk-midi> WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  set_tests_properties(hosts/dirt-handshake PROPERTIES LABELS hosts TIMEOUT 60)
   set_tests_properties(lib/tidal-examples PROPERTIES LABELS lib)
 else()
   message(STATUS "No python3: lib/tidal-examples and lib/tidal-patches are skipped")
@@ -374,6 +382,9 @@ if(GHC AND GHC_PKG AND TIDAL_MISSING EQUAL 0)
     add_test(NAME lib/tidal-patches COMMAND sh tests/tidal/patches.sh ${GHC} $<TARGET_FILE:funk> ${PYTHON3} ${CMAKE_CURRENT_BINARY_DIR}/tidal-patches WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
     set_tests_properties(lib/tidal-patches PROPERTIES LABELS lib TIMEOUT 600)
   endif()
+  # funk-midi --dirt's messages against Tidal's toOSC (tests/tidal/dirt.sh)
+  add_test(NAME lib/tidal-dirt COMMAND sh tests/tidal/dirt.sh ${GHC} $<TARGET_FILE:funk-midi> ${CMAKE_CURRENT_BINARY_DIR}/tidal-dirt WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  set_tests_properties(lib/tidal-dirt PROPERTIES LABELS lib TIMEOUT 600)
 else()
   message(STATUS "No ghc with the tidal package: lib/tidal is skipped")
 endif()

@@ -3,7 +3,7 @@
 # thirdparty/libremidi. With --audio it plays a graph of kernels too:
 # through the vendored thirdparty/miniaudio with FUNK_MINIAUDIO, else only
 # on the virtual clock.
-add_executable(funk-midi main.c)
+add_executable(funk-midi main.c dirt.c)
 target_compile_options(funk-midi PRIVATE -Wall -Wextra)
 target_compile_definitions(funk-midi PRIVATE FUNK_LIB_DIR="${funk_SOURCE_DIR}/lib"
   FUNK_DSP_LIB="${FUNK_DSP_LIB}" FUNK_GRAPH_INCLUDE="${funk_SOURCE_DIR}/projects/funkgraph")

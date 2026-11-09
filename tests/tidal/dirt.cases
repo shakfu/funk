@@ -1,0 +1,12 @@
+basic	s "bd*2 [sn cp]" # n "<0 3>"
+kinds	s "x" # cut "1 2" # vowel "a" # orbit 1
+sound	sound "bd:3 sn:1 [hh hh:2]"
+notes	s "superpiano" # note "c e g a5"
+floats	s "x*4" # pan p.sine # gain 1.2 # speed "-1" # legato 0.5
+nos	n "0 1"
+stack	p.stack [s "a*2", s "b" # n 1]
+own	s "x" # pF "delta" 0.5 # pF "cycle" 9 # pF "cps" 2
+ownid	s "x" # pS "_id_" "7"
+slow	p.slow 2 $ s "long" # n "<1 2>"
+every	p.every 2 (p.fast 2) $ s "bd sn" # crush 4
+cont	s "x*8" # cutoff (p.range 200 2000 p.saw) # resonance p.perlin

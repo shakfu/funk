@@ -12,7 +12,7 @@ sig = d.saw 100 * d.adsr (d.dc 0.1) (d.dc 0.1) (d.dc 0.25) (d.dc 0.1) 1
 :wait 250
 :play
 :wait 250
-sig = 3
+sig = 'x'
 :wait 250
 sig = g.Node "no_such_kernel" [] []
 :wait 250

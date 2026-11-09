@@ -15,7 +15,7 @@ module control
     slice, randslice, splice, loopAt, hurry, smash, smash', echo, echoWith, stut, stutWith,
     stut', jux, juxBy, juxcut, juxcut', jux', jux4, ghost', ghost, contrast, contrastBy, contrastRange,
     fix, unfix, fixRange, unfixRange, grain, squeezeJoinUp, chew, stackwith, splat, chopArc,
-    midiOf, Record(..), recordsOf, sampleKey, writeControls, writeControlsWith, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
+    midiOf, Record(..), recordsOf, sampleKey, writeControls, writeControlsWith, writeDirtWith, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
     bank, begin, binshift, button0, button1, button10, button11, button12, button13, button14,
     button15, button2, button3, button4, button5, button6, button7, button8, button9, ccn, ccv,
     channel, clhatdecay, coarse, comb, control, cps, crush, ctlNum, ctranspose, cut, cutoff,
@@ -767,6 +767,86 @@ writeRecords buf cap i rs = case rs of
           poke (plusPtr buf (i * 24 + 16)) 0
     else ()
     writeRecords buf cap (i + 1) rest
+
+-- For a SuperDirt target (funk-midi --dirt, docs/dev/dirt.md): the onsets
+-- that start in units [a, b) and have an `s`, as Tidal's superdirtShape
+-- requires, in order of start, written to buf's cap bytes. Each is its start
+-- and duration in units, its cycle (ot is the pattern's tick at unit 0),
+-- the number of controls, then each control's kind (0 float, 1 int, 2
+-- string), name and value; a string is its length, then its bytes padded
+-- to 8. A start of -1 ends them. Returns the number of events, so a result
+-- above the number written means some did not fit.
+writeDirtWith :: Ptr Int -> Int -> p.Pattern Controls -> [(String, p.Ctl)] -> Int -> Int -> Int -> Int ->> Int
+writeDirtWith buf cap pat ctls cs ot a b = writeDirts buf cap 0 cs ot (dirtOnsets pat ctls cs a b) 0
+
+dirtOnsets :: p.Pattern Controls -> [(String, p.Ctl)] -> Int -> Int -> Int -> [p.Event Controls]
+dirtOnsets pat ctls cs a b =
+  sortBy (\x y -> compare (p.wholeOrPart x).start (p.wholeOrPart y).start)
+    (filter (\e -> case getControl "s" e.value of
+                     Just _ -> True
+                     Nothing -> False)
+      (p.onsetsState pat (p.State (p.Span (p.ceilDiv (a * p.cycleTicks) cs) (p.ceilDiv (b * p.cycleTicks) cs)) ctls)))
+
+writeDirts :: Ptr Int -> Int -> Int -> Int -> Int -> [p.Event Controls] -> Int ->> Int
+writeDirts buf cap off cs ot es n = case es of
+  [] -> do
+    endDirt buf cap off
+    n
+  e : rest ->
+    if off + dirtSize (controlPairs e.value) + 8 <= cap then do
+      writeDirt buf off cs ot e
+      writeDirts buf cap (off + dirtSize (controlPairs e.value)) cs ot rest (n + 1)
+    else do
+      endDirt buf cap off
+      n + length es
+
+-- ticks t in units, to the nearest, as Link rounds Tidal's times to microseconds
+nearest :: Int -> Int -> Int
+nearest cs t = div (2 * t * cs + p.cycleTicks) (2 * p.cycleTicks)
+
+endDirt :: Ptr Int -> Int -> Int ->> ()
+endDirt buf cap off = if off + 8 <= cap then pokeByteOff buf off (negate 1 :: Int) else ()
+
+dirtSize :: [(String, Value)] -> Int
+dirtSize kvs = 32 + sum (map (\(k, v) -> 8 + strSize k + (case v of
+    VS x -> strSize x
+    _ -> 8)) kvs)
+
+strSize :: String -> Int
+strSize s = 8 + 8 * p.ceilDiv (length s) 8
+
+writeDirt :: Ptr Int -> Int -> Int -> Int -> p.Event Controls ->> ()
+writeDirt buf off cs ot e = case p.wholeOrPart e of
+  w -> do
+    pokeByteOff buf off (nearest cs w.start)
+    pokeByteOff buf (off + 8) (nearest cs w.stop - nearest cs w.start)
+    pokeByteOff buf (off + 16) (toFloat (w.start + ot) / toFloat p.cycleTicks)
+    pokeByteOff buf (off + 24) (length (controlPairs e.value))
+    writePairs buf (off + 32) (controlPairs e.value)
+
+writePairs :: Ptr Int -> Int -> [(String, Value)] ->> ()
+writePairs buf off kvs = case kvs of
+  [] -> ()
+  (k, v) : rest -> do
+    case v of
+      VF x -> do
+        pokeByteOff buf off (0 :: Int)
+        pokeByteOff buf (off + 8 + strSize k) x
+      VI i -> do
+        pokeByteOff buf off (1 :: Int)
+        pokeByteOff buf (off + 8 + strSize k) i
+      VS x -> do
+        pokeByteOff buf off (2 :: Int)
+        pokeStr buf (off + 8 + strSize k) x
+    pokeStr buf (off + 8) k
+    writePairs buf (off + 8 + strSize k + (case v of
+      VS x -> strSize x
+      _ -> 8)) rest
+
+pokeStr :: Ptr Int -> Int -> String ->> ()
+pokeStr buf off s = do
+  pokeByteOff buf off (length s)
+  mapM_ (\(i, c) -> pokeByteOff buf (off + 8 + i) (fromIntegral (ord c) :: CChar)) (zip (enumFromTo 0 (length s - 1)) (unpack s))
 
 -- Grouped controls
 sound :: p.Pattern String -> p.Pattern Controls

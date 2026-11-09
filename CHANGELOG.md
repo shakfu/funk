@@ -6,6 +6,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `funk-midi --dirt [HOST:]PORT` sends `pat`, a control pattern, to SuperDirt as Tidal's `superdirtTarget` does: a `/dirt/play` bundle per onset with an `s`, its controls and Tidal's `cps`, `cycle`, `delta` and `_id_`, stamped at the onset plus its `nudge`. The test `lib/tidal-dirt` builds Tidal's own messages for 12 patterns through its `toOSC`; all 122 match funk's, float bits included. Bundles leave 0.1 s ahead, Tidal's margin, so `--dirt` raises the lookahead from 50 ms. It shakes hands as Tidal does, so it prints "Waiting for SuperDirt" until SuperDirt replies ([docs/dev/dirt.md](docs/dev/dirt.md)).
+
+  ```sh
+  funk-midi --dirt 57120
+  pat = s "bd*2 [sn cp]" # n "<0 3>" # speed 2
+  ```
+
 - String literals are overloaded, as with Haskell's `OverloadedStrings`: a literal at a type with a `FromString` instance calls its `fromString`, and one that nothing fixes is a `String`, as a float literal defaults to `Float`. `lib/pattern.fk` parses a literal at `Pattern a` as Tidal's mini-notation for `a`, through `Parseable`, so Tidal's patterned arguments port as written. A `Pattern Int` literal reads note names as Tidal's `Int` does, `c5` being 0; `p.mini` keeps MIDI's. The overloading was rejected in [docs/dev/patterns.md](docs/dev/patterns.md#literals) for changing literal defaulting; the `String` default keeps it unchanged ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) L1).
 
   ```haskell
@@ -30,6 +37,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- A REPL or host input generalizes its value bindings, as GHCi's prompt does: `riff = "0 2"` is `FromString a => a`, so `n riff` and `s riff` both play in later inputs, and `k = 1` serves `k + 0.5`. Each value is computed once per type it is used at, and once at its default types as it is defined, so an error still shows at definition and the old pattern keeps playing. A file keeps the monomorphism restriction. `:t` prints the generalized type: `:t (/)` is `Fractional a => a -> a -> a` ([docs/dev/design.md](docs/dev/design.md#monomorphism-restriction)).
+
+- A top-level function of float or string literals generalizes, as in Haskell: `half x = x * 0.5` is `(Num a, FromFloat a) => a -> a`, not `Float -> Float`, so it takes a `Sig` or a pattern without a signature. The literals defaulted first so that `Float` code would stay unboxed; specialization already does that, and all 25 benchmarks emit the same C.
+
 - Controls take patterns of Tidal's types, not strings: `pan p.sine`, `n (p.irand 8)` and `sound (p.samples "bd*2" (p.run 8))` port as written, and a literal is still mini-notation. `n`, `note`, `up` and `number` take `p.Note`, Tidal's `Note`: a `Float` whose mini-notation reads note names first, so `n "e"` is note 4. Tidal's signals, from `p.sine` to `p.rand` and `p.perlin`, have any `FromFloat` type, and `p.irand`, `p.run` and `p.scan` any `Num` type, as Tidal's are, so they serve `n` too. A control given a `String` variable needs `p.miniS` for it; `pF` and its kind still take a pattern of one name ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) L2).
 
 - `d.kit` plays a sample event as SuperDirt does: `begin`, `end`, a negative `speed` backwards, `loop`, `accelerate`, `sustain` or `legato`, `note` and `octave` for pitch, `unit "c"`, `cut` groups, and its fades. Each name has 4 voices, so its events overlap, as SuperDirt's synths do; `d.kitWith n` sets the number. It played one event of a name at a time, from the start of its file. Interpolation is linear, where SuperDirt's is cubic.
@@ -43,6 +54,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A sample folder or file path may start with `~/`, for `$HOME`: `d.kit "~/.local/share/funk/Dirt-Samples" ["bd"]`. The plugin's working directory is its host's, so a relative path never worked there.
 
 ### Fixed
+
+- In the REPL and hosts, redefining a name could keep the old definition, or reach code defined before it, depending on the copies the compiler had made:
+  - After `f x = x + 1`, `f 2`, `f x = x + 10`, `f 2` gave 3. The copy `f@Int` was found by name, and the name outlived the definition. A copy of a function applied to `(+ root)`, as in `map (+ root) xs`, and element reuse's copies had the same fault.
+  - After `g y = f y`, a new `f` changed `g 2` when `g` was overloaded, but not when it was monomorphic: a copy made later named the new `f`. Code now keeps the definitions it was written against, as in GHCi and so in Tidal; re-evaluate it to use a new one.
 
 - A mini-notation step longer than a cycle, such as `[lt*2]/5` in `"[sid/4]*3 [lt*2]/5 mt*3"`, had a different whole from Tidal's, so a join over it, as in `spread'`, gained or lost onsets. funk built an equal-weight sequence with `fastcat`, where Tidal's parser uses `timeCat`. funk's `timecat` also mapped a whole from the query's cycle, where Tidal's `_fastGap` maps it from its own. `rev "60*1.5 [61 62]*<2.5 3>"` has 130 onsets in 20 cycles, as in Tidal, not 140.
 

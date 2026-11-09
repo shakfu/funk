@@ -1,0 +1,17 @@
+-- funk-midi --dirt 57120 --no-sleep --script (tests/CMakeLists.txt): each
+-- bundle's time and message, decoded. Cycle 0 sounds one lookahead (100 ms)
+-- after start-up. A bundle is stamped at its onset, plus its nudge; a
+-- redefinition plays from the first window past the lookahead; :cycle
+-- changes cps and keeps the beat; :stop sends nothing; a pattern of Ints
+-- does not play, and leaves the last playing
+pat = s "bd sn" # n "<0 3>"
+:wait 2090
+pat = s "x" # nudge 0.25
+:wait 2000
+:cycle 1000
+:wait 1000
+:stop
+:wait 1000
+:play
+pat = p.fastcat [p.atom 60, p.atom 64]
+:wait 1000

@@ -685,7 +685,10 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
       m->nimports = ST->repl_imps.n;
     }
     if (m && !finish_caught(m)) m = NULL;
-    if (m && compile_chunk(m, &c)) {
+    CS->interactive = true;
+    bool compiled = m && compile_chunk(m, &c);
+    CS->interactive = false;
+    if (compiled) {
       interp_install(&c);
       ok = true;
     } else {

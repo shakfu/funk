@@ -16,9 +16,17 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] L2, C1: controls take patterns; `n` and `note` take Tidal's `Note`. Done 2026-11-09.
 
-- [ ] Decide: should a top-level binding of only `FromString` and `Parseable` literals generalize, as GHCi's do with its monomorphism restriction off, so `riff = "0 2"` stays a pattern?
+- [x] Top-level functions of float and string literals generalize, as in Haskell; specialization keeps them unboxed. Done 2026-11-09.
 
-- [ ] S9: a SuperDirt target, `/dirt/play` over OSC, from `funk-midi`.
+- [x] REPL and host inputs generalize values, as GHCi's prompt does; `:t` prints the generalized type. Done 2026-11-09.
+
+- [x] A redefinition does not change code defined before it, overloaded or not, as in GHCi and Tidal. Done 2026-11-09.
+
+- [x] S9: a SuperDirt target, `funk-midi --dirt`. Done 2026-11-09.
+
+- [x] Listen to `funk-midi --dirt 57120` against a running SuperDirt: it plays, on macOS, 2026-11-09.
+
+- [ ] Check `funk-midi --dirt 57120`'s handshake against a real SuperDirt: it should print "Connected to SuperDirt." within 2 s. Only a stand-in (`tests/hosts/dirt_handshake.py`) has been tested.
 
 - [ ] R1-R5: slots `d1`..`d16` and `p "name"`, their commands, tempo commands and an event's `cps`, transitions, `setF` and its kind.
 
@@ -29,6 +37,12 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 - [ ] F1-F8, L3, L5, L8, M1-M3, C3: the library gaps. L8 is an `Enum` class.
 
 - [ ] L7, F10, F11: decide the review items.
+
+- [ ] `Floating` (`pi`, `sin` on patterns); not yet a numbered gap in tidal-comparison.md.
+
+- [ ] The REPL reads one line per input, so a signature and its definition need `:{ :}`; GHCi accepts them on separate lines.
+
+- [ ] `funk repl` overflows the stack on `foldl` over 20M elements (predates 0.12).
 
 - [ ] Fix stale docs: `^name`'s reason in `docs/music.md`; `euclid` in `docs/dev/combinators.md`'s differences.
 

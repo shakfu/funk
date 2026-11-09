@@ -25,16 +25,16 @@ Status:
 | Mini-notation | 3 | 2 | 0 |
 | Controls | 2 | 0 | 0 |
 | Runtime and workflow | 6 | 1 | 0 |
-| SuperDirt sound | 9 | 0 | 1 |
+| SuperDirt sound | 8 | 0 | 1 |
 
 L1, L2 and L4 are done: string literals are patterns, controls take patterns, and patterns divide. The largest remaining gaps are the qualified `p.` names (L5), scales (F1) and the runtime (R1-R5).
 
 ## Language and literals
 
-**L1. Done 2026-11-09: a string literal is a pattern.** `class FromString` in the prelude, as `FromFloat`: a literal at another type calls its `fromString`, and an unfixed one is a `String`. `instance Parseable a => FromString (Pattern a)` parses it as Tidal's `parseBP_E` does, for `Int`, `Float` and `String`; `Bool` waits for M1. `lib/tidal` checks 7 cases of literals against Tidal. Two differences remain, both open:
+**L1. Done 2026-11-09: a string literal is a pattern.** `class FromString` in the prelude, as `FromFloat`: a literal at another type calls its `fromString`, and an unfixed one is a `String`. `instance Parseable a => FromString (Pattern a)` parses it as Tidal's `parseBP_E` does, for `Int`, `Float` and `String`; `Bool` waits for M1. `lib/tidal` checks 7 cases of literals against Tidal. Generalization follows GHC's, done 2026-11-09 ([design.md](design.md#monomorphism-restriction)):
 
-- An unfixed literal is a `String`, and a top-level binding does not generalize, so `riff = "0 2"` is a `String`. GHCi turns the monomorphism restriction off, so in Tidal `riff` stays polymorphic.
-- `pat = p.fast 2 "0 2"` is an ambiguous `Parseable a`; GHCi generalizes it to `Parseable a => Pattern a`. In a host, `pat` needs a signature until L2 lets `n` and `s` fix the type.
+- In a file, `riff = "0 2"` takes its type from its uses, under GHC's monomorphism restriction. A REPL or host input generalizes it, as GHCi's prompt does, so `riff :: FromString a => a` plays as `n riff` and `s riff` in later inputs, and `pat = p.fast 2 "0 2"` plays in a host as a `Pattern Int`.
+- Unlike GHCi, a generalized value is computed once per type it is used at, not at every use, and once at its default types (`Int`, `Float`, `String`) as it is defined, so its errors show then.
 
 **L2. Done 2026-11-09: controls take patterns.** Each of the 257 controls takes Tidal's type: `Pattern Float` for Tidal's `Double`, `Pattern Int`, `Pattern String`, and `Pattern Note` for `n`, `note`, `up` and `number`. `Note` is Tidal's: a `Float` whose mini-notation reads note names first, with Tidal's `Show`. Tidal's signals and `irand`, `run` and `scan` are polymorphic, as Tidal's are, so `n (irand 8)` and `n (segment 4 (range 0 7 sine))` check. 9 cases in `lib/tidal` check them against Tidal. A signal's type needs `FromFloat` where Tidal's needs `Fractional` (L4), and `run` and `scan` need `Num` and `Ord` where Tidal's need `Enum` (L8).
 
@@ -43,7 +43,6 @@ L1, L2 and L4 are done: string literals are patterns, controls take patterns, an
 **L4. Done 2026-11-09: `Fractional`.** `class (Num a, FromFloat a) => Fractional a`, with `/` and `recip` and Haskell's defaults for each. `Pattern a`, `Note` and `Controls` are instances, as Tidal's `Pattern a`, `Note` and `ValueMap` are, so `(26/8) <~ p` ports as written; a float literal at `Controls` is a `speed`. `lib/tidal` checks 7 cases against Tidal. The C emitted for the 6 benchmarks that divide is unchanged but for constructor numbers. Differences, kept:
 
 - A float literal needs `FromFloat`, Haskell's needs `Fractional`. They differ only for a type with `FromFloat` and no `/`, such as `lib/dsp.fk`'s `Sig`, which no Tidal code has.
-- A top-level function without a signature that divides is `Float`, as one of float literals is ([type-classes.md](type-classes.md#prelude-and-existing-primitives)); in GHCi `half x = x / 2` is `Fractional a => a -> a`. This keeps unannotated code unboxed. It is the open generalization decision of L1. For the same reason the REPL's `:t (/)` prints `Float -> Float -> Float`.
 - No `fromRational`: it waits for T3's `Rational`. `Floating` (`pi`, `sin` on patterns) is not done.
 
 **L5. Gap: the pattern library is qualified.** Tidal's names are unqualified after `import Sound.Tidal.Context`. The hosts import `control (..)` unqualified but `pattern` as `p`, so ported code needs `p.` on about 260 names. It is not checked which `pattern` names clash with the prelude (`filter`, `cycle` and `range` are candidates). Each clash needs a decision.
@@ -161,7 +160,7 @@ Also missing are `midinote`, `drum`, `drumN`, `array`, `grain'`, `pB`, `pR`, `pX
 - Random UGens (`PitchShift`, `LFNoise1`) draw from scsynth's per-synth RNG. Port the RNG and its seeding for exact output, or match only the statistics.
 - scsynth computes in `float32`. Match it bit for bit in `float32`, or work in double with a stated error bound.
 
-**S9. Gap: no OSC target.** Tidal sends `/dirt/play` to SuperDirt (`Stream/Target.hs`, `superdirtTarget`). funk cannot, so a user cannot use funk's patterns with real SuperDirt. This target gives exact sound parity for anyone running SuperCollider, at the cost of one OSC sender. S1 to S8 then matter only in the plugin and without SuperCollider.
+**S9. Done 2026-11-09: an OSC target.** `funk-midi --dirt [HOST:]PORT` sends `/dirt/play` bundles as Tidal's `superdirtTarget` does ([dirt.md](dirt.md)). `lib/tidal-dirt` checks 122 messages of 12 patterns against Tidal's own `toOSC`, float bits included. S1 to S8 now matter only in the plugin and without SuperCollider. It shakes hands as Tidal does. Not done: an event's `cps` setting the tempo (R3).
 
 **S10. Review: 4 voices a name.** SuperDirt starts a synth per event, without a limit. `d.kit` gives each name 4 voices, so a fifth overlapping event takes the oldest's voice, which is audible. The reason holds: the graph is fixed while it plays, and the audio thread cannot allocate ([delivery.md](delivery.md)). The number is the open part. Pick a default no ported patch exceeds, and report a stolen voice.
 

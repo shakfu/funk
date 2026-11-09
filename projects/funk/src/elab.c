@@ -36,6 +36,7 @@ typedef struct { Bind *f; uint32_t key; int res; Bind *copy; } Ver;
 typedef struct {
   int dcounter;
   TS *tsub; /* type variables of the function being specialized */
+  bool default_value; /* elab_default_value: this chunk's value may be cloned */
   int ntsub;
   int nho; /* copies made, bounded so argument growth terminates */
   Fv *key_fv;
@@ -334,7 +335,11 @@ static const char *specialize(int g, Type **tys, int n) {
     sb_printf(&nm, "%s%s", i ? "," : "", type_str(tys[i]));
   }
   const char *name = intern(nm.s);
-  if (global_lookup(name) >= 0) return name;
+  int old = global_lookup(name);
+  Bind *ob0 = old >= 0 ? CS->globals.a[old].bind : NULL;
+  if (old >= 0 && (!ob0 || ob0->from == ob)) return name; /* else cloned from a definition since replaced */
+  bool value = ob->orig->k != E_LAM;
+  if (value && g >= CS->chunk_globals && !ST->default_value) return NULL; /* a value of this chunk: its clone could not run before its uses */
   TS *saved = ST->tsub;
   int nsaved = ST->ntsub;
   VEC(TS) ts = {0};
@@ -347,10 +352,12 @@ static const char *specialize(int g, Type **tys, int n) {
   ST->ntsub = ts.n;
   Bind *b = NEW(Bind);
   *b = (Bind){.name = name, .e = copy_expr(ob->orig), .line = ob->line, .col = ob->col, .from = ob->from ? ob->from : ob};
-  b->e->lam->name = name;
+  pin_globals(b->e, ob->orig_globals);
+  if (!value) b->e->lam->name = name;
   b->type = apply(CS->globals.a[g].type);
   subst_types(b->e);
-  b->gidx = global_add(name, b->type, b->e->lam); /* before the body, for recursion */
+  b->gidx = global_add(name, b->type, value ? NULL : b->e->lam); /* before the body, for recursion */
+  if (value) CS->globals.a[b->gidx].bind = b; /* functions' are set after the chunk */
   elab(b->e, NULL, NULL);
   ST->tsub = saved;
   ST->ntsub = nsaved;
@@ -607,6 +614,27 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
 
 void elab_bind(Bind *b) { elab_one(b, NULL, NULL); }
 
+/* An interactive input's generalized value, cloned at its default types
+   (Float, String, Int) when every class has them. The clone runs with the
+   input, so its errors show at definition, and uses at those types share it. */
+void elab_default_value(Bind *b) {
+  int n = b->npreds;
+  if (!n || !b->orig || b->orig->k == E_LAM) return;
+  Type **tys = xmalloc((size_t)n * sizeof *tys);
+  for (int i = 0; i < n; i++) {
+    uint64_t c = b->preds[i].t->cls;
+    const char *d = CS->float_class >= 0 && (c >> CS->float_class & 1)     ? "Float"
+                    : CS->string_class >= 0 && (c >> CS->string_class & 1) ? "String"
+                    : CS->num_class >= 0 && (c >> CS->num_class & 1)       ? "Int"
+                                                                           : NULL;
+    if (!d || !find_inst(b->preds[i].cls, intern(d))) return;
+    tys[i] = tcon_new(intern(d), 0, NULL);
+  }
+  ST->default_value = true;
+  specialize(b->gidx, tys, n);
+  ST->default_value = false;
+}
+
 /* $dict.C.T = [\c.. ->] $D.C $m.C.T.m1 .. superclass dictionaries */
 Bind *dict_bind(InstDef *in) {
   ClassDef *c = &CS->classes.a[in->cls];
@@ -753,6 +781,14 @@ static void pat_key(SB *b, Pat *p, Nm **params) {
 
 /* The structure of an argument, as a key; lambda parameters and the call
    site's locals (fv) are numbered, so equal structures give equal keys. */
+/* A global's name in a copy's key; a redefined one's with its index, so
+   that a copy made from the old definition is not reused for the new. */
+static void key_global(SB *b, const char *name) {
+  int g = global_lookup(name);
+  if (g >= 0 && CS->globals.a[g].redefined) sb_printf(b, "%s#%d", name, g);
+  else sb_puts(b, name);
+}
+
 static void key(SB *b, Expr *e, Nm *params) {
   switch (e->k) {
   case E_VAR: {
@@ -766,7 +802,7 @@ static void key(SB *b, Expr *e, Nm *params) {
       sb_printf(b, "$%d", i);
       return;
     }
-    sb_puts(b, e->name);
+    key_global(b, e->name);
     return;
   }
   case E_CON: sb_puts(b, e->name); return;
@@ -1052,7 +1088,8 @@ static void ho_call(Expr *e, Nm *locals) {
     if (L->ptypes[i] && e->args[i]->ty) match_type(L->ptypes[i], e->args[i]->ty, &ts);
   ST->key_fv = &fv;
   SB k = {0};
-  sb_printf(&k, "%s@{", fb->name);
+  if (CS->globals.a[g].redefined) sb_printf(&k, "%s#%d@{", fb->name, g);
+  else sb_printf(&k, "%s@{", fb->name);
   for (int i = 0, c = 0; i < m; i++) {
     if (!use[i]) continue;
     SB a = {0};
@@ -1958,7 +1995,7 @@ static const char *own_copy(Bind *b, uint32_t key) {
   }
   const char *nm = intern(name.s);
   int g = global_lookup(nm); /* made in an earlier chunk: the same function and modes */
-  if (g >= 0 && CS->globals.a[g].bind) {
+  if (g >= 0 && CS->globals.a[g].bind && CS->globals.a[g].bind->own_of == b) {
     if (v >= 0) ST->vers.a[v].copy = CS->globals.a[g].bind;
     return nm;
   }

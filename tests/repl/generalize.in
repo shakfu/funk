@@ -1,0 +1,28 @@
+k = 1
+k + 0.5
+k
+:t k
+:t (/)
+:t 0.5
+half x = x / 2
+:t half
+half 3
+big = foldl (+) 0 [1 .. 10]
+[big, big + 1]
+big + 0.5
+big = 7
+big + 0.5
+f x = x + 1
+f 2
+f x = x + 10
+f 2
+g y = f y
+f x = x + 100
+g 2
+h y = let f = (* 3) in f y + g y
+h 2
+root = 0
+sc = map (+ root) [0, 4, 7]
+root = 2
+sc
+map (+ root) [0, 4, 7]

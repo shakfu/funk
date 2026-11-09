@@ -844,6 +844,69 @@ static void deps_expr(Expr *e, Sh *sh, Deps *d) {
   }
 }
 
+/* In a clone of an overloaded binding, a global its source names that was
+   redefined after it still means the old definition, as in GHCi: the
+   name becomes an alias of the definition below limit. */
+static void pin_expr(Expr *e, Sh *sh, int limit);
+
+static Sh *pin_group(Group *g, Sh *sh, int limit) {
+  for (int i = 0; i < g->n; i++) sh = shpush(sh, g->b[i]->name);
+  for (int i = 0; i < g->n; i++) pin_expr(g->b[i]->e, sh, limit);
+  return sh;
+}
+
+static void pin_expr(Expr *e, Sh *sh, int limit) {
+  switch (e->k) {
+  case E_VAR: {
+    if (shadowed(sh, e->name) || global_lookup(e->name) < limit) return;
+    for (int g = limit - 1; g >= 0; g--)
+      if (CS->globals.a[g].name == e->name) {
+        const char *alias = intern(xsprintf("%s#%d", e->name, g));
+        global_alias(alias, g);
+        e->name = alias;
+        return;
+      }
+    return;
+  }
+  case E_APP:
+  case E_NAMED:
+  case E_RECORD:
+    pin_expr(e->fn, sh, limit);
+    for (int i = 0; i < e->n; i++) pin_expr(e->args[i], sh, limit);
+    return;
+  case E_LAM:
+    for (int i = 0; i < e->lam->n; i++) sh = shpush(sh, e->lam->params[i]);
+    pin_expr(e->lam->body, sh, limit);
+    return;
+  case E_LET: pin_expr(e->body, pin_group(&e->g, sh, limit), limit); return;
+  case E_IF:
+    pin_expr(e->cond, sh, limit);
+    pin_expr(e->then_, sh, limit);
+    pin_expr(e->else_, sh, limit);
+    return;
+  case E_CASE:
+    for (int i = 0; i < e->ns; i++) pin_expr(e->scruts[i], sh, limit);
+    for (int a = 0; a < e->na; a++) {
+      Alt *alt = e->alts[a];
+      Sh *s = sh;
+      for (int i = 0; i < alt->np; i++) s = deps_pat(alt->pats[i], s);
+      for (int i = 0; i < alt->rhs.nwg; i++) s = pin_group(&alt->rhs.wg[i], s, limit);
+      for (int i = 0; i < alt->rhs.ng; i++) {
+        if (alt->rhs.guards[i]) pin_expr(alt->rhs.guards[i], s, limit);
+        pin_expr(alt->rhs.bodies[i], s, limit);
+      }
+    }
+    return;
+  case E_ANN:
+  case E_FIELD: pin_expr(e->body, sh, limit); return;
+  default: return;
+  }
+}
+
+void pin_globals(Expr *e, int limit) {
+  if (limit < CS->globals.n) pin_expr(e, NULL, limit);
+}
+
 typedef struct {
   Deps *d;
   int counter, sp;
@@ -1342,11 +1405,12 @@ static void lower_known(void) {
   }
 }
 
-/* Float literals since cvars[from] still open become Float, so a function
-   of them stays monomorphic: an overloaded `f x = x * 0.5` would pass a
-   dictionary, where today it runs on unboxed floats. */
-static void default_floats(int from) {
-  for (int i = from; i < ST->cvars.n; i++) {
+/* Literals still open at the end of a chunk: a float literal becomes
+   Float, a string literal String. A top-level function of them
+   generalizes first, as in Haskell; specialization keeps its calls at
+   Float unboxed. */
+static void default_floats(void) {
+  for (int i = 0; i < ST->cvars.n; i++) {
     Type *r = repr(ST->cvars.a[i]);
     if (r->k != TY_VAR || r->skolem || r->level == GENERIC || !(r->cls & (ST->float_bit | ST->string_bit))) continue;
     ST->uline = r->line;
@@ -1877,7 +1941,6 @@ static void infer_group(Group *g, Env **env, bool top) {
   Env *none = NULL;
   if (!env) env = &none;
   if (top) ST->scheme_uses.n = 0;
-  int ncvars = ST->cvars.n;
   ST->level++;
   int ndeferred = ST->deferred.n; /* this group's calls of functions not yet known */
   int nlocal = ST->local_effs.n;
@@ -1945,15 +2008,12 @@ static void infer_group(Group *g, Env **env, bool top) {
   }
   ST->cur_bind = saved_bind;
   ST->cur_eff = outer;
-  if (top)
-    for (int i = 0; i < g->n; i++)
-      if (g->b[i]->e->k == E_LAM) default_floats(ncvars);
   ST->level--;
   /* Local bindings without a signature never generalize constrained
      variables: they take them from their uses, so specializing the
      enclosing function specializes them too. */
   for (int i = 0; i < g->n; i++)
-    if (!sch[i]) gen(mono[i], !top || g->b[i]->e->k != E_LAM);
+    if (!sch[i]) gen(mono[i], !top || (g->b[i]->e->k != E_LAM && !CS->interactive));
   /* Only variables generic now belong to this binding; an enclosing
      binding's generalization later must not add to them. */
   for (int i = 0; i < g->n; i++) g->b[i]->npreds = preds_of(mono[i], &g->b[i]->preds);
@@ -1969,7 +2029,7 @@ static void infer_group(Group *g, Env **env, bool top) {
 /* A float literal's variable left open at the end of the chunk becomes
    Float, a Num variable Int; any other constrained variable is ambiguous. */
 static void default_classes(void) {
-  default_floats(0);
+  default_floats();
   for (int i = 0; i < ST->cvars.n; i++) {
     Type *r = repr(ST->cvars.a[i]);
     if (r->k != TY_VAR || r->skolem || r->level == GENERIC || !r->cls) continue;
@@ -2267,7 +2327,8 @@ static Bind *selector(const char *name, int con, int field, int arity, int line,
 }
 
 static void add_global(const char *name, Type *t, Lambda *lam) {
-  VPUSH(CS->globals, ((Global){name, t, -1, lam, spec_stem(name), NULL, -1, -1, NULL, NULL}));
+  bool again = map_get(&ST->gmap, name) >= 0;
+  VPUSH(CS->globals, ((Global){name, t, -1, lam, spec_stem(name), NULL, -1, -1, NULL, NULL, again}));
   map_put(&ST->gmap, name, CS->globals.n - 1);
 }
 
@@ -2606,7 +2667,7 @@ void compiler_init(void) {
     add_con(intern(tuples[i]), t, n, intern(tuples[i]));
   }
   for (int i = 0; i < fk_nprims; i++) {
-    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1, NULL, NULL};
+    Global g = {intern(fk_prims[i].name), sig_scheme(parse_sig_text(prim_info[i].type)), i, NULL, NULL, NULL, -1, -1, NULL, NULL, false};
     const char *pn = g.name;
     if ((!strcmp(pn, "putStr") || !strcmp(pn, "putStrLn") || !strcmp(pn, "getLine") || !strncmp(pn, "primPrint", 9))) {
       Type *t = g.type;
@@ -2831,6 +2892,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   int mark = undo_mark(), ng0 = CS->globals.n, nc0 = CS->condefs.n, nt0 = CS->tydefs.n, ncl0 = CS->classes.n, ni0 = CS->insts.n, ns0 = ST->cstructs.n;
   uint64_t nb0 = ST->num_bit, nf0 = ST->float_bit, ns0b = ST->string_bit;
   int nk0 = CS->num_class, nfk0 = CS->float_class, nsk0 = CS->string_class;
+  CS->chunk_globals = ng0;
   ST->cvars.n = 0;
   ST->level = 0;
   if (setjmp(jb)) {
@@ -2912,13 +2974,26 @@ bool compile_chunk(Module *m, Chunk *out) {
     }
     break;
   }
-  for (int i = 0; i < m->nb; i++)
-    if (m->binds[i]->npreds && m->binds[i]->e->k == E_LAM) m->binds[i]->orig = copy_expr(m->binds[i]->e);
+  for (int i = 0; i < m->nb; i++) /* a value generalizes only in an interactive input */
+    if (m->binds[i]->npreds && (m->binds[i]->e->k == E_LAM || CS->interactive)) {
+      m->binds[i]->orig = copy_expr(m->binds[i]->e);
+      m->binds[i]->orig_globals = CS->globals.n;
+    }
   CS->specialized.n = 0;
   for (int i = 0; i < m->nb; i++) elab_bind(m->binds[i]);
+  if (CS->interactive)
+    for (int i = 0; i < m->nb; i++) elab_default_value(m->binds[i]);
   check_types(m->binds, m->nb);
   check_types(CS->specialized.a, CS->specialized.n);
-  for (int i = 0; i < CS->specialized.n; i++) VPUSH(raw, CS->specialized.a[i]);
+  /* Clones of values, in the order made: an earlier input's run first; this
+     input's, at their default types, after the input's own groups. */
+  VEC(Group) vclones = {0}, vlate = {0};
+  for (int i = 0; i < CS->specialized.n; i++) {
+    Bind *b = CS->specialized.a[i];
+    if (b->e->k == E_LAM) VPUSH(raw, b);
+    else if (b->from->gidx < ng0) VPUSH(vclones, ((Group){&CS->specialized.a[i], 1, false}));
+    else VPUSH(vlate, ((Group){&CS->specialized.a[i], 1, false}));
+  }
   int nspec = CS->specialized.n;
   lift_locals(m->binds, m->nb);
   lift_locals(CS->specialized.a, nspec); /* type-class clones made above */
@@ -2935,6 +3010,16 @@ bool compile_chunk(Module *m, Chunk *out) {
     for (int i = first_inst; i < CS->insts.n; i++)
       if (popcount(CS->classes.a[CS->insts.a[i].cls].closure) == depth) VPUSH(raw, dict_bind(&CS->insts.a[i]));
   for (int i = 0; i < m->nb; i++) resolve_top(m->binds[i]);
+  if (vclones.n || vlate.n) {
+    for (int i = 0; i < vclones.n; i++) resolve_top(vclones.a[i].b[0]);
+    for (int i = 0; i < vlate.n; i++) resolve_top(vlate.a[i].b[0]);
+    Group *all = xmalloc((size_t)(vclones.n + ng + vlate.n) * sizeof *all);
+    copy_n(all, vclones.a, (size_t)vclones.n * sizeof *all);
+    copy_n(all + vclones.n, gs, (size_t)ng * sizeof *all);
+    copy_n(all + vclones.n + ng, vlate.a, (size_t)vlate.n * sizeof *all);
+    gs = all;
+    ng += vclones.n + vlate.n;
+  }
   for (int i = 0; i < raw.n; i++) {
     Bind *b = raw.a[i];
     b->gidx = global_lookup(b->name);
@@ -3028,9 +3113,8 @@ const char *infer_type_text(Expr *e) {
   ST->level = 1;
   Type *t = infer(e, NULL);
   resolve_fields(true);
-  default_floats(0);
   ST->level = 0;
-  gen(t, false);
+  gen(t, false); /* as GHCi's :t: literals keep their classes */
   ST->cvars.n = 0;
   CS->cerr_jmp = saved;
   return type_str(t);

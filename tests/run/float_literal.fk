@@ -1,6 +1,9 @@
 -- a float literal is Float unless its uses fix another type (FromFloat)
 half x = x * 0.5
 
+-- a top-level function of literals generalizes, as in Haskell
+pair x = [x, 0.5]
+
 k = 0.25
 
 c :: CFloat
@@ -31,3 +34,4 @@ main = do
   print (fromCFloat over)
   print (let z = 0.75 in z + 1.0)
   print (let z = 0.75 in [Twice 0.0, z])
+  print (pair 2.0, pair (Twice 1.0))

@@ -10,7 +10,7 @@ A guide to funk's music library: `lib/pattern.fk`, `lib/midi.fk`, and the two pr
 
 - **The CLAP plugin** (`projects/funk-clap`) does the same inside a DAW, or in a standalone host.
 
-The patterns drive an external synth over MIDI. `funk-midi --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
+The patterns drive an external synth over MIDI, or SuperDirt over OSC, as Tidal does (`funk-midi --dirt 57120`). `funk-midi --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
 
 Every output below comes from `funk-midi --no-sleep`, at the default cycle of 2000 ms. Note-offs are left out.
 
@@ -352,6 +352,7 @@ Input is funk REPL input: declarations, expressions, and these commands:
 | `--cycle MS` | the cycle's length (default 2000) |
 | `--print`, `--no-sleep` | print messages instead of sending them; run on a virtual clock |
 | `-M DIR` | search `DIR` for modules |
+| `--dirt [HOST:]PORT` | send `pat`, a control pattern, to SuperDirt as Tidal does, in place of MIDI; SuperDirt listens on 57120 ([dev/dirt.md](dev/dirt.md)) |
 
 Errors leave the music playing:
 
