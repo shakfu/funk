@@ -1,0 +1,20 @@
+-- a string literal is String unless its uses fix another type (FromString)
+data Name = Name String deriving Show
+instance FromString Name where
+  fromString s = Name (s ++ "!")
+greet x = x ++ " there"
+k = "plain"
+n :: Name
+n = "bob"
+over :: FromString a => a
+over = "o"
+main = do
+  putStrLn (greet "hi")
+  putStrLn k
+  print n
+  print [Name "x", "y"]
+  print (over :: Name)
+  putStrLn over
+  print (length "abc")
+  print (let z = "z" in [Name "a", z])
+  print (show "q")

@@ -6,6 +6,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- String literals are overloaded, as with Haskell's `OverloadedStrings`: a literal at a type with a `FromString` instance calls its `fromString`, and one that nothing fixes is a `String`, as a float literal defaults to `Float`. `lib/pattern.fk` parses a literal at `Pattern a` as Tidal's mini-notation for `a`, through `Parseable`, so Tidal's patterned arguments port as written. A `Pattern Int` literal reads note names as Tidal's `Int` does, `c5` being 0; `p.mini` keeps MIDI's. The overloading was rejected in [docs/dev/patterns.md](docs/dev/patterns.md#literals) for changing literal defaulting; the `String` default keeps it unchanged ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) L1).
+
+  ```haskell
+  pat :: p.Pattern Int
+  pat = p.every "<2 3>" p.rev (p.fast "<2 4>" "0 [4 7]")
+  ```
+
+- A `Fractional` class, with `/` and `recip`, as Haskell's. `/` was a `Float` primitive. `Pattern a`, `Note` and `Controls` are instances, as in Tidal, so `(26/8) <~ p` and `n ("0 7" / 2)` port as written. A float literal at a control pattern is a `speed`, as Tidal's `fromRational` makes it. `FromFloat` stays the class of float literals, as a superclass, and a function without a signature that divides is still `Float`, so unboxed code is unchanged. `fromRational` waits for a `Rational` type. `lib/control.fk`'s `Divide` class is gone; `|/|` and its forms take `Fractional` ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) L4).
+
 - Tidal's combinators, ported from tidal-core 1.10.2: all of `Core.hs`, `UI.hs` and `Control.hs` but what is commented out there and what needs the host's state, such as `cF` and `trigger`. `lib/pattern.fk` has about 260 functions, from `every`, `whenmod`, `iter`, `chunk`, `ply`, `off`, `struct`, `arp` and `rolled` to `ur` and `markovPat`; `lib/control.fk` has those on control patterns, such as `jux`, `chop`, `striate`, `splice`, `stut` and `fix`. Arguments keep Tidal's types, but a time in cycles is a `Float`, rounded to a tick, and a speed factor an `Int`. The test `lib/tidal` runs 178 cases through the installed Tidal too and requires the same events; all match ([docs/dev/combinators.md](docs/dev/combinators.md)).
 
   ```haskell
@@ -20,6 +29,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match, 1604 of them after rounding to ticks, by at most 30 ticks. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.py` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
 
 ### Changed
+
+- Controls take patterns of Tidal's types, not strings: `pan p.sine`, `n (p.irand 8)` and `sound (p.samples "bd*2" (p.run 8))` port as written, and a literal is still mini-notation. `n`, `note`, `up` and `number` take `p.Note`, Tidal's `Note`: a `Float` whose mini-notation reads note names first, so `n "e"` is note 4. Tidal's signals, from `p.sine` to `p.rand` and `p.perlin`, have any `FromFloat` type, and `p.irand`, `p.run` and `p.scan` any `Num` type, as Tidal's are, so they serve `n` too. A control given a `String` variable needs `p.miniS` for it; `pF` and its kind still take a pattern of one name ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) L2).
 
 - `d.kit` plays a sample event as SuperDirt does: `begin`, `end`, a negative `speed` backwards, `loop`, `accelerate`, `sustain` or `legato`, `note` and `octave` for pitch, `unit "c"`, `cut` groups, and its fades. Each name has 4 voices, so its events overlap, as SuperDirt's synths do; `d.kitWith n` sets the number. It played one event of a name at a time, from the start of its file. Interpolation is linear, where SuperDirt's is cubic.
 

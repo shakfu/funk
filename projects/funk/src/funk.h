@@ -495,6 +495,7 @@ typedef struct {
   VEC(InstDef) insts;
   int num_class;
   int float_class;
+  int string_class;
   Type *dict_type; /* type of dictionary arguments: represented as V */
   VEC(Bind *) specialized; /* clones made by elab_bind, to install */
   bool opt_report; /* funk_opt_report: fusion and cgen add notes */

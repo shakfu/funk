@@ -12,7 +12,11 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ### Tidal parity, roadmap 0.12 ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md))
 
-- [ ] L1, L2, C1: `FromString`, so a string literal is a pattern; controls and patterned arguments take patterns.
+- [x] L1: `FromString`, so a string literal is a pattern. Done 2026-11-09.
+
+- [x] L2, C1: controls take patterns; `n` and `note` take Tidal's `Note`. Done 2026-11-09.
+
+- [ ] Decide: should a top-level binding of only `FromString` and `Parseable` literals generalize, as GHCi's do with its monomorphism restriction off, so `riff = "0 2"` stays a pattern?
 
 - [ ] S9: a SuperDirt target, `/dirt/play` over OSC, from `funk-midi`.
 
@@ -20,7 +24,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] T1-T3: 46126080 ticks per cycle; fractional patterned speed factors.
 
-- [ ] F1-F8, L3-L5, M1-M3, C3: the library gaps.
+- [x] L4: a `Fractional` class; `Pattern`, `Note` and `Controls` are instances. Done 2026-11-09.
+
+- [ ] F1-F8, L3, L5, L8, M1-M3, C3: the library gaps. L8 is an `Enum` class.
 
 - [ ] L7, F10, F11: decide the review items.
 

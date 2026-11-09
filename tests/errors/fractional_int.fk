@@ -1,0 +1,5 @@
+-- expect: no instance `Fractional Int`
+-- / needs Fractional; the error names it, not its superclass FromFloat
+half :: Int -> Int
+half x = x / 2
+main = print (half 4)

@@ -9,10 +9,6 @@ import dsp as d
 -- where scripts/dirt-samples.py puts Dirt-Samples
 dirt = "~/.local/share/funk/Dirt-Samples"
 
--- Tidal's sound, of a pattern of names
-soundP :: p.Pattern String -> p.Pattern Controls
-soundP pat = grp [mS "s", mF "n"] pat
-
 sig = d.kit dirt ["bd", "bd:2", "bd:4", "cp", "cp:2", "cp:4", "sn:2"]
 
-pat = soundP (p.samples (p.miniS "bd*3 [bd sn]/3 [bd*12 bd*6]/3 cp") (p.mini "[0 2 4]/3")) # pF "end" (p.slow 5 $ p.sine) # pF "speed" (p.mapP (+ 1.0) p.tri)
+pat = sound (p.samples ("bd*3 [bd sn]/3 [bd*12 bd*6]/3 cp") ("[0 2 4]/3")) # end (p.slow 5 $ p.sine) # speed (p.mapP (+ 1.0) p.tri)

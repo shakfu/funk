@@ -64,7 +64,8 @@ typedef struct {
   int tvid;
   VEC(Type *) cvars; /* variables that gained classes, for defaulting */
   uint64_t num_bit;
-  uint64_t float_bit; /* the Num class, once the prelude declares it */
+  uint64_t float_bit; /* the FromFloat class, once the prelude declares it */
+  uint64_t string_bit; /* the FromString class, likewise */
   const char *s_int, *s_float, *s_char, *s_bool, *s_list, *s_arrow, *s_unit, *s_string, *s_otherwise;
   Type *eff_pure, *eff_eff, *cur_eff, *te_eff;
   const char *cur_bind;
@@ -176,6 +177,18 @@ static Type *floatvar(int line, int col) {
   if (!ST->float_bit) return tcon0(ST->s_float);
   Type *t = newvar();
   t->cls = ST->float_bit;
+  t->line = line;
+  t->col = col;
+  VPUSH(ST->cvars, t);
+  return t;
+}
+
+/* A string literal: a `FromString` variable, String unless its uses fix
+   it sooner, as floatvar. */
+static Type *stringvar(int line, int col) {
+  if (!ST->string_bit) return tcon0(ST->s_string);
+  Type *t = newvar();
+  t->cls = ST->string_bit;
   t->line = line;
   t->col = col;
   VPUSH(ST->cvars, t);
@@ -370,6 +383,10 @@ static void add_classes(Type *v, uint64_t m, int line, int col) {
 
 /* The constructor type t must be an instance of every class in m. */
 static void entail(Type *t, uint64_t m) {
+  uint64_t miss = 0; /* report the most derived missing class: Fractional, not its FromFloat */
+  for (int c = 0; c < CS->classes.n; c++)
+    if ((m & BIT(c)) && !find_inst(c, t->name)) miss |= BIT(c);
+  if (miss) m = minimal(miss);
   for (int c = 0; c < CS->classes.n; c++) {
     if (!(m & BIT(c))) continue;
     InstDef *in = find_inst(c, t->name);
@@ -377,7 +394,9 @@ static void entail(Type *t, uint64_t m) {
       Names nm = {0};
       const char *s = tstr(t, &nm);
       bool paren = t->n && !is_tuple_name(t->name) && t->name != ST->s_list;
-      cerror(ST->uline, ST->ucol, paren ? "no instance `%s (%s)`" : "no instance `%s %s`", CS->classes.a[c].name, s);
+      const char *lit = c == CS->string_class ? ": a string literal is a `String`, or a type with a `FromString` instance"
+                      : c == CS->float_class ? ": a float literal is a `Float`, or a type with a `FromFloat` instance" : "";
+      cerror(ST->uline, ST->ucol, paren ? "no instance `%s (%s)`%s" : "no instance `%s %s`%s", CS->classes.a[c].name, s, lit);
     }
     for (int i = 0; i < in->arity; i++) {
       uint64_t need = in->vars[i]->cls;
@@ -1329,10 +1348,10 @@ static void lower_known(void) {
 static void default_floats(int from) {
   for (int i = from; i < ST->cvars.n; i++) {
     Type *r = repr(ST->cvars.a[i]);
-    if (r->k != TY_VAR || r->skolem || r->level == GENERIC || !(r->cls & ST->float_bit)) continue;
+    if (r->k != TY_VAR || r->skolem || r->level == GENERIC || !(r->cls & (ST->float_bit | ST->string_bit))) continue;
     ST->uline = r->line;
     ST->ucol = r->col;
-    Type *ft = tcon0(ST->s_float);
+    Type *ft = tcon0(r->cls & ST->float_bit ? ST->s_float : ST->s_string); /* and string literals, String */
     entail(ft, r->cls);
     r->link = ft;
   }
@@ -1703,7 +1722,8 @@ static Type *infer0(Expr *e, Env *env) {
   case E_INT: return e->ty = numvar(e->line, e->col);
   case E_FLOAT: return e->ty = floatvar(e->line, e->col);
   case E_CHAR: return tcon0(ST->s_char);
-  case E_STR: return tcon0(ST->s_string);
+  case E_STR: /* ex_error's message comes typed String */
+    return e->ty && repr(e->ty)->k == TY_CON ? e->ty : (e->ty = stringvar(e->line, e->col));
   case E_NAMED:
     rewrite_named(e, env);
     return infer(e, env);
@@ -2169,7 +2189,7 @@ static void cover_expr(Expr *e, const char *fn) {
    Char: `x == y` at Int calls primEqInt. */
 static const char *const spec_table[][2] = {
     {"==", "Eq"}, {"/=", "Ne"}, {"<", "Lt"}, {"<=", "Le"}, {">", "Gt"}, {">=", "Ge"}, {"+", "Add"},
-    {"-", "Sub"}, {"*", "Mul"}, {"negate", "Negate"}, {"abs", "Abs"}, {"show", "Show"}, {"print", "Print"},
+    {"-", "Sub"}, {"*", "Mul"}, {"/", "Div"}, {"negate", "Negate"}, {"abs", "Abs"}, {"show", "Show"}, {"print", "Print"},
     {"++", "Append"}, {"length", "Length"}};
 
 static const char *spec_stem(const char *name) {
@@ -2307,6 +2327,10 @@ static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
       ST->float_bit = BIT(id);
       CS->float_class = id;
     }
+    if (strcmp(cd->name, "FromString") == 0) {
+      ST->string_bit = BIT(id);
+      CS->string_class = id;
+    }
     ClassDef *cp = &CS->classes.a[id];
     for (int i = 0; i < cp->nmeth; i++) {
       int prev = map_get(&ST->gmap, cp->meths[i]);
@@ -2320,6 +2344,7 @@ static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
       CS->globals.a[CS->globals.n - 1].midx = i;
       if (CS->num_class == id && strcmp(cp->meths[i], "fromInt") == 0) map_put(&ST->gmap, intern("$fromInt"), CS->globals.n - 1);
       if (CS->float_class == id) map_put(&ST->gmap, intern("$fromFloat"), CS->globals.n - 1);
+      if (CS->string_class == id) map_put(&ST->gmap, intern("$fromString"), CS->globals.n - 1);
     }
     for (int i = 0; i < cp->nsup; i++) {
       const char *n = intern(xsprintf("$sup.%s.%s", cp->name, CS->classes.a[cp->sups[i]].name));
@@ -2804,8 +2829,8 @@ static bool sig_names(Sig *s) {
 bool compile_chunk(Module *m, Chunk *out) {
   jmp_buf jb, *saved = CS->cerr_jmp;
   int mark = undo_mark(), ng0 = CS->globals.n, nc0 = CS->condefs.n, nt0 = CS->tydefs.n, ncl0 = CS->classes.n, ni0 = CS->insts.n, ns0 = ST->cstructs.n;
-  uint64_t nb0 = ST->num_bit, nf0 = ST->float_bit;
-  int nk0 = CS->num_class, nfk0 = CS->float_class;
+  uint64_t nb0 = ST->num_bit, nf0 = ST->float_bit, ns0b = ST->string_bit;
+  int nk0 = CS->num_class, nfk0 = CS->float_class, nsk0 = CS->string_class;
   ST->cvars.n = 0;
   ST->level = 0;
   if (setjmp(jb)) {
@@ -2821,8 +2846,10 @@ bool compile_chunk(Module *m, Chunk *out) {
     ST->cstructs.n = ns0;
     ST->num_bit = nb0;
     ST->float_bit = nf0;
+    ST->string_bit = ns0b;
     CS->num_class = nk0;
     CS->float_class = nfk0;
+    CS->string_class = nsk0;
     fk_truncate_cons((uint32_t)nc0);
     ST->cvars.n = 0;
     ST->pending.n = 0;

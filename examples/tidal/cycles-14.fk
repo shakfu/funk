@@ -11,4 +11,4 @@ dirt = "~/.local/share/funk/Dirt-Samples"
 
 sig = d.kit dirt ["bass3", "bd", "drum"]
 
-pat = jux (p.spread' (p.density . p.atom . round) (p.mapP ((* 4.0) . (1.0 -)) (p.slow 8 $ p.tri))) $ sound "bd drum*2 drum/2 [bass3/2,bd]" # pF "speed" (p.slow 8 $ p.mapP (+ 1.0) p.tri)
+pat = jux (p.spread' (p.density . p.atom . round) (p.mapP ((* 4.0) . (1.0 -)) (p.slow 8 $ p.tri))) $ sound "bd drum*2 drum/2 [bass3/2,bd]" # speed (p.slow 8 $ p.mapP (+ 1.0) p.tri)

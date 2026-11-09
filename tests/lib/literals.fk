@@ -1,0 +1,11 @@
+-- string literals as mini-notation patterns, as Tidal's IsString (values checked against Tidal in tests/tidal)
+import pattern as p
+import pattern ((~>), (<~))
+show1 :: Show a => p.Pattern a -> String
+show1 pat = show (map (\e -> (e.part.start, e.value)) (p.onsets pat (p.Span 0 p.cycleTicks)))
+main = do
+  putStrLn (show1 (p.fast "<2 4>" (p.atom 'x')))
+  putStrLn (show1 (p.every "<2 3>" p.rev ("0 1 2" :: p.Pattern Int)))
+  putStrLn (show1 (("0.25" :: p.Pattern Float) ~> ("bd sn" :: p.Pattern String)))
+  putStrLn (show1 ("<0 0.25>" <~ p.miniS "bd sn"))
+  putStrLn (show1 (p.stack ["c e", "60"] :: p.Pattern Int))

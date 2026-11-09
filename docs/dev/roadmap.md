@@ -176,7 +176,7 @@ In order:
 2. **A SuperDirt target (S9):** `/dirt/play` over OSC, as Tidal's `superdirtTarget`, from `funk-midi`.
 3. **Slots and commands (R1-R5):** `d1`..`d16` and `p "name"`, `hush`, `once`, `solo`, `mute` and the rest, `setcps` and `setbpm` with Tidal's default of 0.5625, an event's `cps`, transitions, and `setF` and its kind.
 4. **Time (T1-T3):** 46126080 ticks per cycle; fractional patterned speed factors.
-5. **Library (F1-F8, L3-L5, M1-M3, C3):** scales, `Time.hs`, the exported `Pattern.hs` functions, `Simple.hs`, `drawLine`, steps, `Bool` mini-notation, `^name`, `Params.hs`' generated families, monomorphic `<$>`, `<*>`, `<*`, `*>` and `<<*`, and an unqualified `pattern` import.
+5. **Library (F1-F8, L3-L5, L8, M1-M3, C3):** `Fractional` (done) and `Enum` classes, scales, `Time.hs`, the exported `Pattern.hs` functions, `Simple.hs`, `drawLine`, steps, `Bool` mini-notation, `^name`, `Params.hs`' generated families, monomorphic `<$>`, `<*>`, `<*`, `*>` and `<<*`, and an unqualified `pattern` import.
 6. **Review items (L7, F10, F11):** decide each.
 
 Acceptance test: the 22 patches of [patch-port.md](patch-port.md) in their Tidal 1.10 form, run unchanged but for the differences kept in [tidal-comparison.md](tidal-comparison.md), with every event matching Tidal's; and a live set on `d1`..`d4` with `hush`, `xfade` and `setcps`, played through SuperDirt.

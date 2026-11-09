@@ -223,6 +223,8 @@ The prelude defines:
 
 - Integer literals have type `Num a => a`: `x + 1` and `2.5 * 2` both check, and `1` at a user `Num` type calls its `fromInt`.
 
+- A string literal is a `String`, or a value of any type with a `FromString` instance, as with Haskell's `OverloadedStrings`: at another type it calls that type's `fromString`. A literal that nothing fixes is a `String`. `lib/pattern.fk` makes a literal a pattern: `p.fast "<2 4>" "bd sn"`.
+
 - `/` is `Float` only; `div`, `mod`, `quot` and `rem` are `Int` only. `Int` + `Float` is a type error; write `toFloat n + x`.
 
 - A constrained type nothing fixes is ambiguous: `print []` is an error, as in Haskell. A remaining `Num` type defaults to `Int`.

@@ -7,7 +7,7 @@
 -- "c5" are middle C. The helpers are not exported, so (..) takes no common
 -- names; the classes are exported without their methods, for the same reason.
 module control
-  ( Value(..), Controls(..), Unionable, Divide, Moddable, (|+|), (|+), (+|), (||+), (|-|), (|-),
+  ( Value(..), Controls(..), Unionable, Moddable, (|+|), (|+), (+|), (||+), (|-|), (|-),
     (-|), (||-), (|*|), (|*), (*|), (||*), (|/|), (|/), (/|), (||/), (|%|), (|%), (%|), (||%),
     (|**|), (|**), (**|), (||**), (|++|), (|++), (++|), (||++), (|>|), (>|), (||>), (|<|), (|<),
     (<|), (||<), (#), controlPairs, getControl, controlsFromList, pF, pI, pS, pN, grp, mF, mI, mS,
@@ -96,6 +96,13 @@ instance Num Controls where
   abs a = mapValues (num1 abs abs) a
   fromInt i = Controls [("n", VI i)]
 
+-- as Tidal's: a float literal is a speed; recip leaves Ints alone
+instance FromFloat Controls where
+  fromFloat x = Controls [("speed", VF x)]
+
+instance Fractional Controls where
+  recip a = mapValues (num1 recip (\i -> i)) a
+
 -- a left-biased union: Controls keep the left's value of a shared name;
 -- any other value is the left one, as Tidal's default
 class Unionable a where
@@ -112,17 +119,6 @@ instance Unionable Float where
 
 instance Unionable String where
   union a _ = a
-
--- Tidal's Fractional: Controls divide Floats, and leave Ints as they are,
--- since Tidal's recip leaves them
-class Divide a where
-  divide :: a -> a -> a
-
-instance Divide Float where
-  divide a b = a / b
-
-instance Divide Controls where
-  divide a b = a * mapValues (num1 (\x -> 1.0 / x) (\i -> i)) b
 
 -- Tidal's Moddable: mod' for Floats, a result with b's sign
 class Moddable a where
@@ -182,14 +178,14 @@ a *| b = right (*) a b
 (||*) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||* b = squeezed (*) a b
 
-(|/|) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |/| b = both divide a b
-(|/) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |/ b = left divide a b
-(/|) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a /| b = right divide a b
-(||/) :: Divide a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a ||/ b = squeezed divide a b
+(|/|) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |/| b = both (/) a b
+(|/) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a |/ b = left (/) a b
+(/|) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a /| b = right (/) a b
+(||/) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
+a ||/ b = squeezed (/) a b
 
 (|%|) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |%| b = both gmod a b
@@ -251,9 +247,9 @@ pI name pat = p.mapP (\x -> Controls [(name, VI x)]) pat
 pS :: String -> p.Pattern String -> p.Pattern Controls
 pS name pat = p.mapP (\x -> Controls [(name, VS x)]) pat
 
--- a note, as Tidal's Note: a Float
-pN :: String -> p.Pattern Float -> p.Pattern Controls
-pN name pat = pF name pat
+-- a note, as Tidal's pN: its Float, as Tidal's VN plays as a float
+pN :: String -> p.Pattern p.Note -> p.Pattern Controls
+pN name pat = pF name (p.mapP p.unNote pat)
 
 -- Grouped params, as Tidal's grp: a name split at ':' fills each field in
 -- turn; a field that does not parse is left out. sound "bd:3" is s "bd"
@@ -773,778 +769,779 @@ writeRecords buf cap i rs = case rs of
     writeRecords buf cap (i + 1) rest
 
 -- Grouped controls
-sound :: String -> p.Pattern Controls
-sound s = grp [mS "s", mF "n"] (p.miniS s)
+sound :: p.Pattern String -> p.Pattern Controls
+sound pat = grp [mS "s", mF "n"] pat
 
-cc :: String -> p.Pattern Controls
-cc s = grp [mF "ccn", mF "ccv"] (p.miniS s)
+cc :: p.Pattern String -> p.Pattern Controls
+cc pat = grp [mF "ccn", mF "ccv"] pat
 
-nrpn :: String -> p.Pattern Controls
-nrpn s = grp [mI "nrpn", mI "val"] (p.miniS s)
+nrpn :: p.Pattern String -> p.Pattern Controls
+nrpn pat = grp [mI "nrpn", mI "val"] pat
 
--- Tidal's other controls, generated from its Params.hs: each takes
--- mini-notation for one name. Bus and recv forms are left out: there are
+-- Tidal's other controls, generated from its Params.hs: each takes a
+-- pattern of one name's values, of Tidal's type; a string literal is
+-- mini-notation. Bus and recv forms are left out: there are
 -- no control buses.
 
-nrpnn :: String -> p.Pattern Controls
-nrpnn s = pI "nrpn" (p.miniTI s)
+nrpnn :: p.Pattern Int -> p.Pattern Controls
+nrpnn pat = pI "nrpn" pat
 
-nrpnv :: String -> p.Pattern Controls
-nrpnv s = pI "val" (p.miniTI s)
+nrpnv :: p.Pattern Int -> p.Pattern Controls
+nrpnv pat = pI "val" pat
 
-accelerate :: String -> p.Pattern Controls
-accelerate s = pF "accelerate" (p.miniF s)
+accelerate :: p.Pattern Float -> p.Pattern Controls
+accelerate pat = pF "accelerate" pat
 
-amp :: String -> p.Pattern Controls
-amp s = pF "amp" (p.miniF s)
+amp :: p.Pattern Float -> p.Pattern Controls
+amp pat = pF "amp" pat
 
-attack :: String -> p.Pattern Controls
-attack s = pF "attack" (p.miniF s)
+attack :: p.Pattern Float -> p.Pattern Controls
+attack pat = pF "attack" pat
 
-bandf :: String -> p.Pattern Controls
-bandf s = pF "bandf" (p.miniF s)
+bandf :: p.Pattern Float -> p.Pattern Controls
+bandf pat = pF "bandf" pat
 
-bandq :: String -> p.Pattern Controls
-bandq s = pF "bandq" (p.miniF s)
+bandq :: p.Pattern Float -> p.Pattern Controls
+bandq pat = pF "bandq" pat
 
-bank :: String -> p.Pattern Controls
-bank s = pS "bank" (p.miniS s)
+bank :: p.Pattern String -> p.Pattern Controls
+bank pat = pS "bank" pat
 
-begin :: String -> p.Pattern Controls
-begin s = pF "begin" (p.miniF s)
+begin :: p.Pattern Float -> p.Pattern Controls
+begin pat = pF "begin" pat
 
-binshift :: String -> p.Pattern Controls
-binshift s = pF "binshift" (p.miniF s)
+binshift :: p.Pattern Float -> p.Pattern Controls
+binshift pat = pF "binshift" pat
 
-button0 :: String -> p.Pattern Controls
-button0 s = pF "button0" (p.miniF s)
+button0 :: p.Pattern Float -> p.Pattern Controls
+button0 pat = pF "button0" pat
 
-button1 :: String -> p.Pattern Controls
-button1 s = pF "button1" (p.miniF s)
+button1 :: p.Pattern Float -> p.Pattern Controls
+button1 pat = pF "button1" pat
 
-button10 :: String -> p.Pattern Controls
-button10 s = pF "button10" (p.miniF s)
+button10 :: p.Pattern Float -> p.Pattern Controls
+button10 pat = pF "button10" pat
 
-button11 :: String -> p.Pattern Controls
-button11 s = pF "button11" (p.miniF s)
+button11 :: p.Pattern Float -> p.Pattern Controls
+button11 pat = pF "button11" pat
 
-button12 :: String -> p.Pattern Controls
-button12 s = pF "button12" (p.miniF s)
+button12 :: p.Pattern Float -> p.Pattern Controls
+button12 pat = pF "button12" pat
 
-button13 :: String -> p.Pattern Controls
-button13 s = pF "button13" (p.miniF s)
+button13 :: p.Pattern Float -> p.Pattern Controls
+button13 pat = pF "button13" pat
 
-button14 :: String -> p.Pattern Controls
-button14 s = pF "button14" (p.miniF s)
+button14 :: p.Pattern Float -> p.Pattern Controls
+button14 pat = pF "button14" pat
 
-button15 :: String -> p.Pattern Controls
-button15 s = pF "button15" (p.miniF s)
+button15 :: p.Pattern Float -> p.Pattern Controls
+button15 pat = pF "button15" pat
 
-button2 :: String -> p.Pattern Controls
-button2 s = pF "button2" (p.miniF s)
+button2 :: p.Pattern Float -> p.Pattern Controls
+button2 pat = pF "button2" pat
 
-button3 :: String -> p.Pattern Controls
-button3 s = pF "button3" (p.miniF s)
+button3 :: p.Pattern Float -> p.Pattern Controls
+button3 pat = pF "button3" pat
 
-button4 :: String -> p.Pattern Controls
-button4 s = pF "button4" (p.miniF s)
+button4 :: p.Pattern Float -> p.Pattern Controls
+button4 pat = pF "button4" pat
 
-button5 :: String -> p.Pattern Controls
-button5 s = pF "button5" (p.miniF s)
+button5 :: p.Pattern Float -> p.Pattern Controls
+button5 pat = pF "button5" pat
 
-button6 :: String -> p.Pattern Controls
-button6 s = pF "button6" (p.miniF s)
+button6 :: p.Pattern Float -> p.Pattern Controls
+button6 pat = pF "button6" pat
 
-button7 :: String -> p.Pattern Controls
-button7 s = pF "button7" (p.miniF s)
+button7 :: p.Pattern Float -> p.Pattern Controls
+button7 pat = pF "button7" pat
 
-button8 :: String -> p.Pattern Controls
-button8 s = pF "button8" (p.miniF s)
+button8 :: p.Pattern Float -> p.Pattern Controls
+button8 pat = pF "button8" pat
 
-button9 :: String -> p.Pattern Controls
-button9 s = pF "button9" (p.miniF s)
+button9 :: p.Pattern Float -> p.Pattern Controls
+button9 pat = pF "button9" pat
 
-ccn :: String -> p.Pattern Controls
-ccn s = pF "ccn" (p.miniF s)
+ccn :: p.Pattern Float -> p.Pattern Controls
+ccn pat = pF "ccn" pat
 
-ccv :: String -> p.Pattern Controls
-ccv s = pF "ccv" (p.miniF s)
+ccv :: p.Pattern Float -> p.Pattern Controls
+ccv pat = pF "ccv" pat
 
-channel :: String -> p.Pattern Controls
-channel s = pI "channel" (p.miniTI s)
+channel :: p.Pattern Int -> p.Pattern Controls
+channel pat = pI "channel" pat
 
-clhatdecay :: String -> p.Pattern Controls
-clhatdecay s = pF "clhatdecay" (p.miniF s)
+clhatdecay :: p.Pattern Float -> p.Pattern Controls
+clhatdecay pat = pF "clhatdecay" pat
 
-coarse :: String -> p.Pattern Controls
-coarse s = pF "coarse" (p.miniF s)
+coarse :: p.Pattern Float -> p.Pattern Controls
+coarse pat = pF "coarse" pat
 
-comb :: String -> p.Pattern Controls
-comb s = pF "comb" (p.miniF s)
+comb :: p.Pattern Float -> p.Pattern Controls
+comb pat = pF "comb" pat
 
-control :: String -> p.Pattern Controls
-control s = pF "control" (p.miniF s)
+control :: p.Pattern Float -> p.Pattern Controls
+control pat = pF "control" pat
 
-cps :: String -> p.Pattern Controls
-cps s = pF "cps" (p.miniF s)
+cps :: p.Pattern Float -> p.Pattern Controls
+cps pat = pF "cps" pat
 
-crush :: String -> p.Pattern Controls
-crush s = pF "crush" (p.miniF s)
+crush :: p.Pattern Float -> p.Pattern Controls
+crush pat = pF "crush" pat
 
-ctlNum :: String -> p.Pattern Controls
-ctlNum s = pF "ctlNum" (p.miniF s)
+ctlNum :: p.Pattern Float -> p.Pattern Controls
+ctlNum pat = pF "ctlNum" pat
 
-ctranspose :: String -> p.Pattern Controls
-ctranspose s = pF "ctranspose" (p.miniF s)
+ctranspose :: p.Pattern Float -> p.Pattern Controls
+ctranspose pat = pF "ctranspose" pat
 
-cut :: String -> p.Pattern Controls
-cut s = pI "cut" (p.miniTI s)
+cut :: p.Pattern Int -> p.Pattern Controls
+cut pat = pI "cut" pat
 
-cutoff :: String -> p.Pattern Controls
-cutoff s = pF "cutoff" (p.miniF s)
+cutoff :: p.Pattern Float -> p.Pattern Controls
+cutoff pat = pF "cutoff" pat
 
-cutoffegint :: String -> p.Pattern Controls
-cutoffegint s = pF "cutoffegint" (p.miniF s)
+cutoffegint :: p.Pattern Float -> p.Pattern Controls
+cutoffegint pat = pF "cutoffegint" pat
 
-decay :: String -> p.Pattern Controls
-decay s = pF "decay" (p.miniF s)
+decay :: p.Pattern Float -> p.Pattern Controls
+decay pat = pF "decay" pat
 
-degree :: String -> p.Pattern Controls
-degree s = pF "degree" (p.miniF s)
+degree :: p.Pattern Float -> p.Pattern Controls
+degree pat = pF "degree" pat
 
-delay :: String -> p.Pattern Controls
-delay s = pF "delay" (p.miniF s)
+delay :: p.Pattern Float -> p.Pattern Controls
+delay pat = pF "delay" pat
 
-delayfeedback :: String -> p.Pattern Controls
-delayfeedback s = pF "delayfeedback" (p.miniF s)
+delayfeedback :: p.Pattern Float -> p.Pattern Controls
+delayfeedback pat = pF "delayfeedback" pat
 
-delaytime :: String -> p.Pattern Controls
-delaytime s = pF "delaytime" (p.miniF s)
+delaytime :: p.Pattern Float -> p.Pattern Controls
+delaytime pat = pF "delaytime" pat
 
-detune :: String -> p.Pattern Controls
-detune s = pF "detune" (p.miniF s)
+detune :: p.Pattern Float -> p.Pattern Controls
+detune pat = pF "detune" pat
 
-distort :: String -> p.Pattern Controls
-distort s = pF "distort" (p.miniF s)
+distort :: p.Pattern Float -> p.Pattern Controls
+distort pat = pF "distort" pat
 
-djf :: String -> p.Pattern Controls
-djf s = pF "djf" (p.miniF s)
+djf :: p.Pattern Float -> p.Pattern Controls
+djf pat = pF "djf" pat
 
-dry :: String -> p.Pattern Controls
-dry s = pF "dry" (p.miniF s)
+dry :: p.Pattern Float -> p.Pattern Controls
+dry pat = pF "dry" pat
 
-dur :: String -> p.Pattern Controls
-dur s = pF "dur" (p.miniF s)
+dur :: p.Pattern Float -> p.Pattern Controls
+dur pat = pF "dur" pat
 
-end :: String -> p.Pattern Controls
-end s = pF "end" (p.miniF s)
+end :: p.Pattern Float -> p.Pattern Controls
+end pat = pF "end" pat
 
-enhance :: String -> p.Pattern Controls
-enhance s = pF "enhance" (p.miniF s)
+enhance :: p.Pattern Float -> p.Pattern Controls
+enhance pat = pF "enhance" pat
 
-expression :: String -> p.Pattern Controls
-expression s = pF "expression" (p.miniF s)
+expression :: p.Pattern Float -> p.Pattern Controls
+expression pat = pF "expression" pat
 
-fadeInTime :: String -> p.Pattern Controls
-fadeInTime s = pF "fadeInTime" (p.miniF s)
+fadeInTime :: p.Pattern Float -> p.Pattern Controls
+fadeInTime pat = pF "fadeInTime" pat
 
-fadeTime :: String -> p.Pattern Controls
-fadeTime s = pF "fadeTime" (p.miniF s)
+fadeTime :: p.Pattern Float -> p.Pattern Controls
+fadeTime pat = pF "fadeTime" pat
 
-frameRate :: String -> p.Pattern Controls
-frameRate s = pF "frameRate" (p.miniF s)
+frameRate :: p.Pattern Float -> p.Pattern Controls
+frameRate pat = pF "frameRate" pat
 
-frames :: String -> p.Pattern Controls
-frames s = pF "frames" (p.miniF s)
+frames :: p.Pattern Float -> p.Pattern Controls
+frames pat = pF "frames" pat
 
-freeze :: String -> p.Pattern Controls
-freeze s = pF "freeze" (p.miniF s)
+freeze :: p.Pattern Float -> p.Pattern Controls
+freeze pat = pF "freeze" pat
 
-freq :: String -> p.Pattern Controls
-freq s = pF "freq" (p.miniF s)
+freq :: p.Pattern Float -> p.Pattern Controls
+freq pat = pF "freq" pat
 
-from :: String -> p.Pattern Controls
-from s = pF "from" (p.miniF s)
+from :: p.Pattern Float -> p.Pattern Controls
+from pat = pF "from" pat
 
-fshift :: String -> p.Pattern Controls
-fshift s = pF "fshift" (p.miniF s)
+fshift :: p.Pattern Float -> p.Pattern Controls
+fshift pat = pF "fshift" pat
 
-fshiftnote :: String -> p.Pattern Controls
-fshiftnote s = pF "fshiftnote" (p.miniF s)
+fshiftnote :: p.Pattern Float -> p.Pattern Controls
+fshiftnote pat = pF "fshiftnote" pat
 
-fshiftphase :: String -> p.Pattern Controls
-fshiftphase s = pF "fshiftphase" (p.miniF s)
+fshiftphase :: p.Pattern Float -> p.Pattern Controls
+fshiftphase pat = pF "fshiftphase" pat
 
-gain :: String -> p.Pattern Controls
-gain s = pF "gain" (p.miniF s)
+gain :: p.Pattern Float -> p.Pattern Controls
+gain pat = pF "gain" pat
 
-gate :: String -> p.Pattern Controls
-gate s = pF "gate" (p.miniF s)
+gate :: p.Pattern Float -> p.Pattern Controls
+gate pat = pF "gate" pat
 
-harmonic :: String -> p.Pattern Controls
-harmonic s = pF "harmonic" (p.miniF s)
+harmonic :: p.Pattern Float -> p.Pattern Controls
+harmonic pat = pF "harmonic" pat
 
-hatgrain :: String -> p.Pattern Controls
-hatgrain s = pF "hatgrain" (p.miniF s)
+hatgrain :: p.Pattern Float -> p.Pattern Controls
+hatgrain pat = pF "hatgrain" pat
 
-hbrick :: String -> p.Pattern Controls
-hbrick s = pF "hbrick" (p.miniF s)
+hbrick :: p.Pattern Float -> p.Pattern Controls
+hbrick pat = pF "hbrick" pat
 
-hcutoff :: String -> p.Pattern Controls
-hcutoff s = pF "hcutoff" (p.miniF s)
+hcutoff :: p.Pattern Float -> p.Pattern Controls
+hcutoff pat = pF "hcutoff" pat
 
-hold :: String -> p.Pattern Controls
-hold s = pF "hold" (p.miniF s)
+hold :: p.Pattern Float -> p.Pattern Controls
+hold pat = pF "hold" pat
 
-hours :: String -> p.Pattern Controls
-hours s = pF "hours" (p.miniF s)
+hours :: p.Pattern Float -> p.Pattern Controls
+hours pat = pF "hours" pat
 
-hresonance :: String -> p.Pattern Controls
-hresonance s = pF "hresonance" (p.miniF s)
+hresonance :: p.Pattern Float -> p.Pattern Controls
+hresonance pat = pF "hresonance" pat
 
-imag :: String -> p.Pattern Controls
-imag s = pF "imag" (p.miniF s)
+imag :: p.Pattern Float -> p.Pattern Controls
+imag pat = pF "imag" pat
 
-kcutoff :: String -> p.Pattern Controls
-kcutoff s = pF "kcutoff" (p.miniF s)
+kcutoff :: p.Pattern Float -> p.Pattern Controls
+kcutoff pat = pF "kcutoff" pat
 
-krush :: String -> p.Pattern Controls
-krush s = pF "krush" (p.miniF s)
+krush :: p.Pattern Float -> p.Pattern Controls
+krush pat = pF "krush" pat
 
-lagogo :: String -> p.Pattern Controls
-lagogo s = pF "lagogo" (p.miniF s)
+lagogo :: p.Pattern Float -> p.Pattern Controls
+lagogo pat = pF "lagogo" pat
 
-lbrick :: String -> p.Pattern Controls
-lbrick s = pF "lbrick" (p.miniF s)
+lbrick :: p.Pattern Float -> p.Pattern Controls
+lbrick pat = pF "lbrick" pat
 
-lclap :: String -> p.Pattern Controls
-lclap s = pF "lclap" (p.miniF s)
+lclap :: p.Pattern Float -> p.Pattern Controls
+lclap pat = pF "lclap" pat
 
-lclaves :: String -> p.Pattern Controls
-lclaves s = pF "lclaves" (p.miniF s)
+lclaves :: p.Pattern Float -> p.Pattern Controls
+lclaves pat = pF "lclaves" pat
 
-lclhat :: String -> p.Pattern Controls
-lclhat s = pF "lclhat" (p.miniF s)
+lclhat :: p.Pattern Float -> p.Pattern Controls
+lclhat pat = pF "lclhat" pat
 
-lcrash :: String -> p.Pattern Controls
-lcrash s = pF "lcrash" (p.miniF s)
+lcrash :: p.Pattern Float -> p.Pattern Controls
+lcrash pat = pF "lcrash" pat
 
-legato :: String -> p.Pattern Controls
-legato s = pF "legato" (p.miniF s)
+legato :: p.Pattern Float -> p.Pattern Controls
+legato pat = pF "legato" pat
 
-leslie :: String -> p.Pattern Controls
-leslie s = pF "leslie" (p.miniF s)
+leslie :: p.Pattern Float -> p.Pattern Controls
+leslie pat = pF "leslie" pat
 
-lfo :: String -> p.Pattern Controls
-lfo s = pF "lfo" (p.miniF s)
+lfo :: p.Pattern Float -> p.Pattern Controls
+lfo pat = pF "lfo" pat
 
-lfocutoffint :: String -> p.Pattern Controls
-lfocutoffint s = pF "lfocutoffint" (p.miniF s)
+lfocutoffint :: p.Pattern Float -> p.Pattern Controls
+lfocutoffint pat = pF "lfocutoffint" pat
 
-lfodelay :: String -> p.Pattern Controls
-lfodelay s = pF "lfodelay" (p.miniF s)
+lfodelay :: p.Pattern Float -> p.Pattern Controls
+lfodelay pat = pF "lfodelay" pat
 
-lfoint :: String -> p.Pattern Controls
-lfoint s = pF "lfoint" (p.miniF s)
+lfoint :: p.Pattern Float -> p.Pattern Controls
+lfoint pat = pF "lfoint" pat
 
-lfopitchint :: String -> p.Pattern Controls
-lfopitchint s = pF "lfopitchint" (p.miniF s)
+lfopitchint :: p.Pattern Float -> p.Pattern Controls
+lfopitchint pat = pF "lfopitchint" pat
 
-lfoshape :: String -> p.Pattern Controls
-lfoshape s = pF "lfoshape" (p.miniF s)
+lfoshape :: p.Pattern Float -> p.Pattern Controls
+lfoshape pat = pF "lfoshape" pat
 
-lfosync :: String -> p.Pattern Controls
-lfosync s = pF "lfosync" (p.miniF s)
+lfosync :: p.Pattern Float -> p.Pattern Controls
+lfosync pat = pF "lfosync" pat
 
-lhitom :: String -> p.Pattern Controls
-lhitom s = pF "lhitom" (p.miniF s)
+lhitom :: p.Pattern Float -> p.Pattern Controls
+lhitom pat = pF "lhitom" pat
 
-lkick :: String -> p.Pattern Controls
-lkick s = pF "lkick" (p.miniF s)
+lkick :: p.Pattern Float -> p.Pattern Controls
+lkick pat = pF "lkick" pat
 
-llotom :: String -> p.Pattern Controls
-llotom s = pF "llotom" (p.miniF s)
+llotom :: p.Pattern Float -> p.Pattern Controls
+llotom pat = pF "llotom" pat
 
-lock :: String -> p.Pattern Controls
-lock s = pF "lock" (p.miniF s)
+lock :: p.Pattern Float -> p.Pattern Controls
+lock pat = pF "lock" pat
 
-loop :: String -> p.Pattern Controls
-loop s = pF "loop" (p.miniF s)
+loop :: p.Pattern Float -> p.Pattern Controls
+loop pat = pF "loop" pat
 
-lophat :: String -> p.Pattern Controls
-lophat s = pF "lophat" (p.miniF s)
+lophat :: p.Pattern Float -> p.Pattern Controls
+lophat pat = pF "lophat" pat
 
-lrate :: String -> p.Pattern Controls
-lrate s = pF "lrate" (p.miniF s)
+lrate :: p.Pattern Float -> p.Pattern Controls
+lrate pat = pF "lrate" pat
 
-lsize :: String -> p.Pattern Controls
-lsize s = pF "lsize" (p.miniF s)
+lsize :: p.Pattern Float -> p.Pattern Controls
+lsize pat = pF "lsize" pat
 
-lsnare :: String -> p.Pattern Controls
-lsnare s = pF "lsnare" (p.miniF s)
+lsnare :: p.Pattern Float -> p.Pattern Controls
+lsnare pat = pF "lsnare" pat
 
-metatune :: String -> p.Pattern Controls
-metatune s = pF "metatune" (p.miniF s)
+metatune :: p.Pattern Float -> p.Pattern Controls
+metatune pat = pF "metatune" pat
 
-midibend :: String -> p.Pattern Controls
-midibend s = pF "midibend" (p.miniF s)
+midibend :: p.Pattern Float -> p.Pattern Controls
+midibend pat = pF "midibend" pat
 
-midichan :: String -> p.Pattern Controls
-midichan s = pF "midichan" (p.miniF s)
+midichan :: p.Pattern Float -> p.Pattern Controls
+midichan pat = pF "midichan" pat
 
-midicmd :: String -> p.Pattern Controls
-midicmd s = pS "midicmd" (p.miniS s)
+midicmd :: p.Pattern String -> p.Pattern Controls
+midicmd pat = pS "midicmd" pat
 
-miditouch :: String -> p.Pattern Controls
-miditouch s = pF "miditouch" (p.miniF s)
+miditouch :: p.Pattern Float -> p.Pattern Controls
+miditouch pat = pF "miditouch" pat
 
-minutes :: String -> p.Pattern Controls
-minutes s = pF "minutes" (p.miniF s)
+minutes :: p.Pattern Float -> p.Pattern Controls
+minutes pat = pF "minutes" pat
 
-modwheel :: String -> p.Pattern Controls
-modwheel s = pF "modwheel" (p.miniF s)
+modwheel :: p.Pattern Float -> p.Pattern Controls
+modwheel pat = pF "modwheel" pat
 
-mtranspose :: String -> p.Pattern Controls
-mtranspose s = pF "mtranspose" (p.miniF s)
+mtranspose :: p.Pattern Float -> p.Pattern Controls
+mtranspose pat = pF "mtranspose" pat
 
-n :: String -> p.Pattern Controls
-n s = pN "n" (p.miniN s)
+n :: p.Pattern p.Note -> p.Pattern Controls
+n pat = pN "n" pat
 
-note :: String -> p.Pattern Controls
-note s = pN "note" (p.miniN s)
+note :: p.Pattern p.Note -> p.Pattern Controls
+note pat = pN "note" pat
 
-nudge :: String -> p.Pattern Controls
-nudge s = pF "nudge" (p.miniF s)
+nudge :: p.Pattern Float -> p.Pattern Controls
+nudge pat = pF "nudge" pat
 
-octave :: String -> p.Pattern Controls
-octave s = pI "octave" (p.miniTI s)
+octave :: p.Pattern Int -> p.Pattern Controls
+octave pat = pI "octave" pat
 
-octaveR :: String -> p.Pattern Controls
-octaveR s = pF "octaveR" (p.miniF s)
+octaveR :: p.Pattern Float -> p.Pattern Controls
+octaveR pat = pF "octaveR" pat
 
-octer :: String -> p.Pattern Controls
-octer s = pF "octer" (p.miniF s)
+octer :: p.Pattern Float -> p.Pattern Controls
+octer pat = pF "octer" pat
 
-octersub :: String -> p.Pattern Controls
-octersub s = pF "octersub" (p.miniF s)
+octersub :: p.Pattern Float -> p.Pattern Controls
+octersub pat = pF "octersub" pat
 
-octersubsub :: String -> p.Pattern Controls
-octersubsub s = pF "octersubsub" (p.miniF s)
+octersubsub :: p.Pattern Float -> p.Pattern Controls
+octersubsub pat = pF "octersubsub" pat
 
-offset :: String -> p.Pattern Controls
-offset s = pF "offset" (p.miniF s)
+offset :: p.Pattern Float -> p.Pattern Controls
+offset pat = pF "offset" pat
 
-ophatdecay :: String -> p.Pattern Controls
-ophatdecay s = pF "ophatdecay" (p.miniF s)
+ophatdecay :: p.Pattern Float -> p.Pattern Controls
+ophatdecay pat = pF "ophatdecay" pat
 
-orbit :: String -> p.Pattern Controls
-orbit s = pI "orbit" (p.miniTI s)
+orbit :: p.Pattern Int -> p.Pattern Controls
+orbit pat = pI "orbit" pat
 
-overgain :: String -> p.Pattern Controls
-overgain s = pF "overgain" (p.miniF s)
+overgain :: p.Pattern Float -> p.Pattern Controls
+overgain pat = pF "overgain" pat
 
-overshape :: String -> p.Pattern Controls
-overshape s = pF "overshape" (p.miniF s)
+overshape :: p.Pattern Float -> p.Pattern Controls
+overshape pat = pF "overshape" pat
 
-pan :: String -> p.Pattern Controls
-pan s = pF "pan" (p.miniF s)
+pan :: p.Pattern Float -> p.Pattern Controls
+pan pat = pF "pan" pat
 
-panorient :: String -> p.Pattern Controls
-panorient s = pF "panorient" (p.miniF s)
+panorient :: p.Pattern Float -> p.Pattern Controls
+panorient pat = pF "panorient" pat
 
-panspan :: String -> p.Pattern Controls
-panspan s = pF "panspan" (p.miniF s)
+panspan :: p.Pattern Float -> p.Pattern Controls
+panspan pat = pF "panspan" pat
 
-pansplay :: String -> p.Pattern Controls
-pansplay s = pF "pansplay" (p.miniF s)
+pansplay :: p.Pattern Float -> p.Pattern Controls
+pansplay pat = pF "pansplay" pat
 
-panwidth :: String -> p.Pattern Controls
-panwidth s = pF "panwidth" (p.miniF s)
+panwidth :: p.Pattern Float -> p.Pattern Controls
+panwidth pat = pF "panwidth" pat
 
-partials :: String -> p.Pattern Controls
-partials s = pF "partials" (p.miniF s)
+partials :: p.Pattern Float -> p.Pattern Controls
+partials pat = pF "partials" pat
 
-phaserdepth :: String -> p.Pattern Controls
-phaserdepth s = pF "phaserdepth" (p.miniF s)
+phaserdepth :: p.Pattern Float -> p.Pattern Controls
+phaserdepth pat = pF "phaserdepth" pat
 
-phaserrate :: String -> p.Pattern Controls
-phaserrate s = pF "phaserrate" (p.miniF s)
+phaserrate :: p.Pattern Float -> p.Pattern Controls
+phaserrate pat = pF "phaserrate" pat
 
-pitch1 :: String -> p.Pattern Controls
-pitch1 s = pF "pitch1" (p.miniF s)
+pitch1 :: p.Pattern Float -> p.Pattern Controls
+pitch1 pat = pF "pitch1" pat
 
-pitch2 :: String -> p.Pattern Controls
-pitch2 s = pF "pitch2" (p.miniF s)
+pitch2 :: p.Pattern Float -> p.Pattern Controls
+pitch2 pat = pF "pitch2" pat
 
-pitch3 :: String -> p.Pattern Controls
-pitch3 s = pF "pitch3" (p.miniF s)
+pitch3 :: p.Pattern Float -> p.Pattern Controls
+pitch3 pat = pF "pitch3" pat
 
-polyTouch :: String -> p.Pattern Controls
-polyTouch s = pF "polyTouch" (p.miniF s)
+polyTouch :: p.Pattern Float -> p.Pattern Controls
+polyTouch pat = pF "polyTouch" pat
 
-portamento :: String -> p.Pattern Controls
-portamento s = pF "portamento" (p.miniF s)
+portamento :: p.Pattern Float -> p.Pattern Controls
+portamento pat = pF "portamento" pat
 
-progNum :: String -> p.Pattern Controls
-progNum s = pF "progNum" (p.miniF s)
+progNum :: p.Pattern Float -> p.Pattern Controls
+progNum pat = pF "progNum" pat
 
-rate :: String -> p.Pattern Controls
-rate s = pF "rate" (p.miniF s)
+rate :: p.Pattern Float -> p.Pattern Controls
+rate pat = pF "rate" pat
 
-real :: String -> p.Pattern Controls
-real s = pF "real" (p.miniF s)
+real :: p.Pattern Float -> p.Pattern Controls
+real pat = pF "real" pat
 
-release :: String -> p.Pattern Controls
-release s = pF "release" (p.miniF s)
+release :: p.Pattern Float -> p.Pattern Controls
+release pat = pF "release" pat
 
-resonance :: String -> p.Pattern Controls
-resonance s = pF "resonance" (p.miniF s)
+resonance :: p.Pattern Float -> p.Pattern Controls
+resonance pat = pF "resonance" pat
 
-ring :: String -> p.Pattern Controls
-ring s = pF "ring" (p.miniF s)
+ring :: p.Pattern Float -> p.Pattern Controls
+ring pat = pF "ring" pat
 
-ringdf :: String -> p.Pattern Controls
-ringdf s = pF "ringdf" (p.miniF s)
+ringdf :: p.Pattern Float -> p.Pattern Controls
+ringdf pat = pF "ringdf" pat
 
-ringf :: String -> p.Pattern Controls
-ringf s = pF "ringf" (p.miniF s)
+ringf :: p.Pattern Float -> p.Pattern Controls
+ringf pat = pF "ringf" pat
 
-room :: String -> p.Pattern Controls
-room s = pF "room" (p.miniF s)
+room :: p.Pattern Float -> p.Pattern Controls
+room pat = pF "room" pat
 
-sagogo :: String -> p.Pattern Controls
-sagogo s = pF "sagogo" (p.miniF s)
+sagogo :: p.Pattern Float -> p.Pattern Controls
+sagogo pat = pF "sagogo" pat
 
-sclap :: String -> p.Pattern Controls
-sclap s = pF "sclap" (p.miniF s)
+sclap :: p.Pattern Float -> p.Pattern Controls
+sclap pat = pF "sclap" pat
 
-sclaves :: String -> p.Pattern Controls
-sclaves s = pF "sclaves" (p.miniF s)
+sclaves :: p.Pattern Float -> p.Pattern Controls
+sclaves pat = pF "sclaves" pat
 
-scram :: String -> p.Pattern Controls
-scram s = pF "scram" (p.miniF s)
+scram :: p.Pattern Float -> p.Pattern Controls
+scram pat = pF "scram" pat
 
-scrash :: String -> p.Pattern Controls
-scrash s = pF "scrash" (p.miniF s)
+scrash :: p.Pattern Float -> p.Pattern Controls
+scrash pat = pF "scrash" pat
 
-seconds :: String -> p.Pattern Controls
-seconds s = pF "seconds" (p.miniF s)
+seconds :: p.Pattern Float -> p.Pattern Controls
+seconds pat = pF "seconds" pat
 
-semitone :: String -> p.Pattern Controls
-semitone s = pF "semitone" (p.miniF s)
+semitone :: p.Pattern Float -> p.Pattern Controls
+semitone pat = pF "semitone" pat
 
-shape :: String -> p.Pattern Controls
-shape s = pF "shape" (p.miniF s)
+shape :: p.Pattern Float -> p.Pattern Controls
+shape pat = pF "shape" pat
 
-size :: String -> p.Pattern Controls
-size s = pF "size" (p.miniF s)
+size :: p.Pattern Float -> p.Pattern Controls
+size pat = pF "size" pat
 
-slide :: String -> p.Pattern Controls
-slide s = pF "slide" (p.miniF s)
+slide :: p.Pattern Float -> p.Pattern Controls
+slide pat = pF "slide" pat
 
-slider0 :: String -> p.Pattern Controls
-slider0 s = pF "slider0" (p.miniF s)
+slider0 :: p.Pattern Float -> p.Pattern Controls
+slider0 pat = pF "slider0" pat
 
-slider1 :: String -> p.Pattern Controls
-slider1 s = pF "slider1" (p.miniF s)
+slider1 :: p.Pattern Float -> p.Pattern Controls
+slider1 pat = pF "slider1" pat
 
-slider10 :: String -> p.Pattern Controls
-slider10 s = pF "slider10" (p.miniF s)
+slider10 :: p.Pattern Float -> p.Pattern Controls
+slider10 pat = pF "slider10" pat
 
-slider11 :: String -> p.Pattern Controls
-slider11 s = pF "slider11" (p.miniF s)
+slider11 :: p.Pattern Float -> p.Pattern Controls
+slider11 pat = pF "slider11" pat
 
-slider12 :: String -> p.Pattern Controls
-slider12 s = pF "slider12" (p.miniF s)
+slider12 :: p.Pattern Float -> p.Pattern Controls
+slider12 pat = pF "slider12" pat
 
-slider13 :: String -> p.Pattern Controls
-slider13 s = pF "slider13" (p.miniF s)
+slider13 :: p.Pattern Float -> p.Pattern Controls
+slider13 pat = pF "slider13" pat
 
-slider14 :: String -> p.Pattern Controls
-slider14 s = pF "slider14" (p.miniF s)
+slider14 :: p.Pattern Float -> p.Pattern Controls
+slider14 pat = pF "slider14" pat
 
-slider15 :: String -> p.Pattern Controls
-slider15 s = pF "slider15" (p.miniF s)
+slider15 :: p.Pattern Float -> p.Pattern Controls
+slider15 pat = pF "slider15" pat
 
-slider2 :: String -> p.Pattern Controls
-slider2 s = pF "slider2" (p.miniF s)
+slider2 :: p.Pattern Float -> p.Pattern Controls
+slider2 pat = pF "slider2" pat
 
-slider3 :: String -> p.Pattern Controls
-slider3 s = pF "slider3" (p.miniF s)
+slider3 :: p.Pattern Float -> p.Pattern Controls
+slider3 pat = pF "slider3" pat
 
-slider4 :: String -> p.Pattern Controls
-slider4 s = pF "slider4" (p.miniF s)
+slider4 :: p.Pattern Float -> p.Pattern Controls
+slider4 pat = pF "slider4" pat
 
-slider5 :: String -> p.Pattern Controls
-slider5 s = pF "slider5" (p.miniF s)
+slider5 :: p.Pattern Float -> p.Pattern Controls
+slider5 pat = pF "slider5" pat
 
-slider6 :: String -> p.Pattern Controls
-slider6 s = pF "slider6" (p.miniF s)
+slider6 :: p.Pattern Float -> p.Pattern Controls
+slider6 pat = pF "slider6" pat
 
-slider7 :: String -> p.Pattern Controls
-slider7 s = pF "slider7" (p.miniF s)
+slider7 :: p.Pattern Float -> p.Pattern Controls
+slider7 pat = pF "slider7" pat
 
-slider8 :: String -> p.Pattern Controls
-slider8 s = pF "slider8" (p.miniF s)
+slider8 :: p.Pattern Float -> p.Pattern Controls
+slider8 pat = pF "slider8" pat
 
-slider9 :: String -> p.Pattern Controls
-slider9 s = pF "slider9" (p.miniF s)
+slider9 :: p.Pattern Float -> p.Pattern Controls
+slider9 pat = pF "slider9" pat
 
-smear :: String -> p.Pattern Controls
-smear s = pF "smear" (p.miniF s)
+smear :: p.Pattern Float -> p.Pattern Controls
+smear pat = pF "smear" pat
 
-songPtr :: String -> p.Pattern Controls
-songPtr s = pF "songPtr" (p.miniF s)
+songPtr :: p.Pattern Float -> p.Pattern Controls
+songPtr pat = pF "songPtr" pat
 
-speed :: String -> p.Pattern Controls
-speed s = pF "speed" (p.miniF s)
+speed :: p.Pattern Float -> p.Pattern Controls
+speed pat = pF "speed" pat
 
-squiz :: String -> p.Pattern Controls
-squiz s = pF "squiz" (p.miniF s)
+squiz :: p.Pattern Float -> p.Pattern Controls
+squiz pat = pF "squiz" pat
 
-stepsPerOctave :: String -> p.Pattern Controls
-stepsPerOctave s = pF "stepsPerOctave" (p.miniF s)
+stepsPerOctave :: p.Pattern Float -> p.Pattern Controls
+stepsPerOctave pat = pF "stepsPerOctave" pat
 
-stutterdepth :: String -> p.Pattern Controls
-stutterdepth s = pF "stutterdepth" (p.miniF s)
+stutterdepth :: p.Pattern Float -> p.Pattern Controls
+stutterdepth pat = pF "stutterdepth" pat
 
-stuttertime :: String -> p.Pattern Controls
-stuttertime s = pF "stuttertime" (p.miniF s)
+stuttertime :: p.Pattern Float -> p.Pattern Controls
+stuttertime pat = pF "stuttertime" pat
 
-sustain :: String -> p.Pattern Controls
-sustain s = pF "sustain" (p.miniF s)
+sustain :: p.Pattern Float -> p.Pattern Controls
+sustain pat = pF "sustain" pat
 
-sustainpedal :: String -> p.Pattern Controls
-sustainpedal s = pF "sustainpedal" (p.miniF s)
+sustainpedal :: p.Pattern Float -> p.Pattern Controls
+sustainpedal pat = pF "sustainpedal" pat
 
-timescale :: String -> p.Pattern Controls
-timescale s = pF "timescale" (p.miniF s)
+timescale :: p.Pattern Float -> p.Pattern Controls
+timescale pat = pF "timescale" pat
 
-timescalewin :: String -> p.Pattern Controls
-timescalewin s = pF "timescalewin" (p.miniF s)
+timescalewin :: p.Pattern Float -> p.Pattern Controls
+timescalewin pat = pF "timescalewin" pat
 
-to :: String -> p.Pattern Controls
-to s = pF "to" (p.miniF s)
+to :: p.Pattern Float -> p.Pattern Controls
+to pat = pF "to" pat
 
-toArg :: String -> p.Pattern Controls
-toArg s = pS "toArg" (p.miniS s)
+toArg :: p.Pattern String -> p.Pattern Controls
+toArg pat = pS "toArg" pat
 
-tomdecay :: String -> p.Pattern Controls
-tomdecay s = pF "tomdecay" (p.miniF s)
+tomdecay :: p.Pattern Float -> p.Pattern Controls
+tomdecay pat = pF "tomdecay" pat
 
-tremolodepth :: String -> p.Pattern Controls
-tremolodepth s = pF "tremolodepth" (p.miniF s)
+tremolodepth :: p.Pattern Float -> p.Pattern Controls
+tremolodepth pat = pF "tremolodepth" pat
 
-tremolorate :: String -> p.Pattern Controls
-tremolorate s = pF "tremolorate" (p.miniF s)
+tremolorate :: p.Pattern Float -> p.Pattern Controls
+tremolorate pat = pF "tremolorate" pat
 
-triode :: String -> p.Pattern Controls
-triode s = pF "triode" (p.miniF s)
+triode :: p.Pattern Float -> p.Pattern Controls
+triode pat = pF "triode" pat
 
-tsdelay :: String -> p.Pattern Controls
-tsdelay s = pF "tsdelay" (p.miniF s)
+tsdelay :: p.Pattern Float -> p.Pattern Controls
+tsdelay pat = pF "tsdelay" pat
 
-uid :: String -> p.Pattern Controls
-uid s = pF "uid" (p.miniF s)
+uid :: p.Pattern Float -> p.Pattern Controls
+uid pat = pF "uid" pat
 
-unit :: String -> p.Pattern Controls
-unit s = pS "unit" (p.miniS s)
+unit :: p.Pattern String -> p.Pattern Controls
+unit pat = pS "unit" pat
 
-val :: String -> p.Pattern Controls
-val s = pF "val" (p.miniF s)
+val :: p.Pattern Float -> p.Pattern Controls
+val pat = pF "val" pat
 
-vcfegint :: String -> p.Pattern Controls
-vcfegint s = pF "vcfegint" (p.miniF s)
+vcfegint :: p.Pattern Float -> p.Pattern Controls
+vcfegint pat = pF "vcfegint" pat
 
-vcoegint :: String -> p.Pattern Controls
-vcoegint s = pF "vcoegint" (p.miniF s)
+vcoegint :: p.Pattern Float -> p.Pattern Controls
+vcoegint pat = pF "vcoegint" pat
 
-velocity :: String -> p.Pattern Controls
-velocity s = pF "velocity" (p.miniF s)
+velocity :: p.Pattern Float -> p.Pattern Controls
+velocity pat = pF "velocity" pat
 
-voice :: String -> p.Pattern Controls
-voice s = pF "voice" (p.miniF s)
+voice :: p.Pattern Float -> p.Pattern Controls
+voice pat = pF "voice" pat
 
-vowel :: String -> p.Pattern Controls
-vowel s = pS "vowel" (p.miniS s)
+vowel :: p.Pattern String -> p.Pattern Controls
+vowel pat = pS "vowel" pat
 
-waveloss :: String -> p.Pattern Controls
-waveloss s = pF "waveloss" (p.miniF s)
+waveloss :: p.Pattern Float -> p.Pattern Controls
+waveloss pat = pF "waveloss" pat
 
-xsdelay :: String -> p.Pattern Controls
-xsdelay s = pF "xsdelay" (p.miniF s)
+xsdelay :: p.Pattern Float -> p.Pattern Controls
+xsdelay pat = pF "xsdelay" pat
 
-clip :: String -> p.Pattern Controls
-clip s = legato s
+clip :: p.Pattern Float -> p.Pattern Controls
+clip pat = legato pat
 
-voi :: String -> p.Pattern Controls
-voi s = voice s
+voi :: p.Pattern Float -> p.Pattern Controls
+voi pat = voice pat
 
-vco :: String -> p.Pattern Controls
-vco s = vcoegint s
+vco :: p.Pattern Float -> p.Pattern Controls
+vco pat = vcoegint pat
 
-vcf :: String -> p.Pattern Controls
-vcf s = vcfegint s
+vcf :: p.Pattern Float -> p.Pattern Controls
+vcf pat = vcfegint pat
 
-up :: String -> p.Pattern Controls
-up s = note s
+up :: p.Pattern p.Note -> p.Pattern Controls
+up pat = note pat
 
-tremr :: String -> p.Pattern Controls
-tremr s = tremolorate s
+tremr :: p.Pattern Float -> p.Pattern Controls
+tremr pat = tremolorate pat
 
-tremdp :: String -> p.Pattern Controls
-tremdp s = tremolodepth s
+tremdp :: p.Pattern Float -> p.Pattern Controls
+tremdp pat = tremolodepth pat
 
-tdecay :: String -> p.Pattern Controls
-tdecay s = tomdecay s
+tdecay :: p.Pattern Float -> p.Pattern Controls
+tdecay pat = tomdecay pat
 
-sz :: String -> p.Pattern Controls
-sz s = size s
+sz :: p.Pattern Float -> p.Pattern Controls
+sz pat = size pat
 
-sus :: String -> p.Pattern Controls
-sus s = sustain s
+sus :: p.Pattern Float -> p.Pattern Controls
+sus pat = sustain pat
 
-stt :: String -> p.Pattern Controls
-stt s = stuttertime s
+stt :: p.Pattern Float -> p.Pattern Controls
+stt pat = stuttertime pat
 
-std :: String -> p.Pattern Controls
-std s = stutterdepth s
+std :: p.Pattern Float -> p.Pattern Controls
+std pat = stutterdepth pat
 
-sld :: String -> p.Pattern Controls
-sld s = slide s
+sld :: p.Pattern Float -> p.Pattern Controls
+sld pat = slide pat
 
-scr :: String -> p.Pattern Controls
-scr s = scrash s
+scr :: p.Pattern Float -> p.Pattern Controls
+scr pat = scrash pat
 
-scp :: String -> p.Pattern Controls
-scp s = sclap s
+scp :: p.Pattern Float -> p.Pattern Controls
+scp pat = sclap pat
 
-scl :: String -> p.Pattern Controls
-scl s = sclaves s
+scl :: p.Pattern Float -> p.Pattern Controls
+scl pat = sclaves pat
 
-sag :: String -> p.Pattern Controls
-sag s = sagogo s
+sag :: p.Pattern Float -> p.Pattern Controls
+sag pat = sagogo pat
 
-s :: String -> p.Pattern Controls
-s s = sound s
+s :: p.Pattern String -> p.Pattern Controls
+s pat = sound pat
 
-rel :: String -> p.Pattern Controls
-rel s = release s
+rel :: p.Pattern Float -> p.Pattern Controls
+rel pat = release pat
 
-por :: String -> p.Pattern Controls
-por s = portamento s
+por :: p.Pattern Float -> p.Pattern Controls
+por pat = portamento pat
 
-pit3 :: String -> p.Pattern Controls
-pit3 s = pitch3 s
+pit3 :: p.Pattern Float -> p.Pattern Controls
+pit3 pat = pitch3 pat
 
-pit2 :: String -> p.Pattern Controls
-pit2 s = pitch2 s
+pit2 :: p.Pattern Float -> p.Pattern Controls
+pit2 pat = pitch2 pat
 
-pit1 :: String -> p.Pattern Controls
-pit1 s = pitch1 s
+pit1 :: p.Pattern Float -> p.Pattern Controls
+pit1 pat = pitch1 pat
 
-phasr :: String -> p.Pattern Controls
-phasr s = phaserrate s
+phasr :: p.Pattern Float -> p.Pattern Controls
+phasr pat = phaserrate pat
 
-phasdp :: String -> p.Pattern Controls
-phasdp s = phaserdepth s
+phasdp :: p.Pattern Float -> p.Pattern Controls
+phasdp pat = phaserdepth pat
 
-ohdecay :: String -> p.Pattern Controls
-ohdecay s = ophatdecay s
+ohdecay :: p.Pattern Float -> p.Pattern Controls
+ohdecay pat = ophatdecay pat
 
-number :: String -> p.Pattern Controls
-number s = n s
+number :: p.Pattern p.Note -> p.Pattern Controls
+number pat = n pat
 
-lsn :: String -> p.Pattern Controls
-lsn s = lsnare s
+lsn :: p.Pattern Float -> p.Pattern Controls
+lsn pat = lsnare pat
 
-lpq :: String -> p.Pattern Controls
-lpq s = resonance s
+lpq :: p.Pattern Float -> p.Pattern Controls
+lpq pat = resonance pat
 
-lpf :: String -> p.Pattern Controls
-lpf s = cutoff s
+lpf :: p.Pattern Float -> p.Pattern Controls
+lpf pat = cutoff pat
 
-loh :: String -> p.Pattern Controls
-loh s = lophat s
+loh :: p.Pattern Float -> p.Pattern Controls
+loh pat = lophat pat
 
-llt :: String -> p.Pattern Controls
-llt s = llotom s
+llt :: p.Pattern Float -> p.Pattern Controls
+llt pat = llotom pat
 
-lht :: String -> p.Pattern Controls
-lht s = lhitom s
+lht :: p.Pattern Float -> p.Pattern Controls
+lht pat = lhitom pat
 
-lfop :: String -> p.Pattern Controls
-lfop s = lfopitchint s
+lfop :: p.Pattern Float -> p.Pattern Controls
+lfop pat = lfopitchint pat
 
-lfoi :: String -> p.Pattern Controls
-lfoi s = lfoint s
+lfoi :: p.Pattern Float -> p.Pattern Controls
+lfoi pat = lfoint pat
 
-lfoc :: String -> p.Pattern Controls
-lfoc s = lfocutoffint s
+lfoc :: p.Pattern Float -> p.Pattern Controls
+lfoc pat = lfocutoffint pat
 
-lcr :: String -> p.Pattern Controls
-lcr s = lcrash s
+lcr :: p.Pattern Float -> p.Pattern Controls
+lcr pat = lcrash pat
 
-lcp :: String -> p.Pattern Controls
-lcp s = lclap s
+lcp :: p.Pattern Float -> p.Pattern Controls
+lcp pat = lclap pat
 
-lcl :: String -> p.Pattern Controls
-lcl s = lclaves s
+lcl :: p.Pattern Float -> p.Pattern Controls
+lcl pat = lclaves pat
 
-lch :: String -> p.Pattern Controls
-lch s = lclhat s
+lch :: p.Pattern Float -> p.Pattern Controls
+lch pat = lclhat pat
 
-lbd :: String -> p.Pattern Controls
-lbd s = lkick s
+lbd :: p.Pattern Float -> p.Pattern Controls
+lbd pat = lkick pat
 
-lag :: String -> p.Pattern Controls
-lag s = lagogo s
+lag :: p.Pattern Float -> p.Pattern Controls
+lag pat = lagogo pat
 
-hpq :: String -> p.Pattern Controls
-hpq s = hresonance s
+hpq :: p.Pattern Float -> p.Pattern Controls
+hpq pat = hresonance pat
 
-hpf :: String -> p.Pattern Controls
-hpf s = hcutoff s
+hpf :: p.Pattern Float -> p.Pattern Controls
+hpf pat = hcutoff pat
 
-hg :: String -> p.Pattern Controls
-hg s = hatgrain s
+hg :: p.Pattern Float -> p.Pattern Controls
+hg pat = hatgrain pat
 
-gat :: String -> p.Pattern Controls
-gat s = gate s
+gat :: p.Pattern Float -> p.Pattern Controls
+gat pat = gate pat
 
-fadeOutTime :: String -> p.Pattern Controls
-fadeOutTime s = fadeTime s
+fadeOutTime :: p.Pattern Float -> p.Pattern Controls
+fadeOutTime pat = fadeTime pat
 
-dt :: String -> p.Pattern Controls
-dt s = delaytime s
+dt :: p.Pattern Float -> p.Pattern Controls
+dt pat = delaytime pat
 
-dfb :: String -> p.Pattern Controls
-dfb s = delayfeedback s
+dfb :: p.Pattern Float -> p.Pattern Controls
+dfb pat = delayfeedback pat
 
-det :: String -> p.Pattern Controls
-det s = detune s
+det :: p.Pattern Float -> p.Pattern Controls
+det pat = detune pat
 
-delayt :: String -> p.Pattern Controls
-delayt s = delaytime s
+delayt :: p.Pattern Float -> p.Pattern Controls
+delayt pat = delaytime pat
 
-delayfb :: String -> p.Pattern Controls
-delayfb s = delayfeedback s
+delayfb :: p.Pattern Float -> p.Pattern Controls
+delayfb pat = delayfeedback pat
 
-ctfg :: String -> p.Pattern Controls
-ctfg s = cutoffegint s
+ctfg :: p.Pattern Float -> p.Pattern Controls
+ctfg pat = cutoffegint pat
 
-ctf :: String -> p.Pattern Controls
-ctf s = cutoff s
+ctf :: p.Pattern Float -> p.Pattern Controls
+ctf pat = cutoff pat
 
-chdecay :: String -> p.Pattern Controls
-chdecay s = clhatdecay s
+chdecay :: p.Pattern Float -> p.Pattern Controls
+chdecay pat = clhatdecay pat
 
-bpq :: String -> p.Pattern Controls
-bpq s = bandq s
+bpq :: p.Pattern Float -> p.Pattern Controls
+bpq pat = bandq pat
 
-bpf :: String -> p.Pattern Controls
-bpf s = bandf s
+bpf :: p.Pattern Float -> p.Pattern Controls
+bpf pat = bandf pat
 
-att :: String -> p.Pattern Controls
-att s = attack s
+att :: p.Pattern Float -> p.Pattern Controls
+att pat = attack pat
 

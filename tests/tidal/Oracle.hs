@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 -- The cases of tests/tidal/compare.fk, queried in Tidal (tidal-core 1.10.2):
 -- each prints the onsets of its first cycles, in ticks, with values to 1e-9.
 -- tests/tidal/compare.sh diffs the two outputs.
@@ -251,3 +252,26 @@ main = do
   outC "rangecF" 1 rF [("x", VF 0.5)] (segment 2 (range 1 (cF 3 "y") (cF 0 "x")))
   outC "everytrig" 4 rS [("_t_pattern", VR 1)] (every 2 (fast 2) (trigger (slow 2 abcd)))
   outC "juxcF" 1 rC [("p", VF 0.25)] (jux rev (T.s (fastFromList ["a", "b"]) # pan (cF 0 "p")))
+  out "litFast" 2 rS (fast "<2 4>" "a b")
+  out "litEvery" 3 rI (every "<2 3>" rev "0 1 2")
+  out "litShift" 2 rS ("<0 0.25>" <~ "bd sn")
+  out "litInt" 1 rI "c e g'maj ~ -3"
+  out "litFloat" 1 rF "0.5 e 1%4 -2.25"
+  out "litString" 1 rS "bd*2 [hh sn:3] . cp"
+  out "litStack" 1 rI (stack ["0 1", "<5 6>(3,8)"])
+  out "ctlPanSine" 1 rC (T.s "bd*4" # pan sine)
+  out "ctlIrand" 2 rC (T.s "x*4" # T.n (irand 8))
+  out "ctlNoteAdd" 2 rC (T.n ("0 2" + "<12 7>"))
+  out "ctlNoteNames" 1 rC (T.n "e c'maj a5")
+  out "ctlRun" 1 rC (T.n (run 4) # T.s "arpy")
+  out "ctlRange" 1 rC (T.n (segment 4 (range 0 7 sine)))
+  out "ctlSamples" 2 rC (sound (samples "bd*2 sn" (slow 2 (run 3))))
+  out "ctlSpeedRand" 1 rC (T.s "a*3" # speed (range 1 2 rand))
+  out "ctlScan" 3 rC (T.n (scan 3))
+  out "fracPat" 1 rF ("1 2 3" / "<2 4>")
+  out "fracRecip" 1 rF (recip "1 4 [8 0.5]")
+  out "fracShift" 2 rI ((26/8) <~ "0 1 2 3")
+  out "fracNote" 1 rC (T.n ("0 7" / 2))
+  out "fracCtl" 1 rC (T.s "x*2" # speed "3" # cut "3" |/ (speed "2" # cut "2"))
+  out "fracCtlLit" 1 rC (T.s "x*2" # 0.5)
+  out "fracCtlRecip" 1 rC (recip (speed "4 0.5" # cut "3"))

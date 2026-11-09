@@ -19,27 +19,36 @@ Status:
 
 | Area | Gaps | Kept | Review |
 |-|-|-|-|
-| Language and literals | 5 | 1 | 1 |
+| Language and literals | 3 | 2 | 1 |
 | Time | 2 | 1 | 0 |
 | Pattern functions | 8 | 1 | 2 |
 | Mini-notation | 3 | 2 | 0 |
-| Controls | 3 | 0 | 0 |
+| Controls | 2 | 0 | 0 |
 | Runtime and workflow | 6 | 1 | 0 |
 | SuperDirt sound | 9 | 0 | 1 |
 
-The largest gap is the string literal (L1). It blocks Tidal code in five places: controls of patterns, patterned arguments, `sound` of a pattern, `struct "t f"` and `"<0 0.25>" <~ p`.
+L1, L2 and L4 are done: string literals are patterns, controls take patterns, and patterns divide. The largest remaining gaps are the qualified `p.` names (L5), scales (F1) and the runtime (R1-R5).
 
 ## Language and literals
 
-**L1. Gap: a string literal is not a pattern.** Tidal has `instance IsString (Pattern a)` with `fromString = parseBP_E` (`ParseBP.hs`). So `fast "<2 4>" p`, `every "<2 3>" rev p`, `"<0 0.25>" <~ p` and `pan sine` all type-check. In funk, mini-notation is a call (`p.mini`, `p.miniS`, `p.miniF`, `p.miniN`), and the 257 controls take a `String`. [patterns.md](patterns.md) gives the reason: overloaded strings "would change every literal's type defaulting". That reason is weak now. `FromFloat`, at `lib/prelude.fk:36`, already overloads float literals, and `instance FromFloat (Pattern a)` is at `lib/pattern.fk:300`. A `FromString` class with a `String` default works the same way. funk would keep one improvement: the parse at definition time (M4).
+**L1. Done 2026-11-09: a string literal is a pattern.** `class FromString` in the prelude, as `FromFloat`: a literal at another type calls its `fromString`, and an unfixed one is a `String`. `instance Parseable a => FromString (Pattern a)` parses it as Tidal's `parseBP_E` does, for `Int`, `Float` and `String`; `Bool` waits for M1. `lib/tidal` checks 7 cases of literals against Tidal. Two differences remain, both open:
 
-**L2. Gap: controls take a `String`, not a pattern.** Tidal's `pan :: Pattern Note -> ControlPattern` takes any pattern. funk's `pan :: String -> p.Pattern Controls` takes only literals. So `pan sine`, `n (irand 8)`, `n ("0 2" + "<12 7>")` and `sound (samples ...)` need `pF "pan" p.sine` and the like. `sound` of a pattern is one case of this: 12 of the 22 patches in [patch-port.md](patch-port.md) need it. Closing L1 closes this gap.
+- An unfixed literal is a `String`, and a top-level binding does not generalize, so `riff = "0 2"` is a `String`. GHCi turns the monomorphism restriction off, so in Tidal `riff` stays polymorphic.
+- `pat = p.fast 2 "0 2"` is an ambiguous `Parseable a`; GHCi generalizes it to `Parseable a => Pattern a`. In a host, `pat` needs a signature until L2 lets `n` and `s` fix the type.
+
+**L2. Done 2026-11-09: controls take patterns.** Each of the 257 controls takes Tidal's type: `Pattern Float` for Tidal's `Double`, `Pattern Int`, `Pattern String`, and `Pattern Note` for `n`, `note`, `up` and `number`. `Note` is Tidal's: a `Float` whose mini-notation reads note names first, with Tidal's `Show`. Tidal's signals and `irand`, `run` and `scan` are polymorphic, as Tidal's are, so `n (irand 8)` and `n (segment 4 (range 0 7 sine))` check. 9 cases in `lib/tidal` check them against Tidal. A signal's type needs `FromFloat` where Tidal's needs `Fractional` (L4), and `run` and `scan` need `Num` and `Ord` where Tidal's need `Enum` (L8).
 
 **L3. Gap: no `Functor`, `Applicative` or `Monad` names.** `<$>`, `fmap`, `pure`, `<*>`, `>>=` and `return` are `p.mapP`, `p.atom`, `p.apP` and `p.joinP`. The cause is the missing higher-kinded classes ([type-classes.md](type-classes.md#later-phases)), not a design choice. Monomorphic operators on `Pattern` need no new class feature: `<$>`, `<*>`, `<*`, `*>`, `<<*` and `>>=`. Tidal defines `<*`, `*>` and `<<*` on `Pattern` alone (`Pattern.hs`); funk has the first two only as the functions `apLeft` and `apRight`, and `<<*` not at all; `squeezeJoin` exists.
 
-**L4. Gap: `Pattern` has no `Fractional`.** `(26/8) <~ p` fails, so it must be written `p.atom (26.0 / 8.0) <~ p` ([patch-port.md](patch-port.md#in-funk)). Tidal's `Pattern a` is `Fractional` when `a` is.
+**L4. Done 2026-11-09: `Fractional`.** `class (Num a, FromFloat a) => Fractional a`, with `/` and `recip` and Haskell's defaults for each. `Pattern a`, `Note` and `Controls` are instances, as Tidal's `Pattern a`, `Note` and `ValueMap` are, so `(26/8) <~ p` ports as written; a float literal at `Controls` is a `speed`. `lib/tidal` checks 7 cases against Tidal. The C emitted for the 6 benchmarks that divide is unchanged but for constructor numbers. Differences, kept:
+
+- A float literal needs `FromFloat`, Haskell's needs `Fractional`. They differ only for a type with `FromFloat` and no `/`, such as `lib/dsp.fk`'s `Sig`, which no Tidal code has.
+- A top-level function without a signature that divides is `Float`, as one of float literals is ([type-classes.md](type-classes.md#prelude-and-existing-primitives)); in GHCi `half x = x / 2` is `Fractional a => a -> a`. This keeps unannotated code unboxed. It is the open generalization decision of L1. For the same reason the REPL's `:t (/)` prints `Float -> Float -> Float`.
+- No `fromRational`: it waits for T3's `Rational`. `Floating` (`pi`, `sin` on patterns) is not done.
 
 **L5. Gap: the pattern library is qualified.** Tidal's names are unqualified after `import Sound.Tidal.Context`. The hosts import `control (..)` unqualified but `pattern` as `p`, so ported code needs `p.` on about 260 names. It is not checked which `pattern` names clash with the prelude (`filter`, `cycle` and `range` are candidates). Each clash needs a decision.
+
+**L8. Gap: no `Enum` class.** `enumFromTo` is `(Num a, Ord a)`, so `run`'s ranges follow `Int`'s rule at every type: Tidal's `run 3.5`, `[0 .. 2.5]`, ends at 3 by Haskell's `b + 1/2` rule for fractional types; funk's ends at 2. Ranges over `Char` and user types, `succ`, `pred`, `toEnum`, `fromEnum` and `deriving Enum` are missing too. Cost: `[a..b]` desugars to `enumFromTo` by name (`parse.c`), and fusion recognizes it by name (`fuse.c`); as a method it elaborates to an instance call that fusion must learn to match, or fused loops slow down. Do after L4.
 
 **L6. Kept: `|>` is the prelude's pipe.** Tidal's `|>` is `#`, and funk has `#`. Tidal patches use `#` far more than `|>` (judgement; not counted). Review this if a ported corpus shows otherwise.
 
@@ -100,7 +109,7 @@ The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are inte
 
 ## Controls
 
-**C1. Gap: controls of patterns.** See L2.
+**C1. Done: controls of patterns.** See L2.
 
 **C2. Gap: an event's `cps` does not set the tempo.** In Tidal's `Stream/Process.hs:151`, an event with `cps` sets the clock's tempo, so `# cps "<0.5 1>"` changes speed. funk passes `cps` only to `d.kit`. In the plugin the DAW owns the tempo, so it can only be a funk-midi feature (see R3).
 

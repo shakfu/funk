@@ -38,6 +38,8 @@ Recommendation: a query function on funk's thread. It writes timestamped events 
 
 Plain combinators first, e.g. `seq [bd, sn]`. Mini-notation, a compact string syntax such as `"bd*2 sn"`, comes only if the friction log shows combinators are too verbose for live use. Overloaded string literals would change every literal's type defaulting, so an explicit parse call such as `p "bd sn"` comes before them.
 
+Superseded 2026-11-09: string literals are overloaded through `FromString`, as Tidal's are through `IsString` ([tidal-comparison.md](tidal-comparison.md) L1). An unfixed literal defaults to `String`, as a float literal defaults to `Float`, so defaulting does not change for existing code.
+
 ## Open
 
 - Whether `do` over patterns is wanted. funk's `do` sequences effects (`->>`, [typed-effects.md](typed-effects.md)); a monadic `do` would conflict with that design.

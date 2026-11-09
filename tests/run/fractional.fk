@@ -1,0 +1,31 @@
+-- Fractional: / and recip at Float, at a user type through the default
+-- x / y = x * recip y, and in overloaded code
+data V = V Float Float deriving (Show)
+
+instance Num V where
+  V a b + V c d = V (a + c) (b + d)
+  V a b - V c d = V (a - c) (b - d)
+  V a b * V c d = V (a * c) (b * d)
+  negate (V a b) = V (negate a) (negate b)
+  abs (V a b) = V (abs a) (abs b)
+  fromInt i = V (toFloat i) (toFloat i)
+
+instance FromFloat V where
+  fromFloat x = V x x
+
+instance Fractional V where
+  recip (V a b) = V (recip a) (recip b)
+
+half :: Fractional a => a -> a
+half x = x / 2
+
+-- no signature: Float, as a function of float literals is
+ratio x y = x / y
+
+main = do
+  print (3 / 2)
+  print (recip 4.0, ratio 1.0 8.0)
+  print (map (/ 2.0) [1.0, 3.0], map (2.0 /) [1.0, 4.0])
+  print (V 1.0 2.0 / V 4.0 8.0)
+  print (half (V 1.0 3.0), half 5.0)
+  print (recip (V 2.0 4.0) / 2)

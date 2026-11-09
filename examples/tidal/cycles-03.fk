@@ -13,4 +13,4 @@ dirt = "~/.local/share/funk/Dirt-Samples"
 
 sig = d.kit dirt ["kurt"]
 
-pat = p.whenmod 4 2 p.rev $ p.spread' (striate . p.atom) (p.mini "[8 3 4, 5]") $ sound "[[nn/6 nn/4, [nn/5 nn/2 nn/3]/2]/3, kurt/1]"
+pat = p.whenmod 4 2 p.rev $ p.spread' (striate . p.atom) ("[8 3 4, 5]") $ sound "[[nn/6 nn/4, [nn/5 nn/2 nn/3]/2]/3, kurt/1]"

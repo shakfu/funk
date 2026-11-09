@@ -227,6 +227,8 @@ A number is a MIDI note. A note name is a letter `c` to `b`, then any of `s` (sh
 
 Randomness is Tidal's: a value is a function of the event's start time and the `?` or `|` it comes from, so a pattern plays the same each time and in any block size. A typo or an unknown chord name fails when the definition is evaluated, so the playing pattern goes on. Tidal plays an unknown chord name as its root.
 
+A string literal is mini-notation wherever a pattern is expected, as in Tidal: `p.fast "<2 4>" "bd sn"`, `p.every "<2 3>" p.rev "0 1 2"`, `"<0 0.25>" <~ pat`. It parses as Tidal's does for its type: `Pattern String` as `p.miniS`, `Pattern Float` as `p.miniF`, and `Pattern Int` with Tidal's note names, `c5` being 0. `p.mini` keeps MIDI's, `c4` being 60, for `pat`'s notes. A literal whose type nothing fixes is a `String`, so `riff = "0 2"` needs a signature, `riff :: p.Pattern Int`, to be a pattern; `pat = p.fast 2 "0 2"` reports an ambiguous `Parseable a` until one fixes the element type.
+
 `p.miniS` parses the same notation into a `Pattern String`, for names such as Tidal's samples: `p.miniS "bd*2 [hh sn:3] ~ cp?"`. A name starts with a letter or digit and goes on with letters, digits and `: . - _`; `bd .. sn` is `bd sn`, as in Tidal. `pat` plays a `Pattern Int`, so names become notes, in one of two ways:
 
 - `m.drums` plays General MIDI drums on channel 10, for a drum instrument in the host: `pat = m.drums (p.miniS "bd*2 [hh sn:3]")`. `bd` is 36, `sn` 38, `hh` 42, `cp` 39, `oh` 46; an index picks a variant, so `bd:1` is 35. `m.gmDrums` lists the names. A name not in it is dropped.
@@ -251,7 +253,7 @@ pat = note "0 [4 7]" # ccn "74" # ccv "<64 100>"
 pat = n "0 12" # midichan "1" # gain "1.2" |+ n "<0 2>"
 ```
 
-The controls are Tidal's, `gain`, `cutoff`, `legato` and 254 more, each taking mini-notation. The operators are Tidal's: `#` keeps the left's structure and takes the right's values; `|+|`, `|+` and `+|` add, with structure from both sides, the left or the right, and `||+` squeezes the right into each left event; `-`, `*`, `/`, `%`, `<` and `>` have the same forms. Tidal's `|>` is the prelude's `x |> f` here; `#` is the same operator. Notes are Tidal's: `note "0"` and `note "c5"` are middle C.
+The controls are Tidal's, `gain`, `cutoff`, `legato` and 254 more, each taking a pattern of Tidal's type for it: `pan p.sine`, `n (p.irand 8)`, `sound (p.samples "bd*2 sn" (p.run 3))`, or a string literal of mini-notation. `n` and `note` take a `p.Note`, a `Float` whose mini-notation reads note names first, so `n "e"` is note 4, as in Tidal. Tidal's signals, such as `p.sine`, `p.rand` and `p.perlin`, have any `FromFloat` type, and `p.irand`, `p.run` and `p.scan` any `Num` type, so `n (p.segment 4 (p.range 0 7 p.sine))` is a pattern of notes. Patterns are `Fractional` when their values are, so `"1 2" / 4` and `(26/8) <~ p` work as in Tidal. The operators are Tidal's: `#` keeps the left's structure and takes the right's values; `|+|`, `|+` and `+|` add, with structure from both sides, the left or the right, and `||+` squeezes the right into each left event; `-`, `*`, `/`, `%`, `<` and `>` have the same forms. Tidal's `|>` is the prelude's `x |> f` here; `#` is the same operator. Notes are Tidal's: `note "0"` and `note "c5"` are middle C.
 
 An event plays as SuperDirt's MIDI target plays it, if it has no `s` or `s` is `"midi"`:
 

@@ -300,6 +300,45 @@ uncollect p = Pattern (\qst -> let q = qst.arc in concatMap (\e -> map (\v -> Ev
 instance FromFloat a => FromFloat (Pattern a) where
   fromFloat x = atom (fromFloat x)
 
+-- as Tidal's: x / y is x * recip y
+instance Fractional a => Fractional (Pattern a) where
+  recip x = mapP recip x
+
+-- Tidal's signals are Fractional a => Pattern a, so n (range 0 7 sine)
+-- is a Note. Each here is its Float form, xF, at any FromFloat type.
+sine :: FromFloat a => Pattern a
+sine = mapP fromFloat sineF
+sine2 :: FromFloat a => Pattern a
+sine2 = mapP fromFloat sine2F
+cosine :: FromFloat a => Pattern a
+cosine = mapP fromFloat cosineF
+cosine2 :: FromFloat a => Pattern a
+cosine2 = mapP fromFloat cosine2F
+saw :: FromFloat a => Pattern a
+saw = mapP fromFloat sawF
+saw2 :: FromFloat a => Pattern a
+saw2 = mapP fromFloat saw2F
+isaw :: FromFloat a => Pattern a
+isaw = mapP fromFloat isawF
+isaw2 :: FromFloat a => Pattern a
+isaw2 = mapP fromFloat isaw2F
+tri :: FromFloat a => Pattern a
+tri = mapP fromFloat triF
+tri2 :: FromFloat a => Pattern a
+tri2 = mapP fromFloat tri2F
+square :: FromFloat a => Pattern a
+square = mapP fromFloat squareF
+square2 :: FromFloat a => Pattern a
+square2 = mapP fromFloat square2F
+rand :: FromFloat a => Pattern a
+rand = mapP fromFloat randF
+perlin :: FromFloat a => Pattern a
+perlin = mapP fromFloat perlinF
+perlinWith :: FromFloat a => Pattern Float -> Pattern a
+perlinWith p = mapP fromFloat (perlinWithF p)
+normal :: FromFloat a => Pattern a
+normal = mapP fromFloat normalF
+
 pi :: Float
 pi = 3.141592653589793
 
@@ -320,41 +359,41 @@ sig :: (Float -> a) -> Pattern a
 sig f = Pattern (\qst -> let q = qst.arc in if q.start > q.stop then [] else [Event Nothing q (f (cycles q.start))])
 
 -- 0 to 1 and back once a cycle; the forms ending in 2 run from -1 to 1
-sine :: Pattern Float
-sine = sig (\t -> (sin (pi * 2.0 * t) + 1.0) / 2.0)
+sineF :: Pattern Float
+sineF = sig (\t -> (sin (pi * 2.0 * t) + 1.0) / 2.0)
 
-sine2 :: Pattern Float
-sine2 = sig (\t -> sin (pi * 2.0 * t))
+sine2F :: Pattern Float
+sine2F = sig (\t -> sin (pi * 2.0 * t))
 
-cosine :: Pattern Float
-cosine = rotR 0.25 sine
+cosineF :: Pattern Float
+cosineF = rotR 0.25 sineF
 
-cosine2 :: Pattern Float
-cosine2 = rotR 0.25 sine2
+cosine2F :: Pattern Float
+cosine2F = rotR 0.25 sine2F
 
-saw :: Pattern Float
-saw = sig fract
+sawF :: Pattern Float
+sawF = sig fract
 
-saw2 :: Pattern Float
-saw2 = sig (\t -> fract t * 2.0 - 1.0)
+saw2F :: Pattern Float
+saw2F = sig (\t -> fract t * 2.0 - 1.0)
 
-isaw :: Pattern Float
-isaw = mapP (\x -> 1.0 - x) saw
+isawF :: Pattern Float
+isawF = mapP (\x -> 1.0 - x) sawF
 
-isaw2 :: Pattern Float
-isaw2 = mapP (\x -> x * (-1.0)) saw2
+isaw2F :: Pattern Float
+isaw2F = mapP (\x -> x * (-1.0)) saw2F
 
-tri :: Pattern Float
-tri = fastAppend saw isaw
+triF :: Pattern Float
+triF = fastAppend sawF isawF
 
-tri2 :: Pattern Float
-tri2 = fastAppend saw2 isaw2
+tri2F :: Pattern Float
+tri2F = fastAppend saw2F isaw2F
 
-square :: Pattern Float
-square = sig (\t -> toFloat (floor (fract t * 2.0)))
+squareF :: Pattern Float
+squareF = sig (\t -> toFloat (floor (fract t * 2.0)))
 
-square2 :: Pattern Float
-square2 = sig (\t -> toFloat (floor (fract t * 2.0) * 2 - 1))
+square2F :: Pattern Float
+square2F = sig (\t -> toFloat (floor (fract t * 2.0) * 2 - 1))
 
 -- 0 to 1 over the first cycle, then 1; R reversed, Eq at equal power
 envL :: Pattern Float
@@ -386,19 +425,19 @@ fromMaybes ms = fastcat (map (\m -> case m of
     Just x -> atom x
     Nothing -> silence) ms)
 
--- 0 to n - 1 in a cycle
-run :: Pattern Int -> Pattern Int
+-- 0 to n - 1 in a cycle, at any number type, as Tidal's
+run :: (Num a, Ord a) => Pattern a -> Pattern a
 run np = joinP (mapP _run np)
 
-_run :: Int -> Pattern Int
-_run n = fastFromList [0 .. n - 1]
+_run :: (Num a, Ord a) => a -> Pattern a
+_run n = fastFromList (enumFromTo 0 (n - 1))
 
 -- run 1, then run 2, up to run n, a cycle each
-scan :: Pattern Int -> Pattern Int
+scan :: (Num a, Ord a) => Pattern a -> Pattern a
 scan np = joinP (mapP _scan np)
 
-_scan :: Int -> Pattern Int
-_scan n = cat (map _run [1 .. n])
+_scan :: (Num a, Ord a) => a -> Pattern a
+_scan n = cat (map _run (enumFromTo 1 n))
 
 append :: Pattern a -> Pattern a -> Pattern a
 append a b = cat [a, b]
@@ -1109,8 +1148,8 @@ randsFrom :: Int -> Int -> [Float]
 randsFrom seed n = if n <= 0 then [] else intSeedToRand seed : randsFrom (xorwise seed) (n - 1)
 
 -- continuous: from 0 to 1, a new value at each time
-rand :: Pattern Float
-rand = Pattern (\qst -> let q = qst.arc in [Event Nothing q (toFloat (randAt q.start 0) / 536870912.0)])
+randF :: Pattern Float
+randF = Pattern (\qst -> let q = qst.arc in [Event Nothing q (toFloat (randAt q.start 0) / 536870912.0)])
 
 brand :: Pattern Bool
 brand = _brandBy 0.5
@@ -1119,18 +1158,18 @@ brandBy :: Pattern Float -> Pattern Bool
 brandBy pp = innerJoin (mapP _brandBy pp)
 
 _brandBy :: Float -> Pattern Bool
-_brandBy prob = mapP (\r -> r < prob) rand
+_brandBy prob = mapP (\r -> r < prob) randF
 
 -- from 0 to n - 1
-irand :: Pattern Int -> Pattern Int
-irand np = joinP (mapP _irand np)
+irand :: Num a => Pattern Int -> Pattern a
+irand np = mapP fromInt (joinP (mapP _irand np))
 
 _irand :: Int -> Pattern Int
-_irand n = mapP (\r -> floor (r * toFloat n)) rand
+_irand n = mapP (\r -> floor (r * toFloat n)) randF
 
 -- smooth noise over p's values, one random point per integer
-perlinWith :: Pattern Float -> Pattern Float
-perlinWith p = case (mapP (\x -> toFloat (floor x)) p, mapP (\x -> toFloat (floor x + 1)) p) of
+perlinWithF :: Pattern Float -> Pattern Float
+perlinWithF p = case (mapP (\x -> toFloat (floor x)) p, mapP (\x -> toFloat (floor x + 1)) p) of
   (pa, pb) -> apP (apP (mapP perlinStep (p - pa)) (mapP timeToRandF pa)) (mapP timeToRandF pb)
 
 perlinStep :: Float -> Float -> Float -> Float
@@ -1139,8 +1178,8 @@ perlinStep x a b = a + smootherStep x * (b - a)
 smootherStep :: Float -> Float
 smootherStep x = 6.0 * x ** 5.0 - 15.0 * x ** 4.0 + 10.0 * x ** 3.0
 
-perlin :: Pattern Float
-perlin = perlinWith (sig id)
+perlinF :: Pattern Float
+perlinF = perlinWithF (sig id)
 
 -- two-dimensional perlin noise over x and y
 perlin2With :: Pattern Float -> Pattern Float -> Pattern Float
@@ -1168,22 +1207,22 @@ divP :: Pattern Float -> Pattern Float -> Pattern Float
 divP a b = apP (mapP (\x y -> x / y) a) b
 
 -- Box-Muller, as Tidal's: it clamps after adding 3, so values lie in 0..0.5
-normal :: Pattern Float
-normal = joinP (mapP (\u1 -> joinP (mapP (\u2 -> atom (normalOf u1 u2)) (rotL 1000.0 rand))) (mapP (max 0.001) rand))
+normalF :: Pattern Float
+normalF = joinP (mapP (\u1 -> joinP (mapP (\u2 -> atom (normalOf u1 u2)) (rotL 1000.0 randF))) (mapP (max 0.001) randF))
 
 normalOf :: Float -> Float -> Float
 normalOf u1 u2 = max (-3.0) (min 3.0 (sqrt (negate (2.0 * log u1)) * cos (2.0 * pi * u2) + 3.0)) / 6.0
 
 -- continuous: one of xs at random
 choose :: [a] -> Pattern a
-choose xs = chooseBy rand xs
+choose xs = chooseBy randF xs
 
 chooseBy :: Pattern Float -> [a] -> Pattern a
 chooseBy f xs = if null xs then silence else mapP (\v -> cyc xs (floor v)) (range 0.0 (atom (toFloat (length xs))) f)
 
 -- one of the values, each by its weight
 wchoose :: [(a, Pattern Float)] -> Pattern a
-wchoose pairs = wchooseBy rand pairs
+wchoose pairs = wchooseBy randF pairs
 
 wchooseBy :: Pattern Float -> [(a, Pattern Float)] -> Pattern a
 wchooseBy pat pairs = apLeft (apLeft (mapP (\r cw total -> wpick (map fst pairs) cw (r * total)) pat)
@@ -1199,7 +1238,7 @@ randcat :: [Pattern a] -> Pattern a
 randcat ps = spread' rotL (_segment 1 (mapP toFloat (_irand (length ps)))) (slowcat ps)
 
 wrandcat :: [(Pattern a, Pattern Float)] -> Pattern a
-wrandcat ps = joinP (wchooseBy (segment 1 rand) ps)
+wrandcat ps = joinP (wchooseBy (segment 1 randF) ps)
 
 -- each event dropped half the time, or with probability x, at random
 degrade :: Pattern a -> Pattern a
@@ -1209,7 +1248,7 @@ degradeBy :: Pattern Float -> Pattern a -> Pattern a
 degradeBy xp p = innerJoin (mapP (\x -> _degradeBy x p) xp)
 
 _degradeBy :: Float -> Pattern a -> Pattern a
-_degradeBy x p = _degradeByUsing rand x p
+_degradeBy x p = _degradeByUsing randF x p
 
 _degradeByUsing :: Pattern Float -> Float -> Pattern a -> Pattern a
 _degradeByUsing prand x p = mapP fst (filterValues (\(_, r) -> r >= x) (apLeft (mapP (\a r -> (a, r)) p) prand))
@@ -1219,11 +1258,11 @@ unDegradeBy :: Pattern Float -> Pattern a -> Pattern a
 unDegradeBy xp p = innerJoin (mapP (\x -> _unDegradeBy x p) xp)
 
 _unDegradeBy :: Float -> Pattern a -> Pattern a
-_unDegradeBy x p = mapP fst (filterValues (\(_, r) -> r < x) (apLeft (mapP (\a r -> (a, r)) p) rand))
+_unDegradeBy x p = mapP fst (filterValues (\(_, r) -> r < x) (apLeft (mapP (\a r -> (a, r)) p) randF))
 
 degradeOverBy :: Int -> Pattern Float -> Pattern a -> Pattern a
 degradeOverBy i tx p = joinP (mapP (\x -> mapP fst (filterValues (\(_, r) -> r > x)
-    (apLeft (mapP (\a r -> (a, r)) p) (fastRepeatCycles i rand)))) (_slow i tx))
+    (apLeft (mapP (\a r -> (a, r)) p) (fastRepeatCycles i randF)))) (_slow i tx))
 
 -- f on each event with probability x, at random
 sometimesBy :: Pattern Float -> (Pattern a -> Pattern a) -> Pattern a -> Pattern a
@@ -2274,6 +2313,59 @@ miniN s = mapP (\v -> case mvRat v of
 
 miniTI :: String -> Pattern Int
 miniTI s = mapP mvInt (mParse MTInt s)
+
+-- the types mini-notation parses into, as Tidal's Parseable; parseBP_E is
+-- Tidal's name. Int's note names are Tidal's, c5 0, as miniTI's.
+class Parseable a where
+  parseBP_E :: String -> Pattern a
+
+instance Parseable Int where
+  parseBP_E s = miniTI s
+
+instance Parseable Float where
+  parseBP_E s = miniF s
+
+instance Parseable String where
+  parseBP_E s = miniS s
+
+-- a note, as Tidal's Note: a Float whose mini-notation reads note names
+-- first, so "e" is note 4, where a Float's reads the ratio 1/8
+data Note = Note Float deriving (Eq, Ord)
+
+unNote :: Note -> Float
+unNote (Note x) = x
+
+-- as Tidal's: 4.0n (e5)
+instance Show Note where
+  showPrec _ (Note x) = case round x of
+    k -> show x ++ "n (" ++ pitchClassName (mod k 12) ++ show (div k 12 + 5) ++ ")"
+
+pitchClassName :: Int -> String
+pitchClassName k = case drop k ["c", "cs", "d", "ds", "e", "f", "fs", "g", "gs", "a", "as", "b"] of
+  n : _ -> n
+  [] -> ""
+
+instance Num Note where
+  Note a + Note b = Note (a + b)
+  Note a - Note b = Note (a - b)
+  Note a * Note b = Note (a * b)
+  negate (Note a) = Note (negate a)
+  abs (Note a) = Note (abs a)
+  fromInt i = Note (toFloat i)
+
+instance FromFloat Note where
+  fromFloat x = Note x
+
+instance Fractional Note where
+  Note a / Note b = Note (a / b)
+  recip (Note a) = Note (recip a)
+
+instance Parseable Note where
+  parseBP_E s = mapP Note (miniN s)
+
+-- a string literal as mini-notation, as Tidal's IsString: "bd*2 sn"
+instance Parseable a => FromString (Pattern a) where
+  fromString s = parseBP_E s
 
 mParse :: MMode -> String -> Pattern MV
 mParse mode s = case unpack s of

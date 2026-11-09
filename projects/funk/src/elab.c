@@ -530,6 +530,34 @@ static void elab(Expr *e, Sc *sc, DEnv *env) {
     e->ty = t;
     return;
   }
+  case E_STR: { /* as E_FLOAT: String stays a literal, another type calls its fromString */
+    Type *t = e->ty ? apply(e->ty) : NULL;
+    if (!t || (t->k == TY_CON && !strcmp(t->name, "String")) || CS->string_class < 0) {
+      e->ty = t;
+      return;
+    }
+    Expr *lit = mk(E_STR, e->line, e->col);
+    lit->name = e->name;
+    lit->slen = e->slen;
+    lit->ty = tcon_new(intern("String"), 0, NULL);
+    InstDef *in = t->k == TY_CON ? find_inst(CS->string_class, t->name) : NULL;
+    int m = in && !in->arity ? global_lookup(intern(xsprintf("$m.FromString.%s.fromString", t->name))) : -1;
+    if (m >= 0) {
+      Expr **a = xmalloc(sizeof *a);
+      a[0] = lit;
+      *e = *app(var(CS->globals.a[m].name, e->line, e->col), 1, a);
+      e->ty = t;
+      e->fn->idx = m;
+      e->fn->known = CS->globals.a[m].lam;
+      return;
+    }
+    Expr **a = xmalloc(2 * sizeof *a);
+    a[0] = dict_for(CS->string_class, t, env, e->line, e->col);
+    a[1] = lit;
+    *e = *app(var(intern("$fromString"), e->line, e->col), 2, a);
+    e->ty = t;
+    return;
+  }
   case E_APP: {
     if (e->fn->k == E_VAR) {
       Expr **ds;

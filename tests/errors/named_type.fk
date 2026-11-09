@@ -1,4 +1,4 @@
 -- expect: type mismatch
 f :: x:Int = 1 -> y:Int -> Int
 f x y = x + y
-main = print (f .{ x = "no" } 2)
+main = print (f .{ x = 'n' } 2)

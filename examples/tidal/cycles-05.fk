@@ -11,4 +11,4 @@ dirt = "~/.local/share/funk/Dirt-Samples"
 
 sig = d.kit dirt ["bd", "ht", "lt", "mt", "sid"]
 
-pat = p.slow 2 $ p.stack [spin 6 $ p.spread' (p.slow . p.atom) (p.mini "3 4 5 2") $ sound "[bd*5 ht*5, [sid/4]*3 [lt*2]/5 mt*3, [sid/3]*3]"] # speed "2"
+pat = p.slow 2 $ p.stack [spin 6 $ p.spread' (p.slow . p.atom) ("3 4 5 2") $ sound "[bd*5 ht*5, [sid/4]*3 [lt*2]/5 mt*3, [sid/3]*3]"] # speed "2"

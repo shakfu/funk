@@ -36,6 +36,17 @@ class Num a where
 class FromFloat a where
   fromFloat :: Float -> a
 
+-- what a string literal can be: String unless its uses fix another type
+class FromString a where
+  fromString :: String -> a
+
+-- division, as Haskell's; fromRational waits for a Rational type
+class (Num a, FromFloat a) => Fractional a where
+  (/) :: a -> a -> a
+  recip :: a -> a
+  x / y = x * recip y
+  recip x = 1.0 / x
+
 -- Int, and the C integer types of foreign imports (CInt, CSize, ...)
 class Num a => Integral a where
   toInt :: a -> Int
@@ -79,6 +90,11 @@ instance Num Float where
   fromInt = toFloat
 instance FromFloat Float where
   fromFloat x = x
+instance Fractional Float where
+  (/) = primDivFloat
+
+instance FromString String where
+  fromString s = s
 
 instance Eq Char where
   (==) = primEqChar

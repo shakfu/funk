@@ -1,0 +1,5 @@
+-- expect: no instance `FromString Int`: a string literal is a `String`
+-- a string literal cannot be an Int
+n :: Int
+n = 1
+main = print (n + "2")

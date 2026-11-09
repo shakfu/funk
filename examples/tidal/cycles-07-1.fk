@@ -11,4 +11,4 @@ dirt = "~/.local/share/funk/Dirt-Samples"
 
 sig = d.kit dirt ["drum", "jvbass", "rave", "sn"]
 
-pat = p.slow 2 $ p.spread' (striate . p.atom) (p.mini "[4 2 8 1]/3") $ jux p.palindrome $ sound "[jvbass*4 [jvbass/5]*8 ~ [jvbass/9]*6, drum*2 sn/2 [drum/2]*6 rave/3]"
+pat = p.slow 2 $ p.spread' (striate . p.atom) ("[4 2 8 1]/3") $ jux p.palindrome $ sound "[jvbass*4 [jvbass/5]*8 ~ [jvbass/9]*6, drum*2 sn/2 [drum/2]*6 rave/3]"

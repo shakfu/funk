@@ -28,13 +28,10 @@ The patches use Tidal's names from before 1.0. `tests/tidal/Patches.hs` has them
 
 `tests/tidal/ports.fk` has the port, and [examples/tidal](../../examples/tidal/README.md) has 18 of its patches to play. Beyond the `p.` names:
 
-- **No `OverloadedStrings`.** A string is not a pattern:
-  - mini-notation is `p.miniS`, `p.mini` or `p.miniF`;
-  - `speed "1 2"` and `sound "bd"` still take a literal;
-  - a pattern of names, as in `sound (samples ...)`, needs Tidal's `sound`. The port defines it as `soundP = grp [mS "s", mF "n"]`. 12 of the 22 patches use it.
+- **String literals are patterns**, as with Tidal's `OverloadedStrings`, since 2026-11-09, and controls take patterns, so `sound (samples "bd*2" (run 8))` and `end (slow 5 sine)` port as written. Until then the port used `p.miniS`, `p.mini` and `pF "end"`, and defined `sound` of a pattern as `soundP`. One literal keeps `p.miniS`: `p0`'s `let x = ...`, which nothing else fixes to a pattern ([tidal-comparison.md](tidal-comparison.md) L1).
 - **`pure` is `p.atom`**, and `<$>` and `fmap` are `p.mapP`. Sections and `.` port as written: `(# vowel "a") . p.iter 4`.
 - **Speed factors are `Int`s.** `slow (3/5)` is `p._fastR 5 3` (`p11`). `spread' (density . pure)` over a continuous `Float` is `p.density . p.atom . round` (`p14`). That channel matches only because it has no onsets in either (below).
-- **Times are `Float`s.** `toRational <$>` is dropped. `Pattern` has `Num` but not `Fractional`, so `(26/8) <~` is `p.atom (26.0 / 8.0) <~`.
+- **Times are `Float`s.** `toRational <$>` is dropped. `(26/8) <~` ports as written, since `Pattern` is `Fractional`.
 
 ## Results
 
@@ -104,5 +101,5 @@ The roadmap does not define "well inside". At 20% of the window, with a 50 ms lo
 ## Open
 
 - **The tick rate.** 46126080 makes binary subdivisions down to 1024ths exact. The cost: `randAt`'s constants, `funk-midi`'s `CYCLE_TICKS`, and every expected output written in ticks. A tick count would reach Int64's limit at 2e11 cycles, less by any `_fast` factor. The alternative is to keep 720720, with errors of at most 30 ticks.
-- **Tidal's `sound` of a pattern.** 12 of 22 patches need it. `lib/control.fk`'s `sound` takes a literal.
+- ~~**Tidal's `sound` of a pattern.** 12 of 22 patches need it.~~ Done 2026-11-09: controls take patterns.
 - **Fractional patterned speed factors**, for `p11` and `p14`.
