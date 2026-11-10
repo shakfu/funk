@@ -61,6 +61,8 @@ Modules need no change to this structure. An imported module is one more chunk, 
 
 - **A local variable named like an imported qualifier is an error**, as records.md reserves. It keeps `geometry.area` from reading as a field of a variable `geometry`.
 
+- **A top-level value may share a qualifier's name**, as Tidal's `p` beside funk-midi's `import pattern as p`. `p.x` with no spaces is always qualified, so a record value so named cannot use `p.field`. Allowed 2026-11-10, for Tidal's `p` (tidal-comparison.md, R1).
+
 ### Exports
 
 - **No list exports every top-level name**, as in Haskell.

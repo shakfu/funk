@@ -2783,11 +2783,18 @@ sampleEvents p cs a b = sampleEventsWith [] p cs a b
 
 -- sampleEvents, queried with controls ctls
 sampleEventsWith :: [(String, Ctl)] -> Pattern a -> Int -> Int -> Int -> [(Int, Int, a)]
-sampleEventsWith ctls p cs a b =
+sampleEventsWith ctls p cs a b = sampled cs (windowOnsets ctls p cs a b)
+
+-- the onsets in samples [a, b), queried with controls ctls
+windowOnsets :: [(String, Ctl)] -> Pattern a -> Int -> Int -> Int -> [Event a]
+windowOnsets ctls p cs a b = onsetsState p (State (Span (ceilDiv (a * cycleTicks) cs) (ceilDiv (b * cycleTicks) cs)) ctls)
+
+-- events as (start, duration, value) in samples, cs a cycle, in time order
+sampled :: Int -> [Event a] -> [(Int, Int, a)]
+sampled cs es =
   sortBy (\(x, _, _) (y, _, _) -> compare x y)
     (map (\e -> case (wholeOrPart e, div ((wholeOrPart e).start * cs) cycleTicks) of
-            (w, s) -> (s, div (w.stop * cs) cycleTicks - s, e.value))
-      (onsetsState p (State (Span (ceilDiv (a * cycleTicks) cs) (ceilDiv (b * cycleTicks) cs)) ctls)))
+            (w, s) -> (s, div (w.stop * cs) cycleTicks - s, e.value)) es)
 
 -- sampleEvents without durations
 sampleOnsets :: Pattern a -> Int -> Int -> Int -> [(Int, a)]

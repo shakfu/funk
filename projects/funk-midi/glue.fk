@@ -1,0 +1,4 @@
+-- The modules main.c's session imports with foreign imports of its own
+-- functions, for `funk emit-c --glue`: their wrappers are linked in, so
+-- funk-midi needs no C compiler for them.
+import stream

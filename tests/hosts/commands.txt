@@ -1,0 +1,42 @@
+-- funk-midi --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): Tidal's
+-- slot commands (lib/stream.fk), one event a cycle each. Cycle 0: 1, 2 and
+-- x play; 1: mute 2; 2: solo 1, and list; 3: OSC /mute x; 4: OSC /solo 2;
+-- 5: OSC /muteAll; 6: streamAll (# speed 2); 7: hush; 8 and 9: d1, and
+-- first's two events, from cycle 8; 10: once's one; 11: only d2; 12:
+-- OSC /hush, an unhandled OSC message, and panic's superpanic.
+d1 $ s "a"
+d2 $ s "b"
+p "x" $ s "c"
+:wait 2000
+mute 2
+:wait 2000
+solo 1
+list
+:wait 2000
+unsolo 1
+unmute 2
+:osc /mute x
+:wait 2000
+:osc /unmute x
+:osc /solo 2
+:wait 2000
+:osc /unsoloAll
+:osc /muteAll
+:wait 2000
+unmuteAll
+streamAll (# speed 2)
+:wait 2000
+streamAll id
+hush
+:wait 2000
+d1 $ s "d"
+first $ s "f*2"
+:wait 4000
+once $ s "o"
+:wait 2000
+only (\_ -> d2 $ s "z")
+:wait 2000
+:osc /hush
+:osc /nope 1
+panic
+:wait 2000

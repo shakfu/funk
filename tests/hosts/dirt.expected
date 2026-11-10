@@ -1,7 +1,7 @@
-  100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:00000000 delta=f:3f800000 n=f:00000000 s=s:bd
- 1100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3f000000 delta=f:3f800000 n=f:00000000 s=s:sn
- 2100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3f800000 delta=f:3f800000 n=f:40400000 s=s:bd
- 4350.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40000000 delta=f:40000000 nudge=f:3e800000 s=s:x
- 5395.001 dirt /dirt/play _id_=s:1 cps=f:3f800000 cycle=f:40400000 delta=f:3f800000 nudge=f:3e800000 s=s:x
+  100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:00000000 delta=f:3f800000 n=f:00000000 orbit=i:0 s=s:bd
+ 1100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3f000000 delta=f:3f800000 n=f:00000000 orbit=i:0 s=s:sn
+ 2100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3f800000 delta=f:3f800000 n=f:40400000 orbit=i:0 s=s:bd
+ 4350.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40000000 delta=f:40000000 nudge=f:3e800000 orbit=i:0 s=s:x
+ 5395.001 dirt /dirt/play _id_=s:1 cps=f:3f800000 cycle=f:40400000 delta=f:3f800000 nudge=f:3e800000 orbit=i:0 s=s:x
 funk-midi: pat is not playing: with --dirt it must be a pattern of Controls
- 7395.001 dirt /dirt/play _id_=s:1 cps=f:3f800000 cycle=f:40a00000 delta=f:3f800000 nudge=f:3e800000 s=s:x
+ 7395.001 dirt /dirt/play _id_=s:1 cps=f:3f800000 cycle=f:40a00000 delta=f:3f800000 nudge=f:3e800000 orbit=i:0 s=s:x

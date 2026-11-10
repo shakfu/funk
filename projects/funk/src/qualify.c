@@ -93,7 +93,6 @@ static const char *ren_value(Q *q, const char *x, int line, int col) {
   if (has(&q->scope, x)) return x;
   const char *i = imported(q, x, NS_VALUE, line, col);
   if (i) return i;
-  if (qualifier(q, x)) cerror(line, col, "`%s` names an imported module; use `%s.name`", x, x);
   const char *dot = ns_dot(x); /* T.member, T this module's or imported unqualified */
   if (dot) {
     const char *tn = intern_n(x, (size_t)(dot - x));
@@ -106,6 +105,9 @@ static const char *ren_value(Q *q, const char *x, int line, int col) {
   }
   if (has(&q->values, x)) return own(q, &q->values, x);
   Unq *u = unqualified(q, NS_VALUE, x);
+  /* a REPL input's earlier global, as `p` after `p k = ...` */
+  bool global = !q->prefix && global_lookup(x) >= 0;
+  if (!u && !global && qualifier(q, x)) cerror(line, col, "`%s` names an imported module; use `%s.name`", x, x);
   return u ? u->target : x;
 }
 
@@ -198,12 +200,12 @@ static void q_expr(Q *q, Expr *e) {
 
 /* ------------------------------------------------------------ the module's names */
 
-/* A module's own name: not the prelude's, not an import's qualifier, not
-   one an import list brings in. */
+/* A module's own name: not the prelude's, not one an import list brings
+   in. It may be an import's qualifier, as Tidal's `p` beside `pattern as
+   p`: `p.x` with no spaces is joined to the qualified name first. */
 static void define(Q *q, Names *s, int ns, const char *x, int line, int col) {
   if (x[0] == '$') return;
   if (q->prefix && in_prelude(ns, x)) cerror(line, col, "%s`%s` is defined in the prelude and cannot be redefined; choose another name", ns_word[ns], x);
-  if (ns == NS_VALUE && qualifier(q, x)) cerror(line, col, "`%s` names an imported module, so it cannot also name a definition", x);
   Unq *u = unqualified(q, ns, x);
   if (u) cerror(line, col, "%s`%s` is imported from `%s`; choose another name", ns_word[ns], x, u->from->im->path);
   VPUSH(*s, x);

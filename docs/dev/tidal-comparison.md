@@ -110,7 +110,7 @@ The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are inte
 
 **C1. Done: controls of patterns.** See L2.
 
-**C2. Gap: an event's `cps` does not set the tempo.** In Tidal's `Stream/Process.hs:151`, an event with `cps` sets the clock's tempo, so `# cps "<0.5 1>"` changes speed. funk passes `cps` only to `d.kit`. In the plugin the DAW owns the tempo, so it can only be a funk-midi feature (see R3).
+**C2. Done 2026-11-10 in funk-midi: an event's `cps` sets the tempo**, at its onset, as in Tidal's `Stream/Process.hs:151`, so `# cps "<0.5 1>"` changes speed ([stream.md](stream.md#tempo)). In the plugin the DAW owns the tempo (R7).
 
 **C3. Gap: the rest of `Params.hs`.** funk has the 257 base controls. Tidal's `Params.hs` also generates, for most of them:
 
@@ -121,15 +121,15 @@ Also missing are `midinote`, `drum`, `drumN`, `array`, `grain'`, `pB`, `pR`, `pX
 
 ## Runtime and workflow
 
-`Boot.hs` and `Stream/UI.hs` hold Tidal's runtime. funk has one `pat` per session, `:stop` and `:play`, and `:cycle MS`.
+`Boot.hs` and `Stream/UI.hs` hold Tidal's runtime. funk-midi has Tidal's slots, `:stop` and `:play`, and `:cycle MS`.
 
-**R1. Gap: named pattern slots.** Tidal plays any number of patterns at once, by name: `d1` to `d16`, and `p "name"`. funk plays one `pat`. A live set needs several, each replaced alone.
+**R1. Done 2026-11-10: named pattern slots.** `d1` to `d16`, `p "name"`, `_p`, `p_`, `_d1` and `d1_`, in `lib/stream.fk`, in funk-midi; `pat` of `Controls` is `d1`'s. `lib/tidal-dirt` checks 5 slots against Tidal's `playStack` ([stream.md](stream.md)). Not yet in the plugin.
 
-**R2. Gap: slot commands.** `hush`, `silence`, `once`, `first`, `asap`, `solo`, `unsolo`, `mute`, `unmute`, `muteAll`, `unmuteAll`, `unsoloAll`, `all`, `list` and `panic`.
+**R2. Done 2026-11-10: slot commands.** Boot.hs's `hush`, `once`, `first`, `asap`, `solo`, `unsolo`, `mute`, `unmute`, `unmuteAll`, `unsoloAll`, `list`, `panic` and `only`, and the listener's OSC `/silence`, `/muteAll` and the rest ([stream.md](stream.md#commands)). Kept differences: Tidal's `all` is `streamAll`, as the prelude's `all` keeps its name; `only` takes `\_ -> action`, as funk is strict.
 
-**R3. Gap: tempo and cycle commands.** `setcps`, `setbpm`, `getcps`, `getbpm`, `getnow`, `resetCycles`, `setCycle` and `nudgeAll`. funk-midi has `:cycle MS` only. Tidal's default is 0.5625 cycles per second (`Safe/Boot.hs:75`); funk-midi's is 0.5 (`--cycle 2000`). Match the default. In the plugin the host's tempo stays authoritative (R7).
+**R3. Done 2026-11-10 in funk-midi: tempo and cycle commands.** `setcps`, `setbpm`, `getcps`, `getbpm`, `getnow`, `resetCycles`, `setCycle` and `nudgeAll`, and the listener's OSC forms ([stream.md](stream.md#tempo)). The default is Tidal's 0.575 cycles per second: its clock's `defaultCps` (tidal-link `Clock.hs`), not the 0.5625 of a doc comment (`Safe/Boot.hs:75`). Kept difference: the getters return `Float`, as funk has no `Rational` (T3). In the plugin the host's tempo stays authoritative (R7).
 
-**R4. Gap: transitions.** `xfade`, `xfadeIn`, `jump`, `jumpIn`, `jumpIn'`, `jumpMod`, `jumpMod'`, `clutch`, `clutchIn`, `interpolate`, `interpolateIn`, `wash`, `washIn`, `anticipate`, `anticipateIn`, `wait`, `waitT`, `mortal` and `histpan` (`Transition.hs`). Each needs R1's slots.
+**R4. Done 2026-11-10 in funk-midi: transitions.** Boot.hs's `xfade` to `forId`, and `Transition.hs`'s mappers, `_xfadeIn` to `_mortalOverlay` ([stream.md](stream.md#transitions)). `lib/tidal-dirt` checks 12 against Tidal's own. `wash`, `washIn` and `mortalOverlay`, which Boot.hs hides, are `_wash`, `_washIn` and `_mortalOverlay`.
 
 **R5. Gap: state set from code.** `setF`, `setI`, `setS`, `setR` and `setB` set the values `cF` and the rest read. funk's controls come from OSC, MIDI CC and plugin parameters only ([controls-in.md](controls-in.md)).
 
@@ -160,7 +160,7 @@ Also missing are `midinote`, `drum`, `drumN`, `array`, `grain'`, `pB`, `pR`, `pX
 - Random UGens (`PitchShift`, `LFNoise1`) draw from scsynth's per-synth RNG. Port the RNG and its seeding for exact output, or match only the statistics.
 - scsynth computes in `float32`. Match it bit for bit in `float32`, or work in double with a stated error bound.
 
-**S9. Done 2026-11-09: an OSC target.** `funk-midi --dirt [HOST:]PORT` sends `/dirt/play` bundles as Tidal's `superdirtTarget` does ([dirt.md](dirt.md)). `lib/tidal-dirt` checks 122 messages of 12 patterns against Tidal's own `toOSC`, float bits included. S1 to S8 now matter only in the plugin and without SuperCollider. It shakes hands as Tidal does. Not done: an event's `cps` setting the tempo (R3).
+**S9. Done 2026-11-09: an OSC target.** `funk-midi --dirt [HOST:]PORT` sends `/dirt/play` bundles as Tidal's `superdirtTarget` does ([dirt.md](dirt.md)). `lib/tidal-dirt` checks 122 messages of 12 patterns against Tidal's own `toOSC`, float bits included. S1 to S8 now matter only in the plugin and without SuperCollider. It shakes hands as Tidal does. An event's `cps` sets the tempo (C2).
 
 **S10. Review: 4 voices a name.** SuperDirt starts a synth per event, without a limit. `d.kit` gives each name 4 voices, so a fifth overlapping event takes the oldest's voice, which is audible. The reason holds: the graph is fixed while it plays, and the audio thread cannot allocate ([delivery.md](delivery.md)). The number is the open part. Pick a default no ported patch exceeds, and report a stolen voice.
 

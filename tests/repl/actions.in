@@ -1,0 +1,18 @@
+:{
+greet :: () ->> ()
+greet _ = putStrLn "hello"
+:}
+greet
+:{
+answer :: () ->> Int
+answer _ = 42
+:}
+answer
+it + 1
+(\_ -> putStrLn "lambda")
+putStrLn
+:{
+twice :: Int ->> Int
+twice n = n * 2
+:}
+twice

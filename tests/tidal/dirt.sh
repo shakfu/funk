@@ -14,7 +14,11 @@ containers=$(ghc-pkg field tidal-core depends | grep -o 'containers-[0-9.]*' | h
 tab=$(printf '\t')
 while IFS="$tab" read -r name expr; do
   # cycles [0, 4) at 2 s a cycle: the last window starts before 8000 ms
-  printf 'pat = %s\n:wait 7890\n' "$expr" > "$dir/case.txt"
-  "$midi" --no-sleep --dirt 57120 --script "$dir/case.txt" | sed -n "s|^ *[0-9.]* dirt |$name |p" >> "$dir/funk.out"
+  # a case of several inputs, as slots, separates them with " ;; "
+  case "$expr" in
+  *' ;; '*) printf '%s\n:wait 7890\n' "$expr" | awk '{gsub(/ ;; /, "\n"); print}' > "$dir/case.txt" ;;
+  *) printf 'pat = %s\n:wait 7890\n' "$expr" > "$dir/case.txt" ;;
+  esac
+  "$midi" --no-sleep --cycle 2000 --dirt 57120 --script "$dir/case.txt" | sed -n "s|^ *[0-9.]* dirt |$name |p" >> "$dir/funk.out"
 done < tests/tidal/dirt.cases
 diff "$dir/tidal.out" "$dir/funk.out"

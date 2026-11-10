@@ -1,0 +1,6 @@
+hello
+42
+43
+lambda
+<function> :: String ->> ()
+<function> :: Int ->> Int

@@ -1,0 +1,32 @@
+-- funk-midi --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): Tidal's
+-- slots (lib/stream.fk). They play in order of ID as strings, "1" < "10" <
+-- "13" < "2" < "3" < "x"; d1 to d12 add orbit 0 to 11 unless the pattern
+-- has one; d13 adds none. Replacing one slot leaves the others; _d2 and
+-- d10_ silence theirs; p 13 is d13's slot and p "3" d3's. A pattern that
+-- fails at once is reported and replaces nothing. When one fails later,
+-- each slot returns to its previous pattern, as Tidal's doTick does: a
+-- pattern given before the latest has no _id_, as in Tidal's history, and
+-- x, given once, falls silent. d2's trigger counts from the cycle it was
+-- given at, 4.35: t at 4.35, 4.85 and 5.35.
+d1 $ s "a"
+d2 $ s "b"
+d10 $ s "c"
+p "x" $ s "d" # orbit 5
+d13 $ s "e"
+d3 $ s "f" # orbit 7
+:wait 2000
+d1 $ s "g"
+_d2 $ s "b"
+d10_ $ s "c"
+p 13 $ s "h"
+p "3" $ s "i"
+:wait 2000
+d1 $ p.Pattern (\_ -> error "boom")
+:wait 2000
+d3 $ s (p.Pattern (\st -> if st.arc.start > 0 then error "late" else []))
+:wait 2000
+d2 $ s "j"
+:wait 700
+d3 $ s "k"
+d2 $ p.trigger $ s "t*2"
+:wait 3000

@@ -1,0 +1,29 @@
+  100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:00000000 delta=f:40000000 orbit=i:0 s=s:a
+  100.000 dirt /dirt/play _id_=s:10 cps=f:3f000000 cycle=f:00000000 delta=f:40000000 orbit=i:9 s=s:c
+  100.000 dirt /dirt/play _id_=s:13 cps=f:3f000000 cycle=f:00000000 delta=f:40000000 s=s:e
+  100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cycle=f:00000000 delta=f:40000000 orbit=i:1 s=s:b
+  100.000 dirt /dirt/play _id_=s:3 cps=f:3f000000 cycle=f:00000000 delta=f:40000000 orbit=i:7 s=s:f
+  100.000 dirt /dirt/play _id_=s:x cps=f:3f000000 cycle=f:00000000 delta=f:40000000 orbit=i:5 s=s:d
+ 2100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3f800000 delta=f:40000000 orbit=i:0 s=s:g
+ 2100.000 dirt /dirt/play _id_=s:13 cps=f:3f000000 cycle=f:3f800000 delta=f:40000000 s=s:h
+ 2100.000 dirt /dirt/play _id_=s:3 cps=f:3f000000 cycle=f:3f800000 delta=f:40000000 s=s:i
+ 2100.000 dirt /dirt/play _id_=s:x cps=f:3f000000 cycle=f:3f800000 delta=f:40000000 orbit=i:5 s=s:d
+runtime error: boom
+ 4100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40000000 delta=f:40000000 orbit=i:0 s=s:g
+ 4100.000 dirt /dirt/play _id_=s:13 cps=f:3f000000 cycle=f:40000000 delta=f:40000000 s=s:h
+ 4100.000 dirt /dirt/play _id_=s:3 cps=f:3f000000 cycle=f:40000000 delta=f:40000000 s=s:i
+ 4100.000 dirt /dirt/play _id_=s:x cps=f:3f000000 cycle=f:40000000 delta=f:40000000 orbit=i:5 s=s:d
+runtime error: late
+funk-midi: a window failed; each slot returns to its previous pattern
+ 8100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40800000 delta=f:40000000 orbit=i:0 s=s:a
+ 8100.000 dirt /dirt/play _id_=s:10 cps=f:3f000000 cycle=f:40800000 delta=f:40000000 orbit=i:9 s=s:c
+ 8100.000 dirt /dirt/play _id_=s:13 cps=f:3f000000 cycle=f:40800000 delta=f:40000000 s=s:e
+ 8100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cycle=f:40800000 delta=f:40000000 orbit=i:1 s=s:j
+ 8100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40800000 delta=f:40000000 s=s:i
+ 8800.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cycle=f:408b3333 delta=f:3f800000 orbit=i:1 s=s:t
+ 9800.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cycle=f:409b3333 delta=f:3f800000 orbit=i:1 s=s:t
+10100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40a00000 delta=f:40000000 orbit=i:0 s=s:a
+10100.000 dirt /dirt/play _id_=s:10 cps=f:3f000000 cycle=f:40a00000 delta=f:40000000 orbit=i:9 s=s:c
+10100.000 dirt /dirt/play _id_=s:13 cps=f:3f000000 cycle=f:40a00000 delta=f:40000000 s=s:e
+10100.000 dirt /dirt/play _id_=s:3 cps=f:3f000000 cycle=f:40a00000 delta=f:40000000 orbit=i:2 s=s:k
+10800.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cycle=f:40ab3333 delta=f:3f800000 orbit=i:1 s=s:t

@@ -1,4 +1,4 @@
--- funk-midi --audio --voices 2 --no-sleep --script (tests/CMakeLists.txt):
+-- funk-midi --audio --voices 2 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
 -- pat's notes on two voices. pat changes from the first window not yet
 -- scheduled, 50 ms ahead, so it is redefined 100 ms before a cycle.
 -- The sum of the gates, 100 / 127 a note: one note at a time, then a gap;

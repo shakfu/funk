@@ -8,6 +8,8 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
+- [x] `FUNK_GCSTRESS=1` failed funk-midi's check of marks: a false report, from a scratch register `___chkstk_darwin` saved into an interpreter VLA. Fixed 2026-11-10 ([docs/dev/261110-gcstress-chkstk.md](docs/dev/261110-gcstress-chkstk.md)).
+
 ## High
 
 ### Tidal parity, roadmap 0.12 ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md))
@@ -26,9 +28,19 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] Listen to `funk-midi --dirt 57120` against a running SuperDirt: it plays, on macOS, 2026-11-09.
 
-- [ ] Check `funk-midi --dirt 57120`'s handshake against a real SuperDirt: it should print "Connected to SuperDirt." within 2 s. Only a stand-in (`tests/hosts/dirt_handshake.py`) has been tested.
+- [x] Check `funk-midi --dirt 57120`'s handshake against a real SuperDirt 1.7.3: started first, it connects at the next 2 s retry; started after, in 70 ms. Done 2026-11-10.
 
-- [ ] R1-R5: slots `d1`..`d16` and `p "name"`, their commands, tempo commands and an event's `cps`, transitions, `setF` and its kind.
+- [x] R1: slots `d1`..`d16` and `p "name"`, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md)).
+
+- [ ] R1 in the plugin: slots for funk-clap.
+
+- [x] R2: the slots' commands, and the listener's OSC ones. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#commands)).
+
+- [x] R3, C2: tempo commands and an event's `cps`, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#tempo)).
+
+- [x] R4: transitions, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
+
+- [ ] R5: `setF` and its kind.
 
 - [ ] T1-T3: 46126080 ticks per cycle; fractional patterned speed factors.
 

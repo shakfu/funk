@@ -1,0 +1,22 @@
+-- funk-midi --no-sleep --cycle 2000 --dirt 57120 --script (tests/CMakeLists.txt):
+-- Tidal's transitions (lib/stream.fk), given past cycle 0 (lib/tidal-dirt
+-- checks each at cycle 0 against Tidal's own). xfade from cycle 2: the gain
+-- of a falls as b's rises, over 4 cycles; the slot then has no _id_, as in
+-- Tidal. jump on a new slot, 2: c from cycle 6. A muted slot stays muted
+-- through a transition. anticipateIn: a's echoes speed up over 1 cycle,
+-- then d.
+d1 $ s "a*2"
+:wait 3990
+xfade 1 $ s "b*2"
+:wait 4000
+jump 2 $ s "c"
+mute 2
+:wait 2000
+jumpIn 2 0 $ s "e"
+:wait 2000
+unmute 2
+d1 $ s "a*2"
+:wait 1990
+anticipateIn 1 1 $ s "d"
+:wait 3000
+list

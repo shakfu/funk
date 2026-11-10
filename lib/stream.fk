@@ -1,0 +1,462 @@
+-- stream.fk -- Tidal's pattern slots and their commands (Stream/UI.hs,
+-- Stream/Process.hs, Boot.hs): `d1 $ s "bd*2"` and `p "name" $ ...`
+-- replace what one slot plays, the host plays every slot at once, and
+-- `hush`, `mute`, `solo`, `once` and the rest act on them. Import every
+-- name unqualified, as Tidal's are:
+--   import stream (..)
+-- The host keeps the slots: it gives the funk_stream_ functions
+-- (stream.h) and queries playStack each window. Tidal's `all` is
+-- `streamAll` here: the prelude's `all` keeps its name.
+module stream
+  ( ID(..), fromID, PlayState(..), p, _p, p_, playStack, setPreviousPatternOrSilence, only, hush, panic, list,
+    mute, unmute, muteAll, unmuteAll, unsoloAll, solo, unsolo, streamSilence, once, asap, first, streamAll,
+    setcps, getcps, setbpm, getbpm, getnow, setCycle, resetCycles, nudgeAll, streamSetCPS, writeTempo,
+    transition, xfade, xfadeIn, histpan, wait, waitT, jump, jumpIn, jumpIn', jumpMod, jumpMod', mortal, interpolate,
+    interpolateIn, clutch, clutchIn, anticipate, anticipateIn, forId,
+    _xfadeIn, _histpan, _wait, _waitT, _jump, _jumpIn, _jumpIn', _jumpMod, _jumpMod', _mortal, _interpolate,
+    _interpolateIn, _clutch, _clutchIn, _anticipate, _anticipateIn, _wash, _washIn, _mortalOverlay,
+    d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16,
+    _d1, _d2, _d3, _d4, _d5, _d6, _d7, _d8, _d9, _d10, _d11, _d12, _d13, _d14, _d15, _d16,
+    d1_, d2_, d3_, d4_, d5_, d6_, d7_, d8_, d9_, d10_, d11_, d12_, d13_, d14_, d15_, d16_
+  ) where
+
+import pattern as p
+import control (..)
+
+foreign import ccall "stream.h funk_stream_replace" streamReplace :: String -> Ptr () ->> Ptr ()
+foreign import ccall "stream.h funk_stream_get" streamGet :: String ->> Ptr ()
+foreign import ccall "stream.h funk_stream_count" streamCount :: () ->> Int
+foreign import ccall "stream.h funk_stream_key" streamKey :: Int ->> String
+foreign import ccall "stream.h funk_stream_at" streamAt :: Int ->> Ptr ()
+foreign import ccall "stream.h funk_stream_first" streamFirst :: Ptr () -> Float ->> ()
+foreign import ccall "stream.h funk_stream_firsts" streamFirsts :: () ->> Int
+foreign import ccall "stream.h funk_stream_first_at" streamFirstAt :: Int ->> Ptr ()
+foreign import ccall "stream.h funk_stream_expired" streamExpired :: () ->> Ptr ()
+foreign import ccall "stream.h funk_stream_set_global" streamSetGlobal :: Ptr () ->> Ptr ()
+foreign import ccall "stream.h funk_stream_global" streamGlobal :: () ->> Ptr ()
+-- the cycle a pattern given now starts at
+foreign import ccall "stream.h funk_stream_now" streamNow :: () ->> Float
+foreign import ccall "stream.h funk_stream_random" streamRandom :: () ->> Int
+-- the host's clock (Clock.hs): cycles per second, set from the next window
+-- and clamped as Link's tempo is; the cycle now; nudgeAll's seconds
+foreign import ccall "stream.h funk_stream_cps" streamCps :: () ->> Float
+foreign import ccall "stream.h funk_stream_set_cps" streamSetCps :: Float ->> ()
+foreign import ccall "stream.h funk_stream_cycle_now" streamCycleNow :: () ->> Float
+foreign import ccall "stream.h funk_stream_set_cycle" streamSetCycle :: Float ->> ()
+foreign import ccall "stream.h funk_stream_nudge" streamNudge :: () ->> Float
+foreign import ccall "stream.h funk_stream_set_nudge" streamSetNudge :: Float ->> ()
+
+-- A slot's name, as Tidal's: 1 and "1" are the same slot.
+data ID = ID String deriving (Eq, Ord, Show)
+
+fromID :: ID -> String
+fromID (ID s) = s
+
+instance FromString ID where
+  fromString s = ID s
+
+instance Num ID where
+  fromInt i = ID (show i)
+  _ + _ = noOv "+"
+  _ - _ = noOv "-"
+  _ * _ = noOv "*"
+  negate _ = noOv "negate"
+  abs _ = noOv "abs"
+
+noOv :: String -> a
+noOv meth = error (meth ++ ": not supported for ids")
+
+-- Tidal's: what a slot plays, and every pattern it was given, latest first
+data PlayState = PlayState { psPattern :: p.Pattern Controls, psMute :: Bool, psSolo :: Bool, psHistory :: [p.Pattern Controls] }
+
+-- a StablePtr's value, and one to a value
+deref :: Ptr () ->> a
+deref sp = deRefStablePtr (castPtrToStablePtr sp)
+
+stable :: a ->> Ptr ()
+stable x = castStablePtrToPtr (newStablePtr x)
+
+freeStable :: Ptr () ->> ()
+freeStable sp = if sp == nullPtr then () else freeStablePtr (castPtrToStablePtr sp)
+
+put :: String -> PlayState ->> ()
+put k st = freeStable (streamReplace k (stable st))
+
+-- every slot's id and state, in Tidal's order
+states :: () ->> [(String, PlayState)]
+states _ = map (\i -> (streamKey i, deref (streamAt i))) (enumFromTo 0 (streamCount () - 1))
+
+-- Tidal's streamReplace: from the next window, slot k plays pat, with its
+-- `_id_` and the cycle it was given at, for trigger (updatePattern). A
+-- pattern that fails at once is reported here and replaces nothing.
+p :: ID -> p.Pattern Controls ->> ()
+p k pat = do
+  let pat' = withPatternTime (streamNow ()) (pat # pS "_id_" (p.atom (fromID k)))
+  length (p.queryState pat' (p.State (p.Span 0 0) []))
+  old <- streamGet (fromID k)
+  put (fromID k) (if old == nullPtr then PlayState pat' False False [pat']
+                  else (\st -> st { psPattern = pat', psHistory = pat : st.psHistory }) (deref old))
+
+-- as Tidal's withQueryControls (Map.union patControls): the slot's wins
+withPatternTime :: Float -> p.Pattern a -> p.Pattern a
+withPatternTime t pat = p.Pattern (\st -> p.queryState pat (p.State st.arc (("_t_pattern", p.CtlF t) : st.controls)))
+
+-- silences slot k, whatever the pattern
+_p :: ID -> p.Pattern Controls ->> ()
+_p k _ = p k p.silence
+
+p_ :: ID -> p.Pattern Controls ->> ()
+p_ k pat = _p k pat
+
+-- Tidal's withPatIds: f on the slots of ks that exist
+withPatIds :: [ID] -> (PlayState -> PlayState) ->> ()
+withPatIds ks f = mapM_ (\k -> case streamGet (fromID k) of
+  sp -> if sp == nullPtr then () else put (fromID k) (f (deref sp))) ks
+
+-- f on every slot
+modifyAll :: (PlayState -> PlayState) ->> ()
+modifyAll f = mapM_ (\(k, st) -> put k (f st)) (states ())
+
+silenced :: PlayState -> PlayState
+silenced st = st { psPattern = p.silence, psHistory = p.silence : st.psHistory }
+
+hush :: () ->> ()
+hush _ = modifyAll silenced
+
+-- `hush`, then f's action; f takes (), as funk is strict: only (\_ -> d1 $ s "bd")
+only :: (() ->> ()) ->> ()
+only f = do
+  hush ()
+  f ()
+
+panic :: () ->> ()
+panic _ = do
+  hush ()
+  once (sound "superpanic")
+
+-- Tidal's streamList: each slot, in parentheses if it does not play
+list :: () ->> ()
+list _ = case states () of
+  sts -> putStrLn (concatStrings (map (showKV (any (\(_, st) -> st.psSolo) sts)) sts))
+
+showKV :: Bool -> (String, PlayState) -> String
+showKV hs (k, st) = if hs then (if st.psSolo then k ++ " - solo\n" else "(" ++ k ++ ")\n")
+                    else (if st.psSolo then "(" ++ k ++ ") - muted\n" else k ++ "\n")
+
+mute, unmute, solo, unsolo, streamSilence :: ID ->> ()
+mute k = withPatIds [k] (\st -> st { psMute = True })
+unmute k = withPatIds [k] (\st -> st { psMute = False })
+solo k = withPatIds [k] (\st -> st { psSolo = True })
+unsolo k = withPatIds [k] (\st -> st { psSolo = False })
+-- Tidal's /silence k, from its OSC listener: slot k plays silence
+streamSilence k = withPatIds [k] silenced
+
+muteAll, unmuteAll, unsoloAll :: () ->> ()
+muteAll _ = modifyAll (\st -> st { psMute = True })
+unmuteAll _ = modifyAll (\st -> st { psMute = False })
+unsoloAll _ = modifyAll (\st -> st { psSolo = False })
+
+-- Tidal's streamFirst: cycle 0 of pat, from the next window, once; not a
+-- slot, so no `_id_`, mute or solo
+first :: p.Pattern Controls ->> ()
+first pat = case streamNow () of
+  t -> streamFirst (stable (p.rotR t (p.playFor 0.0 1.0 pat))) (t + 1.0)
+
+-- a random cycle of pat, 0 to 8192, once
+once :: p.Pattern Controls ->> ()
+once pat = first (p.rotL (toFloat (streamRandom ())) pat)
+
+asap :: p.Pattern Controls ->> ()
+asap pat = once pat
+
+-- Tidal's all: f on everything played, from the next window
+streamAll :: (p.Pattern Controls -> p.Pattern Controls) ->> ()
+streamAll f = freeStable (streamSetGlobal (stable f))
+
+-- Tidal's tempo commands. setcps is Boot's `once . cps`: the tempo changes
+-- at that event, as at any event with a `cps`. Tidal's listener's /setcps
+-- sets it at once: streamSetCPS. Tidal's return Rationals; these, Floats.
+setcps :: p.Pattern Float ->> ()
+setcps pat = once (cps pat)
+
+streamSetCPS :: Float ->> ()
+streamSetCPS x = streamSetCps x
+
+getcps, getbpm, getnow :: () ->> Float
+getcps _ = streamCps ()
+-- Tidal's bpm is Link's, at 4 beats a cycle
+getbpm _ = streamCps () * 240.0
+getnow _ = streamCycleNow ()
+
+setbpm :: Float ->> ()
+setbpm b = streamSetCps (b / 240.0)
+
+-- cycle c starts at the next window
+setCycle :: Float ->> ()
+setCycle c = streamSetCycle c
+
+resetCycles :: () ->> ()
+resetCycles _ = setCycle 0.0
+
+-- the slots, n / cps cycles later, as Tidal's doTick shifts them
+nudgeAll :: Float ->> ()
+nudgeAll n = streamSetNudge n
+
+-- Tidal's processCps: each onset with a `cps` sets the tempo at its start.
+-- At tb: how many, up to 64, then each one's start in units and its cps.
+writeTempo :: Ptr Int -> Int -> [p.Event Controls] ->> ()
+writeTempo tb cs es = case concatMap (\e -> case getControl "cps" e.value of
+      Just (VF x) -> [(div ((p.wholeOrPart e).start * cs) p.cycleTicks, x)]
+      Just (VI i) -> [(div ((p.wholeOrPart e).start * cs) p.cycleTicks, toFloat i)]
+      _ -> []) (sortBy (\x y -> compare (p.wholeOrPart x).start (p.wholeOrPart y).start) es) of
+  ts -> do
+    pokeByteOff tb 0 (min 64 (length ts))
+    mapM_ (\(i, (t, x)) -> do
+      pokeByteOff tb (8 + 16 * i) t
+      pokeByteOff tb (16 + 16 * i) x) (zip (enumFromTo 0 63) ts)
+
+-- Tidal's playStack, with streamAll's function on the slots and on each
+-- pattern played once, and nudgeAll on the slots. Frees the patterns
+-- played once whose time is over.
+playStack :: () ->> p.Pattern Controls
+playStack _ = do
+  freeExpired ()
+  let g = case streamGlobal () of
+        sp -> if sp == nullPtr then (\x -> x) else deref sp
+      sts = map snd (states ())
+      hs = any (\st -> st.psSolo) sts
+      on = filter (\st -> if hs then st.psSolo else not st.psMute) sts
+      lat = streamNudge () / streamCps ()
+  p.stack (p.rotR lat (g (p.stack (map (\st -> st.psPattern) on))) : map (\i -> g (deref (streamFirstAt i))) (enumFromTo 0 (streamFirsts () - 1)))
+
+freeExpired :: () ->> ()
+freeExpired _ = case streamExpired () of
+  sp -> if sp == nullPtr then () else do
+    freeStable sp
+    freeExpired ()
+
+-- Tidal's, after a window fails: each slot plays its previous pattern
+setPreviousPatternOrSilence :: () ->> ()
+setPreviousPatternOrSilence _ = modifyAll (\st -> case st.psHistory of
+  _ : q : qs -> st { psPattern = q, psHistory = q : qs }
+  _ -> st { psPattern = p.silence, psHistory = [p.silence] })
+
+-- Boot.hs: d1 to d12 play on orbits 0 to 11, unless the pattern names one
+d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16 :: p.Pattern Controls ->> ()
+d1 pat = p 1 (pat |< orbit 0)
+d2 pat = p 2 (pat |< orbit 1)
+d3 pat = p 3 (pat |< orbit 2)
+d4 pat = p 4 (pat |< orbit 3)
+d5 pat = p 5 (pat |< orbit 4)
+d6 pat = p 6 (pat |< orbit 5)
+d7 pat = p 7 (pat |< orbit 6)
+d8 pat = p 8 (pat |< orbit 7)
+d9 pat = p 9 (pat |< orbit 8)
+d10 pat = p 10 (pat |< orbit 9)
+d11 pat = p 11 (pat |< orbit 10)
+d12 pat = p 12 (pat |< orbit 11)
+d13 pat = p 13 pat
+d14 pat = p 14 pat
+d15 pat = p 15 pat
+d16 pat = p 16 pat
+
+_d1, _d2, _d3, _d4, _d5, _d6, _d7, _d8, _d9, _d10, _d11, _d12, _d13, _d14, _d15, _d16 :: p.Pattern Controls ->> ()
+_d1 pat = _p 1 pat
+_d2 pat = _p 2 pat
+_d3 pat = _p 3 pat
+_d4 pat = _p 4 pat
+_d5 pat = _p 5 pat
+_d6 pat = _p 6 pat
+_d7 pat = _p 7 pat
+_d8 pat = _p 8 pat
+_d9 pat = _p 9 pat
+_d10 pat = _p 10 pat
+_d11 pat = _p 11 pat
+_d12 pat = _p 12 pat
+_d13 pat = _p 13 pat
+_d14 pat = _p 14 pat
+_d15 pat = _p 15 pat
+_d16 pat = _p 16 pat
+
+d1_, d2_, d3_, d4_, d5_, d6_, d7_, d8_, d9_, d10_, d11_, d12_, d13_, d14_, d15_, d16_ :: p.Pattern Controls ->> ()
+d1_ pat = _d1 pat
+d2_ pat = _d2 pat
+d3_ pat = _d3 pat
+d4_ pat = _d4 pat
+d5_ pat = _d5 pat
+d6_ pat = _d6 pat
+d7_ pat = _d7 pat
+d8_ pat = _d8 pat
+d9_ pat = _d9 pat
+d10_ pat = _d10 pat
+d11_ pat = _d11 pat
+d12_ pat = _d12 pat
+d13_ pat = _d13 pat
+d14_ pat = _d14 pat
+d15_ pat = _d15 pat
+d16_ pat = _d16 pat
+
+-- Tidal's transitions (Transition.hs): the slot plays mapper t of its
+-- history, t the cycle the next window starts at. With historyFlag, pat
+-- joins the history first, else only the mapper's list. As in Tidal, the
+-- slot's pattern then has no `_id_`.
+transition :: Bool -> (Float -> [p.Pattern Controls] -> p.Pattern Controls) -> ID -> p.Pattern Controls ->> ()
+transition historyFlag mapper k pat = do
+  old <- streamGet (fromID k)
+  let st = if old == nullPtr then PlayState p.silence False False (if historyFlag then [pat, p.silence] else [p.silence])
+           else (\x -> if historyFlag then x { psHistory = pat : x.psHistory } else x) (deref old)
+      t = streamNow ()
+  put (fromID k) (st { psPattern = mapper t (if historyFlag then st.psHistory else pat : st.psHistory) })
+
+xfade :: ID -> p.Pattern Controls ->> ()
+xfade i pat = transition True (_xfadeIn 4.0) i pat
+
+xfadeIn :: ID -> Float -> p.Pattern Controls ->> ()
+xfadeIn i t pat = transition True (_xfadeIn t) i pat
+
+histpan :: ID -> Int -> p.Pattern Controls ->> ()
+histpan i n pat = transition True (_histpan n) i pat
+
+wait :: ID -> Float -> p.Pattern Controls ->> ()
+wait i t pat = transition True (_wait t) i pat
+
+waitT :: ID -> (Float -> [p.Pattern Controls] -> p.Pattern Controls) -> Float -> p.Pattern Controls ->> ()
+waitT i f t pat = transition True (_waitT f t) i pat
+
+jump :: ID -> p.Pattern Controls ->> ()
+jump i pat = transition True _jump i pat
+
+jumpIn, jumpIn', jumpMod :: ID -> Int -> p.Pattern Controls ->> ()
+jumpIn i n pat = transition True (_jumpIn n) i pat
+jumpIn' i n pat = transition True (_jumpIn' n) i pat
+jumpMod i n pat = transition True (_jumpMod n) i pat
+
+jumpMod' :: ID -> Int -> Int -> p.Pattern Controls ->> ()
+jumpMod' i n q pat = transition True (_jumpMod' n q) i pat
+
+mortal :: ID -> Float -> Float -> p.Pattern Controls ->> ()
+mortal i lifespan rel pat = transition True (_mortal lifespan rel) i pat
+
+interpolate, clutch, anticipate :: ID -> p.Pattern Controls ->> ()
+interpolate i pat = transition True _interpolate i pat
+clutch i pat = transition True _clutch i pat
+anticipate i pat = transition True _anticipate i pat
+
+interpolateIn, clutchIn, anticipateIn, forId :: ID -> Float -> p.Pattern Controls ->> ()
+interpolateIn i t pat = transition True (_interpolateIn t) i pat
+clutchIn i t pat = transition True (_clutchIn t) i pat
+anticipateIn i t pat = transition True (_anticipateIn t) i pat
+-- pat for t cycles, from the cycle after the next multiple of t, then the slot's previous pattern
+forId i t pat = transition False (_mortalOverlay t) i pat
+
+-- Tidal's sam and nextSam
+sam, nextSam :: Float -> Float
+sam x = toFloat (floor x)
+nextSam x = sam x + 1.0
+
+_mortalOverlay :: Float -> Float -> [p.Pattern a] -> p.Pattern a
+_mortalOverlay _ _ [] = p.silence
+_mortalOverlay t now (pat : ps) = case sam (now - toFloat (mod (floor now) (floor t))) + sam t of
+  s -> p.overlay (case ps of
+                   [] -> p.silence
+                   x : _ -> x) (p.playFor s (s + t) pat)
+
+-- delay cycles of the old pattern, then durin of fout old, durout of fin new, then new
+_wash :: (p.Pattern a -> p.Pattern a) -> (p.Pattern a -> p.Pattern a) -> Float -> Float -> Float -> Float -> [p.Pattern a] -> p.Pattern a
+_wash _ _ _ _ _ _ [] = p.silence
+_wash _ _ _ _ _ _ [pat] = pat
+_wash fout fin delay durin durout now (pat : pat' : _) = case (now + delay, now + delay + durin, now + delay + durin + durout) of
+  (a, b, c) -> p.stack [ p.filterWhen (\x -> x < a) pat',
+                         p.filterWhen (\x -> x >= a && x < b) (fout pat'),
+                         p.filterWhen (\x -> x >= b && x < c) (fin pat),
+                         p.filterWhen (\x -> x >= c) pat ]
+
+_washIn :: (p.Pattern a -> p.Pattern a) -> Float -> Float -> [p.Pattern a] -> p.Pattern a
+_washIn f durin now pats = _wash f (\x -> x) 0.0 durin 0.0 now pats
+
+-- the new pattern's gain rising over t cycles, at equal power, as the old one's falls
+_xfadeIn :: Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_xfadeIn _ _ [] = p.silence
+_xfadeIn _ _ [pat] = pat
+_xfadeIn t now (pat : pat' : _) = p.overlay (pat |* gain (p.rotR now (p.slowT t p.envEqR))) (pat' |* gain (p.rotR now (p.slowT t p.envEq)))
+
+-- the last n patterns, panned apart
+_histpan :: Int -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_histpan _ _ [] = p.silence
+_histpan n _ ps = if n == 0 then p.silence else case take n ps of
+  qs -> p.stack (map (\(i, q) -> q # pan (p.atom (toFloat i / toFloat (length qs)))) (zip (enumFromTo 0 (length qs - 1)) qs))
+
+_wait :: Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_wait _ _ [] = p.silence
+_wait t now (pat : _) = p.filterWhen (\x -> x >= nextSam (now + t - 1.0)) pat
+
+_waitT :: (Float -> [p.Pattern Controls] -> p.Pattern Controls) -> Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_waitT _ _ _ [] = p.silence
+_waitT f t now pats = p.filterWhen (\x -> x >= nextSam (now + t - 1.0)) (f (now + t) pats)
+
+_jump :: Float -> [p.Pattern Controls] -> p.Pattern Controls
+_jump now pats = _jumpIn 0 now pats
+
+_jumpIn :: Int -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_jumpIn n now pats = _wash (\x -> x) (\x -> x) (toFloat n) 0.0 0.0 now pats
+
+-- at the next cycle, plus n
+_jumpIn' :: Int -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_jumpIn' n now pats = _wash (\x -> x) (\x -> x) (nextSam now - now + toFloat n) 0.0 0.0 now pats
+
+_jumpMod :: Int -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_jumpMod n now pats = _jumpIn' ((n - 1) - mod (floor now) n) now pats
+
+_jumpMod' :: Int -> Int -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_jumpMod' n q now pats = _jumpIn' ((n - 1) - mod (floor now) n + q) now pats
+
+-- pat for lifespan cycles, then fading out over rel
+_mortal :: Float -> Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_mortal _ _ _ [] = p.silence
+_mortal lifespan rel now (q : _) = p.overlay (p.filterWhen (\x -> x < now + lifespan) q)
+  (p.filterWhen (\x -> x >= now + lifespan) (p.fadeOutFrom (now + lifespan) rel q))
+
+_interpolate :: Float -> [p.Pattern Controls] -> p.Pattern Controls
+_interpolate now pats = _interpolateIn 4.0 now pats
+
+-- the new pattern, structure from it, each number moving from the old one's over t cycles
+_interpolateIn :: Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_interpolateIn _ _ [] = p.silence
+_interpolateIn _ _ [q] = q
+_interpolateIn t now (pat : pat' : _) = p.apLeft (p.apRight (p.mapP (\a b x -> blend x b a) pat') pat) (p.rotR now (p.slowT t p.envL))
+
+-- Tidal's Map.unionWith (fNum2 ...) new old: x of new and 1 - x of old
+blend :: Float -> Controls -> Controls -> Controls
+blend x new old = controlsFromList (unionNum x (controlPairs new) (controlPairs old))
+
+unionNum :: Float -> [(String, Value)] -> [(String, Value)] -> [(String, Value)]
+unionNum x ns os = map (\(k, v) -> case lookup k os of
+    Just o -> (k, mix x v o)
+    Nothing -> (k, v)) ns ++ filter (\(k, _) -> case lookup k ns of
+    Just _ -> False
+    Nothing -> True) os
+
+mix :: Float -> Value -> Value -> Value
+mix x a b = case (a, b) of
+  (VI i, VI j) -> VI (floor (toFloat i * x + toFloat j * (1.0 - x)))
+  (VF f, VF g) -> VF (f * x + g * (1.0 - x))
+  (VI i, VF g) -> VF (toFloat i * x + g * (1.0 - x))
+  (VF f, VI j) -> VF (f * x + toFloat j * (1.0 - x))
+  _ -> a
+
+_clutch :: Float -> [p.Pattern a] -> p.Pattern a
+_clutch now pats = _clutchIn 2.0 now pats
+
+-- over t cycles, the old pattern's events dropped and the new one's added, at random
+_clutchIn :: Float -> Float -> [p.Pattern a] -> p.Pattern a
+_clutchIn _ _ [] = p.silence
+_clutchIn _ _ [q] = q
+_clutchIn t now (q : q' : _) = p.overlay (p.fadeOutFrom now t q') (p.fadeInFrom now t q)
+
+_anticipate :: Float -> [p.Pattern Controls] -> p.Pattern Controls
+_anticipate now pats = _anticipateIn 8.0 now pats
+
+-- the old pattern echoing faster and faster over t cycles, then the new one
+_anticipateIn :: Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
+_anticipateIn t now pats = _washIn (\pat -> p.innerJoin (p.mapP (\v -> stut (p.atom 8) (p.atom 0.2) (p.atom v) pat) (p.rotR now (p.slowT t p.envLR)))) t now pats
+

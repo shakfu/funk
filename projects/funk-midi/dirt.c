@@ -127,15 +127,15 @@ static void put_str(Out *o, const char *s, size_t n) {
   put(o, zeros, 4 - n % 4);
 }
 
-size_t dirt_bundle(const dirt_event *e, uint64_t tag, double cps, double delta, const char *id, unsigned char *out, size_t cap) {
+size_t dirt_bundle(const dirt_event *e, uint64_t tag, double cps, double delta, unsigned char *out, size_t cap) {
   size_t na = 0;
-  Arg *as = malloc((size_t)(e->n + 4) * sizeof *as);
+  Arg *as = malloc((size_t)(e->n + 3) * sizeof *as);
   if (!as) return 0;
   const unsigned char *q = e->pairs;
   for (int64_t i = 0; i < e->n; i++) {
     Arg a;
     q += rd_pair(q, e->next, &a);
-    if (!same(&a, "_id_")) as[na++] = a; /* Tidal's `# pS "_id_"`: the stream's own wins */
+    as[na++] = a;
   }
   /* Tidal's Map.union playmap extra: a control of the pattern's own keeps its value */
   const char *extra[3] = {"cps", "cycle", "delta"};
@@ -145,7 +145,6 @@ size_t dirt_bundle(const dirt_event *e, uint64_t tag, double cps, double delta, 
     for (size_t i = 0; i < na; i++) has |= same(&as[i], extra[k]);
     if (!has) as[na++] = (Arg){.name = extra[k], .nlen = strlen(extra[k]), .tag = 'f', .f = val[k]};
   }
-  as[na++] = (Arg){.name = "_id_", .nlen = 4, .tag = 's', .s = id, .slen = strlen(id)};
   qsort(as, na, sizeof *as, by_name);
 
   Out o = {out, 0, cap, 0};

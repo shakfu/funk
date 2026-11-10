@@ -80,6 +80,14 @@ int funk_osc_poll(int fd, funk_controls *t);
 /* The /ctrl messages of one datagram of n bytes, into t; how many. */
 int funk_osc_take(const unsigned char *data, size_t n, funk_controls *t);
 
+/* funk_osc_poll, and every other message to cmd: its address, its number
+   of arguments, and the first one's kind (0 float, 1 int, 2 string, 3
+   double, -1 none or another) and text, as Tidal's listener takes its
+   commands (Stream/Listen.hs). */
+typedef void (*funk_osc_command)(void *ctx, const char *addr, int nargs, int kind, const char *arg);
+int funk_osc_poll_commands(int fd, funk_controls *t, funk_osc_command cmd, void *ctx);
+int funk_osc_take_commands(const unsigned char *data, size_t n, funk_controls *t, funk_osc_command cmd, void *ctx);
+
 void funk_osc_close(int fd);
 
 #ifdef __cplusplus

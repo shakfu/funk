@@ -42,6 +42,8 @@ Haskell's `>>` and `print` spellings are kept, so typical `main` code reads the 
 
 Top-level values run in dependency order, with `main` moved last unless another binding uses it.
 
+A REPL or host input that is an action, a function with an effect from `()` or an unconstrained variable, is run, as GHCi runs an input of type `IO a`: `hush` alone hushes (stream.md).
+
 A `do` block is syntax for `case`: each statement `p <- e`, or `e` alone, becomes `case e of p -> rest`. `case` evaluates its scrutinee first, so statements run in order, and the rest of the block stays in tail position. A strict primitive `bindNow e (\x -> rest)` was rejected, because the rest would run inside the primitive's C call, one level deeper per statement. Desugaring statements to `>>` had the same problem, since `>>` evaluates the rest as an argument. Without an `IO` type, `<-` accepts any expression: `x <- 1 + 2` is valid. A `let` statement follows the binding rule: lazy if pure, run on its line if it can act.
 
 ## Overloading: type classes with dictionary passing

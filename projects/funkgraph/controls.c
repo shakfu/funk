@@ -51,6 +51,12 @@ static int osc_arg(char c, const unsigned char *d, size_t n, size_t *at, char *t
     if (!s) return 0;
     snprintf(text, cap, "%s", s);
     *kind = 2;
+  } else if (c == 'd') { /* a double, as Tidal's /nudgeAll takes */
+    if (*at + 8 > n) return 0;
+    uint64_t u = (uint64_t)(uint32_t)osc_int(d + *at) << 32 | (uint32_t)osc_int(d + *at + 4);
+    memcpy(x, &u, sizeof *x);
+    *kind = 3;
+    *at += 8;
   } else if (c == 'i' || c == 'f') {
     if (*at + 4 > n) return 0;
     *x = c == 'i' ? (double)osc_int(d + *at) : (double)osc_float(d + *at);
@@ -60,9 +66,19 @@ static int osc_arg(char c, const unsigned char *d, size_t n, size_t *at, char *t
   return 1;
 }
 
-static int osc_message(const unsigned char *d, size_t n, funk_controls *t) {
+typedef struct { funk_osc_command cmd; void *ctx; } Other;
+
+static int osc_message(const unsigned char *d, size_t n, funk_controls *t, const Other *o) {
   size_t at = 0;
   const char *addr = osc_string(d, n, &at), *tags = addr ? osc_string(d, n, &at) : NULL;
+  if (tags && tags[0] == ',' && strcmp(addr, "/ctrl") && o && o->cmd) { /* another message: its first argument as text */
+    char text[256] = "";
+    double x = 0;
+    int kind = -1;
+    if (tags[1] && osc_arg(tags[1], d, n, &at, text, sizeof text, &x, &kind) && kind != 2) snprintf(text, sizeof text, kind == 1 ? "%.0f" : "%.17g", x);
+    o->cmd(o->ctx, addr, (int)strlen(tags) - 1, kind, text);
+    return 0;
+  }
   if (!tags || strcmp(addr, "/ctrl") || strlen(tags) != 3 || tags[0] != ',') return 0;
   char name[64], text[64];
   double k = 0, v = 0;
@@ -76,25 +92,35 @@ static int osc_message(const unsigned char *d, size_t n, funk_controls *t) {
   return 1;
 }
 
-int funk_osc_take(const unsigned char *d, size_t n, funk_controls *t) {
+static int take(const unsigned char *d, size_t n, funk_controls *t, const Other *o) {
   if (n >= 16 && !memcmp(d, "#bundle", 8)) { /* "#bundle", a time tag, then sized elements */
     int count = 0;
     for (size_t at = 16; at + 4 <= n;) {
       size_t size = (size_t)(uint32_t)osc_int(d + at);
       at += 4;
       if (size > n - at) break;
-      count += funk_osc_take(d + at, size, t);
+      count += take(d + at, size, t, o);
       at += size;
     }
     return count;
   }
-  return osc_message(d, n, t);
+  return osc_message(d, n, t, o);
 }
 
-int funk_osc_poll(int fd, funk_controls *t) {
+int funk_osc_take(const unsigned char *d, size_t n, funk_controls *t) { return take(d, n, t, NULL); }
+
+int funk_osc_take_commands(const unsigned char *d, size_t n, funk_controls *t, funk_osc_command cmd, void *ctx) {
+  Other o = {cmd, ctx};
+  return take(d, n, t, &o);
+}
+
+int funk_osc_poll_commands(int fd, funk_controls *t, funk_osc_command cmd, void *ctx) {
   unsigned char d[2048];
   int count = 0;
   ssize_t n;
-  while (fd >= 0 && (n = recv(fd, d, sizeof d, 0)) >= 0) count += funk_osc_take(d, (size_t)n, t);
+  Other o = {cmd, ctx};
+  while (fd >= 0 && (n = recv(fd, d, sizeof d, 0)) >= 0) count += take(d, (size_t)n, t, &o);
   return count;
 }
+
+int funk_osc_poll(int fd, funk_controls *t) { return funk_osc_poll_commands(fd, t, NULL, NULL); }

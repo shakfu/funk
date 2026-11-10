@@ -1814,7 +1814,11 @@ static Type *infer0(Expr *e, Env *env) {
       if (!known || i >= known - 1) {
         ST->uline = e->line;
         ST->ucol = e->col;
-        if (arrow == f) call_effect(arrow->eff);
+        /* A signature's `->` called from code whose effect is unknown waits: a
+           later effectful call there makes it `->>`, which may call it. */
+        Type *ef = arrow->eff ? repr(arrow->eff) : NULL, *c = ST->cur_eff ? repr(ST->cur_eff) : NULL;
+        bool skolem_call = ef && ef->k == TY_VAR && ef->skolem && c && c->k == TY_VAR && !c->skolem;
+        if (arrow == f && !skolem_call) call_effect(arrow->eff);
         else VPUSH(ST->deferred, ((Deferred){arrow->eff, ST->cur_eff, e->line, e->col, ST->cur_bind, ST->cur_args}));
       }
     }

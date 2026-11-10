@@ -1,4 +1,4 @@
--- funk-midi --audio --voices 2 --no-sleep --script (tests/CMakeLists.txt):
+-- funk-midi --audio --voices 2 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
 -- control patterns (lib/control.fk), as SuperDirt's MIDI target plays them,
 -- on MIDI and on the voices. The sum of the gates is printed: velocity 50
 -- of 127 a note, from amp's 0.4. pat is redefined 100 ms before a cycle.

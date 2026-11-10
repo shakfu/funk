@@ -1,0 +1,38 @@
+-- funk-midi --no-sleep --dirt 57120 --script (tests/CMakeLists.txt): Tidal's
+-- tempo commands (lib/stream.fk), from its default, 0.575 cycles a second.
+-- setcps is `once . cps`: the tempo changes at that event, as at any with a
+-- `cps`, clamped to Link's 999 bpm. setbpm, setCycle and resetCycles act
+-- from the next window; nudgeAll shifts the slots by its seconds / cps
+-- cycles, as Tidal's doTick does. OSC /setbpm takes a float, not an int.
+d1 $ s "a"
+getcps
+getbpm
+:wait 3500
+setcps 1.0
+:wait 3000
+getcps
+setbpm 120
+:wait 4000
+getnow
+setCycle 10
+:wait 2500
+resetCycles
+:wait 2100
+nudgeAll 0.25
+:wait 4000
+nudgeAll 0
+d1 $ s "b" # cps "<1 0.5>"
+:wait 4000
+setcps 100
+:wait 500
+getcps
+:osc /setcps 0.5
+:osc /setbpm 60
+:wait 1000
+getcps
+:osc /setbpm 120.0
+:osc /setCycle 3.0
+:wait 2100
+:osc /resetCycles
+:osc /nudgeAll 0.25d
+:wait 2100

@@ -20,11 +20,11 @@ int dirt_next(const unsigned char *p, const unsigned char *end, dirt_event *e);
 /* A control of e as a float, or dflt: for nudge. */
 double dirt_float(const dirt_event *e, const char *name, double dflt);
 
-/* An OSC bundle at NTP time tag holding e's /dirt/play: its controls and
-   Tidal's cps, cycle, delta (seconds) and _id_, a control of e's own
-   keeping its value but _id_, in order of name. Its size, or 0 if it
-   does not fit in cap. */
-size_t dirt_bundle(const dirt_event *e, uint64_t tag, double cps, double delta, const char *id, unsigned char *out, size_t cap);
+/* An OSC bundle at NTP time tag holding e's /dirt/play: its controls,
+   _id_ among them, and Tidal's cps, cycle and delta (seconds), unless e
+   has its own, in order of name. Its size, or 0 if it does not fit in
+   cap. */
+size_t dirt_bundle(const dirt_event *e, uint64_t tag, double cps, double delta, unsigned char *out, size_t cap);
 
 /* NTP time of us microseconds since the Unix epoch. */
 uint64_t dirt_ntp(int64_t us);

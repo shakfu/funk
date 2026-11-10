@@ -5,8 +5,23 @@ notes	s "superpiano" # note "c e g a5"
 floats	s "x*4" # pan p.sine # gain 1.2 # speed "-1" # legato 0.5
 nos	n "0 1"
 stack	p.stack [s "a*2", s "b" # n 1]
-own	s "x" # pF "delta" 0.5 # pF "cycle" 9 # pF "cps" 2
+own	s "x" # pF "delta" 0.5 # pF "cycle" 9 # pF "cps" 0.5
 ownid	s "x" # pS "_id_" "7"
 slow	p.slow 2 $ s "long" # n "<1 2>"
 every	p.every 2 (p.fast 2) $ s "bd sn" # crush 4
 cont	s "x*8" # cutoff (p.range 200 2000 p.saw) # resonance p.perlin
+slots	d1 $ s "a*2" ;; d10 $ s "b" ;; d2 $ s "c [d e]" ;; p "x" $ s "f*3" # orbit 5 ;; d13 $ s "<g h>"
+muted	d1 $ s "a" ;; d2 $ s "b*2" ;; p "x" $ s "c" ;; mute 2
+soloed	d1 $ s "a" ;; d2 $ s "b*2" ;; p "x" $ s "c" ;; mute 2 ;; mute "x" ;; solo 1 ;; solo "x"
+xfade	d1 $ s "a*4" # n "0 1" ;; xfade 1 $ s "b*4"
+xfadeIn	d1 $ s "a*4" # n "0 1" ;; xfadeIn 1 2 $ s "b*4" # gain 0.9
+jumpIn	d1 $ s "a*4" # n "0 1" ;; jumpIn 1 2 $ s "b*2"
+jumpIn'	d1 $ s "a*4" # n "0 1" ;; jumpIn' 1 1 $ s "b*2"
+jumpMod	d1 $ s "a*4" # n "0 1" ;; jumpMod 1 3 $ s "b*2"
+wait	d1 $ s "a*4" # n "0 1" ;; wait 1 2 $ s "b*2"
+waitT	d1 $ s "a*4" # n "0 1" ;; waitT 1 (_xfadeIn 1.0) 1 $ s "b*2"
+histpan	d1 $ s "a*4" # n "0 1" ;; d1 $ s "b" ;; histpan 1 3 $ s "c"
+mortal	d1 $ s "a*4" # n "0 1" ;; mortal 1 1 2 $ s "b*8"
+interpolate	d1 $ s "x*4" # speed 1 # cut 1 ;; interpolateIn 1 2 $ s "x*4" # speed 2 # pan 0.5 # cut 4
+clutch	d1 $ s "a*8" ;; clutchIn 1 2 $ s "b*8"
+forId	d1 $ s "a*4" # n "0 1" ;; forId 1 2 $ s "b*2"

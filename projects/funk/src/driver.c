@@ -652,6 +652,32 @@ static char *show_result(Bind *it) {
   return fk_show_cstr(v);
 }
 
+/* An action: a function with an effect from `()` or an unconstrained
+   variable, as `hush :: () ->> ()` (typed-effects.md, E). An input of
+   such a type is run, as GHCi runs an input of type `IO a`. */
+static bool is_action(Type *t) {
+  t = repr(t);
+  if (t->k != TY_CON || strcmp(t->name, "->") || t->n != 2 || !t->eff) return false;
+  Type *e = repr(t->eff), *a = repr(t->args[0]);
+  if (e->k != TY_CON || strcmp(e->name, "Eff")) return false;
+  return a->k == TY_VAR ? !a->cls : a->n == 0 && !strcmp(a->name, "()");
+}
+
+/* $it (), as the next $it */
+static Bind *apply_unit(Bind *it) {
+  Bind *b = NEW(Bind);
+  b->name = intern("$it");
+  b->line = it->line;
+  b->col = it->col;
+  Expr *f = NEW(Expr), *u = NEW(Expr);
+  *f = (Expr){.k = E_VAR, .line = b->line, .col = b->col, .name = intern("it")};
+  *u = (Expr){.k = E_CON, .line = b->line, .col = b->col, .name = intern("()")};
+  b->e = NEW(Expr);
+  *b->e = (Expr){.k = E_APP, .line = b->line, .col = b->col, .fn = f, .n = 1, .args = xmalloc(sizeof(Expr *))};
+  b->e->args[0] = u;
+  return b;
+}
+
 bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
   *shown = NULL;
   ON_THREAD(f, false);
@@ -707,8 +733,17 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
     if (e && compile_chunk(&m, &c)) {
       interp_install(&c);
       global_alias(intern("it"), b->gidx);
-      if (interp_global(b->gidx) != fk_unit) *shown = show_result(b);
       ok = true;
+      if (is_action(CS->globals.a[b->gidx].type)) {
+        b = apply_unit(b);
+        m = (Module){.binds = &b, .nb = 1};
+        ok = compile_chunk(&m, &c);
+        if (ok) {
+          interp_install(&c);
+          global_alias(intern("it"), b->gidx);
+        }
+      }
+      if (ok && interp_global(b->gidx) != fk_unit) *shown = show_result(b);
     }
   }
   fk_error_jmp = NULL;

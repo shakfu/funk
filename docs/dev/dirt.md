@@ -1,6 +1,6 @@
 # A SuperDirt target
 
-`funk-midi --dirt [HOST:]PORT` sends `pat`, a pattern of `Controls`, to SuperDirt as Tidal 1.10.3's `superdirtTarget` does, in place of MIDI. This closes S9 in [tidal-comparison.md](tidal-comparison.md): anyone running SuperCollider hears SuperDirt itself.
+`funk-midi --dirt [HOST:]PORT` sends the slots, `d1` and the rest, to SuperDirt as Tidal 1.10.3's `superdirtTarget` does, in place of MIDI. This closes S9 in [tidal-comparison.md](tidal-comparison.md): anyone running SuperCollider hears SuperDirt itself.
 
 ## What is sent
 
@@ -8,7 +8,7 @@ One OSC bundle per onset whose controls name `s`, Tidal's `superdirtShape` (`Str
 
 - the event's controls: a `Float` as an OSC `float32`, an `Int` as an `int32`, a `String` as a string;
 - `cps`, `cycle` (the onset's cycle) and `delta` (the event's length in seconds), unless the pattern sets them: Tidal's `Map.union` keeps the pattern's;
-- `_id_ "1"`, overriding the pattern's, as Tidal's `# pS "_id_"` does for `d1`. Slots (R1) will send their own names.
+- `_id_`, the slot's ID, which each slot adds ([stream.md](stream.md)).
 
 `lib/control.fk`'s `writeDirtWith` writes each event's times, cycle and controls to the host's buffer; `projects/funk-midi/dirt.c` encodes the bundle. The encoding stays in C because funk has no way to write a big-endian `float32`.
 
@@ -22,7 +22,7 @@ Cycle 0 starts one lookahead after start-up; otherwise the first window's bundle
 
 ## The handshake
 
-As Tidal's (`Stream/Target.hs`, `handshake`): `/dirt/handshake`, then 2 s of listening; while SuperDirt has not replied, again every 2 s, with "Waiting for SuperDirt (v.1.7.2 or higher).." once; on `/dirt/handshake/reply`, "Connected to SuperDirt." once; on `/dirt/hello`, from a SuperDirt started again, another handshake. Tidal reads the reply for control bus indices, for `^name` controls; funk has none, so it ignores the reply's data. Without it, a SuperDirt that never started, as when its server fails to boot, would go unreported, since UDP has no error for a port nobody reads. Until the reply, a send error is not printed: with no `sclang` at all, the OS refuses each datagram, and the waiting message says so once.
+As Tidal's (`Stream/Target.hs`, `handshake`): `/dirt/handshake`, then 2 s of listening; while SuperDirt has not replied, again every 2 s, with "Waiting for SuperDirt (v.1.7.2 or higher).." once; on `/dirt/handshake/reply`, "Connected to SuperDirt." once; on `/dirt/hello`, another handshake. SuperDirt 1.7.3 never sends `/dirt/hello`; it only answers one (`SuperDirt.sc`, `connect`). So a SuperDirt started again is not shaken again, in Tidal or here. Tidal reads the reply for control bus indices, for `^name` controls; funk has none, so it ignores the reply's data. Without it, a SuperDirt that never started, as when its server fails to boot, would go unreported, since UDP has no error for a port nobody reads. Until the reply, a send error is not printed: with no `sclang` at all, the OS refuses each datagram, and the waiting message says so once.
 
 ## Not done
 

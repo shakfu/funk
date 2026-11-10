@@ -1,0 +1,11 @@
+-- A top-level value may share an import's qualifier, as Tidal's `p` beside
+-- `import pattern as p` (docs/dev/modules.md): `t.banner` with no spaces is
+-- qualified, `t` alone is the value, and `t . t` composes.
+import modules.util.text as t
+
+t :: Int -> Int
+t x = x + 1
+
+main = do
+  putStrLn (t.banner "modvalue")
+  print (t 1, (t . t) 1, map t [1, 2])

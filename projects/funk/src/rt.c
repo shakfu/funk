@@ -374,7 +374,7 @@ static size_t page_size;
    each cycle's end that every object reachable then is marked. Many short
    cycles start often, inside the windows where a missing barrier loses an
    object; tests/run/gcbarrier.fk hits them. */
-static bool gcstress;
+bool fk_gcstress;
 
 /* FUNK_GCSTATS=1: each cycle's pauses, and a summary at exit (R0). */
 static bool gcstats;
@@ -555,15 +555,15 @@ static bool drain(double budget_ms) {
     size_t k = RT->stack_words - RT->stack_scanned < 8192 ? RT->stack_words - RT->stack_scanned : 8192;
     scan_range(RT->stack_copy + RT->stack_scanned, RT->stack_copy + RT->stack_scanned + k);
     RT->stack_scanned += k;
-    if (budget_ms < INFINITY && (gcstress || now_ms() > end)) return false; /* stress: a chunk per step, reproducibly */
+    if (budget_ms < INFINITY && (fk_gcstress || now_ms() > end)) return false; /* stress: a chunk per step, reproducibly */
   }
   if (!scan_snapshot(end, budget_ms < INFINITY)) return false;
   for (int n = 0; RT->msp;) {
     size_t words = (size_t)(uintptr_t)RT->mstack[--RT->msp];
     V *o = RT->mstack[--RT->msp];
     scan_range(o + 1, o + words); /* every payload word, conservatively */
-    if (++n == (gcstress ? 4096 : 256)) {
-      if (gcstress && budget_ms < INFINITY) return false; /* steps of a fixed size, for reproducible tests */
+    if (++n == (fk_gcstress ? 4096 : 256)) {
+      if (fk_gcstress && budget_ms < INFINITY) return false; /* steps of a fixed size, for reproducible tests */
       n = 0;
       if (now_ms() > end) return false;
     }
@@ -627,7 +627,7 @@ static NO_ASAN __attribute__((noinline)) void zero_raw(volatile V *p, size_t n) 
 static __attribute__((noinline)) void snapshot_stack(void) {
   V *sp = (V *)__builtin_frame_address(0);
   if (!page_size) page_size = (size_t)sysconf(_SC_PAGESIZE);
-  if (gcstress) { /* the dead stack below holds old words, which new frames' unset slots would show the check */
+  if (fk_gcstress) { /* the dead stack below holds old words, which new frames' unset slots would show the check */
     char *dead = (char *)(((uintptr_t)sp - 2 * page_size) & ~(uintptr_t)(page_size - 1));
     /* fresh pages, which read as zero: macOS's MADV_DONTNEED keeps the old contents */
     if (dead > RT->guard_hi &&
@@ -714,7 +714,7 @@ static bool scan_snapshot(double end, bool timed) {
       scan_range(p, p + page_size / sizeof(V));
     }
     mprotect(from, (size_t)(RT->snap_next - from), PROT_READ | PROT_WRITE);
-    if (timed && (gcstress || now_ms() > end)) break;
+    if (timed && (fk_gcstress || now_ms() > end)) break;
   }
   if (RT->snap_next < RT->snap_hi) return false;
   snap_done();
@@ -808,14 +808,14 @@ static void sweep(void) {
     if (end > RT->large_hi) RT->large_hi = end;
   }
   RT->nlarge = j;
-  RT->goal = 2 * live > RT->gc_min && !gcstress ? 2 * live : RT->gc_min;
+  RT->goal = 2 * live > RT->gc_min && !fk_gcstress ? 2 * live : RT->gc_min;
   if (RT->goal > RT->heap_reserve / 4) RT->goal = RT->heap_reserve / 4; /* room for a cycle's garbage below the limit */
   RT->warm_limit = RT->goal;
   /* The pacer: the cycle's black objects count against the goal, and the
      next cycle starts early by as much as this one allocated while marking,
      so it ends near the goal. Without it the heap reached live + goal plus
      twice a cycle's allocation. Stress keeps its fixed schedule. */
-  size_t black = gcstress ? 0 : RT->black_bytes;
+  size_t black = fk_gcstress ? 0 : RT->black_bytes;
   gc_threshold = RT->goal - (black < RT->goal / 2 ? black : RT->goal / 2);
   alloc_since_gc = black < gc_threshold / 2 ? black : gc_threshold / 2;
 }
@@ -941,7 +941,7 @@ static NO_ASAN __attribute__((noinline)) void verify_marks(void) {
 /* The last pause: unswept lists for every chunk, and large objects swept. */
 static void gc_finish(bool was_forced) {
   double t0 = gcstats ? now_ms() : 0;
-  if (gcstress && !RT->no_verify) verify_marks();
+  if (fk_gcstress && !RT->no_verify) verify_marks();
   sweep();
   RT->forced += was_forced;
   if (gcstats) {
@@ -958,7 +958,7 @@ static void gc_finish(bool was_forced) {
    has allocated a whole goal, marking cannot keep up: it finishes in one
    pause. */
 static void gc_step(void) {
-  bool force = !gcstress && alloc_since_gc - RT->cycle_alloc0 > RT->goal;
+  bool force = !fk_gcstress && alloc_since_gc - RT->cycle_alloc0 > RT->goal;
   double t0 = gcstats ? now_ms() : 0;
   bool done = drain(force ? INFINITY : STEP_MS);
   if (gcstats) {
@@ -1291,7 +1291,8 @@ V fk_apply(V f, int n, V *args) {
       n -= ar;
     } else if (h->kind == K_PAP) {
       int k = (int)h->aux;
-      V buf[k + n];
+      V buf[FK_EVEN(k + n)];
+      FK_STRESS_ZERO(buf);
       memcpy(buf, &FK_W(f)[2], (size_t)k * sizeof(V));
       memcpy(buf + k, args, (size_t)n * sizeof(V));
       return fk_apply(FK_W(f)[1], k + n, buf);
@@ -2262,7 +2263,7 @@ static void init_once(void) {
   if (gcstats) atexit(gc_summary); /* libfunk: when the session's thread ends */
 #endif
   s = getenv("FUNK_GCSTRESS");
-  gcstress = s && *s && strcmp(s, "0") != 0;
+  fk_gcstress = s && *s && strcmp(s, "0") != 0;
   const FkNullary *t = nullary_n ? nullary_table : builtin_nullaries; /* a compiled program's own */
   fk_false = (V)&t[FK_C_FALSE];
   fk_true = (V)&t[FK_C_TRUE];
@@ -2280,7 +2281,7 @@ void fk_init(void) {
   pthread_once(&once, init_once);
   if (fk_ncons) return;
   ring_init();
-  if (gcstress) {
+  if (fk_gcstress) {
     RT->gc_min = (size_t)64 << 10;
     RT->step_bytes = (size_t)16 << 10;
   }

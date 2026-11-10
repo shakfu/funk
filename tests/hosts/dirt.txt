@@ -1,4 +1,4 @@
--- funk-midi --dirt 57120 --no-sleep --script (tests/CMakeLists.txt): each
+-- funk-midi --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): each
 -- bundle's time and message, decoded. Cycle 0 sounds one lookahead (100 ms)
 -- after start-up. A bundle is stamped at its onset, plus its nudge; a
 -- redefinition plays from the first window past the lookahead; :cycle

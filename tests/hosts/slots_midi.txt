@@ -1,0 +1,12 @@
+-- funk-midi --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): slots to MIDI.
+-- d1 and d2 play at once; a pat of Ints plays beside them; a pat of
+-- Controls replaces d1; an event's cps sets the tempo, from 2000 ms to 1000.
+d1 $ note "0 7"
+d2 $ note "12" # midichan 1
+:wait 2000
+pat = p.atom 64
+:wait 2000
+pat = note "5"
+:wait 2000
+d1 $ note "0" # cps 1
+:wait 4500

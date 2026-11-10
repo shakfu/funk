@@ -1,4 +1,4 @@
--- funk-midi --no-sleep --script (tests/CMakeLists.txt): playback, redefinition,
+-- funk-midi --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): playback, redefinition,
 -- velocity and channel, tempo, stop and play, a loaded file; a pattern of the
 -- wrong type and two that fail as they are defined, which leave the old one
 -- playing, and one that fails as it plays, which stops it

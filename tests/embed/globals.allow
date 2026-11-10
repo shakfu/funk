@@ -1,11 +1,11 @@
 fk_false
 fk_fatal_ctx
 fk_fatal_hook
+fk_gcstress
 fk_nil
 fk_true
 fk_unit
 gcstats
-gcstress
 nlive
 nullary_n
 nullary_table

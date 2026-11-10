@@ -1,0 +1,37 @@
+  100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:00000000 delta=f:3f800000 orbit=i:0 s=s:a
+ 1100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3f000000 delta=f:3f800000 orbit=i:0 s=s:a
+ 2100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3f800000 delta=f:3f800000 orbit=i:0 s=s:a
+ 3100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:3fc00000 delta=f:3f800000 orbit=i:0 s=s:a
+ 4100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40000000 delta=f:3f800000 gain=f:3d356896 s=s:b
+ 4100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40000000 delta=f:3f800000 gain=f:3f7ffff0 orbit=i:0 s=s:a
+ 5100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40200000 delta=f:3f800000 gain=f:3ee341ed s=s:b
+ 5100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40200000 delta=f:3f800000 gain=f:3f7d7a98 orbit=i:0 s=s:a
+ 6100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40400000 delta=f:3f800000 gain=f:3f1ebd56 s=s:b
+ 6100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40400000 delta=f:3f800000 gain=f:3f75f6aa orbit=i:0 s=s:a
+ 7100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40600000 delta=f:3f800000 gain=f:3f3f17e6 s=s:b
+ 7100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40600000 delta=f:3f800000 gain=f:3f6947be orbit=i:0 s=s:a
+ 8100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40800000 delta=f:3f800000 gain=f:3f577af5 s=s:b
+ 8100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40800000 delta=f:3f800000 gain=f:3f570edc orbit=i:0 s=s:a
+ 9100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40900000 delta=f:3f800000 gain=f:3f699610 s=s:b
+ 9100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40900000 delta=f:3f800000 gain=f:3f3e887f orbit=i:0 s=s:a
+10100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40a00000 delta=f:3f800000 gain=f:3f7629d8 s=s:b
+10100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40a00000 delta=f:3f800000 gain=f:3f1dfd59 orbit=i:0 s=s:a
+11100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40b00000 delta=f:3f800000 gain=f:3f7d93eb s=s:b
+11100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40b00000 delta=f:3f800000 gain=f:3ee10704 orbit=i:0 s=s:a
+12100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40c00000 delta=f:3f800000 orbit=i:0 s=s:a
+12100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40c00000 delta=f:40000000 s=s:e
+13100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:40d00000 delta=f:3f800000 orbit=i:0 s=s:a
+14100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40e00000 delta=f:3f800000 orbit=i:0 s=s:a
+14100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40e00000 delta=f:40000000 s=s:e
+14250.003 dirt /dirt/play cps=f:3f000000 cycle=f:40e26669 delta=f:3f800000 gain=f:3f000000 orbit=i:0 s=s:a
+14519.997 dirt /dirt/play cps=f:3f000000 cycle=f:40e6b84e delta=f:3f800000 gain=f:3ecccccd orbit=i:0 s=s:a
+14750.003 dirt /dirt/play cps=f:3f000000 cycle=f:40ea6669 delta=f:3f800000 gain=f:3f000000 orbit=i:0 s=s:a
+15100.000 dirt /dirt/play cps=f:3f000000 cycle=f:40f00000 delta=f:3f800000 orbit=i:0 s=s:a
+15250.003 dirt /dirt/play cps=f:3f000000 cycle=f:40f26669 delta=f:3f800000 gain=f:3f000000 orbit=i:0 s=s:a
+15519.997 dirt /dirt/play cps=f:3f000000 cycle=f:40f6b84e delta=f:3f800000 gain=f:3ecccccd orbit=i:0 s=s:a
+15750.003 dirt /dirt/play cps=f:3f000000 cycle=f:40fa6669 delta=f:3f800000 gain=f:3f000000 orbit=i:0 s=s:a
+16100.000 dirt /dirt/play cps=f:3f000000 cycle=f:41000000 delta=f:40000000 s=s:d
+16100.000 dirt /dirt/play cps=f:3f000000 cycle=f:41000000 delta=f:40000000 s=s:e
+1
+2
+

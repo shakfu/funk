@@ -12,7 +12,7 @@ A guide to funk's music library: `lib/pattern.fk`, `lib/midi.fk`, and the two pr
 
 The patterns drive an external synth over MIDI, or SuperDirt over OSC, as Tidal does (`funk-midi --dirt 57120`). `funk-midi --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
 
-Every output below comes from `funk-midi --no-sleep`, at the default cycle of 2000 ms. Note-offs are left out.
+Every output below comes from `funk-midi --no-sleep --cycle 2000`. Note-offs are left out.
 
 ## Quick start
 
@@ -40,7 +40,7 @@ pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
 
 ## Time
 
-- **A cycle** is the unit of musical time. A host gives it a length: 2000 ms in `funk-midi` by default, 4 beats in the CLAP plugin.
+- **A cycle** is the unit of musical time. A host gives it a length: in `funk-midi`, Tidal's 0.575 cycles a second by default, changed by `setcps` and an event's `cps`; 4 beats in the CLAP plugin.
 
 - **A tick** is 1/720720 of a cycle (`p.cycleTicks`). 720720 is the least common multiple of 1 to 16, so a cycle divides exactly into 2 to 16 steps, and into products of those while the prime factors last. A step of 1/17, or triplets nested three deep (1/27), rounds to the tick below.
 
@@ -253,6 +253,15 @@ pat = note "0 [4 7]" # ccn "74" # ccv "<64 100>"
 pat = n "0 12" # midichan "1" # gain "1.2" |+ n "<0 2>"
 ```
 
+`funk-midi` also has Tidal's slots, from `lib/stream.fk`, imported as `import stream (..)`. Each plays at once, and each is replaced alone; `pat` of controls is `d1`'s. `d1` to `d12` play on orbits 0 to 11, and `_d1` or `d1_` silences slot 1 ([dev/stream.md](dev/stream.md)):
+
+```haskell
+d1 $ s "bd*2 sn"
+p "hats" $ s "hh*4" # gain 0.8
+```
+
+Tidal's commands act on the slots: `hush`, `mute 2`, `solo "hats"`, `unmuteAll`, `list`, `once $ s "cp"`, `first`, `panic`, and `streamAll (# speed 2)` for Tidal's `all`. They also come as Tidal's OSC playback commands, `/mute` and the rest, on the `controls` ports ([dev/stream.md](dev/stream.md#commands)). Tidal's transitions replace a slot gradually: `xfade 1 $ s "hh*8"`, `jumpIn 1 2 $ ...`, `interpolate 1 $ ...`, `clutch`, `anticipate`, `mortal`, `forId` and the rest ([dev/stream.md](dev/stream.md#transitions)). Tidal's tempo commands set the clock: `setcps 0.6`, `setbpm 120`, `getcps`, `getnow`, `setCycle 0`, `resetCycles`, `nudgeAll 0.1` ([dev/stream.md](dev/stream.md#tempo)).
+
 The controls are Tidal's, `gain`, `cutoff`, `legato` and 254 more, each taking a pattern of Tidal's type for it: `pan p.sine`, `n (p.irand 8)`, `sound (p.samples "bd*2 sn" (p.run 3))`, or a string literal of mini-notation. `n` and `note` take a `p.Note`, a `Float` whose mini-notation reads note names first, so `n "e"` is note 4, as in Tidal. Tidal's signals, such as `p.sine`, `p.rand` and `p.perlin`, have any `FromFloat` type, and `p.irand`, `p.run` and `p.scan` any `Num` type, so `n (p.segment 4 (p.range 0 7 p.sine))` is a pattern of notes. Patterns are `Fractional` when their values are, so `"1 2" / 4` and `(26/8) <~ p` work as in Tidal. The operators are Tidal's: `#` keeps the left's structure and takes the right's values; `|+|`, `|+` and `+|` add, with structure from both sides, the left or the right, and `||+` squeezes the right into each left event; `-`, `*`, `/`, `%`, `<` and `>` have the same forms. Tidal's `|>` is the prelude's `x |> f` here; `#` is the same operator. Notes are Tidal's: `note "0"` and `note "c5"` are middle C.
 
 An event plays as SuperDirt's MIDI target plays it, if it has no `s` or `s` is `"midi"`:
@@ -349,7 +358,7 @@ Input is funk REPL input: declarations, expressions, and these commands:
 | `--script FILE` | run `FILE`'s lines as input, then exit |
 | `--port N`, `--list` | send to output port `N`; list the ports |
 | `--virtual NAME` | name the virtual port (default `funk-midi`) |
-| `--cycle MS` | the cycle's length (default 2000) |
+| `--cycle MS` | the cycle's length (default 1739.13, Tidal's 0.575 cycles a second) |
 | `--print`, `--no-sleep` | print messages instead of sending them; run on a virtual clock |
 | `-M DIR` | search `DIR` for modules |
 | `--dirt [HOST:]PORT` | send `pat`, a control pattern, to SuperDirt as Tidal does, in place of MIDI; SuperDirt listens on 57120 ([dev/dirt.md](dev/dirt.md)) |

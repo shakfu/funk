@@ -49,32 +49,62 @@ set_tests_properties(lib/reload PROPERTIES LABELS lib TIMEOUT 300)
 
 # funk-midi on a virtual clock, printing its messages (projects/funk-midi)
 add_test(NAME hosts/midi
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/midi PROPERTIES LABELS hosts TIMEOUT 300)
 # ... with --dirt: SuperDirt's bundles, decoded (tests/hosts/dirt.txt)
 add_test(NAME hosts/dirt
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --dirt 57120 --script tests/hosts/dirt.txt 2>&1 | diff tests/hosts/dirt.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/dirt.txt 2>&1 | diff tests/hosts/dirt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/dirt PROPERTIES LABELS hosts TIMEOUT 300)
+# ... Tidal's slots, d1 and p "name" (lib/stream.fk), to SuperDirt and to MIDI
+add_test(NAME hosts/slots
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/slots.txt 2>&1 | diff tests/hosts/slots.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/slots PROPERTIES LABELS hosts TIMEOUT 300)
+add_test(NAME hosts/slots-midi
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --script tests/hosts/slots_midi.txt 2>&1 | diff tests/hosts/slots_midi.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/slots-midi PROPERTIES LABELS hosts TIMEOUT 300)
+add_test(NAME hosts/commands
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/commands.txt 2>&1 | diff tests/hosts/commands.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/commands PROPERTIES LABELS hosts TIMEOUT 300)
+add_test(NAME hosts/tempo
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --dirt 57120 --script tests/hosts/tempo.txt 2>&1 | diff tests/hosts/tempo.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/tempo PROPERTIES LABELS hosts TIMEOUT 300)
+add_test(NAME hosts/transitions
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/transitions.txt 2>&1 | diff tests/hosts/transitions.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/transitions PROPERTIES LABELS hosts TIMEOUT 300)
+# ... both under FUNK_GCSTRESS, whose check of marks read an interpreter
+# frame's unset slot as a root (docs/dev/261110-gcstress-chkstk.md)
+add_test(NAME hosts/slots-gcstress
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/slots.txt 2>&1 | diff tests/hosts/slots.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+add_test(NAME hosts/slots-midi-gcstress
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --script tests/hosts/slots_midi.txt 2>&1 | diff tests/hosts/slots_midi.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/slots-gcstress hosts/slots-midi-gcstress PROPERTIES LABELS "hosts;stress" TIMEOUT 300 ENVIRONMENT FUNK_GCSTRESS=1)
 # ... with --audio: a graph of lib/kernels.fk, rendered on the virtual clock
 add_test(NAME hosts/audio
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --script tests/hosts/audio.txt 2>&1 | diff tests/hosts/audio.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --cycle 2000 --script tests/hosts/audio.txt 2>&1 | diff tests/hosts/audio.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/audio PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... pat's notes on voices of the graph
 add_test(NAME hosts/voices
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --script tests/hosts/voices.txt 2>&1 | diff tests/hosts/voices.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --cycle 2000 --script tests/hosts/voices.txt 2>&1 | diff tests/hosts/voices.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/voices PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... control patterns as MIDI and on the voices (lib/control.fk)
 add_test(NAME hosts/controls
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --script tests/hosts/controls.txt 2>&1 | diff tests/hosts/controls.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --cycle 2000 --script tests/hosts/controls.txt 2>&1 | diff tests/hosts/controls.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/controls PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... d.kit's samples on m.kit's notes, by name, from tests/hosts/samples
 add_test(NAME hosts/kit
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --script tests/hosts/kit.txt 2>&1 | diff tests/hosts/kit.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --cycle 2000 --script tests/hosts/kit.txt 2>&1 | diff tests/hosts/kit.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/kit PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # the CLAP plugin in a headless host: evaluation, clips, Stop, state, Live

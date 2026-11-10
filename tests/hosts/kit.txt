@@ -1,4 +1,4 @@
--- funk-midi --audio --no-sleep --script (tests/CMakeLists.txt): d.kit and
+-- funk-midi --audio --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): d.kit and
 -- m.kit, samples on notes by name. tests/hosts/samples/bd holds a.wav, 0.25,
 -- and b.wav, 0.5; sn holds x.WAV, 0.75, and a text file; each lasts 0.1 s.
 -- bd:2 wraps to a.wav. pat changes from the first window not yet

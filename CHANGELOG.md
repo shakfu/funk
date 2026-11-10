@@ -6,6 +6,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Tidal's transitions in `funk-midi`: `xfade`, `xfadeIn`, `jump`, `jumpIn`, `jumpIn'`, `jumpMod`, `jumpMod'`, `wait`, `waitT`, `mortal`, `interpolate`, `interpolateIn`, `clutch`, `clutchIn`, `anticipate`, `anticipateIn`, `histpan` and `forId`, with `Transition.hs`'s mappers for `waitT`. The test `lib/tidal-dirt` runs 12 through Tidal's own mappers, a window at a time; all 229 messages match ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
+
+  ```haskell
+  d1 $ s "bd*2 sn"
+  xfadeIn 1 8 $ s "hh*8"
+  ```
+
+- Tidal's tempo in `funk-midi`: `setcps`, `setbpm`, `getcps`, `getbpm`, `getnow`, `setCycle`, `resetCycles` and `nudgeAll`, and their OSC forms on the `controls` ports. An event's `cps` sets the tempo at its onset, as Tidal's `processCps` does, so `setcps` is Boot's `once . cps`. Tempos are clamped to Link's 20 to 999 bpm. The default is Tidal's clock's, 0.575 cycles a second, where it was 0.5; `--cycle 2000` keeps the old one. The getters return `Float`s, as funk has no `Rational` ([docs/dev/stream.md](docs/dev/stream.md#tempo)).
+
+- Tidal's slot commands in `funk-midi`: `hush`, `mute`, `unmute`, `solo`, `unsolo`, `unmuteAll`, `unsoloAll`, `list`, `once`, `asap`, `first`, `panic` and `only`, as Boot.hs's, and `streamAll` for Tidal's `all`, whose name is the prelude's. Tidal's OSC playback commands, `/mute` to `/hush`, arrive on the `controls` ports. A window that fails returns each slot to its previous pattern, as Tidal's `doTick` does, where slots stopped until one was given. `only` takes `\_ -> action`, as funk is strict ([docs/dev/stream.md](docs/dev/stream.md#commands)).
+
+- A REPL or host input that is an action, a function with an effect from `()`, is run, as GHCi runs an `IO` input, so `hush` alone hushes.
+
+- Tidal's slots in `funk-midi`: `d1` to `d16` and `p "name"` each play a pattern, all at once, and replace it alone, as Tidal's `streamReplace` does. `_d1`, `d1_` and `_p` silence one. `d1` to `d12` add `orbit 0` to `11`, as `Boot.hs` does, so `pat` of controls, now `d1`'s, sends `orbit 0` to SuperDirt. The test `lib/tidal-dirt` plays 5 slots through Tidal's own `playStack`; all 40 messages match ([docs/dev/stream.md](docs/dev/stream.md)).
+
+  ```haskell
+  d1 $ s "bd*2 sn"
+  p "hats" $ s "hh*4" # gain 0.8
+  ```
+
+- A top-level value may share an import's qualifier, so Tidal's `p` sits beside `import pattern as p`. `p.x` with no spaces stays qualified ([docs/dev/modules.md](docs/dev/modules.md)).
+
 - `funk-midi --dirt [HOST:]PORT` sends `pat`, a control pattern, to SuperDirt as Tidal's `superdirtTarget` does: a `/dirt/play` bundle per onset with an `s`, its controls and Tidal's `cps`, `cycle`, `delta` and `_id_`, stamped at the onset plus its `nudge`. The test `lib/tidal-dirt` builds Tidal's own messages for 12 patterns through its `toOSC`; all 122 match funk's, float bits included. Bundles leave 0.1 s ahead, Tidal's margin, so `--dirt` raises the lookahead from 50 ms. It shakes hands as Tidal does, so it prints "Waiting for SuperDirt" until SuperDirt replies ([docs/dev/dirt.md](docs/dev/dirt.md)).
 
   ```sh
@@ -54,6 +76,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A sample folder or file path may start with `~/`, for `$HOME`: `d.kit "~/.local/share/funk/Dirt-Samples" ["bd"]`. The plugin's working directory is its host's, so a relative path never worked there.
 
 ### Fixed
+
+- A function whose signature has `->>` could not call a pure parameter inside an effectful lambda: `g f = mapM_ (\x -> print (f x)) xs` was rejected. The call through `f`'s signature `->` bound the lambda's still unknown effect to it, so the later `print` failed; it is now checked once the lambda's effect is known.
+
+- `FUNK_GCSTRESS=1` failed funk-midi's check of marks, on HEAD before Tidal's slots and on every slot script after. The collector was correct: Clang's `___chkstk_darwin`, called before an interpreter VLA, saved a scratch register holding `fill_closure`'s one-past-the-end pointer into the new frame, and the check read it as a root of the next object. Under stress the VLAs start zeroed, as the dead stack already does ([docs/dev/261110-gcstress-chkstk.md](docs/dev/261110-gcstress-chkstk.md)).
 
 - In the REPL and hosts, redefining a name could keep the old definition, or reach code defined before it, depending on the copies the compiler had made:
   - After `f x = x + 1`, `f 2`, `f x = x + 10`, `f 2` gave 3. The copy `f@Int` was found by name, and the name outlived the definition. A copy of a function applied to `(+ root)`, as in `map (+ root) xs`, and element reuse's copies had the same fault.

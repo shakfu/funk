@@ -3,7 +3,15 @@
 # thirdparty/libremidi. With --audio it plays a graph of kernels too:
 # through the vendored thirdparty/miniaudio with FUNK_MINIAUDIO, else only
 # on the virtual clock.
-add_executable(funk-midi main.c dirt.c)
+add_executable(funk-midi main.c dirt.c stream.c)
+# glue.fk's foreign imports, linked in (funk_glue): no C compiler for them
+set(MIDI_GLUE_C ${CMAKE_CURRENT_BINARY_DIR}/glue.c)
+add_custom_command(OUTPUT ${MIDI_GLUE_C}
+  COMMAND funk_tool emit-c --glue ${CMAKE_CURRENT_SOURCE_DIR}/glue.fk -M ${funk_SOURCE_DIR}/lib -o ${MIDI_GLUE_C}
+  DEPENDS funk_tool ${CMAKE_CURRENT_SOURCE_DIR}/glue.fk ${funk_SOURCE_DIR}/lib/stream.fk ${funk_SOURCE_DIR}/lib/pattern.fk
+    ${funk_SOURCE_DIR}/lib/control.fk)
+target_sources(funk-midi PRIVATE ${MIDI_GLUE_C})
+target_include_directories(funk-midi PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(funk-midi PRIVATE -Wall -Wextra)
 target_compile_definitions(funk-midi PRIVATE FUNK_LIB_DIR="${funk_SOURCE_DIR}/lib"
   FUNK_DSP_LIB="${FUNK_DSP_LIB}" FUNK_GRAPH_INCLUDE="${funk_SOURCE_DIR}/projects/funkgraph")
