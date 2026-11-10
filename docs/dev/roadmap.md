@@ -174,7 +174,7 @@ In order:
 
 1. **String literals as patterns (L1, L2, C1):** a `FromString` class, as `FromFloat`, with a `String` default; controls and patterned arguments take patterns. This closes `sound` of a pattern, `pan sine`, `fast "<2 4>"` and `"<0 0.25>" <~ p`.
 2. **A SuperDirt target (S9):** `/dirt/play` over OSC, as Tidal's `superdirtTarget`, from `funk-midi`. Done 2026-11-09 ([dirt.md](dirt.md)).
-3. **Slots and commands (R1-R5):** `d1`..`d16` and `p "name"`, `hush`, `once`, `solo`, `mute` and the rest, `setcps` and `setbpm` with Tidal's default of 0.5625, an event's `cps`, transitions, and `setF` and its kind.
+3. **Slots and commands (R1-R5):** `d1`..`d16` and `p "name"`, `hush`, `once`, `solo`, `mute` and the rest, `setcps` and `setbpm` with Tidal's default of 0.575, an event's `cps`, transitions, and `setF` and its kind. Done 2026-11-10 in funk-midi ([stream.md](stream.md)).
 4. **Time (T1-T3):** 46126080 ticks per cycle; fractional patterned speed factors.
 5. **Library (F1-F8, L3-L5, L8, M1-M3, C3):** `Fractional` (done) and `Enum` classes, scales, `Time.hs`, the exported `Pattern.hs` functions, `Simple.hs`, `drawLine`, steps, `Bool` mini-notation, `^name`, `Params.hs`' generated families, monomorphic `<$>`, `<*>`, `<*`, `*>` and `<<*`, and an unqualified `pattern` import.
 6. **Review items (L7, F10, F11):** decide each.

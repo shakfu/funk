@@ -1,0 +1,17 @@
+Nothing
+  100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cut=i:0 cycle=f:00000000 delta=f:40000000 legato=f:3f800000 orbit=i:0 s=s:a speed=f:41100000 vowel=s:e
+  100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cut=i:0 cycle=f:00000000 delta=f:40000000 orbit=i:1 pan=f:00000000 s=s:b vowel=s:u
+Just (CtlP <pattern>)
+ 2100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cut=i:0 cycle=f:3f800000 delta=f:40000000 legato=f:3f800000 orbit=i:0 s=s:a speed=f:3e800000 vowel=s:e
+ 2100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cut=i:0 cycle=f:3f800000 delta=f:40000000 orbit=i:1 pan=f:3e800000 s=s:b vowel=s:u
+Just (CtlF 2.5)
+ 4100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cut=i:0 cycle=f:40000000 delta=f:40000000 legato=f:3f800000 orbit=i:0 s=s:a speed=f:40200000 vowel=s:e
+ 4100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cut=i:2 cycle=f:40000000 delta=f:40000000 orbit=i:1 pan=f:40200000 s=s:b vowel=s:u
+ 6100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cut=i:0 cycle=f:40400000 delta=f:40000000 legato=f:3f800000 orbit=i:0 s=s:a speed=f:40800000 vowel=s:e
+ 6100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cut=i:4 cycle=f:40400000 delta=f:40000000 orbit=i:1 pan=f:40800000 s=s:b vowel=s:u
+ 8100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cut=i:0 cycle=f:40800000 delta=f:40000000 legato=f:3f800000 orbit=i:0 s=s:a speed=f:40400000 vowel=s:e
+ 8100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cut=i:3 cycle=f:40800000 delta=f:40000000 orbit=i:1 pan=f:40400000 s=s:b vowel=s:u
+10100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cut=i:1 cycle=f:40a00000 delta=f:40000000 legato=f:3f000000 orbit=i:0 s=s:a speed=f:40800000 vowel=s:a
+10100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cut=i:4 cycle=f:40a00000 delta=f:40000000 orbit=i:1 pan=f:40800000 s=s:b vowel=s:u
+10100.000 dirt /dirt/play _id_=s:3 cps=f:3f000000 cycle=f:40a00000 delta=f:3f2aaab0 orbit=i:2 s=s:c
+11433.333 dirt /dirt/play _id_=s:3 cps=f:3f000000 cycle=f:40b55555 delta=f:3f2aaab0 orbit=i:2 s=s:c

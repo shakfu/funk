@@ -11,7 +11,7 @@
 
 typedef struct {
   char name[48];
-  int64_t kind; /* 0 f, 1 i, 2 text */
+  int64_t kind; /* 0 f, 1 i, 2 text, 3 a StablePtr: funk-midi's setF */
   union {
     double f;
     int64_t i;

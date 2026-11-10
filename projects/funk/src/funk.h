@@ -345,6 +345,8 @@ typedef VEC(Export) Exports;
 typedef struct { Import *im; const char *prefix; Exports *ex; } ImportInfo;
 /* Qualify m, and return what it exports. */
 Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nimps);
+/* Qualify a REPL or host input: a value it defines shadows an imported one. */
+void qualify_session(Module *m, ImportInfo *imps, int nimps);
 bool in_prelude(int ns, const char *name);
 /* In `[module.]Type.member`, the '.' before member; NULL for other names. */
 const char *ns_dot(const char *name);

@@ -35,6 +35,17 @@ As Boot.hs's and its clock's (tidal-link `Clock.hs`), from Tidal's default of 0.
 - The host keeps the tempo exactly and the cycle's length in microseconds to the nearest; at 0.575 that drifts 0.25 ppm.
 - The listener's `/setcps`, `/setbpm` and `/setCycle` take a float, `/nudgeAll` a double, as Tidal's do; `/resetCycles` takes any. In a script, `:osc /nudgeAll 0.25d` gives a double.
 
+## State
+
+As Boot.hs's `setF`, `setI`, `setS`, `setR` and `setB` (`Stream/UI.hs`, `streamSet`), and `getState`.
+
+- `setF "x" pat` makes `pat` the value of control `x`, from the next window. `cF` and the rest query it with no controls, as Tidal's `valueToPattern` and `queryArc` do.
+- A control's value is the latest set, by `setF` or by OSC `/ctrl`, as in Tidal's one map. Redefining `controls` keeps `setF`'s values.
+- `setR` takes `Float`s, as funk has no `Rational`; Tidal's `getF` and `getR` read either alike.
+- `setB` of a literal waits for `Bool` patterns (M1 in [tidal-comparison.md](tidal-comparison.md)).
+- `getState` returns a `Maybe Ctl`, where Tidal's returns a `Maybe Value`.
+- The host keeps 256 controls, each name under 48 bytes; Tidal has no limit.
+
 ## Transitions
 
 As Boot.hs's and `Transition.hs`'s: `xfade`, `xfadeIn`, `histpan`, `wait`, `waitT`, `jump`, `jumpIn`, `jumpIn'`, `jumpMod`, `jumpMod'`, `mortal`, `interpolate`, `interpolateIn`, `clutch`, `clutchIn`, `anticipate`, `anticipateIn` and `forId`, and the mappers they use, `_xfadeIn` to `_mortalOverlay`, for `waitT`.
@@ -45,6 +56,8 @@ As Boot.hs's and `Transition.hs`'s: `xfade`, `xfadeIn`, `histpan`, `wait`, `wait
 ## Host side
 
 The slots are a C table of `StablePtr`s to `PlayState`s, by ID (`projects/funk-midi/stream.c`), with the patterns played once and `streamAll`'s function. Commands replace a slot's `StablePtr` and free the old one. Each window, `slots`, compiled once at start-up, reads the table through `playStack`. The imports are linked in as glue (`projects/funk-midi/glue.fk`), so no C compiler runs.
+
+`setF`'s patterns are `StablePtr`s too: stream.c keeps them by name, and the host's controls hold them as their own kind, so an OSC `/ctrl` replaces one in place.
 
 A table in funk would need a mutable reference, which funk lacks; a stable pointer is already a GC root.
 
@@ -59,6 +72,8 @@ A value named `p` beside `import pattern as p` needed a change to module scope (
 - `lib/tidal-dirt`, cases `muted` and `soloed`: `PlayState`s with mute and solo through Tidal's `playStack`.
 - `repl/actions`: an action input runs.
 - `hosts/tempo`: each tempo command and its OSC form; `hosts/slots-midi`: an event's `cps` to MIDI.
+- `lib/tidal`, cases `cFpat` to `cFpatctl`: 9 controls whose value is a pattern, against Tidal's `VPattern`.
+- `hosts/state`: each `set` command, an OSC `/ctrl` after `setF`, and `controls` redefined.
 - `lib/tidal-dirt`, cases `xfade` to `forId`: 12 transitions at cycle 0 through Tidal's own mappers, queried a window at a time as funk-midi queries; all 229 messages match.
 - `hosts/transitions`: transitions past cycle 0, on a new slot, on a muted one, and `anticipateIn`.
 

@@ -15,7 +15,7 @@ pat = p.atom 'x'
 :play
 :l tests/hosts/midiload.fk
 :wait 2000
-pat = p._fast 0 (p.atom 1)
+pat = p._fastR 1 0 (p.atom 1)
 pat = p.mini "60 [64"
 :wait 1000
 pat = p.mapP (\x -> div x 0) (p.atom 60)

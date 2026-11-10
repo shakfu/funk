@@ -232,7 +232,8 @@ private:
 		funk_glue(f, funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed
 		funk_module_dir(f, s.dir_.c_str());
 		funk_output(f, &Session::Output, &s);
-		bool ok = funk_eval(f, "import pattern as p", "<setup>", &shown) && funk_eval(f, "import midi as m", "<setup>", &shown)
+		bool ok = funk_eval(f, "import pattern as p", "<setup>", &shown) && funk_eval(f, "import pattern (..)", "<setup>", &shown)
+		          && funk_eval(f, "import midi as m", "<setup>", &shown)
 		          && funk_eval(f, kControlImport, "<setup>", &shown);
 		// If the linked glue does not match and no C compiler runs, graph.fk's imports fail:
 		// MIDI still plays, the output is silent.

@@ -816,10 +816,25 @@ static void rebind(void) {
 }
 
 
-/* After controls may have changed: its sources, from scratch */
+int funk_stream_control(const char *name, void *stable) {
+  funk_control *c = funk_control_at(&controls, name);
+  if (!c) return 0;
+  c->kind = 3, c->num.i = (int64_t)(intptr_t)stable;
+  return 1;
+}
+
+void *funk_stream_controls(void) { return controls.e; }
+long funk_stream_ncontrols(void) { return controls.n; }
+
+/* After controls may have changed: its sources, from scratch. setF's
+   values stay, as no source sets them. */
 static void rebind_controls(void) {
   for (int i = 0; i < nosc; i++) funk_osc_close(osc_fds[i]);
-  nosc = 0, cc_on = false, controls.n = 0;
+  nosc = 0, cc_on = false;
+  long kept = 0;
+  for (long i = 0; i < controls.n; i++)
+    if (controls.e[i].kind == 3) controls.e[kept++] = controls.e[i];
+  controls.n = kept;
   funk_control_float(&controls, "_t_pattern", funk_stream_now());
   long ins[8], n = 0, arg = (long)ins;
   if (!eval("controlIns buf = p.writeControlIns (plusPtr nullPtr buf) controls") || !funk_call(session, "controlIns", 1, &arg, &n)) {
@@ -998,7 +1013,8 @@ typedef struct { const char *lib, *file, *script, *kernels; } Opts;
   X(funk_stream_replace) X(funk_stream_get) X(funk_stream_count) X(funk_stream_key) X(funk_stream_at)          \
   X(funk_stream_first) X(funk_stream_firsts) X(funk_stream_first_at) X(funk_stream_expired)                    \
   X(funk_stream_set_global) X(funk_stream_global) X(funk_stream_now) X(funk_stream_random) X(funk_stream_cps)    \
-  X(funk_stream_set_cps) X(funk_stream_cycle_now) X(funk_stream_set_cycle) X(funk_stream_nudge) X(funk_stream_set_nudge)
+  X(funk_stream_set_cps) X(funk_stream_cycle_now) X(funk_stream_set_cycle) X(funk_stream_nudge) X(funk_stream_set_nudge)        \
+  X(funk_stream_set_state) X(funk_stream_control) X(funk_stream_controls) X(funk_stream_ncontrols)
 #define PROVIDE_F(fn) funk_provide(f, #fn, (void *)fn);
 extern const funk_glue_entry funk_glue_table[]; /* glue.c, from glue.fk by funk emit-c --glue */
 extern const int funk_glue_count;
@@ -1016,7 +1032,7 @@ static int run(funk *f, void *arg) {
   funk_module_dir(f, o->lib);
   STREAM_FUNCTIONS(PROVIDE_F)
   funk_glue(f, funk_glue_table, funk_glue_count);
-  if (!eval("import pattern as p") || !eval("import midi as m") || !eval(CONTROL_IMPORT) || !eval(STREAM_IMPORT) ||
+  if (!eval("import pattern as p") || !eval("import pattern (..)") || !eval("import midi as m") || !eval(CONTROL_IMPORT) || !eval(STREAM_IMPORT) ||
       !eval(dirt ? SLOTS_DIRT : SLOTS) || !eval(REVERT))
     return 1;
   if (audio && (!eval("import graph as g") || !eval("import dsp as d") || !start_audio(o->kernels))) return 1;

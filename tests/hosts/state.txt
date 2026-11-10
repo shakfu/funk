@@ -1,0 +1,25 @@
+-- funk-midi --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
+-- Tidal's setF and its kind (lib/stream.fk), which cF and the rest read as
+-- a pattern, from the next window. Cycle 0: no value, so cF's default; 1:
+-- setF a pattern of two; 2: OSC /ctrl sets x, and replaces setF's; 3: setF
+-- again; 4: redefining controls keeps it; 5: setI, setS, setB, setR.
+d1 $ s "a" # speed (p.cF 9 "x") # cut (p.cI 0 "i") # vowel (p.cS "e" "v") # legato (p.cR 1 "r")
+d2 $ s "b" # pan (p.segment 1 (p.cF 0 "x")) # cut (p.cI 0 "x") # vowel (p.cS "u" "x")
+d3 $ p.struct (p.cB_ "b") $ s "c"
+getState "x"
+:wait 2000
+setF "x" "0.25 0.5"
+getState "x"
+:wait 2000
+:osc /ctrl x 2.5
+getState "x"
+:wait 2000
+setF "x" "<3 4>"
+:wait 2000
+controls = []
+:wait 2000
+setI "i" "1 2"
+setS "v" "a o"
+setB "b" (p.fastFromList [True, False, True])
+setR "r" "0.5"
+:wait 2000

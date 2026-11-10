@@ -238,7 +238,7 @@ static Expr *parse_expr_caught(const char *src, size_t len) {
     e = parse_expr_text(src, len, repl_lines(), ST->repl_imps.n);
     Bind *b = NEW(Bind); /* qualified through a module holding e */
     *b = (Bind){.name = intern("$q"), .e = e};
-    if (ST->repl_imps.n) qualify_module(&(Module){.binds = &b, .nb = 1}, NULL, ST->repl_imps.a, ST->repl_imps.n);
+    if (ST->repl_imps.n) qualify_session(&(Module){.binds = &b, .nb = 1}, ST->repl_imps.a, ST->repl_imps.n);
     e = b->e;
   }
   CS->cerr_jmp = saved;
@@ -429,7 +429,7 @@ static bool finish_caught(Module *m) {
   if (!setjmp(jb)) {
     CS->cerr_jmp = &jb;
     parse_finish(m);
-    if (ST->repl_imps.n) qualify_module(m, NULL, ST->repl_imps.a, ST->repl_imps.n);
+    if (ST->repl_imps.n) qualify_session(m, ST->repl_imps.a, ST->repl_imps.n);
     ok = true;
   }
   CS->cerr_jmp = saved;

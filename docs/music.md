@@ -30,6 +30,8 @@ It opens a virtual MIDI port named `funk-midi`. Point a synth or a DAW track at 
 pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
 ```
 
+The hosts import `lib/pattern.fk` both as `p` and unqualified, so `fastcat [atom 60, atom 64]` works too, as in Tidal. This guide writes `p.`, which a file needs unless it imports `pattern (..)` itself. A name you define at the prompt shadows an imported one, as at GHCi's prompt ([dev/modules.md](dev/modules.md)).
+
 ```text
     0.000 on  ch1 60 100
   666.666 on  ch1 64 100
@@ -55,15 +57,15 @@ pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
 | `p.fastcat ps` | `[Pattern a] -> Pattern a` | each of `ps` in one equal step of every cycle |
 | `p.cat ps` | `[Pattern a] -> Pattern a` | one of `ps` per cycle, in turn |
 | `p.stack ps` | `[Pattern a] -> Pattern a` | all of `ps` at once |
-| `p.fast k pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat` `k` times per cycle; `0` is silence, a negative `k` reverses |
-| `p.slow k pat` | `Pattern Int -> Pattern a -> Pattern a` | one cycle of `pat` over `k` cycles; as `fast` for `0` and negatives |
+| `p.fast k pat` | `Pattern Float -> Pattern a -> Pattern a` | `pat` `k` times per cycle, such as `1.5`; `0` is silence, a negative `k` reverses |
+| `p.slow k pat` | `Pattern Float -> Pattern a -> Pattern a` | one cycle of `pat` over `k` cycles; as `fast` for `0` and negatives |
 | `p._fastR n d pat`, `p._slowR n d pat` | `Int -> Int -> Pattern a -> Pattern a` | `fast` and `slow` by the ratio `n / d`, such as 3 and 2 for 1.5 |
 | `p.rev pat` | `Pattern a -> Pattern a` | each cycle of `pat` backwards |
 | `p.shift t pat` | `Pattern Int -> Pattern a -> Pattern a` | `pat`, `t` ticks later; negative is earlier |
 | `p.euclid k n pat` | `Pattern Int -> Pattern Int -> Pattern a -> Pattern a` | `pat` on `k` of `n` steps, spread evenly, the first on step 0 |
 | `p.mapP f pat` | | `pat` with `f` applied to each value |
 
-A number is a pattern too, so `p.fast 2 pat` works, and so does a pattern of factors: `p.fast (p.fastcat [1, 2]) pat` plays the first half of each cycle at speed 1 and the second at speed 2. An `Int` variable needs `p.atom n`, or `p._fast n`, `p._slow n` and `p._shift n`, which take an `Int`. Patterns also add and multiply: `p.fastcat [60, 64] + 12`.
+A number is a pattern too, so `p.fast 2 pat` works, and so does a pattern of factors: `p.fast (p.fastcat [1, 2]) pat` plays the first half of each cycle at speed 1 and the second at speed 2. A `Float` variable needs `p.atom k`, or `p._fast k` and `p._slow k`, which take one; `p._shift n` takes an `Int` of ticks. A factor is taken as the nearest ratio with a denominator up to 65536, so `1.5` is 3/2 and `0.6` is 3/5, exactly. Patterns also add and multiply: `p.fastcat [60, 64] + 12`.
 
 An event lasts its whole step, so notes are legato: each note-off coincides with the next note-on, and the note-off goes first.
 
@@ -174,7 +176,7 @@ The onsets follow Bjorklund's algorithm, as Tidal's do: `p.euclid 5 8` plays `x.
 
 ### Tidal's combinators
 
-`lib/pattern.fk` has Tidal's transformations by their Tidal names: `every`, `whenmod`, `iter`, `ply`, `chunk`, `off`, `jux`, `sometimesBy`, `degradeBy`, `linger`, `struct`, `arp`, `rolled` and about 200 more, with the continuous `sine`, `saw`, `rand` and `perlin`. `lib/control.fk` has those that act on control patterns, such as `jux`, `chop`, `striate` and `stut`. Arguments follow Tidal's types, with two changes: a time in cycles is a `Float`, rounded to a tick, and a speed factor, such as `ply`'s or `segment`'s, is an `Int`.
+`lib/pattern.fk` has Tidal's transformations by their Tidal names: `every`, `whenmod`, `iter`, `ply`, `chunk`, `off`, `jux`, `sometimesBy`, `degradeBy`, `linger`, `struct`, `arp`, `rolled` and about 200 more, with the continuous `sine`, `saw`, `rand` and `perlin`. `lib/control.fk` has those that act on control patterns, such as `jux`, `chop`, `striate` and `stut`. Arguments follow Tidal's types, with one change: a time in cycles, or a speed factor such as `ply`'s or `segment`'s, is a `Float`, where Tidal's is a `Rational`.
 
 ```haskell
 import pattern ((~>))
@@ -185,7 +187,7 @@ The list, and where funk differs from Tidal: [dev/combinators.md](dev/combinator
 
 ### Changing values
 
-`mapP` applies a function to every value. Transpose up an octave:
+`mapP` applies a function to every value; Tidal's `fmap` and `<$>` are the same, and `pure` is `atom`. Transpose up an octave:
 
 ```haskell
 pat = p.mapP (+ 12) (p.fastcat [p.atom 60, p.atom 64])
@@ -308,6 +310,8 @@ pat = p.segment 8 (p.range 48.0 72.0 (p.cF 0.0 "cc74")) -- a Pattern Float, mapp
 - `p.osc port`: Tidal's OSC `/ctrl name value` on 127.0.0.1, under its own name. Tidal's port is 6010.
 - `p.midiCC`: CC 74 as `"cc74"`, from any channel, and `"1:cc74"` from channel 1, 0 to 1. The plugin takes it from its MIDI input; `funk-midi` from `--in N` or `--in-virtual NAME`, and from `:cc CHANNEL NUM VALUE`.
 - `p.params`: the plugin's parameters `"p1"` to `"p16"`, 0 to 1, which a DAW can automate.
+
+In `funk-midi`, Tidal's `setF "x" "<0.25 0.5>"`, `setI`, `setS`, `setR` and `setB` set a value from code, as a pattern; `getState "x"` reads one ([dev/stream.md](dev/stream.md#state)).
 
 `trigger` and `qtrigger` start a pattern from the cycle it was defined at, and `sec` and `msec` turn seconds into cycles, from the hosts' `_t_pattern` and `_cps` ([dev/controls-in.md](dev/controls-in.md)).
 

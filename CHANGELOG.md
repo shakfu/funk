@@ -6,6 +6,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Speed factors are `Float`s, as Tidal's are `Rational`s: `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze` and the rest, and `_fast`, `_slow`, `_ply` and `_segment`. Each factor is its nearest ratio with a denominator up to 65536, so `slow "<1.5 0.75>"` is exact in ticks. A `Pattern Int` factor needs `toFloat <$>`, as Tidal's needs `fromIntegral <$>`. A negative `slow` now reverses, as Tidal's does, where it raised an error. `lib/tidal` checks 17 cases against Tidal ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) T2).
+
+  ```haskell
+  pat = slow "<1.5 0.75>" $ s "bd*4"
+  ```
+
+- Tidal's `fmap`, `<$>`, `<$`, `pure`, `<*>`, `<*`, `*>`, `<<*`, `liftA2`, `return` and `>>=` in `lib/pattern.fk`, for patterns only, as funk has no higher-kinded classes. `lib/tidal` checks 12 cases against Tidal ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) L3).
+
+- `funk-midi` and the plugin import `lib/pattern.fk` unqualified as well as `p`, so Tidal's names work as written: `every 3 (fast 2) $ s "bd sn"`. A REPL or host input may define a value an import has, which then shadows it, as GHCi's prompt does; a file keeps the error. funk-midi's `sig` is also `pattern`'s, so the hosts need the shadowing ([docs/dev/modules.md](docs/dev/modules.md)).
+
+- Tidal's `setF`, `setI`, `setS`, `setR`, `setB` and `getState` in `funk-midi`. `cF` and the rest read a pattern set by name, as Tidal's `VPattern`, until an OSC `/ctrl` sets that name. `setR` takes `Float`s. The test `lib/tidal` checks 9 cases against Tidal ([docs/dev/stream.md](docs/dev/stream.md#state)).
+
+  ```haskell
+  setF "lpf" "<500 2000>"
+  d1 $ s "bd*4" # cutoff (cF 1000 "lpf")
+  ```
+
 - Tidal's transitions in `funk-midi`: `xfade`, `xfadeIn`, `jump`, `jumpIn`, `jumpIn'`, `jumpMod`, `jumpMod'`, `wait`, `waitT`, `mortal`, `interpolate`, `interpolateIn`, `clutch`, `clutchIn`, `anticipate`, `anticipateIn`, `histpan` and `forId`, with `Transition.hs`'s mappers for `waitT`. The test `lib/tidal-dirt` runs 12 through Tidal's own mappers, a window at a time; all 229 messages match ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
 
   ```haskell

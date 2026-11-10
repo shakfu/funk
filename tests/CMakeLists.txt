@@ -74,6 +74,10 @@ add_test(NAME hosts/tempo
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --dirt 57120 --script tests/hosts/tempo.txt 2>&1 | diff tests/hosts/tempo.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/tempo PROPERTIES LABELS hosts TIMEOUT 300)
+add_test(NAME hosts/state
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/state.txt 2>&1 | diff tests/hosts/state.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/state PROPERTIES LABELS hosts TIMEOUT 300)
 add_test(NAME hosts/transitions
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/transitions.txt 2>&1 | diff tests/hosts/transitions.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

@@ -30,7 +30,7 @@ The patches use Tidal's names from before 1.0. `tests/tidal/Patches.hs` has them
 
 - **String literals are patterns**, as with Tidal's `OverloadedStrings`, since 2026-11-09, and controls take patterns, so `sound (samples "bd*2" (run 8))` and `end (slow 5 sine)` port as written. Until then the port used `p.miniS`, `p.mini` and `pF "end"`, and defined `sound` of a pattern as `soundP`. One literal keeps `p.miniS`: `p0`'s `let x = ...`, which nothing else fixes to a pattern ([tidal-comparison.md](tidal-comparison.md) L1).
 - **`pure` is `p.atom`**, and `<$>` and `fmap` are `p.mapP`. Sections and `.` port as written: `(# vowel "a") . p.iter 4`.
-- **Speed factors are `Int`s.** `slow (3/5)` is `p._fastR 5 3` (`p11`). `spread' (density . pure)` over a continuous `Float` is `p.density . p.atom . round` (`p14`). That channel matches only because it has no onsets in either (below).
+- **Speed factors were `Int`s** until T2, 2026-11-10. `slow (3/5)` was `p._fastR 5 3` (`p11`), and `spread' (density . pure)` over a continuous `Float` was `p.density . p.atom . round` (`p14`). Both now port as written, with the same matches. That channel matches only because it has no onsets in either (below).
 - **Times are `Float`s.** `toRational <$>` is dropped. `(26/8) <~` ports as written, since `Pattern` is `Fractional`.
 
 ## Results
@@ -102,4 +102,6 @@ The roadmap does not define "well inside". At 20% of the window, with a 50 ms lo
 
 - **The tick rate.** 46126080 makes binary subdivisions down to 1024ths exact. The cost: `randAt`'s constants, `funk-midi`'s `CYCLE_TICKS`, and every expected output written in ticks. A tick count would reach Int64's limit at 2e11 cycles, less by any `_fast` factor. The alternative is to keep 720720, with errors of at most 30 ticks.
 - ~~**Tidal's `sound` of a pattern.** 12 of 22 patches need it.~~ Done 2026-11-09: controls take patterns.
-- **Fractional patterned speed factors**, for `p11` and `p14`.
+- ~~**Fractional patterned speed factors**, for `p11` and `p14`.~~ Done 2026-11-10 (T2).
+
+The same patches in their Tidal 1.10 form, run unchanged against 0.12's gaps: [patch-census.md](patch-census.md).

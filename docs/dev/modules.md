@@ -57,6 +57,8 @@ Modules need no change to this structure. An imported module is one more chunk, 
 
 - **`(..)` lists every export**, each type and class with its members, for a module written to be opened, such as `control`, whose 257 controls are unqualified in Tidal. Its names meet a list's checks: another import of the same name and a top-level definition of it are errors, and a local binding shadows it. It gives up the guarantee above for the files that use it: a name added to the module can then fail their compile, though it cannot change what they mean. A module meant for `(..)` keeps its helpers out of its export list.
 
+- **A REPL or host input may shadow an imported value**, as GHCi's prompt does: `sig = ...` beside `pattern`'s `sig`, opened by funk-midi. Later inputs mean the input's; code compiled before keeps the import's. A file keeps the error above, and a type or class keeps it everywhere. Allowed 2026-11-10, for Tidal's unqualified names (tidal-comparison.md, L5).
+
 - **Prelude names stay reserved** in every module, for the same reason as today. An unqualified `map` always means the prelude's.
 
 - **A local variable named like an imported qualifier is an error**, as records.md reserves. It keeps `geometry.area` from reading as a field of a variable `geometry`.

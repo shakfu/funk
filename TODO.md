@@ -40,13 +40,19 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] R4: transitions, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
 
-- [ ] R5: `setF` and its kind.
+- [x] R5: `setF` and its kind, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#state)).
 
-- [ ] T1-T3: 46126080 ticks per cycle; fractional patterned speed factors.
+- [x] T2: fractional patterned speed factors. Done 2026-11-10.
+
+- [ ] T1, T3: 46126080 ticks per cycle; `Rational` times.
 
 - [x] L4: a `Fractional` class; `Pattern`, `Note` and `Controls` are instances. Done 2026-11-09.
 
-- [ ] F1-F8, L3, L5, L8, M1-M3, C3: the library gaps. L8 is an `Enum` class.
+- [x] L5: `pattern` unqualified in the hosts. Done 2026-11-10.
+
+- [x] L3: `fmap`, `<$>`, `pure`, `<*>`, `<*`, `*>`, `<<*` and `>>=` on patterns. Done 2026-11-10.
+
+- [ ] F1-F8, L8, M1-M3, C3: the library gaps. L8 is an `Enum` class.
 
 - [ ] L7, F10, F11: decide the review items.
 

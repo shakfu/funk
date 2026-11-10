@@ -39,7 +39,7 @@ Not ported, as Tidal's source has them inside block comments: `fill`, `pequal`, 
 ## Differences from Tidal
 
 - **Times** in cycles are `Float`s, rounded to a tick (above). A denominator that does not divide 720720, such as 17's in `iter 17`, rounds.
-- **Speed factors** are `Int`s, as `fast`'s are ([patterns.md](patterns.md#implementation)): `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze`.
+- **Speed factors** are `Float`s, as times are: `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze` and the rest. Each is taken as its nearest ratio with a denominator up to 65536 (`toRatio`), then applied exactly in ticks, as `_fastR n d` is. Tidal reads a mini-notation decimal as a `Double` made `Rational`: `"0.6"` is 5404319552844595/2^53, not 3/5. funk takes 3/5, as Tidal does for the literal `0.6`. The `Double`'s ratio cannot be held in ticks.
 - **No `pureValue`.** Tidal 1.10 applies a constant argument directly, where funk joins with an `atom`. An event that crosses a cycle boundary then comes in two parts; its onset is the same.
 - **No steps.** Tidal 1.10's step counts (`setSteps`, `keepSteps`) and `Stepwise.hs` are not ported.
 - **`rot`** orders a cycle's events by whole, then part. Tidal's order puts each event's source position first.

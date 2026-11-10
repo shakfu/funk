@@ -45,6 +45,16 @@ void funk_stream_set_cycle(double cycle);
 double funk_stream_nudge(void);
 void funk_stream_set_nudge(double seconds);
 
+/* setF and its kind: name's pattern, a StablePtr, kept here; returns the
+   one it replaces, for funk to free, or NULL. funk_stream_control puts it
+   in the host's controls, as kind 3; 0 if they have no room. */
+void *funk_stream_set_state(const char *name, void *stable);
+int funk_stream_control(const char *name, void *stable);
+
+/* The host's controls, for getState: their entries, and how many. */
+void *funk_stream_controls(void);
+long funk_stream_ncontrols(void);
+
 /* 0 to 8192, for once's cycle (Stream/UI.hs, streamOnce). */
 long funk_stream_random(void);
 

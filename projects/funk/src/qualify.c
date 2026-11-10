@@ -17,6 +17,7 @@ typedef struct { const char *name, *target; int ns; ImportInfo *from; } Unq;
 
 typedef struct {
   const char *prefix; /* NULL: the program, whose own names stay */
+  bool session;       /* a REPL or host input: its names shadow imported ones */
   ImportInfo *imps;
   int nimps;
   Names values, types, cons, classes; /* the module's own */
@@ -104,9 +105,10 @@ static const char *ren_value(Q *q, const char *x, int line, int col) {
     }
   }
   if (has(&q->values, x)) return own(q, &q->values, x);
-  Unq *u = unqualified(q, NS_VALUE, x);
   /* a REPL input's earlier global, as `p` after `p k = ...` */
   bool global = !q->prefix && global_lookup(x) >= 0;
+  if (global && q->session && x[0] != '$') return x; /* as GHCi's prompt: it shadows an import */
+  Unq *u = unqualified(q, NS_VALUE, x);
   if (!u && !global && qualifier(q, x)) cerror(line, col, "`%s` names an imported module; use `%s.name`", x, x);
   return u ? u->target : x;
 }
@@ -201,13 +203,14 @@ static void q_expr(Q *q, Expr *e) {
 /* ------------------------------------------------------------ the module's names */
 
 /* A module's own name: not the prelude's, not one an import list brings
-   in. It may be an import's qualifier, as Tidal's `p` beside `pattern as
-   p`: `p.x` with no spaces is joined to the qualified name first. */
+   in, but for a session's value, which shadows it, as at GHCi's prompt. It
+   may be an import's qualifier, as Tidal's `p` beside `pattern as p`: `p.x`
+   with no spaces is joined to the qualified name first. */
 static void define(Q *q, Names *s, int ns, const char *x, int line, int col) {
   if (x[0] == '$') return;
   if (q->prefix && in_prelude(ns, x)) cerror(line, col, "%s`%s` is defined in the prelude and cannot be redefined; choose another name", ns_word[ns], x);
   Unq *u = unqualified(q, ns, x);
-  if (u) cerror(line, col, "%s`%s` is imported from `%s`; choose another name", ns_word[ns], x, u->from->im->path);
+  if (u && !(q->session && ns == NS_VALUE)) cerror(line, col, "%s`%s` is imported from `%s`; choose another name", ns_word[ns], x, u->from->im->path);
   VPUSH(*s, x);
 }
 
@@ -340,8 +343,8 @@ static void import_list(Q *q, ImportInfo *in) {
   xfree(every.a);
 }
 
-Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nimps) {
-  Q q = {.prefix = prefix, .imps = imps, .nimps = nimps};
+static Exports *qualify(Module *m, const char *prefix, ImportInfo *imps, int nimps, bool session) {
+  Q q = {.prefix = prefix, .session = session, .imps = imps, .nimps = nimps};
   for (int i = 0; i < nimps; i++) {
     if (imps[i].im->listed && imps[i].ex) import_list(&q, &imps[i]);
     for (int j = 0; imps[i].im->listed && !imps[i].ex && j < imps[i].im->items.n; j++) { /* a base module's: in the prelude already */
@@ -431,3 +434,7 @@ Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nim
   xfree(q.scope.a);
   return ex;
 }
+
+Exports *qualify_module(Module *m, const char *prefix, ImportInfo *imps, int nimps) { return qualify(m, prefix, imps, nimps, false); }
+
+void qualify_session(Module *m, ImportInfo *imps, int nimps) { qualify(m, NULL, imps, nimps, true); }

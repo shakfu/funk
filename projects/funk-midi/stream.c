@@ -8,8 +8,8 @@
 #include <time.h>
 
 typedef struct { char *id; void *stable; } Slot;
-static Slot *slots;
-static long nslots, capslots;
+static Slot *slots, *states;
+static long nslots, capslots, nstates, capstates;
 
 typedef struct { void *stable; double until; } First;
 static First *firsts;
@@ -23,21 +23,25 @@ static void *grow(void *a, long *cap, size_t size) {
   return a;
 }
 
-void *funk_stream_replace(const char *id, void *stable) {
+/* id's entry of a, sorted by id, is stable: returns the old one or NULL */
+static void *put(Slot **a, long *n, long *cap, const char *id, void *stable) {
   long i = 0;
-  while (i < nslots && strcmp(slots[i].id, id) < 0) i++;
-  void *old = NULL;
-  if (i < nslots && !strcmp(slots[i].id, id)) {
-    old = slots[i].stable;
-    slots[i].stable = stable;
+  while (i < *n && strcmp((*a)[i].id, id) < 0) i++;
+  if (i < *n && !strcmp((*a)[i].id, id)) {
+    void *old = (*a)[i].stable;
+    (*a)[i].stable = stable;
     return old;
   }
-  if (nslots == capslots) slots = grow(slots, &capslots, sizeof *slots);
-  memmove(slots + i + 1, slots + i, (size_t)(nslots - i) * sizeof *slots);
-  slots[i] = (Slot){strdup(id), stable};
-  nslots++;
+  if (*n == *cap) *a = grow(*a, cap, sizeof **a);
+  memmove(*a + i + 1, *a + i, (size_t)(*n - i) * sizeof **a);
+  (*a)[i] = (Slot){strdup(id), stable};
+  ++*n;
   return NULL;
 }
+
+void *funk_stream_replace(const char *id, void *stable) { return put(&slots, &nslots, &capslots, id, stable); }
+
+void *funk_stream_set_state(const char *name, void *stable) { return put(&states, &nstates, &capstates, name, stable); }
 
 void *funk_stream_get(const char *id) {
   for (long i = 0; i < nslots; i++)

@@ -395,7 +395,7 @@ gap :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
 gap np pat = p.innerJoin (p.mapP (\n -> _gap n pat) np)
 
 _gap :: Int -> p.Pattern Controls -> p.Pattern Controls
-_gap n pat = p._fast n (p.cat [p.atom 1, p.silence]) |>| _chop n pat
+_gap n pat = p._fast (toFloat n) (p.cat [p.atom 1, p.silence]) |>| _chop n pat
 
 -- each of ps with p # it, offset through t cycles
 weave :: Float -> p.Pattern Controls -> [p.Pattern Controls] -> p.Pattern Controls
@@ -436,19 +436,19 @@ _splice bits ip pat = p.Pattern (\qst -> let q = qst.arc in map (\e -> case p.wh
         _ -> setControl "speed" (VF d) e.value)) (p.queryIn qst (slice (p.atom bits) ip pat) q)) # pS "unit" (p.atom "c")
 
 -- p slowed to n cycles, its speed set to fit
-loopAt :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
-loopAt np pat = p.slow np pat |* pF "speed" (p.apP (p.mapP (\a k -> a / toFloat k) (p.atom 1.0)) np) # pS "unit" (p.atom "c")
+loopAt :: p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
+loopAt np pat = p.slow np pat |* pF "speed" (p.apP (p.mapP (\a k -> a / k) (p.atom 1.0)) np) # pS "unit" (p.atom "c")
 
 -- fast, with speed raised to match
-hurry :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
-hurry xp pat = p.fast xp pat |* pF "speed" (p.mapP toFloat xp)
+hurry :: p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
+hurry xp pat = p.fast xp pat |* pF "speed" xp
 
 -- striate n p at each speed of xs in turn
-smash :: p.Pattern Int -> [p.Pattern Int] -> p.Pattern Controls -> p.Pattern Controls
+smash :: p.Pattern Int -> [p.Pattern Float] -> p.Pattern Controls -> p.Pattern Controls
 smash np xs pat = case striate np pat of
   s -> p.slowcat (map (\x -> p.slow x s) xs)
 
-smash' :: Int -> [p.Pattern Int] -> p.Pattern Controls -> p.Pattern Controls
+smash' :: Int -> [p.Pattern Float] -> p.Pattern Controls -> p.Pattern Controls
 smash' n xs pat = case _chop n pat of
   s -> p.slowcat (map (\x -> p.slow x s) xs)
 

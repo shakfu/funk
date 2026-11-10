@@ -10,7 +10,7 @@
 module stream
   ( ID(..), fromID, PlayState(..), p, _p, p_, playStack, setPreviousPatternOrSilence, only, hush, panic, list,
     mute, unmute, muteAll, unmuteAll, unsoloAll, solo, unsolo, streamSilence, once, asap, first, streamAll,
-    setcps, getcps, setbpm, getbpm, getnow, setCycle, resetCycles, nudgeAll, streamSetCPS, writeTempo,
+    setF, setI, setS, setR, setB, getState, setcps, getcps, setbpm, getbpm, getnow, setCycle, resetCycles, nudgeAll, streamSetCPS, writeTempo,
     transition, xfade, xfadeIn, histpan, wait, waitT, jump, jumpIn, jumpIn', jumpMod, jumpMod', mortal, interpolate,
     interpolateIn, clutch, clutchIn, anticipate, anticipateIn, forId,
     _xfadeIn, _histpan, _wait, _waitT, _jump, _jumpIn, _jumpIn', _jumpMod, _jumpMod', _mortal, _interpolate,
@@ -37,6 +37,11 @@ foreign import ccall "stream.h funk_stream_global" streamGlobal :: () ->> Ptr ()
 -- the cycle a pattern given now starts at
 foreign import ccall "stream.h funk_stream_now" streamNow :: () ->> Float
 foreign import ccall "stream.h funk_stream_random" streamRandom :: () ->> Int
+-- setF's patterns, kept by name, and the host's controls, where cF reads
+foreign import ccall "stream.h funk_stream_set_state" streamSetState :: String -> Ptr () ->> Ptr ()
+foreign import ccall "stream.h funk_stream_control" streamControl :: String -> Ptr () ->> Int
+foreign import ccall "stream.h funk_stream_controls" streamControls :: () ->> Ptr ()
+foreign import ccall "stream.h funk_stream_ncontrols" streamNControls :: () ->> Int
 -- the host's clock (Clock.hs): cycles per second, set from the next window
 -- and clamped as Link's tempo is; the cycle now; nudgeAll's seconds
 foreign import ccall "stream.h funk_stream_cps" streamCps :: () ->> Float
@@ -172,6 +177,34 @@ asap pat = once pat
 -- Tidal's all: f on everything played, from the next window
 streamAll :: (p.Pattern Controls -> p.Pattern Controls) ->> ()
 streamAll f = freeStable (streamSetGlobal (stable f))
+
+-- Tidal's streamSet and its kind (Stream/UI.hs): cF and the rest read pat
+-- as name's value, from the next window, until an OSC /ctrl sets name.
+-- funk has no Rational: setR takes Floats, as setF.
+setState :: String -> p.Pattern p.Ctl ->> ()
+setState name pat = case stable (p.CtlP pat) of
+  sp -> if streamControl name sp == 0
+        then do
+          freeStable sp
+          error ("set: no room for control " ++ show name ++ ": 256 at most, each name under 48 bytes")
+        else freeStable (streamSetState name sp)
+
+setF, setR :: String -> p.Pattern Float ->> ()
+setF name pat = setState name (p.mapP p.CtlF pat)
+setR name pat = setF name pat
+
+setI :: String -> p.Pattern Int ->> ()
+setI name pat = setState name (p.mapP p.CtlI pat)
+
+setS :: String -> p.Pattern String ->> ()
+setS name pat = setState name (p.mapP p.CtlS pat)
+
+setB :: String -> p.Pattern Bool ->> ()
+setB name pat = setState name (p.mapP p.CtlB pat)
+
+-- name's value in the host's controls, as Tidal's streamGet
+getState :: String ->> Maybe p.Ctl
+getState name = lookup name (p.readControls (streamControls ()) (streamNControls ()))
 
 -- Tidal's tempo commands. setcps is Boot's `once . cps`: the tempo changes
 -- at that event, as at any event with a `cps`. Tidal's listener's /setcps

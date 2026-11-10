@@ -8,3 +8,7 @@ shapes.area :: Shape -> Float
 Vec {x = 1.0, y = 2.0}
 <repl>:1:6: error: unknown type `C`
 66
+7.0
+9.0
+2.0
+<repl>:1:1: error: type `Shape` is imported from `tests.run.modlists.shapes`; choose another name

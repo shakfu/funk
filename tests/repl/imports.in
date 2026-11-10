@@ -13,3 +13,8 @@ import Data.Char (ord)
 ord (C.chr 65)
 import qualified Data.Char as C
 C.ord (C.chr 66)
+area s = 7.0
+area (Square 3.0)
+shapes.area (Square 3.0)
+twice (Square 1.0)
+data Shape = Box

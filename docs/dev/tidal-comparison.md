@@ -27,7 +27,7 @@ Status:
 | Runtime and workflow | 6 | 1 | 0 |
 | SuperDirt sound | 8 | 0 | 1 |
 
-L1, L2 and L4 are done: string literals are patterns, controls take patterns, and patterns divide. The largest remaining gaps are the qualified `p.` names (L5), scales (F1) and the runtime (R1-R5).
+L1, L2 and L4 are done: string literals are patterns, controls take patterns, and patterns divide. The largest remaining gaps are scales (F1) and the runtime (R6).
 
 ## Language and literals
 
@@ -38,14 +38,14 @@ L1, L2 and L4 are done: string literals are patterns, controls take patterns, an
 
 **L2. Done 2026-11-09: controls take patterns.** Each of the 257 controls takes Tidal's type: `Pattern Float` for Tidal's `Double`, `Pattern Int`, `Pattern String`, and `Pattern Note` for `n`, `note`, `up` and `number`. `Note` is Tidal's: a `Float` whose mini-notation reads note names first, with Tidal's `Show`. Tidal's signals and `irand`, `run` and `scan` are polymorphic, as Tidal's are, so `n (irand 8)` and `n (segment 4 (range 0 7 sine))` check. 9 cases in `lib/tidal` check them against Tidal. A signal's type needs `FromFloat` where Tidal's needs `Fractional` (L4), and `run` and `scan` need `Num` and `Ord` where Tidal's need `Enum` (L8).
 
-**L3. Gap: no `Functor`, `Applicative` or `Monad` names.** `<$>`, `fmap`, `pure`, `<*>`, `>>=` and `return` are `p.mapP`, `p.atom`, `p.apP` and `p.joinP`. The cause is the missing higher-kinded classes ([type-classes.md](type-classes.md#later-phases)), not a design choice. Monomorphic operators on `Pattern` need no new class feature: `<$>`, `<*>`, `<*`, `*>`, `<<*` and `>>=`. Tidal defines `<*`, `*>` and `<<*` on `Pattern` alone (`Pattern.hs`); funk has the first two only as the functions `apLeft` and `apRight`, and `<<*` not at all; `squeezeJoin` exists.
+**L3. Done 2026-11-10, for patterns alone: `Functor`, `Applicative` and `Monad` names.** `lib/pattern.fk` has `fmap`, `<$>`, `<$`, `pure`, `<*>`, `liftA2`, `return` and `>>=` on `Pattern` only, and Tidal's `<*`, `*>` and `<<*`, with Tidal's and base's fixities. `>>=` is Tidal's `unwrap`. `lib/tidal` checks 12 cases against Tidal. Kept difference: they take no list or `Maybe`, as funk has no higher-kinded classes ([type-classes.md](type-classes.md#later-phases)). When it has them, these become instances, and code that uses them stays as it is.
 
 **L4. Done 2026-11-09: `Fractional`.** `class (Num a, FromFloat a) => Fractional a`, with `/` and `recip` and Haskell's defaults for each. `Pattern a`, `Note` and `Controls` are instances, as Tidal's `Pattern a`, `Note` and `ValueMap` are, so `(26/8) <~ p` ports as written; a float literal at `Controls` is a `speed`. `lib/tidal` checks 7 cases against Tidal. The C emitted for the 6 benchmarks that divide is unchanged but for constructor numbers. Differences, kept:
 
 - A float literal needs `FromFloat`, Haskell's needs `Fractional`. They differ only for a type with `FromFloat` and no `/`, such as `lib/dsp.fk`'s `Sig`, which no Tidal code has.
 - No `fromRational`: it waits for T3's `Rational`. `Floating` (`pi`, `sin` on patterns) is not done.
 
-**L5. Gap: the pattern library is qualified.** Tidal's names are unqualified after `import Sound.Tidal.Context`. The hosts import `control (..)` unqualified but `pattern` as `p`, so ported code needs `p.` on about 260 names. It is not checked which `pattern` names clash with the prelude (`filter`, `cycle` and `range` are candidates). Each clash needs a decision.
+**L5. Done 2026-11-10: the pattern library is unqualified in the hosts.** funk-midi and the plugin import `pattern` as `p` and with `(..)`, so Tidal's names work as written and `p.` names still do. No `pattern` name is the prelude's. One clashed with `control`: `pattern`'s internal `clip`, now `clipEvent`, so `clip` is Tidal's control. A name defined at the prompt shadows an imported one, as at GHCi's ([modules.md](modules.md)); funk-midi's `sig` needs that. `pattern` has no export list, so its 673 names, helpers included, are all in scope. [patch-census.md](patch-census.md) ran the 22 patches this way.
 
 **L8. Gap: no `Enum` class.** `enumFromTo` is `(Num a, Ord a)`, so `run`'s ranges follow `Int`'s rule at every type: Tidal's `run 3.5`, `[0 .. 2.5]`, ends at 3 by Haskell's `b + 1/2` rule for fractional types; funk's ends at 2. Ranges over `Char` and user types, `succ`, `pred`, `toEnum`, `fromEnum` and `deriving Enum` are missing too. Cost: `[a..b]` desugars to `enumFromTo` by name (`parse.c`), and fusion recognizes it by name (`fuse.c`); as a method it elaborates to an instance call that fusion must learn to match, or fused loops slow down. Do after L4.
 
@@ -57,7 +57,7 @@ L1, L2 and L4 are done: string literals are patterns, controls take patterns, an
 
 **T1. Kept, with a residue: time is `Int` ticks, not `Rational`.** Arithmetic stays bounded, with no bignum allocation on the query path. The rate is 720720 ticks per cycle, so a cycle divides exactly into 16ths but not 32nds: 1604 of 6456 ported events round by up to 30 ticks ([patch-port.md](patch-port.md#rounding)). At 46126080 (720720 * 64), every event except one test's random values is exact. Denominators with a prime above 13, or a power past those, still round: `iter 17`, for one. Recommendation: move to 46126080. Ticks reach Int64's limit at about 2e11 cycles, fewer under `_fast`.
 
-**T2. Gap: speed factors are `Int`s.** `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap` and `fastSqueeze` take `Int`, and ratios go through `_fastR n d` ([combinators.md](combinators.md#differences-from-tidal)). A patterned fractional factor, `slow "<1.5 0.6>"`, has no form. `p11` and `p14` of the patch port need it. The reason is the `Int` ticks of T1, but `_fastR` already handles a constant ratio. A patterned one needs a ratio type in the pattern, not new time.
+**T2. Done 2026-11-10: speed factors are `Float`s.** `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze` and 9 more take a `Pattern Float`, as Tidal's take a `Pattern Time`, so `slow "<1.5 0.75>"` and `density` of a continuous pattern port as written. Each factor is its nearest ratio with a denominator up to 65536, applied exactly in ticks ([combinators.md](combinators.md#differences-from-tidal)). `lib/tidal` checks 17 cases against Tidal. Kept difference: a mini-notation decimal such as `"0.6"` is 3/5, as Tidal's literal `0.6` is, where Tidal's parser keeps the `Double`'s binary fraction. On `slow "<1.5 0.6>"` that moves events by 1 tick and keeps an onset Tidal loses at a cycle boundary. A constant factor costs an `innerJoin`, as in Tidal: `p11`'s queries take 21% longer than with `_fastR 5 3` (F8 would remove it).
 
 **T3. Gap: times are `Float`s.** A time argument is a `Pattern Float`, rounded to a tick. `toRational <$>` is dropped in ports. This follows from T1 and L4. A `Rational` literal type would remove the rounding before the tick.
 
@@ -131,7 +131,7 @@ Also missing are `midinote`, `drum`, `drumN`, `array`, `grain'`, `pB`, `pR`, `pX
 
 **R4. Done 2026-11-10 in funk-midi: transitions.** Boot.hs's `xfade` to `forId`, and `Transition.hs`'s mappers, `_xfadeIn` to `_mortalOverlay` ([stream.md](stream.md#transitions)). `lib/tidal-dirt` checks 12 against Tidal's own. `wash`, `washIn` and `mortalOverlay`, which Boot.hs hides, are `_wash`, `_washIn` and `_mortalOverlay`.
 
-**R5. Gap: state set from code.** `setF`, `setI`, `setS`, `setR` and `setB` set the values `cF` and the rest read. funk's controls come from OSC, MIDI CC and plugin parameters only ([controls-in.md](controls-in.md)).
+**R5. Done 2026-11-10 in funk-midi: state set from code.** `setF`, `setI`, `setS`, `setR`, `setB` and `getState`; `cF` and the rest query a value that is a pattern, as Tidal's `VPattern` ([stream.md](stream.md#state)). `lib/tidal` checks 9 cases against Tidal. Kept difference: `setR` takes `Float`s (T3).
 
 **R6. Gap: Ableton Link and editor integration.** Missing are `enableLink` and `disableLink`. Tidal's editor plugins, for Pulsar, VS Code, Vim and Emacs, send blocks to GHCi on standard input. funk-midi reads standard input, and the plugin takes code over UDP (`projects/clap/udp_server.cpp`). No editor package targets either. It is not checked whether an existing Tidal editor plugin can be pointed at `funk-midi` unchanged.
 
