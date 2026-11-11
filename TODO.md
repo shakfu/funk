@@ -71,6 +71,16 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] `foreign struct`: C arrays inside structs (voice blocks; Core Audio's `AudioBufferList`), and several fields per line, as `data` records accept.
 
+### From rustel, for roadmap 0.13
+
+Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel; see [docs/dev/rustel.md](docs/dev/rustel.md). It is AGPL-3.0: take ideas, not code.
+
+- [ ] 0.13 design note: weigh a fixed-order voice record against per-event subgraphs. rustel's voice is a fixed-size record with every effect as an optional field, rendered in one order, plus at most 3 `.FX()` stages (`crates/audio/src/backend.rs:370`). SuperDirt also runs its modules in one order (`DirtEvent.sc:192`, `SuperDirt.sc:174`). Decide first whether parity covers user `addModule` calls and custom SynthDefs; a fixed record cannot.
+
+- [ ] A test that the C audio path does not allocate, free or lock: `funkgraph`'s runner, `voices.c` and the plugin's `process()`. The checker proves exports allocation-free; the C around them is unchecked. rustel arms a failing allocator during the callback (`crates/audio/tests/no_alloc_callback.rs`); in C, interpose `malloc`, `free` and `pthread_mutex_lock`.
+
+- [ ] Negative controls in the scsynth reference renders: each case also renders a wrong variant that must fail the comparison, so the metric is shown to separate them (`crates/audio/tests/chrome_reference.rs`). Compare samples against a stated error bound, not rustel's peak and RMS.
+
 ### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 
 - [ ] #4: a file that imports a module of its own name reports "import cycle: pattern -> pattern"; say "imports itself". #11 has the same cause: a file beside the importer shadows a module on the `-M` path, with no warning.
@@ -95,6 +105,16 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 - [ ] `embed/kernels` failed once in a local parallel suite run, 2026-11-02, with its output lost; 12 parallel and 15 repeated runs passed. Keep the output when it recurs.
 
 ## Medium
+
+### From rustel
+
+- [ ] Write the scheduling contract of funk-midi's slots and the plugin, and test each clause: events carry their pattern's generation and an old generation is never delivered; onset ids are unique; stop does not wait behind evaluation; stale events expire. rustel's is `crates/scheduler/src/lib.rs:1-20`.
+
+- [ ] R6: `funk-midi --watch FILE` reloads the file on save, so any editor works without a package, as `rustel play --watch`.
+
+- [ ] L7: also refuse an edit whose first window yields an invalid control value, and keep the last pattern playing, as rustel does (`docs/overview.md`, "Refused edits").
+
+- [ ] T3: consider a bounded `Rational`, as rustel's reduced `i128/i128` with a 64-bit path below 2^31 and checked overflow (`crates/fraction/src/lib.rs:1-79`), against Haskell's unbounded one. Record which Tidal patterns would overflow it.
 
 ### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 
@@ -138,6 +158,16 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
   - `revcomp` is 2.1x C (through `bench.py`'s pipe; 2.8x from a file): finding newlines and complementing go byte by byte through bounds-checked accesses, and the output is a second buffer, where C works in place in one (288 MB resident against 105).
 
 ## Low
+
+### From rustel
+
+- [ ] Count voice steals and report them, as rustel counts the onsets it drops past 512 voices (`crates/audio/src/scalar.rs:254`). `d.kit` steals within its 4 voices a name, where SuperDirt starts a synth per event; the count shows when that difference is audible.
+
+- [ ] Session tapes: log each installed edit with its time, and replay the log, so a live-set acceptance run can be repeated (rustel `docs/sessions.md`).
+
+- [ ] R6, Link: check the licence before an FFI binding. Ableton's Link SDK is GPL-2.0-or-later or commercial; funk is MIT. rustel's behaviour is the model: follow play and stop, join a running session, release MIDI clock in while joined (`docs/hardware.md#link`).
+
+- [ ] Onset placement: check that `d.kit` rounds an onset to the frame as scsynth's `OffsetOut` does. rustel keeps a sub-sample lead (`backend.rs:1137`), which parity with SuperDirt does not want.
 
 ### Kernels compiled while playing (desktop live coding)
 
