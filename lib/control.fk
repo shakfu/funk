@@ -562,7 +562,7 @@ resolveState sm es = case es of
   [] -> (sm, [])
   e : rest -> case (if e.onset then mapAccumValues sm (controlPairs e.value) else (sm, filter (\(_, v) -> not (isState v)) (controlPairs e.value))) of
     (sm', kvs) -> case resolveState sm' rest of
-      (sm'', rest') -> (sm'', p.Event e.whole e.part (Controls kvs) : rest')
+      (sm'', rest') -> (sm'', p.Event e.whole e.part (Controls kvs) e.context : rest')
 
 mapAccumValues :: [(String, p.Ctl)] -> [(String, Value)] -> ([(String, p.Ctl)], [(String, Value)])
 mapAccumValues sm kvs = case kvs of
@@ -758,7 +758,7 @@ _splice bits ip pat = p.pattern (\qst -> let q = qst.arc in map (\e -> case p.wh
     w -> case (1.0 / toFloat bits) / p.cycles (w.stop - w.start) of
       d -> p.Event e.whole e.part (case getControl "speed" e.value of
         Just (VF sp) -> setControl "speed" (VF (d * sp)) e.value
-        _ -> setControl "speed" (VF d) e.value)) (p.queryIn qst (slice (p.atom bits) ip pat) q)) # pS "unit" (p.atom "c")
+        _ -> setControl "speed" (VF d) e.value) e.context) (p.queryIn qst (slice (p.atom bits) ip pat) q)) # pS "unit" (p.atom "c")
 
 -- p slowed to n cycles, its speed set to fit
 loopAt :: p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
@@ -843,9 +843,10 @@ contrast f g a pat = contrastBy (\x y -> x == y) f g (p.mapP controlPairs a) pat
 -- contrast, matching each name's value by comp
 contrastBy :: (a -> Value -> Bool) -> (p.Pattern Controls -> p.Pattern b) -> (p.Pattern Controls -> p.Pattern b) -> p.Pattern [(String, a)] -> p.Pattern Controls -> p.Pattern b
 contrastBy comp f g a pat = case p.pattern (\qst -> let q = qst.arc in map (\e -> case (p.wholeOrPart e).start of
-    t -> p.Event e.whole e.part (any (\ea -> all (\(k, v) -> case getControl k e.value of
-        Just x -> comp v x
-        Nothing -> False) ea.value) (p.queryIn qst a (p.Span t (t + 1))), e.value)) (p.queryIn qst pat q)) of
+    t -> case p.queryIn qst a (p.Span t (t + 1)) of
+      as -> p.Event e.whole e.part (any (\ea -> all (\(k, v) -> case getControl k e.value of
+          Just x -> comp v x
+          Nothing -> False) ea.value) as, e.value) (p.combineContexts (e.context : map (\x -> x.context) as))) (p.queryIn qst pat q)) of
   m -> p.overlay (f (p.mapMaybeP (\(t, v) -> if t then Just v else Nothing) m)) (g (p.mapMaybeP (\(t, v) -> if t then Nothing else Just v) m))
 
 -- contrast, matching a value within each name's range
@@ -881,7 +882,7 @@ squeezeJoinUp :: p.Pattern (p.Pattern Controls) -> p.Pattern Controls
 squeezeJoinUp pp = p.pattern (\qst -> let q = qst.arc in concatMap (\eo -> case eo.whole of
     Just w -> case mod w.start p.cycleTicks of
       c -> concatMap (\ei -> case ei.whole of
-          Just iw -> concatMap (\nw -> map (\np -> p.Event (Just nw) np ei.value) (p.sects eo.part ei.part)) (p.sects w iw)
+          Just iw -> concatMap (\nw -> map (\np -> p.Event (Just nw) np ei.value (p.ctx2 ei.context eo.context)) (p.sects eo.part ei.part)) (p.sects w iw)
           Nothing -> [])
         (p.queryIn qst (p.compressTicks c (c + w.stop - w.start) (eo.value |* pF "speed" (p.atom (1.0 / p.cycles (w.stop - w.start))))) eo.part)
     Nothing -> []) (p.queryIn qst pp q))
@@ -1135,7 +1136,7 @@ writeDirts buf cap off cs ot es n = case es of
 
 -- ticks t in units, to the nearest, as Link rounds Tidal's times to microseconds
 nearest :: Int -> Int -> Int
-nearest cs t = div (2 * t * cs + p.cycleTicks) (2 * p.cycleTicks)
+nearest cs t = div t p.cycleTicks * cs + div (2 * mod t p.cycleTicks * cs + p.cycleTicks) (2 * p.cycleTicks)
 
 endDirt :: Ptr Int -> Int -> Int ->> ()
 endDirt buf cap off = if off + 8 <= cap then pokeByteOff buf off (negate 1 :: Int) else ()
@@ -2047,7 +2048,8 @@ att pat = attack pat
 -- list, xCount counts from 0 and xCountTo counts to a pattern's value.
 
 -- Their buses, xbus and xrecv, wait for SuperDirt's (S2). ringCount is
--- missing: the prelude's ringCount, of a Ring, has the name.
+-- missing: the prelude's ringCount, of a Ring, has the name; write
+-- pStateF "ring" name (\m -> fromMaybe (-1.0) m + 1.0).
 
 sTake :: String -> [String] -> p.Pattern Controls
 sTake name xs = pStateListS "s" name xs

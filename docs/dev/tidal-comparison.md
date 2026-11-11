@@ -19,15 +19,15 @@ Status:
 
 | Area | Gaps | Kept | Review |
 |-|-|-|-|
-| Language and literals | 3 | 2 | 1 |
-| Time | 2 | 1 | 0 |
-| Pattern functions | 8 | 1 | 2 |
-| Mini-notation | 3 | 2 | 0 |
-| Controls | 2 | 0 | 0 |
-| Runtime and workflow | 6 | 1 | 0 |
+| Language and literals | 0 | 1 | 1 |
+| Time | 1 | 1 | 0 |
+| Pattern functions | 0 | 1 | 0 |
+| Mini-notation | 0 | 2 | 0 |
+| Controls | 0 | 0 | 0 |
+| Runtime and workflow | 1 | 1 | 0 |
 | SuperDirt sound | 8 | 0 | 1 |
 
-L1, L2 and L4 are done: string literals are patterns, controls take patterns, and patterns divide. The largest remaining gap is the runtime (R6).
+Every library gap of 0.12 is done. Open are T3 and R6; the SuperDirt sound is 0.13's.
 
 ## Language and literals
 
@@ -59,11 +59,11 @@ L1, L2 and L4 are done: string literals are patterns, controls take patterns, an
 
 ## Time
 
-**T1. Kept, with a residue: time is `Int` ticks, not `Rational`.** Arithmetic stays bounded, with no bignum allocation on the query path. The rate is 720720 ticks per cycle, so a cycle divides exactly into 16ths but not 32nds: 1604 of 6456 ported events round by up to 30 ticks ([patch-port.md](patch-port.md#rounding)). At 46126080 (720720 * 64), every event except one test's random values is exact. Denominators with a prime above 13, or a power past those, still round: `iter 17`, for one. Recommendation: move to 46126080. Ticks reach Int64's limit at about 2e11 cycles, fewer under `_fast`.
+**T1. Kept, with a residue: time is `Int` ticks, not `Rational`.** Arithmetic stays bounded, with no bignum allocation on the query path. 2026-11-11: the rate is 46126080 ticks per cycle (720720 * 64), so a cycle divides exactly into 1024ths. All 6456 events of the 22 patches are exact, where 1604 rounded at 720720 ([patch-port.md](patch-port.md#rounding)), and 235 of the doc census's examples, where 202 were. Denominators with a prime above 13, or a power past 2^10, 3^2 or the single 5, 7, 11 and 13, still round: `iter 17` and `chop 256` over 8ths. A tick count reaches Int64's limit at 2e11 cycles, fewer under `_fast`; times in samples or microseconds convert by quotient and remainder, so their products stay within it.
 
 **T2. Done 2026-11-10: speed factors are `Float`s.** `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze` and 9 more take a `Pattern Float`, as Tidal's take a `Pattern Time`, so `slow "<1.5 0.75>"` and `density` of a continuous pattern port as written. Each factor is its nearest ratio with a denominator up to 65536, applied exactly in ticks ([combinators.md](combinators.md#differences-from-tidal)). `lib/tidal` checks 17 cases against Tidal. Kept difference: a mini-notation decimal such as `"0.6"` is 3/5, as Tidal's literal `0.6` is, where Tidal's parser keeps the `Double`'s binary fraction. On `slow "<1.5 0.6>"` that moves events by 1 tick and keeps an onset Tidal loses at a cycle boundary. A constant factor costs an `innerJoin`, as in Tidal: `p11`'s queries take 21% longer than with `_fastR 5 3` (F8 would remove it).
 
-**T3. Gap: times are `Float`s.** A time argument is a `Pattern Float`, rounded to a tick. `toRational <$>` is dropped in ports. This follows from T1 and L4. A `Rational` literal type would remove the rounding before the tick.
+**T3. Gap: times are `Float`s.** A time argument is a `Pattern Float`, rounded to a tick. `toRational <$>` is dropped in ports. This follows from T1 and L4. A `Rational` literal type would remove the rounding before the tick. A Tidal time from a `Double`, as `toRational <$> envLR` in `anticipateIn`, is off its exact value by about 1e-16 cycles; where that puts an onset either side of a query's edge, Tidal plays it or not by the sign of the error, and funk's tick cannot follow. In `tests/hosts/transitions.txt`, every echo of `anticipateIn` falls on a 10 ms window's edge, so its echoes differ from Tidal's.
 
 ## Pattern functions
 
@@ -73,15 +73,13 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 **F2. Done 2026-11-11: `Time.hs`.** `sam`, `nextSam` and `cyclePos` take `Float` cycles, as `whenT`'s callbacks do; an `Int` instance would read `sam 3` as 3 ticks. `toTime` and `fromTime` convert cycles to ticks and back. `hull`, `sect`, `subArc`, `subMaybeArc`, `timeToCycleArc`, `cycleArc`, `cyclesInArc`, `cycleArcsInArc`, `arcCycles`, `arcCyclesZW`, `mapCycle` and `isIn` take `Span`s in ticks, as events and queries hold. `lcmr` needs `Rational` (T3). `pattern.fk`'s own list-valued `sect` is now `sects`.
 
-**F3. Done 2026-11-11, but contexts: `Pattern.hs`.** `pattern`, `queryArc`, `empty`, `nothing`, `noOv`, `splitQueries`, the `withQuery*`, `withResult*` and `withEvent*` families, `withValue`, `withPart`, `filterEvents`, `compressArc`, `compressArcTo`, `focusArc`, `matchManyToOne`, `revv`, `separateCycles`, the `patternify*` family, the `applyPatToPat*` family, `unwrap`, the event predicates and accessors, `toEvent`, `valueToPattern`, `sameDur`, `groupEventsBy`, `collect*` and `uncollectEvent(s)`, in `lib/pattern.fk`; `getI`, `getS`, `getN`, `getR`, `applyFIS`, `fNum2` and `extract*` in `lib/control.fk`. Times are ticks, as in F2. `lib/tidal` checks 24 cases against Tidal. Missing:
+**F3. Done 2026-11-11: `Pattern.hs`.** `pattern`, `queryArc`, `empty`, `nothing`, `noOv`, `splitQueries`, the `withQuery*`, `withResult*` and `withEvent*` families, `withValue`, `withPart`, `filterEvents`, `compressArc`, `compressArcTo`, `focusArc`, `matchManyToOne`, `revv`, `separateCycles`, the `patternify*` family, the `applyPatToPat*` family, `unwrap`, the event predicates and accessors, `toEvent`, `valueToPattern`, `sameDur`, `groupEventsBy`, `collect*`, `uncollectEvent(s)`, `combineContexts`, `setContext`, `withContext`, `deltaContext` and `deltaMini`, in `lib/pattern.fk`; `getI`, `getS`, `getN`, `getR`, `applyFIS`, `fNum2` and `extract*` in `lib/control.fk`. Times are ticks, as in F2. `lib/tidal` checks 24 cases against Tidal.
 
-- `combineContexts`, `setContext`, `withContext` and `deltaMini`: funk's events carry no source positions (R6);
-- 
 `matchManyToOne` queries `[s, s + 1)` where Tidal queries `Arc s s`: funk's queries have width, and the two return the same events.
 
 **F4. Done 2026-11-11: `Simple.hs`.** `crunch`, `scratch`, `louder`, `quieter`, `silent`, `skip`, `left`, `right`, `higher`, `lower`, `faster` and `slower`, in `lib/control.fk`. A string literal as a control pattern is a `sound`, as Tidal's `IsString ControlPattern`: `"bd*2 sn" # gain 0.8`. `control.fk`'s helpers `left` and `right` are now `onLeft` and `onRight`. `lib/tidal` checks each against Tidal; `scratch` through `rev (chop 16 ...)`, since `chop 32`'s 32nds round (T1).
 
-**F5. Done 2026-11-11, but `showAll`: `Show.hs`.** `draw`, `drawLine`, `drawLineSz` and `stepcount`, in `lib/pattern.fk`: `drawLine "a*2 [b c]"` at the REPL prints Tidal's text. `stepcount` reads each tick time as the fraction with the smallest denominator within a tick, so `a*100` has 100 steps where its ticks hold 7207/720720; past about 1000 steps a cycle the fractions are closer than a tick, but Tidal's drawing is then "too complex" too. `showAll` prints events' contexts, which funk's lack (F3). `lib/tidal` checks 34 cases against Tidal.
+**F5. Done 2026-11-11, but `showAll`: `Show.hs`.** `draw`, `drawLine`, `drawLineSz` and `stepcount`, in `lib/pattern.fk`: `drawLine "a*2 [b c]"` at the REPL prints Tidal's text. `stepcount` reads each tick time as the fraction with the smallest denominator within a tick, so `a*100` has 100 steps where its first ends at tick 461260 of 46126080; past about 1000 steps a cycle the fractions are closer than a tick, but Tidal's drawing is then "too complex" too. Missing: `showAll`, which needs Tidal's `Show` of `Pattern`, `Arc` and `Value`; funk has no `show` of a pattern. `lib/tidal` checks 34 cases against Tidal.
 
 **F6. Done 2026-11-11: steps.** `Pattern` holds Tidal's `steps`, an exact ratio, beside its query. Each function sets it as Tidal's does: the joins keep the outer pattern's, `<*>` takes the lcm, `fastcat` the sum, and a function written as a record update in Tidal keeps its input's. `setSteps`, `withSteps`, `keepSteps`, `hasSteps`, `pace` and `Stepwise.hs`'s `stepJoin`, `stepcat`, `steptake`, `stepdrop`, `expand`, `contract`, `extend`, `stepalt` and `stepzip` are in `lib/pattern.fk`. `tests/tidal/Steps.hs` and `steps.fk` check the steps of 125 expressions and 22 step functions' events against Tidal. Kept: `zoom` past a cycle clips to the query ([combinators.md](combinators.md#differences-from-tidal)).
 
@@ -91,9 +89,9 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 **F9. Kept: `substruct'`, and so `stripe`, clip events to the query.** Tidal's returns each event over its whole span. Any host that queries in blocks would then play an onset once per block it overlaps. This fixes a Tidal defect, assuming Tidal's own scheduler, which queries per frame, has the same defect (inference; not tested).
 
-**F10. Review: `rot` orders a cycle's events by whole, then part.** Tidal puts each event's source position first. No reason is recorded. The cases in `lib/tidal` match, so the difference lies outside them. Find a case where the two orders differ, then follow Tidal.
+**F10. Done 2026-11-11: events carry contexts, and `rot` sorts by them.** An event holds Tidal's `Context`, the positions of the mini-notation atoms it came from, and each function combines them as Tidal's does. `rot` orders a cycle's events by context, whole, part and value, as Tidal's derived `Ord`, so `rot 1 (rev "a b c")` is `a c b`, not `b a c`. `lib/tidal` prints each event's context in all 468 cases; 61 cases test contexts directly. Query times of the 22 patches, compiled, change by under 1%.
 
-**F11. Review: `euclid` keeps `p.euclid 3 8 36`.** This works because `36` is an atom, and Tidal's types agree. It is no longer a difference; drop it from [combinators.md](combinators.md#differences-from-tidal).
+**F11. Done 2026-11-11: `euclid` keeps `p.euclid 3 8 36`.** `36` is an atom, and Tidal's types agree, so this is no longer a difference.
 
 ## Mini-notation
 
@@ -116,7 +114,7 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 **C3. Done 2026-11-11, but buses and `ringCount`: the rest of `Params.hs`.** `lib/control.fk` has the 194 `xTake`, 188 `xCount` and 189 `xCountTo` generated from Tidal's `Params.hs`, `pStateF`, `pStateList`, `pStateListF`, `pStateListS`, `pB`, `pR`, `pX`, `array`, `midinote`, `drum`, `drumN` and `grain'`. `Value` has Tidal's `VB`, `VR` (a `Float`), `VX`, `VList` and `VState`. funk-midi resolves each window's state values as Tidal's `doTick` does: sorted by part, in one map with the host's controls, kept for the next window. `tests/tidal/Dirt.hs` checks counters, lists, Bools and blobs against Tidal's own state passing. Missing:
 
 - `xbus` and `xrecv` (246 and 208): SuperDirt control buses, which need S2's;
-- `ringCount`: the prelude's `ringCount`, of a `Ring`, has the name;
+- `ringCount`: the prelude's `ringCount`, of a `Ring`, has the name. Its equivalent is `pStateF "ring" name (\m -> fromMaybe (-1.0) m + 1.0)`;
 - state in the plugin, which has no host state (R5): a state value there fails as Tidal's `toDatum` does.
 
 ## Runtime and workflow

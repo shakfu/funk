@@ -25,7 +25,7 @@ foreign struct Player
   , underruns :: Int
   }
 
-cs = 12345     -- samples per cycle: does not divide 720720
+cs = 12345     -- samples per cycle: does not divide 46126080
 frames = 64
 end = 300 * 64
 window = 1024

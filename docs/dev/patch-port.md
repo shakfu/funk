@@ -77,6 +77,8 @@ No event is unmatched.
 
 With 46126080 ticks per cycle (720720 * 64, so 2^10), every event outside `p17` is exact. `p17`'s `rand` then differs, as `randAt`'s constants assume 720720 (scratch run, 2026-11-08; not kept).
 
+2026-11-11: the rate is 46126080, with `randAt`'s constants for it (T1). All 6456 events are exact, `p17`'s included; `lib/tidal-patches` checks it.
+
 ## Timing
 
 `tests/tidal/bench.fk` queries each patch in 10 ms windows at 0.5 cycles per second, as the plugin does (`kCycleMs` 2000, `kWindowMs` 10). It times each window with `clock()`. Interpreter (`funk run`), Apple M1, 3 runs, load average 2.6, 2026-11-08.
@@ -100,7 +102,7 @@ The roadmap does not define "well inside". At 20% of the window, with a 50 ms lo
 
 ## Open
 
-- **The tick rate.** 46126080 makes binary subdivisions down to 1024ths exact. The cost: `randAt`'s constants, `funk-midi`'s `CYCLE_TICKS`, and every expected output written in ticks. A tick count would reach Int64's limit at 2e11 cycles, less by any `_fast` factor. The alternative is to keep 720720, with errors of at most 30 ticks.
+- ~~**The tick rate.**~~ Done 2026-11-11: 46126080. 46126080 makes binary subdivisions down to 1024ths exact. The cost: `randAt`'s constants, `funk-midi`'s `CYCLE_TICKS`, and every expected output written in ticks. A tick count would reach Int64's limit at 2e11 cycles, less by any `_fast` factor. The alternative is to keep 720720, with errors of at most 30 ticks.
 - ~~**Tidal's `sound` of a pattern.** 12 of 22 patches need it.~~ Done 2026-11-09: controls take patterns.
 - ~~**Fractional patterned speed factors**, for `p11` and `p14`.~~ Done 2026-11-10 (T2).
 

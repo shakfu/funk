@@ -22,7 +22,7 @@ from collections import Counter
 
 TICKS = 36
 VALUE = 1e-4
-CYCLE = 720720
+CYCLE = 46126080
 CPS = 0.5
 
 

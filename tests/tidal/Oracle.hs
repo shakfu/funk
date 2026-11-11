@@ -11,7 +11,7 @@ import Data.String (fromString)
 import Sound.Tidal.Chords (chordList)
 
 tk :: Rational -> Integer
-tk r = floor (r * 720720)
+tk r = floor (r * 46126080)
 
 -- an Arc in ticks (F2)
 ta :: Arc -> (Integer, Integer)
@@ -19,24 +19,24 @@ ta (Arc a b) = (tk a, tk b)
 
 -- every event of p over [a, b), fragments included (F3)
 qa :: String -> (x -> String) -> Pattern x -> Rational -> Rational -> IO ()
-qa name r pat a b = putStrLn (name ++ " " ++ show (sort [(fmap ta (whole e), ta (part e), r (value e)) | e <- queryArc pat (Arc a b)]))
+qa name r pat a b = putStrLn (name ++ " " ++ show (sort [(fmap ta (whole e), ta (part e), r (value e), contextPosition (context e)) | e <- queryArc pat (Arc a b)]))
 
 
 fmt :: Double -> String
 fmt x = show (round (x * 1e9) :: Integer)
 
 -- the onsets of cycles [0, k), each cycle sorted
-cycOn :: Int -> (a -> String) -> Pattern a -> [(Integer, Integer, String)]
+cycOn :: Int -> (a -> String) -> Pattern a -> [(Integer, Integer, String, [((Int, Int), (Int, Int))])]
 cycOn k r p = concatMap one [0 .. k - 1]
   where
-    one c = sort $ map (\e -> let Arc a b = wholeOrPart e in (tk a, tk b, r (value e)))
+    one c = sort $ map (\e -> let Arc a b = wholeOrPart e in (tk a, tk b, r (value e), contextPosition (context e)))
               $ filter eventHasOnset $ queryArc p (Arc (fromIntegral c) (fromIntegral c + 1))
 
 -- cycOn, each query with controls m
-cycOnC :: Int -> (a -> String) -> ValueMap -> Pattern a -> [(Integer, Integer, String)]
+cycOnC :: Int -> (a -> String) -> ValueMap -> Pattern a -> [(Integer, Integer, String, [((Int, Int), (Int, Int))])]
 cycOnC k r m p = concatMap one [0 .. k - 1]
   where
-    one c = sort $ map (\e -> let Arc a b = wholeOrPart e in (tk a, tk b, r (value e)))
+    one c = sort $ map (\e -> let Arc a b = wholeOrPart e in (tk a, tk b, r (value e), contextPosition (context e)))
               $ filter eventHasOnset $ query p (State (Arc (fromIntegral c) (fromIntegral c + 1)) m)
 
 outC :: String -> Int -> (a -> String) -> [(String, Value)] -> Pattern a -> IO ()
@@ -55,6 +55,9 @@ rF :: Double -> String
 rF = fmt
 rS :: String -> String
 rS = id
+
+rN :: Note -> String
+rN = fmt . unNote
 rB :: Bool -> String
 rB b = if b then "t" else "f"
 
@@ -471,3 +474,65 @@ main = do
   out "runFrac" 1 rF (run 3.5)
   out "runNote" 1 rC (T.n (run 4))
   out "scanFrac" 3 rF (scan 2.5)
+  -- F10: contexts, the mini-notation positions each event came from
+  out "ctxRotRev" 1 rS (rot 1 (rev "a b c" :: Pattern String))
+  out "ctxRotOff" 1 rS (rot 1 (off 0.25 id "a b" :: Pattern String))
+  out "ctxRotStack" 1 rS (rot 1 (stack ["a b", "c d"] :: Pattern String))
+  out "ctxRotPat" 2 rS (rot "<1 -1>" (iter 3 "a b c" :: Pattern String))
+  out "ctxRotTie" 1 rS (rot 1 (stack [pure "b", pure "a", "c d"] :: Pattern String))
+  out "ctxSpaces" 1 rS (("bd  sn" :: Pattern String))
+  out "ctxLines" 1 rS (("a\n  b\tc [d\n e]" :: Pattern String))
+  out "ctxNotes" 1 rF (("c4 e  cs5   1 1.5  -2 e5" :: Pattern Double))
+  out "ctxNoteEnd" 1 rN (("c4  " :: Pattern Note))
+  out "ctxChord" 1 rN (("c'maj e4'min'ii" :: Pattern Note))
+  out "ctxChordMods" 1 rN (("c'maj'5'o e'min7'd1'i" :: Pattern Note))
+  out "ctxChordRoot" 1 rN ("[c e]'maj c(3,8)'min" :: Pattern Note)
+  out "ctxChordFast" 1 rN ("c*2'maj <c e>'min?" :: Pattern Note)
+  out "ctxChordAfter" 1 rN ("c'maj*2 e'<min maj>'ii" :: Pattern Note)
+  out "ctxChordPat" 2 rN (("<c e>'<maj min>" :: Pattern Note))
+  out "ctxRange" 1 rI (("[1 .. 3] [5 .. 4]" :: Pattern Int))
+  out "ctxStrRange" 1 rS (("a .. c" :: Pattern String))
+  out "ctxStrRangePat" 1 rS ("[a b] .. c" :: Pattern String)
+  out "ctxCharRange" 1 rS ((\c -> [c]) <$> ("a .. c" :: Pattern Char))
+  out "ctxFactor" 2 rS (("a*2 b*<2 3> c/2 d!2 e@2" :: Pattern String))
+  out "ctxEuclid" 2 rS (("a(3,8,2) b(<3 5>,8)" :: Pattern String))
+  out "ctxPoly" 1 rS (("{a b, c d e}%<4 2>" :: Pattern String))
+  out "ctxChoose" 4 rS (("a|b|[c d]" :: Pattern String))
+  out "ctxDegrade" 2 rS (("a? b*8?" :: Pattern String))
+  out "ctxCtl" 1 rC (T.n "0 1" # T.s "x y" |+ T.n "<10 20>")
+  out "ctxNum" 1 rF (("1 2" + "<1 2>" :: Pattern Double))
+  out "ctxUncollect" 1 rS (uncollect (collect ("[a, b] c" :: Pattern String)))
+  out "ctxFix" 1 rC (fix (fast 2) (T.s "x") (T.s "x y" # T.n "1 2"))
+  out "ctxSqueeze" 1 rS (squeeze "0 1" ["a b", "c" :: Pattern String])
+  out "ctxSqueezeOp" 1 rF ((+) <$> "1 2" <<* ("10 20 30" :: Pattern Double))
+  out "ctxUr" 2 rS (ur 2 "a b" [("a", "x y"), ("b", "z" :: Pattern String)] [])
+  out "ctxSew" 1 rS (sew "t f" "a b" ("c d e" :: Pattern String))
+  out "ctxStitch" 1 rF (stitch "t f t" "1" ("2" :: Pattern Double))
+  out "ctxArp" 1 rN (arp "<up down>" ("c'maj" :: Pattern Note))
+  out "ctxRolled" 1 rN (rolled ("c'maj e'min" :: Pattern Note))
+  out "ctxReset" 2 rS (reset "<t f> t" ("a b c" :: Pattern String))
+  out "ctxBite" 1 rS (bite 4 "0 2" ("a b c d" :: Pattern String))
+  out "ctxRandcat" 3 rS (randcat ["a b", "c" :: Pattern String])
+  out "ctxPly" 1 rS (ply "2 3" ("a b" :: Pattern String))
+  out "ctxSegment" 1 rF (segment "<2 4>" (range 1 5 saw))
+  out "ctxEvery" 2 rS (every "<2 3>" rev ("a b" :: Pattern String))
+  out "ctxSmooth" 1 rF (segment 4 (smooth ("0 1" :: Pattern Double)))
+  out "ctxMono" 1 rS (mono (stack ["a b", "c" :: Pattern String]))
+  out "ctxTimeCat" 1 rS (timeCat [(1, "a b"), (2, "c" :: Pattern String)])
+  out "ctxChop" 1 rC (chop "<2 3>" (T.s "a b"))
+  out "ctxStriate" 1 rC (striate 2 (T.s "a b"))
+  out "ctxSplice" 1 rC (splice 4 "0 2" (T.s "a"))
+  out "ctxJux" 1 rC (jux rev (T.s "a b"))
+  out "ctxSuperimpose" 1 rS (superimpose (fast "2") ("a b" :: Pattern String))
+  out "ctxInside" 1 rS (inside 2 rev ("a b c d" :: Pattern String))
+  out "ctxStruct" 1 rS (struct "t f t(3,8)" ("a" :: Pattern String))
+  out "ctxMask" 1 rS (mask "1 0 1" ("a*6" :: Pattern String))
+  out "ctxEuclidFull" 1 rS (euclidFull 3 8 "a" ("b" :: Pattern String))
+  out "ctxWhile" 1 rS (while "1 0" (fast 2) ("a b" :: Pattern String))
+  out "ctxBind" 1 rS (("a b" :: Pattern String) >>= (\v -> if v == "a" then "x y" else "z"))
+  out "ctxSetContext" 1 rS (setContext (Context [((9, 9), (10, 9))]) ("a b" :: Pattern String))
+  out "ctxWithContext" 1 rS (withContext (\(Context c) -> Context (reverse c)) ("a b" |< "c d e" :: Pattern String))
+  out "ctxDelta" 1 rS (deltaContext 2 3 ("a b" :: Pattern String))
+  out "ctxVar" 1 rS (("^x a" :: Pattern String))
+  out "ctxWchoose" 2 rS (segment 2 (wchoose [("a", 1), ("b", 2)] :: Pattern String))
+  putStrLn ("ctxDeltaMini " ++ deltaMini "d1 $ s \"a b\"\n  # n \"1\"")

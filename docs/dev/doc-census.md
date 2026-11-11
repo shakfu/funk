@@ -30,7 +30,7 @@ So 227 of the 248 that Tidal runs run unchanged in funk, and 226 send what Tidal
   - an `up` example has an unbalanced `]`.
   - `accelerateTake` raises `toDatum: unhandled value` when played.
 - **Rounded 35.** Where traced, each divides a cycle finer than 1/16: `chop 32`, `*32`, `striate 128`, or inside a function, as `weave 16` does. 720720 ticks hold 2^4 but not 2^5. funk-midi plays onsets, so 44 us is inaudible. T1's finer ticks remain unneeded.
-- **`# cps`, 6.** funk-midi applies an event's `cps` to the tempo, as `Stream/Process.hs:151` does. `Dirt.hs` holds 0.5 cps. Measured in cycles, the two sides match by rounding, except the `delta` of the onsets at cycle 0. funk-midi times those at the old tempo. Whether Tidal does is for the live check.
+- **`# cps`, 6.** funk-midi applies an event's `cps` to the tempo, as `Stream/Process.hs:151` does. `Dirt.hs` holds 0.5 cps. Measured in cycles, the two sides match by rounding, except the `delta` of the onsets at cycle 0. funk-midi times those at the old tempo, as Tidal does: `processCps` reads `on`, `off` and the tempo from the frame's session state and sets the new tempo in another (`Stream/Process.hs:136-163`). The two differ only in that span: Tidal's frame is 50 ms (`clockFrameTimespan`), funk-midi's window 10 ms. So `# cps` stays kept (C2) for `Dirt.hs`'s fixed tempo, not for funk-midi.
 - **`stripe`, 1.** Tidal's `substruct'` returns events outside the query, so its 800 windows send 3220 messages for 48 onsets. funk sends each of the 48 once.
 
 ## funk rejects 21
@@ -73,6 +73,8 @@ The census confirms L6: 1 example uses `|>`, and 108 use `#`.
 ## After L10
 
 2026-11-11: `<>` on patterns, so 202 examples are exact and 4 rejected.
+
+2026-11-11: 46126080 ticks per cycle (T1), so 235 examples are exact and 2 rounded, by at most 23 ticks (1 us at 0.5 cps). `chop 256` over `[hh future]*2` needs 2^11 steps a cycle; `Params:3394` sets `cps` in the pattern, and its times round to microseconds.
 
 ## Limits
 

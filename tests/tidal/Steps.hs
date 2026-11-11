@@ -19,7 +19,7 @@ sh :: String -> Pattern a -> IO ()
 sh name pat = putStrLn (name ++ " " ++ showS (steps pat) ++ " " ++ show (isJust (pureValue pat)))
 
 tk :: Rational -> Integer
-tk r = floor (r * 720720)
+tk r = floor (r * 46126080)
 
 -- steps, then the onsets of cycles 0 and 1 in ticks
 ev :: String -> Pattern String -> IO ()

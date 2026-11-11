@@ -17,7 +17,7 @@ ta :: p.Span -> (Int, Int)
 ta a = (a.start, a.stop)
 
 -- every event of p over [a, b), fragments included (F3)
-qa name r pat a b = putStrLn (name ++ " " ++ show (sort (map (\e -> (fmapM ta e.whole, ta e.part, r e.value)) (p.queryArc pat (p.Span (p.toTime a) (p.toTime b))))))
+qa name r pat a b = putStrLn (name ++ " " ++ show (sort (map (\e -> (fmapM ta e.whole, ta e.part, r e.value, e.context.contextPosition)) (p.queryArc pat (p.Span (p.toTime a) (p.toTime b))))))
 
 
 fmt :: Float -> String
@@ -26,14 +26,14 @@ fmt x = show (round (x * 1000000000.0))
 cat' :: [String] -> String
 cat' xs = foldr (++) "" xs
 
-cycOn :: Int -> (a -> String) -> p.Pattern a -> [(Int, Int, String)]
+cycOn :: Int -> (a -> String) -> p.Pattern a -> [(Int, Int, String, [((Int, Int), (Int, Int))])]
 cycOn k r pat = concatMap (\c -> sort (map (\e -> case p.wholeOrPart e of
-    w -> (w.start, w.stop, r e.value)) (p.onsets pat (p.Span (c * t) ((c + 1) * t))))) [0 .. k - 1]
+    w -> (w.start, w.stop, r e.value, e.context.contextPosition)) (p.onsets pat (p.Span (c * t) ((c + 1) * t))))) [0 .. k - 1]
 
 out name k r pat = putStrLn (name ++ " " ++ show (cycOn k r pat))
 
 outC name k r m pat = putStrLn (name ++ " " ++ show (concatMap (\c -> sort (map (\e -> case p.wholeOrPart e of
-    w -> (w.start, w.stop, r e.value)) (p.onsetsState pat (p.State (p.Span (c * t) ((c + 1) * t)) m)))) [0 .. k - 1]))
+    w -> (w.start, w.stop, r e.value, e.context.contextPosition)) (p.onsetsState pat (p.State (p.Span (c * t) ((c + 1) * t)) m)))) [0 .. k - 1]))
 
 sampled name pat = putStrLn (name ++ " " ++ show (map (\i -> case div (i * t) 4 of
     a -> cat' (map (\e -> fmt e.value) (p.query pat (p.Span a (a + 1))))) [0 .. 7]))
@@ -44,6 +44,10 @@ rF :: Float -> String
 rF x = fmt x
 rS :: String -> String
 rS x = x
+
+rN :: p.Note -> String
+rN v = case v of
+  p.Note x -> fmt x
 rB :: Bool -> String
 rB b = if b then "t" else "f"
 
@@ -450,3 +454,65 @@ main = do
   out "runFrac" 1 rF (p.run 3.5)
   out "runNote" 1 rC (n (p.run 4))
   out "scanFrac" 3 rF (p.scan 2.5)
+  -- F10: contexts, the mini-notation positions each event came from
+  out "ctxRotRev" 1 rS (p.rot 1 (p.rev "a b c"))
+  out "ctxRotOff" 1 rS (p.rot 1 (p.off 0.25 id "a b"))
+  out "ctxRotStack" 1 rS (p.rot 1 (p.stack ["a b", "c d"]))
+  out "ctxRotPat" 2 rS (p.rot "<1 -1>" (p.iter 3 "a b c"))
+  out "ctxRotTie" 1 rS (p.rot 1 (p.stack [p.atom "b", p.atom "a", "c d"]))
+  out "ctxSpaces" 1 rS (("bd  sn" :: p.Pattern String))
+  out "ctxLines" 1 rS (("a\n  b\tc [d\n e]" :: p.Pattern String))
+  out "ctxNotes" 1 rF (("c4 e  cs5   1 1.5  -2 e5" :: p.Pattern Float))
+  out "ctxNoteEnd" 1 rN (("c4  " :: p.Pattern p.Note))
+  out "ctxChord" 1 rN (("c'maj e4'min'ii" :: p.Pattern p.Note))
+  out "ctxChordMods" 1 rN (("c'maj'5'o e'min7'd1'i" :: p.Pattern p.Note))
+  out "ctxChordRoot" 1 rN ("[c e]'maj c(3,8)'min" :: p.Pattern p.Note)
+  out "ctxChordFast" 1 rN ("c*2'maj <c e>'min?" :: p.Pattern p.Note)
+  out "ctxChordAfter" 1 rN ("c'maj*2 e'<min maj>'ii" :: p.Pattern p.Note)
+  out "ctxChordPat" 2 rN (("<c e>'<maj min>" :: p.Pattern p.Note))
+  out "ctxRange" 1 rI (("[1 .. 3] [5 .. 4]" :: p.Pattern Int))
+  out "ctxStrRange" 1 rS (("a .. c" :: p.Pattern String))
+  out "ctxStrRangePat" 1 rS ("[a b] .. c" :: p.Pattern String)
+  out "ctxCharRange" 1 rS (p.mapP (\c -> pack [c]) ("a .. c" :: p.Pattern Char))
+  out "ctxFactor" 2 rS (("a*2 b*<2 3> c/2 d!2 e@2" :: p.Pattern String))
+  out "ctxEuclid" 2 rS (("a(3,8,2) b(<3 5>,8)" :: p.Pattern String))
+  out "ctxPoly" 1 rS (("{a b, c d e}%<4 2>" :: p.Pattern String))
+  out "ctxChoose" 4 rS (("a|b|[c d]" :: p.Pattern String))
+  out "ctxDegrade" 2 rS (("a? b*8?" :: p.Pattern String))
+  out "ctxCtl" 1 rC (n "0 1" # s "x y" |+ n "<10 20>")
+  out "ctxNum" 1 rF ("1 2" + "<1 2>")
+  out "ctxUncollect" 1 rS (p.uncollect (p.collect ("[a, b] c" :: p.Pattern String)))
+  out "ctxFix" 1 rC (fix (p.fast 2) (s "x") (s "x y" # n "1 2"))
+  out "ctxSqueeze" 1 rS (p.squeeze "0 1" ["a b", "c"])
+  out "ctxSqueezeOp" 1 rF ((+) <$> "1 2" <<* "10 20 30")
+  out "ctxUr" 2 rS (p.ur 2 "a b" [("a", "x y"), ("b", "z")] [])
+  out "ctxSew" 1 rS (p.sew "t f" "a b" "c d e")
+  out "ctxStitch" 1 rF (p.stitch "t f t" "1" "2")
+  out "ctxArp" 1 rN (p.arp "<up down>" ("c'maj" :: p.Pattern p.Note))
+  out "ctxRolled" 1 rN (p.rolled ("c'maj e'min" :: p.Pattern p.Note))
+  out "ctxReset" 2 rS (p.reset "<t f> t" "a b c")
+  out "ctxBite" 1 rS (p.bite 4 "0 2" "a b c d")
+  out "ctxRandcat" 3 rS (p.randcat ["a b", "c"])
+  out "ctxPly" 1 rS (p.ply "2 3" "a b")
+  out "ctxSegment" 1 rF (p.segment "<2 4>" (p.range 1 5 p.saw))
+  out "ctxEvery" 2 rS (p.every "<2 3>" p.rev "a b")
+  out "ctxSmooth" 1 rF (p.segment 4 (p.smooth "0 1"))
+  out "ctxMono" 1 rS (p.mono (p.stack ["a b", "c"]))
+  out "ctxTimeCat" 1 rS (p.timecat [(1, "a b"), (2, "c")])
+  out "ctxChop" 1 rC (chop "<2 3>" (s "a b"))
+  out "ctxStriate" 1 rC (striate 2 (s "a b"))
+  out "ctxSplice" 1 rC (splice 4 "0 2" (s "a"))
+  out "ctxJux" 1 rC (jux p.rev (s "a b"))
+  out "ctxSuperimpose" 1 rS (p.superimpose (p.fast "2") "a b")
+  out "ctxInside" 1 rS (p.inside 2 p.rev "a b c d")
+  out "ctxStruct" 1 rS (p.struct "t f t(3,8)" "a")
+  out "ctxMask" 1 rS (p.mask "1 0 1" "a*6")
+  out "ctxEuclidFull" 1 rS (p.euclidFull 3 8 "a" "b")
+  out "ctxWhile" 1 rS (p.while "1 0" (p.fast 2) "a b")
+  out "ctxBind" 1 rS ("a b" >>= (\v -> if v == "a" then "x y" else "z"))
+  out "ctxSetContext" 1 rS (p.setContext (p.Context [((9, 9), (10, 9))]) "a b")
+  out "ctxWithContext" 1 rS (p.withContext (\c -> p.Context (reverse c.contextPosition)) ("a b" |< "c d e" :: p.Pattern String))
+  out "ctxDelta" 1 rS (p.deltaContext 2 3 "a b")
+  out "ctxVar" 1 rS (("^x a" :: p.Pattern String))
+  out "ctxWchoose" 2 rS (p.segment 2 (p.wchoose [("a", 1), ("b", 2)]))
+  putStrLn ("ctxDeltaMini " ++ p.deltaMini "d1 $ s \"a b\"\n  # n \"1\"")

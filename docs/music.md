@@ -44,7 +44,7 @@ The hosts import `lib/pattern.fk` both as `p` and unqualified, so `fastcat [atom
 
 - **A cycle** is the unit of musical time. A host gives it a length: in `funk-midi`, Tidal's 0.575 cycles a second by default, changed by `setcps` and an event's `cps`; 4 beats in the CLAP plugin.
 
-- **A tick** is 1/720720 of a cycle (`p.cycleTicks`). 720720 is the least common multiple of 1 to 16, so a cycle divides exactly into 2 to 16 steps, and into products of those while the prime factors last. A step of 1/17, or triplets nested three deep (1/27), rounds to the tick below.
+- **A tick** is 1/46126080 of a cycle (`p.cycleTicks`). 46126080 is 64 times the least common multiple of 1 to 16, so a cycle divides exactly into 2 to 16 steps, into products of those while the prime factors last, and into 1024ths. A step of 1/17, or triplets nested three deep (1/27), rounds to the tick below.
 
 - **Time is absolute.** Every pattern is aligned to cycle 0, which starts when the host starts. Redefining `pat` does not restart it: the new pattern plays where the old one would have been.
 

@@ -130,9 +130,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A query carries controls from outside the pattern, as Tidal's `State` does, so Tidal's `cF`, `cI`, `cS` and the rest, `in0`..`in127`, `sec`, `msec` and the `trigger` family port. `p.query pat span` queries with none, and `p.queryState` with some. The hosts give `_cps` and `_t_pattern`, the cycle `pat` last changed at, so `trigger` and `sec` play in them, and the sources a top-level `controls` lists: Tidal's OSC `/ctrl`, MIDI CC as `"cc74"` and `"1:cc74"`, and the plugin's 16 CLAP parameters, `"p1"` to `"p16"`. `funk-midi` takes MIDI in with `--in` and `:cc` ([docs/music.md](docs/music.md#controls-from-outside), design in [docs/dev/controls-in.md](docs/dev/controls-in.md)). Queries cost about 12% more in the interpreter.
 
-- The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match, 1604 of them after rounding to ticks, by at most 30 ticks. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.py` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
+- The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match exactly. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.py` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
+
+- Tidal's event contexts: each event holds the positions of the mini-notation atoms it came from, as `e.context`, combined by each function as Tidal's are. `setContext`, `withContext`, `deltaContext` and `deltaMini` are in `lib/pattern.fk`. `rot` now orders a cycle's events by context first, as Tidal's does, so `rot 1 (rev "a b c")` is `a c b`. Editor highlighting needs the positions too (R6).
 
 ### Changed
+
+- A cycle is 46126080 ticks, not 720720: 64 times as many, so binary steps down to 1024ths are exact. All 6456 events of `lib/tidal-patches` now match Tidal exactly, where 1604 rounded by up to 30 ticks, and 235 of the doc census's examples, where 202 did. Code that writes ticks as literals, such as `p.Span 0 720720`, should use `p.cycleTicks`. Times in samples or microseconds now convert to ticks by quotient and remainder: the direct product would pass `Int`'s range after 55 hours at the new rate.
 
 - `enumFromTo` and `enumFromThenTo` are `Enum`'s methods; a function using a range at a type variable needs `Enum a`, as `run` now does. Optimization reports name a method at a known type as `enumFromTo@Int`.
 
@@ -157,6 +161,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A sample folder or file path may start with `~/`, for `$HOME`: `d.kit "~/.local/share/funk/Dirt-Samples" ["bd"]`. The plugin's working directory is its host's, so a relative path never worked there.
 
 ### Fixed
+
+- A chord's root in the mini-notation can be a whole term, as in Tidal: `"<c e>'maj"`, `"[c e]'min"`, `"c(3,8)'maj"`, `"c*2'maj"`. funk took the root only from a single note, so `"<c e>'maj"` was two steps, the second a chord on 0.
+
+- A mini-notation range of strings or Bools, `"a .. c"` or `"t .. f"`, was `fastcat` of its two ends, where Tidal's `fromTo` plays each pair of their values. `"[a b] .. c"` played `a b c`; Tidal's plays `a c`.
 
 - An instance of a class named with its module's qualifier, `instance p.Parseable Controls`, was rejected: "module `pattern` does not export type `Parseable`". The class applied to the head is kept as a type, and qualify resolved its name as one. `tests/run/modinstance.fk` covers it.
 

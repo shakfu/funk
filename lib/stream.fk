@@ -260,8 +260,8 @@ nudgeAll n = streamSetNudge n
 -- At tb: how many, up to 64, then each one's start in units and its cps.
 writeTempo :: Ptr Int -> Int -> [p.Event Controls] ->> ()
 writeTempo tb cs es = case concatMap (\e -> case getControl "cps" e.value of
-      Just (VF x) -> [(div ((p.wholeOrPart e).start * cs) p.cycleTicks, x)]
-      Just (VI i) -> [(div ((p.wholeOrPart e).start * cs) p.cycleTicks, toFloat i)]
+      Just (VF x) -> [(p.mulDiv (p.wholeOrPart e).start cs p.cycleTicks, x)]
+      Just (VI i) -> [(p.mulDiv (p.wholeOrPart e).start cs p.cycleTicks, toFloat i)]
       _ -> []) (sortBy (\x y -> compare (p.wholeOrPart x).start (p.wholeOrPart y).start) es) of
   ts -> do
     pokeByteOff tb 0 (min 64 (length ts))

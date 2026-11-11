@@ -65,7 +65,7 @@
 #define FUNK_GRAPH_INCLUDE "hosts/graph"
 #endif
 
-enum { WINDOW_US = 10000, CAP = 512, CYCLE_TICKS = 720720, DIRT_BYTES = 65536 };
+enum { WINDOW_US = 10000, CAP = 512, CYCLE_TICKS = 46126080, DIRT_BYTES = 65536 };
 /* how far ahead step runs: 50 ms; with --dirt, Tidal's 0.1 s (docs/dev/dirt.md) */
 static int64_t lookahead_us = 50000;
 /* for pat, a Pattern Int */
@@ -705,9 +705,13 @@ static void advance_until(int64_t t) {
   }
 }
 
+/* us microseconds in ticks, rounded down for us >= 0, without forming
+   us * CYCLE_TICKS, which passes int64 after 55 hours */
+static int64_t us_ticks(int64_t us) { return us / cs * CYCLE_TICKS + us % cs * CYCLE_TICKS / cs; }
+
 /* cycles per second from time `at`, so the beat stays */
 static void retempo(int64_t at, double new_cps) {
-  origin_tick += (at - origin_us) * CYCLE_TICKS / cs;
+  origin_tick += us_ticks(at - origin_us);
   origin_us = at;
   cps = new_cps;
   cs = llround(1e6 / new_cps);
@@ -794,8 +798,8 @@ static void osc_command(void *ctx, const char *addr, int nargs, int kind, const 
    step's query rounds it up, so the pattern is not a tick early, in a
    window already sent. For trigger and first. */
 double funk_stream_now(void) {
-  int64_t u = (win - origin_us) * CYCLE_TICKS;
-  return (double)(origin_tick + u / cs + (u % cs > 0)) / CYCLE_TICKS;
+  int64_t d = win - origin_us, r = d % cs * CYCLE_TICKS;
+  return (double)(origin_tick + d / cs * CYCLE_TICKS + r / cs + (r % cs > 0)) / CYCLE_TICKS;
 }
 
 /* After pat may have changed. A pattern of Controls is d1's; for a

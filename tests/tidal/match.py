@@ -16,7 +16,7 @@ import sys
 
 TICKS = 32
 VALUE = 1e-3
-CYCLE = 720720
+CYCLE = 46126080
 
 
 def load(path):

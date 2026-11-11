@@ -1,23 +1,23 @@
-p0 events 31 exact 0 rounded 31 unmatched 0 edge 0
-p1 events 380 exact 32 rounded 348 unmatched 0 edge 0
-p2 events 479 exact 331 rounded 148 unmatched 0 edge 0
+p0 events 31 exact 31 rounded 0 unmatched 0 edge 0
+p1 events 380 exact 380 rounded 0 unmatched 0 edge 0
+p2 events 479 exact 479 rounded 0 unmatched 0 edge 0
 p3 events 179 exact 179 rounded 0 unmatched 0 edge 0
-p4 events 88 exact 70 rounded 18 unmatched 0 edge 0
+p4 events 88 exact 88 rounded 0 unmatched 0 edge 0
 p5 events 345 exact 345 rounded 0 unmatched 0 edge 0
 p6 events 0 exact 0 rounded 0 unmatched 0 edge 0
 p6.1 events 0 exact 0 rounded 0 unmatched 0 edge 0
 p6.2 events 0 exact 0 rounded 0 unmatched 0 edge 0
-p7 events 687 exact 173 rounded 514 unmatched 0 edge 0
-p7.1 events 346 exact 127 rounded 219 unmatched 0 edge 0
-p8 events 219 exact 189 rounded 30 unmatched 0 edge 0
+p7 events 687 exact 687 rounded 0 unmatched 0 edge 0
+p7.1 events 346 exact 346 rounded 0 unmatched 0 edge 0
+p8 events 219 exact 219 rounded 0 unmatched 0 edge 0
 p9 events 1418 exact 1418 rounded 0 unmatched 0 edge 0
 p10 events 9 exact 9 rounded 0 unmatched 0 edge 0
 p11 events 1518 exact 1518 rounded 0 unmatched 0 edge 0
 p12 events 32 exact 32 rounded 0 unmatched 0 edge 0
 p12.1 events 42 exact 42 rounded 0 unmatched 0 edge 0
-p13 events 148 exact 69 rounded 79 unmatched 0 edge 0
-p14 events 40 exact 12 rounded 28 unmatched 0 edge 0
+p13 events 148 exact 148 rounded 0 unmatched 0 edge 0
+p14 events 40 exact 40 rounded 0 unmatched 0 edge 0
 p15 events 0 exact 0 rounded 0 unmatched 0 edge 0
-p16 events 189 exact 0 rounded 189 unmatched 0 edge 0
+p16 events 189 exact 189 rounded 0 unmatched 0 edge 0
 p17 events 306 exact 306 rounded 0 unmatched 0 edge 0
-largest error: 30 ticks, 0.000004 in a value
+largest error: 0 ticks, 0.000000 in a value

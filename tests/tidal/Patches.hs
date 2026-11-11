@@ -8,7 +8,7 @@ import Data.List (sort)
 import qualified Data.Map as Map
 
 tk :: Rational -> Integer
-tk r = floor (r * 720720)
+tk r = floor (r * 46126080)
 
 fmt :: Double -> String
 fmt x = show (round (x * 1e9) :: Integer)

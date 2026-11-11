@@ -44,7 +44,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] T2: fractional patterned speed factors. Done 2026-11-10.
 
-- [ ] T1, T3: 46126080 ticks per cycle; `Rational` times.
+- [ ] T3: `Rational` times.
 
 - [x] L4: a `Fractional` class; `Pattern`, `Note` and `Controls` are instances. Done 2026-11-09.
 
@@ -54,7 +54,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] C3's buses wait for S2; `ringCount` for a name. L8 is an `Enum` class.
 
-- [ ] L7, F10, F11: decide the review items.
+- [ ] L7: decide the review item.
 
 - [ ] `Floating` (`pi`, `sin` on patterns); not yet a numbered gap in tidal-comparison.md.
 

@@ -24,7 +24,7 @@ funk gets its own pattern engine. Tidal ([Tidal](https://github.com/tidalcycles/
 | MIDI | convert | direct, as clock ticks |
 | funk today | no `Fractional`; unclear whether user `Num` instances can supply `/` | works now |
 
-Recommendation: ticks. 720720 = lcm(1..16) = 2^4 * 3^2 * 5 * 7 * 11 * 13 gives exact tuplets up to 16. Nesting beyond those factors rounds: triplets three deep need 27, which does not divide 720720. This rests on judgment, not measurement; the friction log tests it.
+Recommendation: ticks. 720720 = lcm(1..16) = 2^4 * 3^2 * 5 * 7 * 11 * 13 gives exact tuplets up to 16. Nesting beyond those factors rounds: triplets three deep need 27, which does not divide 720720. This rests on judgment, not measurement; the friction log tests it. 2026-11-11: the rate is 46126080 = 720720 * 64, so binary steps down to 1024ths are exact ([tidal-comparison.md](tidal-comparison.md) T1).
 
 ## Representation
 
@@ -72,7 +72,7 @@ Status:
 
 - `mini` follows Tidal's `ParseBP.hs` and `Chords.hs`. It parses when called, not when queried, so a typo fails as the definition is evaluated. Named `mini`, since `p` is the module's usual alias. Values parse into one sum type, `MV`, so that one grammar serves numbers, chord names and chord modifiers without polymorphic recursion.
 
-- `randAt` is Tidal's `timeToRand`, exactly: an event at tick `t`, for the `k`th `?` or `|`, takes the value at `t / 720720 + k / 10000` cycles. Integer arithmetic gives it without overflow, as `300 * 720720 * 10000 = 2^10 * 2111484375`. Checked against an implementation in exact fractions.
+- `randAt` is Tidal's `timeToRand`, exactly: an event at tick `t`, for the `k`th `?` or `|`, takes the value at `t / 46126080 + k / 10000` cycles. Integer arithmetic gives it without overflow, as `300 * 46126080 * 10000 = 2^16 * 2111484375`. Checked against an implementation in exact fractions.
 
 - Polymeter steps at `r / size` per cycle play through `_fastR`. `timecat` maps each step's cycle linearly into its share, keeping wholes that cross the step, as Tidal's `compressArc`.
 

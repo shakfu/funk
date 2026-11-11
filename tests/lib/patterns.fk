@@ -20,7 +20,7 @@ blocked pat n a b = if a >= b then [] else starts pat a (min b (a + n)) ++ block
 
 poly = p.stack [p.fastcat (replicate 3 (p.atom 3)), p.fastcat (replicate 5 (p.atom 5)), p.fastcat (replicate 7 (p.atom 7))]
 
--- a step of 720720 / 17 ticks rounds; the others are exact
+-- a step of cycleTicks / 17 ticks rounds; the others are exact
 mixed = p.stack [p.fast 17 (p.atom 'r'), p.slow 3 (p.fastcat (map p.atom (unpack "abcde"))), p.shift 1000 (p.euclid 3 8 (p.atom 'e'))]
 
 fs = p.fastcat [p.atom (+ 10), p.atom (+ 20)]
@@ -91,10 +91,10 @@ main = do
   print (vals "c'maj'ii c'maj'o c'maj'5 c'major7'd1" 1, vals "c'<maj min>" 2)
   print (vals "0 .. 3 5 .. 2" 1, starts (p.mini "60 61 . 62 63 64") 0 t)
   print (starts (p.mini "{60 61 62, 70 71}") 0 t, starts (p.mini "{60 61 62}%4") 0 t)
-  print (map (\m -> map (\(s, _, _) -> div s 90090) (starts (p.mini m) 0 t)) ["60(5,8)", "60(5,8,2)", "60(-3,8)"], p.bjorklund 7 12)
+  print (map (\m -> map (\(s, _, _) -> div s (div t 8)) (starts (p.mini m) 0 t)) ["60(5,8)", "60(5,8,2)", "60(-3,8)"], p.bjorklund 7 12)
   print (starts (p.mini "60(<3 5>,8)") 0 (2 * t))
   print (starts (p.mini "60@1.5 61") 0 t, starts (p.mini "60 - 61") 0 t)
-  print (map (\x -> p.randAt x 3) [0, 720720, -5000, 123457, 1000000000], p.randAt 0 0)
+  print (map (\x -> p.randAt x 3) (map (* div t 720720) [0, 720720, -5000, 123457, 1000000000]), p.randAt 0 0)
   print (length (starts (p.mini "60*16?") 0 (8 * t)), length (starts (p.mini "60*16?0.25") 0 (8 * t)), vals "60 | 61 | 62" 12)
   print (same (p.mini "60*16? [61 | 62 63](3,8,<0 1>) {64 65 66}%<4 5> c'<maj min7>'<ii o> 0 .. 5 . 70@1.5 _ 71"))
   print (starts (p.mini "60*1.5") 0 (2 * t), starts (p.mini "60*3%2") 0 (2 * t) == starts (p.mini "60*1.5") 0 (2 * t))
