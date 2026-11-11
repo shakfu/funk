@@ -650,8 +650,8 @@ static const char *af_lambda(Lambda *L) {
   const char *w = NULL;
   for (int i = 0; i < L->n && !w; i++)
     if (!L->ptypes || !af_type(L->ptypes[i]))
-      w = xsprintf("`%s` takes `%s`, a heap value", L->name ? L->name : "a function", L->ptypes ? type_str(L->ptypes[i]) : "an untyped argument");
-  if (!w && !af_type(L->body->ty)) w = xsprintf("`%s` returns `%s`, a heap value", L->name ? L->name : "a function", type_str(L->body->ty));
+      w = xsprintf("`%s` takes `%s`, a heap value", L->name ? shown_name(L->name) : "a function", L->ptypes ? type_str(L->ptypes[i]) : "an untyped argument");
+  if (!w && !af_type(L->body->ty)) w = xsprintf("`%s` returns `%s`, a heap value", L->name ? shown_name(L->name) : "a function", type_str(L->body->ty));
   if (!w && L->nfree) w = xsprintf("`%s` is a closure", L->name ? L->name : "a function");
   if (!w) w = af_expr(L->body, L, true);
   ST->af_state[L->id] = w ? 2 : 3;

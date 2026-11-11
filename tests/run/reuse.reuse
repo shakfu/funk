@@ -37,10 +37,10 @@ print@([Int], [Int])@own0
 print@([Int], [Int])@reuse0
 print@[Int]@own0
 sort@Int@own0
-sortBy/mergeAll3@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@own0
-sortBy/mergeAll3@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@reuse0
-sortBy/mergePairs2@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@own0
-sortBy/mergePairs2@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@reuse0
+sortBy/mergeAll4@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@own0
+sortBy/mergeAll4@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@reuse0
+sortBy/mergePairs3@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@own0
+sortBy/mergePairs3@reuse1@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[[Int]]>@reuse0
 sortBy@{0=$m.Ord.Int.compare}<Int -> Int -> Ordering,[Int]>@own0
 take@Int,Int@own1
 zip@own0

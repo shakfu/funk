@@ -40,8 +40,8 @@ Not ported, as Tidal's source has them inside block comments: `fill`, `pequal`, 
 
 - **Times** in cycles are `Float`s, rounded to a tick (above). A denominator that does not divide 720720, such as 17's in `iter 17`, rounds.
 - **Speed factors** are `Float`s, as times are: `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze` and the rest. Each is taken as its nearest ratio with a denominator up to 65536 (`toRatio`), then applied exactly in ticks, as `_fastR n d` is. Tidal reads a mini-notation decimal as a `Double` made `Rational`: `"0.6"` is 5404319552844595/2^53, not 3/5. funk takes 3/5, as Tidal does for the literal `0.6`. The `Double`'s ratio cannot be held in ticks.
-- **No `pureValue`.** Tidal 1.10 applies a constant argument directly, where funk joins with an `atom`. An event that crosses a cycle boundary then comes in two parts; its onset is the same.
-- **No steps.** Tidal 1.10's step counts (`setSteps`, `keepSteps`) and `Stepwise.hs` are not ported.
+- **`pureValue` is deferred.** As Tidal 1.10, a constant argument applies directly, without a join. funk is strict, so the value is held as a function of `()`; a shortcut computes it as the pattern is built, where Tidal's may wait for a query.
+- **`zoom` past a cycle clips to the query.** Tidal's `zoomArc` with an end past 1 returns an onset twice and one outside the query, so `steptake 5 "a b c"` would play events twice in a host; funk's does not, as for `stripe`.
 - **`rot`** orders a cycle's events by whole, then part. Tidal's order puts each event's source position first.
 - **`substruct'`**, and so `stripe`, clips events to the query. Tidal's returns each event over its whole span, so funk's hosts, which query in blocks, would play an onset once per block that overlaps it.
 - **`euclid`** takes Tidal's arguments, patterns of `k` and `n` and a pattern to play: `p.euclid 3 8 36` still works, as `36` is an atom.

@@ -23,6 +23,8 @@ void compiler_free_all(void);   /* every block above of this session: at its end
 void compile_budget(bool on);   /* limit the allocations of one compile_chunk */
 char *xsprintf(const char *fmt, ...);
 const char *intern(const char *s);
+/* a name as a message shows it: $m.Class.Type.method as method@Type */
+const char *shown_name(const char *s);
 const char *intern_n(const char *s, size_t n);
 const char *base_name(const char *name); /* a clone's or copy's name without its suffixes: map@Int, f@own0, f/$f1 */
 void opt_note(int line, const char *fmt, ...); /* for funk_opt_report, if it is on */

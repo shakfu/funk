@@ -1,15 +1,15 @@
 5: insert@own1: (Int, boxed) -> boxed, loop, TRMC, reuses cells
 9: double@own0: (boxed) -> boxed, loop, TRMC, reuses cells
 13: go: (Int, Int) -> Int, loop
-16: fused: enumFromTo, filter, map, sum
+16: fused: enumFromTo@Int, filter, map, sum
 16: total: (Int) -> Int
 16: total/$f: (Int, Int, Int) -> Int, loop
-19: not fused: enumFromTo, filter, map, sum: more than one stage can fail
-19: not fused: enumFromTo, filter, map: more than one stage can fail
-19: fused: enumFromTo, filter
+19: not fused: enumFromTo@Int, filter, map, sum: more than one stage can fail
+19: not fused: enumFromTo@Int, filter, map: more than one stage can fail
+19: fused: enumFromTo@Int, filter
 19: twoFail: (Int) -> Int
 19: twoFail/$f: (Int, Int) -> boxed, loop, TRMC
-22: not fused: enumFromTo, map, take: map can fail before a stage that stops early
-22: fused: enumFromTo, map
+22: not fused: enumFromTo@Int, map, take: map can fail before a stage that stops early
+22: fused: enumFromTo@Int, map
 22: firsts: (Int) -> boxed
 22: firsts/$f: (Int, Int) -> boxed, loop, TRMC

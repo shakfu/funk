@@ -6,6 +6,37 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Haskell's `Enum` class in the prelude, with `succ`, `pred`, `toEnum`, `fromEnum` and ranges, for `Int`, `Float`, `Char`, `Bool`, `Ordering`, `()`, `Note` and `deriving Enum`. A `Float` range follows Haskell's rule, so `[1.0 .. 2.5]` is `[1.0, 2.0, 3.0]` and Tidal's `run 3.5` ends at 3. `Int` ranges still fuse into loops.
+
+  ```haskell
+  data Colour = Red | Green | Blue deriving (Show, Enum)
+  main = print [Red .. Blue]
+  ```
+
+- Tidal's stateful controls in funk-midi: the generated `xTake`, `xCount` and `xCountTo` families, `pStateF` and `pStateList`, as Tidal's `Params.hs` has them. A counter keeps its value across windows and slots, in one map with the controls `setF` sets, as Tidal's does. `pB`, `pR`, `pX` and `array` make Bools, ratios and byte blobs, sent to SuperDirt as Tidal sends them.
+
+  ```haskell
+  d1 $ s "drum*8" # nCount "c"            -- n 0, 1, 2, ... across cycles
+  d2 $ s "arpy*3" # speedTake "t" [1, 1.5, 2]
+  ```
+
+- Tidal 1.10's steps: each pattern knows its steps a cycle, as Tidal's does, and `stepcat`, `steptake`, `stepdrop`, `expand`, `contract`, `extend`, `stepalt`, `stepzip`, `stepJoin` and `pace` use them. A constant argument applies without a join, as Tidal's `pureValue` lets it, so an event crossing a cycle boundary is one event. `tests/tidal/Steps.hs` checks 147 cases against Tidal.
+
+  ```haskell
+  d1 $ s (stepcat ["bd sn", "hh*3"])  -- 5 steps a cycle: 2 then 3
+  ```
+
+- `^name` in mini-notation reads a control, as in Tidal: `n "0 ^x"` plays control `x`, set by `setF` or OSC, as its second step.
+
+- Tidal's `drawLine`, `drawLineSz`, `draw` and `stepcount`, and `Char` mini-notation, a letter or digit a step. `drawLine "a*2 [b c]"` prints the cycles as text, as in Tidal.
+
+  ```
+  [15 cycles]
+  |aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc
+  ```
+
+- Tidal's `Time.hs` and most of `Pattern.hs`: `sam`, `cyclePos`, `arcCycles`, `subArc`, `withQueryTime`, `withEvent`, `splitQueries`, `compressArc`, `collect`, `patternify`, `extractF` and about 70 more, for writing combinators. A time is a `Float` of cycles, as elsewhere, and a `Span`, Tidal's `Arc`, holds ticks; `toTime` and `fromTime` convert. `chordList` names the chords. `lib/tidal` checks 36 cases against Tidal ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md), F2, F3 and F7).
+
 - Haskell's `Semigroup` in the prelude: `<>`, infixr 6, for `String` and lists. On patterns it overlays, as in Tidal: `sound ("bd sn:2" <> "cp*3")`. `Monoid` waits for constant class methods.
 
 - A fixity declaration may name a class method of the same module, as in Haskell: `infixr 6 <>`. It was rejected as lacking a binding.
@@ -102,6 +133,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match, 1604 of them after rounding to ticks, by at most 30 ticks. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.py` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
 
 ### Changed
+
+- `enumFromTo` and `enumFromThenTo` are `Enum`'s methods; a function using a range at a type variable needs `Enum a`, as `run` now does. Optimization reports name a method at a known type as `enumFromTo@Int`.
+
+- `p.Pattern` takes a query, steps and a pure value, as Tidal's; `p.pattern f` makes a pattern of a query, as `p.Pattern f` did.
+
+- `funk build` passes `-falign-functions=64` to the C compiler. After the prelude gained `Semigroup`, `fib`'s generated C was unchanged but ran 15% slower: its hot function had moved from offset 0x30 to 0x10 in a 64-byte block. Aligned, the suite is at parity, and `__text` grows by about 15%, 7.7 KB for `pipeline`.
 
 - A REPL or host input generalizes its value bindings, as GHCi's prompt does: `riff = "0 2"` is `FromString a => a`, so `n riff` and `s riff` both play in later inputs, and `k = 1` serves `k + 0.5`. Each value is computed once per type it is used at, and once at its default types as it is defined, so an error still shows at definition and the old pattern keeps playing. A file keeps the monomorphism restriction. `:t` prints the generalized type: `:t (/)` is `Fractional a => a -> a -> a` ([docs/dev/design.md](docs/dev/design.md#monomorphism-restriction)).
 

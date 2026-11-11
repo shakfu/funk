@@ -7,7 +7,11 @@ set -e
 mkdir -p "$dir"
 # the containers tidal was built with: ghc hides the package when two are installed
 containers=$(ghc-pkg field tidal-core depends | grep -o 'containers-[0-9.]*' | head -1)
-"$ghc" -O0 -package tidal -package "$containers" -outputdir "$dir/o" tests/tidal/Oracle.hs -o "$dir/oracle" >/dev/null
+"$ghc" -O0 -package tidal -package tidal-core -package "$containers" -outputdir "$dir/o" tests/tidal/Oracle.hs -o "$dir/oracle" >/dev/null
 "$dir/oracle" > "$dir/tidal.out"
 "$funk" run tests/tidal/compare.fk -M lib > "$dir/funk.out"
 diff "$dir/tidal.out" "$dir/funk.out"
+"$ghc" -O0 -package tidal -package "$containers" -outputdir "$dir/o" tests/tidal/Steps.hs -o "$dir/steps" >/dev/null
+"$dir/steps" > "$dir/tidal-steps.out"
+"$funk" run tests/tidal/steps.fk -M lib > "$dir/funk-steps.out"
+diff "$dir/tidal-steps.out" "$dir/funk-steps.out"

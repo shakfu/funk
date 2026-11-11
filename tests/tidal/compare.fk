@@ -6,6 +6,20 @@ import control (..)
 
 t = p.cycleTicks
 
+-- Haskell's fmap on Maybe, which funk lacks
+fmapM :: (a -> b) -> Maybe a -> Maybe b
+fmapM f m = case m of
+  Just x -> Just (f x)
+  Nothing -> Nothing
+
+-- a Span in ticks (F2)
+ta :: p.Span -> (Int, Int)
+ta a = (a.start, a.stop)
+
+-- every event of p over [a, b), fragments included (F3)
+qa name r pat a b = putStrLn (name ++ " " ++ show (sort (map (\e -> (fmapM ta e.whole, ta e.part, r e.value)) (p.queryArc pat (p.Span (p.toTime a) (p.toTime b))))))
+
+
 fmt :: Float -> String
 fmt x = show (round (x * 1000000000.0))
 
@@ -38,6 +52,7 @@ rV v = case v of
   VF x -> "f" ++ fmt x
   VI i -> "i" ++ show i
   VS x -> "s" ++ x
+  _ -> "?"
 
 rC :: Controls -> String
 rC m = cat' (map (\(k, v) -> k ++ "=" ++ rV v ++ ";") (controlPairs m))
@@ -45,6 +60,10 @@ rC m = cat' (map (\(k, v) -> k ++ "=" ++ rV v ++ ";") (controlPairs m))
 nums = p.fastFromList [0, 1, 2, 3]
 abcd = p.fastFromList ["a", "b", "c", "d"]
 chord = p.stack [p.atom 0, p.atom 4, p.atom 7]
+-- a Char literal (M3)
+bpc :: p.Pattern Char -> p.Pattern Char
+bpc x = x
+
 -- a Bool literal, through FromString (M1)
 bp :: p.Pattern Bool -> p.Pattern Bool
 bp x = x
@@ -350,3 +369,84 @@ main = do
   out "getScale" 1 rF (p.getScale (p.scaleTable ++ [("techno", [0.0, 2.0, 3.0, 5.0, 7.0, 8.0, 10.0])]) "techno" "0 1 2 7")
   putStrLn ("scaleList " ++ p.scaleList)
   out "semigroup" 1 rS (("a b" <> "c*3") <> "~ d")
+  putStrLn ("chordList " ++ p.chordList)
+  putStrLn ("arcs0 " ++ show (map ta (p.arcCycles (p.Span (p.toTime (0.5)) (p.toTime (2.25)))), map ta (p.arcCyclesZW (p.Span (p.toTime (0.5)) (p.toTime (2.25)))), ta (p.cycleArc (p.Span (p.toTime (0.5)) (p.toTime (2.25)))), p.cyclesInArc (p.Span (p.toTime (0.5)) (p.toTime (2.25))), map ta (p.cycleArcsInArc (p.Span (p.toTime (0.5)) (p.toTime (2.25)))), ta (p.mapCycle (\t -> div t 2) (p.Span (p.toTime (0.5)) (p.toTime (2.25)))), p.isIn (p.Span (p.toTime (0.5)) (p.toTime (2.25))) (p.toTime 1.0)))
+  putStrLn ("arcs1 " ++ show (map ta (p.arcCycles (p.Span (p.toTime (1)) (p.toTime (1)))), map ta (p.arcCyclesZW (p.Span (p.toTime (1)) (p.toTime (1)))), ta (p.cycleArc (p.Span (p.toTime (1)) (p.toTime (1)))), p.cyclesInArc (p.Span (p.toTime (1)) (p.toTime (1))), map ta (p.cycleArcsInArc (p.Span (p.toTime (1)) (p.toTime (1)))), ta (p.mapCycle (\t -> div t 2) (p.Span (p.toTime (1)) (p.toTime (1)))), p.isIn (p.Span (p.toTime (1)) (p.toTime (1))) (p.toTime 1.0)))
+  putStrLn ("arcs2 " ++ show (map ta (p.arcCycles (p.Span (p.toTime (1)) (p.toTime (2)))), map ta (p.arcCyclesZW (p.Span (p.toTime (1)) (p.toTime (2)))), ta (p.cycleArc (p.Span (p.toTime (1)) (p.toTime (2)))), p.cyclesInArc (p.Span (p.toTime (1)) (p.toTime (2))), map ta (p.cycleArcsInArc (p.Span (p.toTime (1)) (p.toTime (2)))), ta (p.mapCycle (\t -> div t 2) (p.Span (p.toTime (1)) (p.toTime (2)))), p.isIn (p.Span (p.toTime (1)) (p.toTime (2))) (p.toTime 1.0)))
+  putStrLn ("arcs3 " ++ show (map ta (p.arcCycles (p.Span (p.toTime (-0.5)) (p.toTime (0.75)))), map ta (p.arcCyclesZW (p.Span (p.toTime (-0.5)) (p.toTime (0.75)))), ta (p.cycleArc (p.Span (p.toTime (-0.5)) (p.toTime (0.75)))), p.cyclesInArc (p.Span (p.toTime (-0.5)) (p.toTime (0.75))), map ta (p.cycleArcsInArc (p.Span (p.toTime (-0.5)) (p.toTime (0.75)))), ta (p.mapCycle (\t -> div t 2) (p.Span (p.toTime (-0.5)) (p.toTime (0.75)))), p.isIn (p.Span (p.toTime (-0.5)) (p.toTime (0.75))) (p.toTime 1.0)))
+  putStrLn ("arcs4 " ++ show (map ta (p.arcCycles (p.Span (p.toTime (2.75)) (p.toTime (3)))), map ta (p.arcCyclesZW (p.Span (p.toTime (2.75)) (p.toTime (3)))), ta (p.cycleArc (p.Span (p.toTime (2.75)) (p.toTime (3)))), p.cyclesInArc (p.Span (p.toTime (2.75)) (p.toTime (3))), map ta (p.cycleArcsInArc (p.Span (p.toTime (2.75)) (p.toTime (3)))), ta (p.mapCycle (\t -> div t 2) (p.Span (p.toTime (2.75)) (p.toTime (3)))), p.isIn (p.Span (p.toTime (2.75)) (p.toTime (3))) (p.toTime 1.0)))
+  putStrLn ("arcPair0 " ++ show (ta (p.hull (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (0.5)) (p.toTime (1.5)))), ta (p.sect (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (0.5)) (p.toTime (1.5)))), fmapM ta (p.subArc (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (0.5)) (p.toTime (1.5)))), fmapM (fmapM ta) (p.subMaybeArc (Just (p.Span (p.toTime (0)) (p.toTime (1)))) (Just (p.Span (p.toTime (0.5)) (p.toTime (1.5)))))))
+  putStrLn ("arcPair1 " ++ show (ta (p.hull (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (1)) (p.toTime (2)))), ta (p.sect (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (1)) (p.toTime (2)))), fmapM ta (p.subArc (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (1)) (p.toTime (2)))), fmapM (fmapM ta) (p.subMaybeArc (Just (p.Span (p.toTime (0)) (p.toTime (1)))) (Just (p.Span (p.toTime (1)) (p.toTime (2)))))))
+  putStrLn ("arcPair2 " ++ show (ta (p.hull (p.Span (p.toTime (1)) (p.toTime (1))) (p.Span (p.toTime (0)) (p.toTime (2)))), ta (p.sect (p.Span (p.toTime (1)) (p.toTime (1))) (p.Span (p.toTime (0)) (p.toTime (2)))), fmapM ta (p.subArc (p.Span (p.toTime (1)) (p.toTime (1))) (p.Span (p.toTime (0)) (p.toTime (2)))), fmapM (fmapM ta) (p.subMaybeArc (Just (p.Span (p.toTime (1)) (p.toTime (1)))) (Just (p.Span (p.toTime (0)) (p.toTime (2)))))))
+  putStrLn ("arcPair3 " ++ show (ta (p.hull (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (2)) (p.toTime (3)))), ta (p.sect (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (2)) (p.toTime (3)))), fmapM ta (p.subArc (p.Span (p.toTime (0)) (p.toTime (1))) (p.Span (p.toTime (2)) (p.toTime (3)))), fmapM (fmapM ta) (p.subMaybeArc (Just (p.Span (p.toTime (0)) (p.toTime (1)))) (Just (p.Span (p.toTime (2)) (p.toTime (3)))))))
+  putStrLn ("arcPair4 " ++ show (ta (p.hull (p.Span (p.toTime (0.25)) (p.toTime (0.25))) (p.Span (p.toTime (0.25)) (p.toTime (1)))), ta (p.sect (p.Span (p.toTime (0.25)) (p.toTime (0.25))) (p.Span (p.toTime (0.25)) (p.toTime (1)))), fmapM ta (p.subArc (p.Span (p.toTime (0.25)) (p.toTime (0.25))) (p.Span (p.toTime (0.25)) (p.toTime (1)))), fmapM (fmapM ta) (p.subMaybeArc (Just (p.Span (p.toTime (0.25)) (p.toTime (0.25)))) (Just (p.Span (p.toTime (0.25)) (p.toTime (1)))))))
+  putStrLn ("times " ++ show (map (\t -> (rF (p.sam t), rF (p.nextSam t), rF (p.cyclePos t), ta (p.timeToCycleArc (p.toTime t)))) [-1.25, 0.0, 0.75, 3.5]))
+  qa "splitQueries" rS (p.splitQueries (p.slow 2 abcd)) 0.5 1.5
+  qa "noSplit" rS (p.slow 2 abcd) 0.5 1.5
+  out "withQueryTime" 1 rS (p.withQueryTime (\x -> x * 2) abcd)
+  out "withResultTime" 1 rS (p.withResultTime (\x -> x + div t 4) (p.withQueryTime (\x -> x - div t 4) abcd))
+  out "withResultStart" 1 rS (p.withResultStart (\x -> x + div t 8) abcd)
+  out "withQueryStart" 1 rS (p.withQueryStart (\x -> x + div t 2) abcd)
+  out "revv" 1 rS (p.revv abcd)
+  out "compressArc" 1 rS (p.compressArc (p.Span (div t 4) (3 * div t 4)) abcd)
+  out "compressArcBad" 1 rS (p.compressArc (p.Span (div t 2) (3 * div t 2)) abcd)
+  out "compressArcTo" 2 rS (p.compressArcTo (p.Span (5 * div t 4) (7 * div t 4)) abcd)
+  out "focusArc" 2 rS (p.focusArc (p.Span (5 * div t 4) (7 * div t 4)) abcd)
+  out "matchManyToOne" 1 (\(b, x) -> show b ++ x) (p.matchManyToOne (\x y -> x == y) "a c" abcd)
+  mapM_ (\(i, q) -> out ("separateCycles" ++ show i) 2 rS q) (zip [0 .. 2] (p.separateCycles 3 abcd))
+  out "collect" 1 (\xs -> foldr (++) "" xs) (p.collect ("[a, b] c [d, d]" :: p.Pattern String))
+  out "patternify" 1 rS (p.patternify (\i x -> p.rotL (toFloat i / 4.0) x) ("0 1" :: p.Pattern Int) abcd)
+  out "applyPatToPat" 1 rS (p.applyPatToPat p.subMaybeArc ((++) <$> ("a b" :: p.Pattern String)) ("c d e" :: p.Pattern String))
+  out "filterEvents" 1 rS (p.filterEvents (\e -> p.wholeStart e < div t 2) abcd)
+  out "extractF" 1 rF (extractF "speed" (s "a*2" # speed "1 2.5"))
+  out "extractI" 1 rI (extractI "cut" (s "a*2" # cut "1 2" # speed "3.7"))
+  out "extractIF" 1 rI (extractI "speed" (s "a*2" # speed "1.5 -2.5"))
+  out "extractS" 1 rS (extractS "s" (s "a b" # n 1))
+  out "extractN" 1 (\x -> rF (p.unNote x)) (extractN "n" (n "1 e"))
+  putStrLn ("eventFns " ++ show (map (\e -> ((p.isAnalog e, p.isDigital e, p.eventHasOnset e), (p.wholeStart e, p.wholeStop e, p.eventPartStart e, p.eventPartStop e), p.onsetIn (p.Span 0 (div t 2)) e)) (p.queryArc (p.slow 2 abcd) (p.Span (div t 2) (5 * div t 4))) ++ map (\e -> ((p.isAnalog e, p.isDigital e, p.eventHasOnset e), (p.wholeStart e, p.wholeStop e, p.eventPartStart e, p.eventPartStop e), p.onsetIn (p.Span 0 (div t 2)) e)) (p.queryArc (p.sine :: p.Pattern Float) (p.Span 0 (div t 2)))))
+  out "char0" 2 (\c -> pack [c]) (bpc "a*2 [b c]")
+  putStrLn ("drawLine0" ++ show (p.drawLine (bpc "a*2 [b c]")))
+  putStrLn ("stepcount0 " ++ show (p.stepcount (bpc "a*2 [b c]")))
+  out "char1" 2 (\c -> pack [c]) (bpc "<a b> c(3,8)")
+  putStrLn ("drawLine1" ++ show (p.drawLine (bpc "<a b> c(3,8)")))
+  putStrLn ("stepcount1 " ++ show (p.stepcount (bpc "<a b> c(3,8)")))
+  out "char2" 2 (\c -> pack [c]) (bpc "[a b, c*3]")
+  putStrLn ("drawLine2" ++ show (p.drawLine (bpc "[a b, c*3]")))
+  putStrLn ("stepcount2 " ++ show (p.stepcount (bpc "[a b, c*3]")))
+  out "char3" 2 (\c -> pack [c]) (bpc "a ~ b@3")
+  putStrLn ("drawLine3" ++ show (p.drawLine (bpc "a ~ b@3")))
+  putStrLn ("stepcount3 " ++ show (p.stepcount (bpc "a ~ b@3")))
+  out "char4" 2 (\c -> pack [c]) (bpc "a .. e")
+  putStrLn ("drawLine4" ++ show (p.drawLine (bpc "a .. e")))
+  putStrLn ("stepcount4 " ++ show (p.stepcount (bpc "a .. e")))
+  out "char5" 2 (\c -> pack [c]) (bpc "a? b? c? d?")
+  putStrLn ("drawLine5" ++ show (p.drawLine (bpc "a? b? c? d?")))
+  putStrLn ("stepcount5 " ++ show (p.stepcount (bpc "a? b? c? d?")))
+  out "char6" 2 (\c -> pack [c]) (bpc "{a b c}%4")
+  putStrLn ("drawLine6" ++ show (p.drawLine (bpc "{a b c}%4")))
+  putStrLn ("stepcount6 " ++ show (p.stepcount (bpc "{a b c}%4")))
+  out "char7" 2 (\c -> pack [c]) (bpc "a [b|c] . d 3")
+  putStrLn ("drawLine7" ++ show (p.drawLine (bpc "a [b|c] . d 3")))
+  putStrLn ("stepcount7 " ++ show (p.stepcount (bpc "a [b|c] . d 3")))
+  out "char8" 2 (\c -> pack [c]) (bpc "e .. a")
+  putStrLn ("drawLine8" ++ show (p.drawLine (bpc "e .. a")))
+  putStrLn ("stepcount8 " ++ show (p.stepcount (bpc "e .. a")))
+  out "char9" 2 (\c -> pack [c]) (bpc "0 1(3,8,2)")
+  putStrLn ("drawLine9" ++ show (p.drawLine (bpc "0 1(3,8,2)")))
+  putStrLn ("stepcount9 " ++ show (p.stepcount (bpc "0 1(3,8,2)")))
+  putStrLn ("drawLineSz" ++ show (p.drawLineSz 20 (bpc "a b c d")))
+  putStrLn ("drawSlow" ++ show (p.drawLine (p.slow 2 (bpc "a b c"))))
+  putStrLn ("draw" ++ show (p.draw (bpc "[a b, c d e]")))
+  putStrLn ("drawBig" ++ show (p.drawLine (bpc "a*1100")))
+  outC "var1" 1 rF [("x", p.CtlF 0.5)] ("1 ^x 3" :: p.Pattern Float)
+  outC "varInt" 1 rI [("i", p.CtlI 2)] ("0 ^i [^i ^i]" :: p.Pattern Int)
+  outC "varStr" 1 rS [("s", p.CtlS "bd")] ("^s sn" :: p.Pattern String)
+  outC "varBool" 1 rS [("b", p.CtlB False)] (p.struct "t ^b t" abcd)
+  outC "varMissing" 1 rF [] ("1 ^nope 3" :: p.Pattern Float)
+  outC "varEuclid" 1 rF [("x", p.CtlF 2.0)] ("^x(3,8) 1" :: p.Pattern Float)
+  outC "varNote" 1 rC [("x", p.CtlF 7.0)] (n "0 ^x")
+  outC "varPat" 2 rF [("x", p.CtlP (p.mapP p.CtlF ("1 <2 3>" :: p.Pattern Float)))] ("^x 0" :: p.Pattern Float)
+  -- L8: run at Double ends at the last value up to n - 1/2, by Enum
+  out "runFrac" 1 rF (p.run 3.5)
+  out "runNote" 1 rC (n (p.run 4))
+  out "scanFrac" 3 rF (p.scan 2.5)

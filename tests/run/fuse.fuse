@@ -1,12 +1,12 @@
 allEven
-boards@Int,Int
+boards@Int,Int,Int
 counted
 firsts@Int,Int
 flat
 hashed
 lazySource@Int,Int
 member@Int,Int
-pairs@Int,Int
+pairs@Int,Int,Int
 pipeline
-recursive@Int,Int
+recursive@Int,Int,Int
 small@Int,Int

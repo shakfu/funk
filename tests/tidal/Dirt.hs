@@ -7,6 +7,7 @@
 -- tests/tidal/dirt.sh diffs this against funk-midi --dirt.
 import Data.Int (Int64)
 import Data.List (sortOn)
+import Control.Monad (foldM_)
 import qualified Data.Map as Map
 import qualified Sound.Osc.Fd as O
 import GHC.Float (castFloatToWord32)
@@ -20,6 +21,7 @@ datum :: O.Datum -> String
 datum (O.Int32 i) = "i:" ++ show i
 datum (O.Float f) = printf "f:%08x" (castFloatToWord32 f)
 datum (O.AsciiString s) = "s:" ++ O.ascii_to_string s
+datum (O.Blob b) = "b:" ++ concatMap (printf "%02x") (O.blob_unpack b)
 datum d = show d
 
 pairs :: [O.Datum] -> String
@@ -47,6 +49,22 @@ outStack name pat = mapM_ line es
     -- funk-midi's windows, 10 ms at 0.5 cps: a signal joined in, as by
     -- fadeOutFrom, is read once a window, as Tidal reads it once a frame
     es = sortOn (start . part) $ concat [filter eventHasOnset $ queryArc pat (Arc (k / 200) ((k + 1) / 200)) | k <- [0 .. 799]]
+    pe e = ProcessedEvent
+      { peHasOnset = True, peEvent = e, peCps = 0.5,
+        peDelta = us (stop (wholeOrPart e)) - us (start (wholeOrPart e)),
+        peCycle = start (wholeOrPart e), peOnWholeOrPart = 0, peOnWholeOrPartOsc = 0, peOnPart = 0, peOnPartOsc = 0 }
+    line e = mapM_ (\(_, _, O.Message p ds) -> putStrLn (name ++ " " ++ p ++ pairs ds)) (toOSC Nothing (pe e) superdirtShape)
+
+-- as outStack, with Tidal's state: each window's events sorted by part and
+-- passed through resolveState, its map kept for the next, as doTick does
+outStateStack :: String -> ControlPattern -> IO ()
+outStateStack name pat = foldM_ step Map.empty [0 .. 799 :: Integer]
+  where
+    step sm k = do
+      let es = sortOn (start . part) $ query pat (State (Arc (fromIntegral k / 200) (fromIntegral (k + 1) / 200)) sm)
+          (sm', es') = resolveState sm es
+      mapM_ line (filter eventHasOnset es')
+      return sm'
     pe e = ProcessedEvent
       { peHasOnset = True, peEvent = e, peCps = 0.5,
         peDelta = us (stop (wholeOrPart e)) - us (start (wholeOrPart e)),
@@ -88,3 +106,8 @@ main = do
   outStack "interpolate" (_interpolateIn 2 0 [s "x*4" # speed 2 # pan 0.5 # cut 4, d1st (s "x*4" # speed 1 # cut 1)])
   outStack "clutch" (_clutchIn 2 0 [s "b*8", d1st (s "a*8")])
   outStack "forId" (_mortalOverlay 2 0 [s "b*2", d1st a])
+  -- state: counters and lists, shared across slots (C3)
+  outStateStack "count" (slots [("1", s "a*4" # nCount "c" # speedTake "t" [1, 2, 3] |< orbit 0), ("2", s "b*2" |+ nCount "c" |< orbit 1)])
+  outStateStack "countTo" (slots [("1", s "a*8" # nCountTo "k" "<3 5>" |< orbit 0)])
+  outStateStack "takeS" (slots [("1", s "a*3" # sTake "v" ["a", "e"] # cutCount "q" |+ cut 10 |< orbit 0)])
+  outStateStack "bools" (slots [("1", s "a" # pB "flag" "t f" # pR "r" "0.25" # array (pure [1, 2, 255]) |< orbit 0)])

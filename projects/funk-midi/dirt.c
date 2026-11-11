@@ -36,7 +36,7 @@ static size_t rd_str(const unsigned char *p, const unsigned char *end, const cha
 typedef struct {
   const char *name;
   size_t nlen;
-  char tag; /* f, i, s */
+  char tag; /* f, i, s, b: a blob, its bytes in s */
   double f;
   int64_t i;
   const char *s;
@@ -50,9 +50,9 @@ static size_t rd_pair(const unsigned char *p, const unsigned char *end, Arg *a) 
   size_t k = rd_str(p + 8, end, &a->name, &a->nlen);
   if (!k) return 0;
   const unsigned char *v = p + 8 + k;
-  if (kind == 2) {
+  if (kind == 2 || kind == 3) {
     size_t m = rd_str(v, end, &a->s, &a->slen);
-    a->tag = 's';
+    a->tag = kind == 2 ? 's' : 'b';
     return m ? 8 + k + m : 0;
   }
   if (end - v < 8 || (kind != 0 && kind != 1)) return 0;
@@ -167,7 +167,12 @@ size_t dirt_bundle(const dirt_event *e, uint64_t tag, double cps, double delta, 
   for (size_t i = 0; i < na; i++) {
     put_str(&o, as[i].name, as[i].nlen);
     if (as[i].tag == 's') put_str(&o, as[i].s, as[i].slen);
-    else if (as[i].tag == 'i') put32(&o, (uint32_t)as[i].i); /* Tidal's int32: wraps */
+    else if (as[i].tag == 'b') { /* an OSC blob: its size, its bytes, NULs to a multiple of 4 */
+      static const unsigned char zeros[4] = {0};
+      put32(&o, (uint32_t)as[i].slen);
+      put(&o, as[i].s, as[i].slen);
+      put(&o, zeros, (4 - as[i].slen % 4) % 4);
+    } else if (as[i].tag == 'i') put32(&o, (uint32_t)as[i].i); /* Tidal's int32: wraps */
     else {
       float f = (float)as[i].f;
       uint32_t bits;
@@ -220,6 +225,14 @@ void dirt_print(FILE *f, const unsigned char *b, size_t n, double base_ms) {
       const char *s = get_str(b, end, &at);
       if (!s) break;
       fprintf(f, (t - tags) % 2 ? " %s=" : "s:%s", s);
+    } else if (*t == 'b') {
+      if (at + 4 > end) break;
+      uint32_t len = get32(b + at);
+      at += 4;
+      if (len > end - at) break;
+      fputs("b:", f);
+      for (uint32_t j = 0; j < len; j++) fprintf(f, "%02x", b[at + j]);
+      at += (len + 3) / 4 * 4;
     } else if (at + 4 <= end) {
       uint32_t x = get32(b + at);
       at += 4;

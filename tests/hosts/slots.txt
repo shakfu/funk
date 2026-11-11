@@ -21,9 +21,9 @@ d10_ $ s "c"
 p 13 $ s "h"
 p "3" $ s "i"
 :wait 2000
-d1 $ p.Pattern (\_ -> error "boom")
+d1 $ p.pattern (\_ -> error "boom")
 :wait 2000
-d3 $ s (p.Pattern (\st -> if st.arc.start > 0 then error "late" else []))
+d3 $ s (p.pattern (\st -> if st.arc.start > 0 then error "late" else []))
 :wait 2000
 d2 $ s "j"
 :wait 700

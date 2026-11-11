@@ -57,13 +57,25 @@ class (Num a, FromFloat a) => Fractional a where
 class (Fractional a, Ord a) => RealFrac a where
   floor, ceiling, round, truncate :: a -> Int
 
+-- Haskell's Enum, but enumFrom and enumFromThen, which are infinite
+class Enum a where
+  succ, pred :: a -> a
+  toEnum :: Int -> a
+  fromEnum :: a -> Int
+  enumFromTo :: a -> a -> [a]
+  enumFromThenTo :: a -> a -> a -> [a]
+  succ x = toEnum (fromEnum x + 1)
+  pred x = toEnum (fromEnum x - 1)
+  enumFromTo x y = map toEnum (enumFromToInt (fromEnum x) (fromEnum y))
+  enumFromThenTo x y z = map toEnum (enumFromThenToInt (fromEnum x) (fromEnum y) (fromEnum z))
+
 -- Int, and the C integer types of foreign imports (CInt, CSize, ...)
 class Num a => Integral a where
   toInt :: a -> Int
 
 data Maybe a = Nothing | Just a deriving (Eq, Ord, Show)
 data Either a b = Left a | Right b deriving (Eq, Ord, Show)
-data Ordering = LT | EQ | GT deriving (Eq, Ord, Show)
+data Ordering = LT | EQ | GT deriving (Eq, Ord, Show, Enum)
 
 -- instances for primitive types; `x == y` at Int compiles to primEqInt directly
 
@@ -81,6 +93,13 @@ instance Num Int where
   negate = primNegateInt
   abs = primAbsInt
   fromInt n = n
+instance Enum Int where
+  succ x = x + 1
+  pred x = x - 1
+  toEnum x = x
+  fromEnum x = x
+  enumFromTo a b = enumFromToInt a b
+  enumFromThenTo a b c = enumFromThenToInt a b c
 instance Integral Int where
   toInt n = n
 
@@ -102,6 +121,13 @@ instance FromFloat Float where
   fromFloat x = x
 instance Fractional Float where
   (/) = primDivFloat
+instance Enum Float where
+  succ x = x + 1.0
+  pred x = x - 1.0
+  toEnum i = toFloat i
+  fromEnum x = truncate x
+  enumFromTo a b = numericEnumFromTo a b
+  enumFromThenTo a b c = numericEnumFromThenTo a b c
 instance RealFrac Float where
   floor = primFloorFloat
   ceiling = primCeilingFloat
@@ -116,6 +142,9 @@ instance Eq Char where
   (/=) = primNeChar
 instance Ord Char where
   compare x y = if primLtChar x y then LT else if primEqChar x y then EQ else GT
+instance Enum Char where
+  toEnum i = chr i
+  fromEnum c = ord c
 instance Show Char where
   showPrec _ c = primShowChar c
   showList cs = primShowCharList cs
@@ -289,14 +318,32 @@ zipWith _ _ _ = []
 unzip ps = (map fst ps, map snd ps)
 replicate n x = if n <= 0 then [] else x : replicate (n - 1) x
 
-enumFromTo a b = if a > b then [] else a : enumFromTo (a + 1) b
-enumFromThenTo a b c = go a
+-- Int's ranges, which list fusion knows by name (fuse.c)
+enumFromToInt :: Int -> Int -> [Int]
+enumFromToInt a b = if a > b then [] else a : enumFromToInt (a + 1) b
+
+enumFromThenToInt :: Int -> Int -> Int -> [Int]
+enumFromThenToInt a b c = go a
   where
     step = b - a
     go x
       | step == 0 = error "enumFromThenTo: zero step"
       | step > 0 && x > c = []
       | step < 0 && x < c = []
+      | otherwise = x : go (x + step)
+
+-- Haskell's for fractional types: to the last value up to b + 1/2
+numericEnumFromTo :: (Fractional a, Ord a) => a -> a -> [a]
+numericEnumFromTo a b = if a > b + 0.5 then [] else a : numericEnumFromTo (a + 1.0) b
+
+numericEnumFromThenTo :: (Fractional a, Ord a) => a -> a -> a -> [a]
+numericEnumFromThenTo a b c = go a
+  where
+    step = b - a
+    mid = step / 2.0
+    go x
+      | step >= 0.0 && x > c + mid = []
+      | step < 0.0 && x < c + mid = []
       | otherwise = x : go (x + step)
 
 lookup _ [] = Nothing

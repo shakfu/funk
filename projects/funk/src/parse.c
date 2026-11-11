@@ -1107,6 +1107,14 @@ static char *derive_text(DataDecl *d, const char *cls) {
     sb_puts(&b, d->name);
   }
   sb_puts(&b, " where { ");
+  if (strcmp(cls, "Enum") == 0) { /* nullary constructors in order, as Haskell's: fromEnum is the index */
+    for (int c = 0; c < d->nc; c++)
+      if (d->cons[c].nfields) cerror(d->derive_line, d->derive_col, "cannot derive `Enum` for `%s`: constructor `%s` has fields", d->name, d->cons[c].name);
+    sb_printf(&b, "fromEnum x = primConTag x - primConTag %s ; toEnum i = case i of { ", d->cons[0].name); /* tags are global ids, in order */
+    for (int c = 0; c < d->nc; c++) sb_printf(&b, "%d -> %s ; ", c, d->cons[c].name);
+    sb_printf(&b, "_ -> error \"toEnum: bad argument for %s\" } ; }", d->name);
+    return b.s;
+  }
   for (int c = 0; c < d->nc; c++) {
     ConDecl *cd = &d->cons[c];
     int n = cd->nfields;
@@ -1169,8 +1177,8 @@ static void parse_generated(const char *src, Decls *out, int line, int col) {
 static void derive(DataDecl *d, Decls *out) {
   for (int i = 0; i < d->nderiv; i++) {
     const char *c = d->derivs[i];
-    if (strcmp(c, "Eq") && strcmp(c, "Ord") && strcmp(c, "Show"))
-      cerror(d->derive_line, d->derive_col, "cannot derive `%s`; only Eq, Ord and Show can be derived", c);
+    if (strcmp(c, "Eq") && strcmp(c, "Ord") && strcmp(c, "Show") && strcmp(c, "Enum"))
+      cerror(d->derive_line, d->derive_col, "cannot derive `%s`; only Eq, Ord, Show and Enum can be derived", c);
     parse_generated(derive_text(d, c), out, d->derive_line, d->derive_col);
   }
 }
@@ -1197,8 +1205,8 @@ char *builtin_instances_src(void) {
       tc.nfields = n;
       tu = (DataDecl){.name = nm.s, .np = n, .params = pn, .nc = 1, .cons = &tc};
     }
-    for (int c = 0; c < 3; c++) {
-      sb_puts(&b, derive_text(d, (const char *[]){"Eq", "Ord", "Show"}[c]));
+    for (int c = 0; c < (k < 2 ? 4 : 3); c++) { /* Bool and () are Enums too */
+      sb_puts(&b, derive_text(d, (const char *[]){"Eq", "Ord", "Show", "Enum"}[c]));
       sb_puts(&b, "\n");
     }
   }

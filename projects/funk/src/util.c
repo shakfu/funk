@@ -181,6 +181,13 @@ const char *intern_n(const char *s, size_t n) {
 
 const char *intern(const char *s) { return intern_n(s, strlen(s)); }
 
+const char *shown_name(const char *s) {
+  if (!s || strncmp(s, "$m.", 3)) return s;
+  const char *ty = strchr(s + 3, '.'), *meth = strrchr(s, '.');
+  if (!ty || meth <= ty) return s;
+  return intern(xsprintf("%s@%.*s", meth + 1, (int)(meth - ty - 1), ty + 1));
+}
+
 const char *base_name(const char *name) { return intern_n(name, strcspn(name, "@{</")); }
 
 void opt_note(int line, const char *fmt, ...) {

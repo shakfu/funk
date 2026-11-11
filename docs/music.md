@@ -244,7 +244,7 @@ pat = m.kit kit (p.miniS "bd*2 [hh sn:3]")
 
 A name not in the kit is dropped. A folder with no WAV file fails `sig`, and the last graph plays on.
 
-Not supported: `^name`, since there are no control inputs.
+`^name` reads a control set from outside, as `cF_` and its kin do for the pattern's type: `n "0 ^x"` plays control `x` as the second step. A factor cannot be `^name`, as in Tidal.
 
 ### Control patterns
 

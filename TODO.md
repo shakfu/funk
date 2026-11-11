@@ -52,13 +52,12 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] L3: `fmap`, `<$>`, `pure`, `<*>`, `<*`, `*>`, `<<*` and `>>=` on patterns. Done 2026-11-10.
 
-- [ ] F2-F8, L8, M2-M3, C3: the library gaps. L8 is an `Enum` class.
+- [ ] C3's buses wait for S2; `ringCount` for a name. L8 is an `Enum` class.
 
 - [ ] L7, F10, F11: decide the review items.
 
 - [ ] `Floating` (`pi`, `sin` on patterns); not yet a numbered gap in tidal-comparison.md.
 
-- [ ] `bench/progs/fib` is 15% slower (22.6 against 19.5 ms) after the prelude gained `Semigroup`, with the same generated C: `w_fib` moved from offset 0x30 to 0x10 in its 64-byte block. With `CC="cc -falign-functions=64"` old and new match (suite geomean -0.0%). Decide whether `funk build` aligns functions by default. Found 2026-11-11.
 - [ ] `:l` of a file a second time rejects its classes and instances: "class `Big` is already defined", "duplicate instance `Show Sq`". Found 2026-11-11, on HEAD too.
 - [ ] The REPL reads one line per input, so a signature and its definition need `:{ :}`; GHCi accepts them on separate lines.
 

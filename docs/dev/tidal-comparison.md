@@ -47,7 +47,7 @@ L1, L2 and L4 are done: string literals are patterns, controls take patterns, an
 
 **L5. Done 2026-11-10: the pattern library is unqualified in the hosts.** funk-midi and the plugin import `pattern` as `p` and with `(..)`, so Tidal's names work as written and `p.` names still do. No `pattern` name is the prelude's. One clashed with `control`: `pattern`'s internal `clip`, now `clipEvent`, so `clip` is Tidal's control. A name defined at the prompt shadows an imported one, as at GHCi's ([modules.md](modules.md)); funk-midi's `sig` needs that. `pattern` has no export list, so its 673 names, helpers included, are all in scope. [patch-census.md](patch-census.md) ran the 22 patches this way.
 
-**L8. Gap: no `Enum` class.** `enumFromTo` is `(Num a, Ord a)`, so `run`'s ranges follow `Int`'s rule at every type: Tidal's `run 3.5`, `[0 .. 2.5]`, ends at 3 by Haskell's `b + 1/2` rule for fractional types; funk's ends at 2. Ranges over `Char` and user types, `succ`, `pred`, `toEnum`, `fromEnum` and `deriving Enum` are missing too. Cost: `[a..b]` desugars to `enumFromTo` by name (`parse.c`), and fusion recognizes it by name (`fuse.c`); as a method it elaborates to an instance call that fusion must learn to match, or fused loops slow down. Do after L4.
+**L8. Done 2026-11-11: `Enum`.** The prelude's `class Enum a` has `succ`, `pred`, `toEnum`, `fromEnum`, `enumFromTo` and `enumFromThenTo`, with instances for `Int`, `Float`, `Char`, `Bool`, `Ordering`, `()` and `Note`, and `deriving Enum`. A fractional range ends at the last value up to `b + 1/2`, so `run 3.5` ends at 3, as Tidal's. `enumFrom` and `enumFromThen` are infinite, so missing. `Int`'s ranges still fuse: list fusion knows the `Int` instance's `enumFromToInt`; `bench.py ab`: -0.7% and +0.6% geomean. `tests/run/enum.fk` prints what GHC prints for the same program.
 
 **L9. Done 2026-11-11: `RealFrac`.** `class (Fractional a, Ord a) => RealFrac a` has `floor`, `ceiling`, `round` and `truncate`, for `Float` and `Note`, so `quantise` and its kin take any `RealFrac`, as Tidal's do. The results are `Int`s, where Haskell's are any `Integral`: funk's `Integral` cannot make a value. `chromaticiseBy` takes any `(Num a, Ord a)`, as Tidal's `(Num a, Enum a, Ord a)`. `bench.py ab`: +0.1% and -0.6% geomean.
 
@@ -71,26 +71,23 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 **F1. Done 2026-11-11: `Scales.hs`.** `scale`, `scaleList`, `scaleTable` with Tidal's 76 scales, `getScale`, `scaleWith`, `scaleWithList`, `raiseDegree(s)` and `lowerDegree(s)`, in `lib/pattern.fk`. As in Tidal, the scales are not names of their own. `lib/tidal` checks every scale against Tidal.
 
-**F2. Gap: `Time.hs` functions are not exported.** `sam`, `nextSam`, `cyclePos`, `toTime`, `fromTime`, `hull`, `subArc`, `arcCycles`, `arcCyclesZW`, `cycleArc` and `isIn`. funk has `cycleOf` for its own use. User-written combinators call these.
+**F2. Done 2026-11-11: `Time.hs`.** `sam`, `nextSam` and `cyclePos` take `Float` cycles, as `whenT`'s callbacks do; an `Int` instance would read `sam 3` as 3 ticks. `toTime` and `fromTime` convert cycles to ticks and back. `hull`, `sect`, `subArc`, `subMaybeArc`, `timeToCycleArc`, `cycleArc`, `cyclesInArc`, `cycleArcsInArc`, `arcCycles`, `arcCyclesZW`, `mapCycle` and `isIn` take `Span`s in ticks, as events and queries hold. `lcmr` needs `Rational` (T3). `pattern.fk`'s own list-valued `sect` is now `sects`.
 
-**F3. Gap: `Pattern.hs` functions Tidal exports.** `queryArc` exists as `p.query`, and `filterValues` exists. Missing:
+**F3. Done 2026-11-11, but contexts: `Pattern.hs`.** `pattern`, `queryArc`, `empty`, `nothing`, `noOv`, `splitQueries`, the `withQuery*`, `withResult*` and `withEvent*` families, `withValue`, `withPart`, `filterEvents`, `compressArc`, `compressArcTo`, `focusArc`, `matchManyToOne`, `revv`, `separateCycles`, the `patternify*` family, the `applyPatToPat*` family, `unwrap`, the event predicates and accessors, `toEvent`, `valueToPattern`, `sameDur`, `groupEventsBy`, `collect*` and `uncollectEvent(s)`, in `lib/pattern.fk`; `getI`, `getS`, `getN`, `getR`, `applyFIS`, `fNum2` and `extract*` in `lib/control.fk`. Times are ticks, as in F2. `lib/tidal` checks 24 cases against Tidal. Missing:
 
-- `withEvent`, `withEvents`, `withValue`, `withPart`, `withQueryTime`, `withResultTime` and the rest of `withQuery*` and `withResult*`;
-- `filterEvents`, `splitQueries`, `collect`, `collectBy`, `empty`, `revv`, `pace`;
-- `wholeStart`, `wholeStop`, `eventPart*`, `eventHasOnset`, `isAnalog`, `isDigital`;
-- the `Value` accessors `getI`, `getF`, `getS`, `getB`, `getR` and `extract*`.
-
-The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are internal; port them as needed.
+- `combineContexts`, `setContext`, `withContext` and `deltaMini`: funk's events carry no source positions (R6);
+- 
+`matchManyToOne` queries `[s, s + 1)` where Tidal queries `Arc s s`: funk's queries have width, and the two return the same events.
 
 **F4. Done 2026-11-11: `Simple.hs`.** `crunch`, `scratch`, `louder`, `quieter`, `silent`, `skip`, `left`, `right`, `higher`, `lower`, `faster` and `slower`, in `lib/control.fk`. A string literal as a control pattern is a `sound`, as Tidal's `IsString ControlPattern`: `"bd*2 sn" # gain 0.8`. `control.fk`'s helpers `left` and `right` are now `onLeft` and `onRight`. `lib/tidal` checks each against Tidal; `scratch` through `rev (chop 16 ...)`, since `chop 32`'s 32nds round (T1).
 
-**F5. Gap: `Show.hs`.** `draw`, `drawLine`, `drawLineSz`, `showAll` and `stepcount`. Tidal users read `drawLine "bd*2 sn"` at the REPL to check a pattern. funk-midi prints events but has no text drawing.
+**F5. Done 2026-11-11, but `showAll`: `Show.hs`.** `draw`, `drawLine`, `drawLineSz` and `stepcount`, in `lib/pattern.fk`: `drawLine "a*2 [b c]"` at the REPL prints Tidal's text. `stepcount` reads each tick time as the fraction with the smallest denominator within a tick, so `a*100` has 100 steps where its ticks hold 7207/720720; past about 1000 steps a cycle the fractions are closer than a tick, but Tidal's drawing is then "too complex" too. `showAll` prints events' contexts, which funk's lack (F3). `lib/tidal` checks 34 cases against Tidal.
 
-**F6. Gap: steps.** Tidal 1.10's step counts (`setSteps`, `withSteps`, `keepSteps`) and the exported functions of `Stepwise.hs`: `stepcat`, `stepalt`, `steptake`, `stepdrop`, `stepzip`, `stepJoin`, `expand`, `contract` and `extend`. [combinators.md](combinators.md#differences-from-tidal) lists it as not ported, without a reason.
+**F6. Done 2026-11-11: steps.** `Pattern` holds Tidal's `steps`, an exact ratio, beside its query. Each function sets it as Tidal's does: the joins keep the outer pattern's, `<*>` takes the lcm, `fastcat` the sum, and a function written as a record update in Tidal keeps its input's. `setSteps`, `withSteps`, `keepSteps`, `hasSteps`, `pace` and `Stepwise.hs`'s `stepJoin`, `stepcat`, `steptake`, `stepdrop`, `expand`, `contract`, `extend`, `stepalt` and `stepzip` are in `lib/pattern.fk`. `tests/tidal/Steps.hs` and `steps.fk` check the steps of 125 expressions and 22 step functions' events against Tidal. Kept: `zoom` past a cycle clips to the query ([combinators.md](combinators.md#differences-from-tidal)).
 
-**F7. Gap: `chordList`.** Tidal's `chordList` lists the chord names as a string; funk has `chordTable`. Chords.hs's named chords, such as `major`, are not exported by `Sound.Tidal.Context` (checked), so they are not a gap.
+**F7. Done 2026-11-11: `chordList`,** in `lib/pattern.fk`. Tidal's needs `import Sound.Tidal.Chords`.
 
-**F8. Gap: no `pureValue`.** Tidal 1.10 applies a constant argument directly, where funk joins with an `atom`. An event crossing a cycle boundary then comes in two parts, with the same onset ([combinators.md](combinators.md#differences-from-tidal)). It is inaudible in the hosts, which play onsets. A part count or a `drawLine` would show it. It is a cost, not a design.
+**F8. Done 2026-11-11: `pureValue`.** A pattern of one value a cycle, as `atom`'s, holds it, and `patternify` and its kin apply a constant argument directly, as Tidal 1.10's do, so an event crossing a cycle boundary comes in one part. funk is strict, so the value is held as a function of `()`. Query times stay within about 15% of the version before, either way, across the 22 patches; the slowest window takes 2.2 ms of 10.
 
 **F9. Kept: `substruct'`, and so `stripe`, clip events to the query.** Tidal's returns each event over its whole span. Any host that queries in blocks would then play an onset once per block it overlaps. This fixes a Tidal defect, assuming Tidal's own scheduler, which queries per frame, has the same defect (inference; not tested).
 
@@ -102,9 +99,9 @@ The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are inte
 
 **M1. Done 2026-11-11: `Bool` mini-notation.** `t` and `1` are `True`, `f` and `0` are `False`, one character each, as Tidal's `pBool`. A euclid negates its off steps, as `euclidOffBool` does. `lib/tidal` checks 25 cases against Tidal, and 8 of the 9 doc examples it blocked now match ([doc-census.md](doc-census.md)).
 
-**M2. Gap: no `^name`.** Tidal's `pVar` reads a control in mini-notation through the type's `getControl`, such as `cF_` and `cS_`. [music.md](../music.md#mini-notation) says it is missing "since there are no control inputs". That reason is stale: `cF` and the rest exist since 2026-11-08 ([controls-in.md](controls-in.md)).
+**M2. Done 2026-11-11: `^name`.** A control read through the type's reader, as Tidal's `pVar` and `getControl`: `cF_` for `Float` and `Note`, `cI_`, `cS_` and `cB_`; nothing for `Char`. A factor such as `a*^k` is an error, as Tidal's parser rejects it. `lib/tidal` checks 8 cases against Tidal.
 
-**M3. Gap: no `Char` or `Rational` parser.** Tidal has `Parseable` for `Char`, `Rational` and `ColourD`. funk has `Int`, `Float`, `Note` and `String`. `Rational` follows T3. `ColourD` is for Tidal's visuals; port it only if they are ported.
+**M3. Done 2026-11-11 for `Char`: a `Char` parser.** A letter or digit, one character each, as Tidal's `pChar`; `a .. e` ranges over characters. `Rational` follows T3. `ColourD` is for Tidal's visuals; port it only if they are ported.
 
 **M4. Kept: parse at definition.** See L7.
 
@@ -116,12 +113,11 @@ The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are inte
 
 **C2. Done 2026-11-10 in funk-midi: an event's `cps` sets the tempo**, at its onset, as in Tidal's `Stream/Process.hs:151`, so `# cps "<0.5 1>"` changes speed ([stream.md](stream.md#tempo)). In the plugin the DAW owns the tempo (R7).
 
-**C3. Gap: the rest of `Params.hs`.** funk has the 257 base controls. Tidal's `Params.hs` also generates, for most of them:
+**C3. Done 2026-11-11, but buses and `ringCount`: the rest of `Params.hs`.** `lib/control.fk` has the 194 `xTake`, 188 `xCount` and 189 `xCountTo` generated from Tidal's `Params.hs`, `pStateF`, `pStateList`, `pStateListF`, `pStateListS`, `pB`, `pR`, `pX`, `array`, `midinote`, `drum`, `drumN` and `grain'`. `Value` has Tidal's `VB`, `VR` (a `Float`), `VX`, `VList` and `VState`. funk-midi resolves each window's state values as Tidal's `doTick` does: sorted by part, in one map with the host's controls, kept for the next window. `tests/tidal/Dirt.hs` checks counters, lists, Bools and blobs against Tidal's own state passing. Missing:
 
-- `xCount`, `xCountTo` and `xTake` (189, 189 and 195): counters and lists that keep state across events, through `pStateF` and `pStateList`;
-- `xbus` and `xrecv` (246 and 208): SuperDirt control buses, which need S2's buses.
-
-Also missing are `array`, `pB`, `pR`, `pX` and the `pState*` makers. That is 1035 names in total. `midinote`, `drum`, `drumN` and `grain'` are done, 2026-11-11.
+- `xbus` and `xrecv` (246 and 208): SuperDirt control buses, which need S2's;
+- `ringCount`: the prelude's `ringCount`, of a `Ring`, has the name;
+- state in the plugin, which has no host state (R5): a state value there fails as Tidal's `toDatum` does.
 
 ## Runtime and workflow
 

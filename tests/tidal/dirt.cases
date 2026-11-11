@@ -25,3 +25,7 @@ mortal	d1 $ s "a*4" # n "0 1" ;; mortal 1 1 2 $ s "b*8"
 interpolate	d1 $ s "x*4" # speed 1 # cut 1 ;; interpolateIn 1 2 $ s "x*4" # speed 2 # pan 0.5 # cut 4
 clutch	d1 $ s "a*8" ;; clutchIn 1 2 $ s "b*8"
 forId	d1 $ s "a*4" # n "0 1" ;; forId 1 2 $ s "b*2"
+count	d1 $ s "a*4" # nCount "c" # speedTake "t" [1, 2, 3] ;; d2 $ s "b*2" |+ nCount "c"
+countTo	s "a*8" # nCountTo "k" "<3 5>"
+takeS	s "a*3" # sTake "v" ["a", "e"] # cutCount "q" |+ cut 10
+bools	s "a" # pB "flag" "t f" # pR "r" "0.25" # array (p.atom [1, 2, 255])

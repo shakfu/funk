@@ -58,7 +58,7 @@ A pipeline is a chain of saturated calls, outermost first: an optional consumer,
 
 | Role | Functions | Loop state |
 |-|-|-|
-| producer | `enumFromTo` and `enumFromThenTo` at `Int`, `replicate`; any other list expression is a source, traversed by `case` | a counter, or the remaining list |
+| producer | `enumFromTo` at `Int` (the `Enum Int` instance's `enumFromToInt`), `replicate`; any other list expression is a source, traversed by `case` | a counter, or the remaining list |
 | transformer | `map`, `filter`, `concatMap` / `concat (map f ...)` whose function returns a pipeline, `take`, `takeWhile` | `take`: a counter; `concatMap`: the inner pipeline's state and the outer state |
 | consumer | `foldl`, and wrappers over it: `sum`, `product`, `length`, `and`, `or`, `any`, `all`, `elem` | the accumulator |
 

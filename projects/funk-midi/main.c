@@ -71,9 +71,9 @@ static int64_t lookahead_us = 50000;
 /* for pat, a Pattern Int */
 #define STEP "step buf ctl nctl cs ot a b = p.writeEventsWith (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) (p.readControls (plusPtr nullPtr ctl) nctl) cs a b"
 /* for the slots, d1 and the rest (lib/stream.fk): time, MIDI bytes and note length (control.fk) */
-#define SLOTS "slots buf ctl nctl cs ot a b tb = case p.windowOnsets (p.readControls (plusPtr nullPtr ctl) nctl) (p._shift (negate ot) (playStack ())) cs a b of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeControlEvents (plusPtr nullPtr buf) 512 es cs 1000000"
+#define SLOTS "slots buf ctl nctl cs ot a b tb = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (p._shift (negate ot) (playStack ())) cs a b) of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeControlEvents (plusPtr nullPtr buf) 512 es cs 1000000"
 /* for --dirt: the onsets with an `s`, for SuperDirt (writeDirtWith, lib/control.fk) */
-#define SLOTS_DIRT "slots buf ctl nctl cs ot a b tb = case p.windowOnsets (p.readControls (plusPtr nullPtr ctl) nctl) (p._shift (negate ot) (playStack ())) cs a b of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeDirtEvents (plusPtr nullPtr buf) 65536 cs ot es"
+#define SLOTS_DIRT "slots buf ctl nctl cs ot a b tb = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (p._shift (negate ot) (playStack ())) cs a b) of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeDirtEvents (plusPtr nullPtr buf) 65536 cs ot es"
 /* after a window fails, as Tidal's doTick: each slot plays its previous pattern */
 #define REVERT "revertSlots x = do\n  setPreviousPatternOrSilence ()\n  (x :: Int)"
 #define CONTROL_IMPORT "import control (..)"

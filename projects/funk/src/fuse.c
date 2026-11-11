@@ -586,7 +586,7 @@ static bool is_value(Expr *e, Nm *loc, Nm *lazy) {
 /* -------------------------------------------------------- pipelines */
 
 static const char *const core_name[F_N] = {"", "map", "filter", "take", "takeWhile", "concat", "foldl", "any", "all",
-                                            "enumFromTo", "replicate"};
+                                            "enumFromToInt", "replicate"};
 
 static int core_kind(Bind *b) {
   if (b->from) b = b->from;
@@ -891,9 +891,9 @@ typedef struct { Expr *fn; bool expr; int at; const char *name; } Item; /* name:
 
 /* funk_opt_report: the stages, producer first, as written. */
 static void pipe_names(SB *b, Pipe *p) {
-  if (p->name) sb_printf(b, "%s", p->name);
+  if (p->name) sb_printf(b, "%s", shown_name(p->name));
   for (int i = p->st.n; i-- > 0;) {
-    sb_printf(b, "%s%s", b->n ? ", " : "", p->st.a[i].name);
+    sb_printf(b, "%s%s", b->n ? ", " : "", shown_name(p->st.a[i].name));
     if (p->st.a[i].inner && p->st.a[i].inner->st.n) {
       SB in = {0};
       sb_puts(&in, "");

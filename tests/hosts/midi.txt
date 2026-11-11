@@ -17,6 +17,7 @@ pat = p.atom 'x'
 :wait 2000
 pat = p._fastR 1 0 (p.atom 1)
 pat = p.mini "60 [64"
+pat = p.mapP (\_ -> 60) (p.miniS "a*^k")
 :wait 1000
 pat = p.mapP (\x -> div x 0) (p.atom 60)
 :wait 1000

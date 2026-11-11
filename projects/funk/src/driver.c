@@ -566,7 +566,9 @@ char *funk_emit_glue(funk *f, const char *path) {
 
 static int run_cc(const char *csrc, const char *exe, const char *opt) {
   Argv argv = cc_argv();
-  char *fixed[] = {xsprintf("-O%s", opt), "-o", (char *)exe, (char *)csrc, NULL};
+  /* 64-byte functions: otherwise an unrelated change can move a hot loop
+     across a fetch block, as fib's 15% (TODO.md, 2026-11-11) */
+  char *fixed[] = {xsprintf("-O%s", opt), "-falign-functions=64", "-o", (char *)exe, (char *)csrc, NULL};
   for (int i = 0; fixed[i]; i++) VPUSH(argv, fixed[i]);
   for (int i = 0; i < ST->cc_args.n; i++) VPUSH(argv, (char *)ST->cc_args.a[i]);
   for (int i = 0; i < CS->ffi_libs.n; i++) VPUSH(argv, xsprintf("-l%s", CS->ffi_libs.a[i])); /* before -lm, which they may use */

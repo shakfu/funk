@@ -10,7 +10,101 @@ module control
   ( Value(..), Controls(..), Unionable, Moddable, (|+|), (|+), (+|), (||+), (|-|), (|-),
     (-|), (||-), (|*|), (|*), (*|), (||*), (|/|), (|/), (/|), (||/), (|%|), (|%), (%|), (||%),
     (|**|), (|**), (**|), (||**), (|++|), (|++), (++|), (||++), (|>|), (>|), (||>), (|<|), (|<),
-    (<|), (||<), (#), controlPairs, getControl, controlsFromList, pF, pI, pS, pN, grp, mF, mI, mS,
+    (<|), (||<), (#), controlPairs, getControl, controlsFromList, getF, getI, getS, getN, getR, getB, getBlob, getList, applyFIS, fNum2,
+    pB, pR, pX, array, resolveState, isState,
+    sTake, accelerateTake, ampTake, arrayTake, attackTake, bandfTake, bandqTake, beginTake,
+    binshiftTake, button0Take, button1Take, button10Take, button11Take, button12Take, button13Take,
+    button14Take, button15Take, button2Take, button3Take, button4Take, button5Take, button6Take,
+    button7Take, button8Take, button9Take, ccnTake, ccvTake, channelTake, clhatdecayTake,
+    coarseTake, combTake, controlTake, cpsTake, crushTake, ctlNumTake, ctransposeTake, cutTake,
+    cutoffTake, cutoffegintTake, decayTake, degreeTake, delayTake, delayfeedbackTake,
+    delaytimeTake, detuneTake, distortTake, djfTake, dryTake, durTake, endTake, enhanceTake,
+    expressionTake, fadeInTimeTake, fadeTimeTake, frameRateTake, framesTake, freezeTake, freqTake,
+    fromTake, fshiftTake, fshiftnoteTake, fshiftphaseTake, gainTake, gateTake, harmonicTake,
+    hatgrainTake, hbrickTake, hcutoffTake, holdTake, hoursTake, hresonanceTake, imagTake,
+    kcutoffTake, krushTake, lagogoTake, lbrickTake, lclapTake, lclavesTake, lclhatTake, lcrashTake,
+    legatoTake, leslieTake, lfoTake, lfocutoffintTake, lfodelayTake, lfointTake, lfopitchintTake,
+    lfoshapeTake, lfosyncTake, lhitomTake, lkickTake, llotomTake, lockTake, loopTake, lophatTake,
+    lrateTake, lsizeTake, lsnareTake, metatuneTake, midibendTake, midichanTake, midicmdTake,
+    miditouchTake, minutesTake, modwheelTake, mtransposeTake, nTake, noteTake, nudgeTake,
+    octaveTake, octaveRTake, octerTake, octersubTake, octersubsubTake, offsetTake, ophatdecayTake,
+    orbitTake, overgainTake, overshapeTake, panTake, panorientTake, panspanTake, pansplayTake,
+    panwidthTake, partialsTake, phaserdepthTake, phaserrateTake, pitch1Take, pitch2Take,
+    pitch3Take, polyTouchTake, portamentoTake, progNumTake, rateTake, realTake, releaseTake,
+    resonanceTake, ringTake, ringdfTake, ringfTake, roomTake, sagogoTake, sclapTake, sclavesTake,
+    scramTake, scrashTake, secondsTake, semitoneTake, shapeTake, sizeTake, slideTake, slider0Take,
+    slider1Take, slider10Take, slider11Take, slider12Take, slider13Take, slider14Take,
+    slider15Take, slider2Take, slider3Take, slider4Take, slider5Take, slider6Take, slider7Take,
+    slider8Take, slider9Take, smearTake, songPtrTake, speedTake, squizTake, stepsPerOctaveTake,
+    stutterdepthTake, stuttertimeTake, sustainTake, sustainpedalTake, timescaleTake,
+    timescalewinTake, toTake, toArgTake, tomdecayTake, tremolodepthTake, tremolorateTake,
+    triodeTake, tsdelayTake, uidTake, unitTake, valTake, vcfegintTake, vcoegintTake, velocityTake,
+    voiceTake, vowelTake, wavelossTake, xsdelayTake, accelerateCount, ampCount, attackCount,
+    bandfCount, bandqCount, beginCount, binshiftCount, button0Count, button1Count, button10Count,
+    button11Count, button12Count, button13Count, button14Count, button15Count, button2Count,
+    button3Count, button4Count, button5Count, button6Count, button7Count, button8Count,
+    button9Count, ccnCount, ccvCount, channelCount, clhatdecayCount, coarseCount, combCount,
+    controlCount, cpsCount, crushCount, ctlNumCount, ctransposeCount, cutCount, cutoffCount,
+    cutoffegintCount, decayCount, degreeCount, delayCount, delayfeedbackCount, delaytimeCount,
+    detuneCount, distortCount, djfCount, dryCount, durCount, endCount, enhanceCount,
+    expressionCount, fadeInTimeCount, fadeTimeCount, frameRateCount, framesCount, freezeCount,
+    freqCount, fromCount, fshiftCount, fshiftnoteCount, fshiftphaseCount, gainCount, gateCount,
+    harmonicCount, hatgrainCount, hbrickCount, hcutoffCount, holdCount, hoursCount,
+    hresonanceCount, imagCount, kcutoffCount, krushCount, lagogoCount, lbrickCount, lclapCount,
+    lclavesCount, lclhatCount, lcrashCount, legatoCount, leslieCount, lfoCount, lfocutoffintCount,
+    lfodelayCount, lfointCount, lfopitchintCount, lfoshapeCount, lfosyncCount, lhitomCount,
+    lkickCount, llotomCount, lockCount, loopCount, lophatCount, lrateCount, lsizeCount,
+    lsnareCount, metatuneCount, midibendCount, midichanCount, miditouchCount, minutesCount,
+    modwheelCount, mtransposeCount, nCount, noteCount, nudgeCount, octaveCount, octaveRCount,
+    octerCount, octersubCount, octersubsubCount, offsetCount, ophatdecayCount, orbitCount,
+    overgainCount, overshapeCount, panCount, panorientCount, panspanCount, pansplayCount,
+    panwidthCount, partialsCount, phaserdepthCount, phaserrateCount, pitch1Count, pitch2Count,
+    pitch3Count, polyTouchCount, portamentoCount, progNumCount, rateCount, realCount, releaseCount,
+    resonanceCount, ringdfCount, ringfCount, roomCount, sagogoCount, sclapCount,
+    sclavesCount, scramCount, scrashCount, secondsCount, semitoneCount, shapeCount, sizeCount,
+    slideCount, slider0Count, slider1Count, slider10Count, slider11Count, slider12Count,
+    slider13Count, slider14Count, slider15Count, slider2Count, slider3Count, slider4Count,
+    slider5Count, slider6Count, slider7Count, slider8Count, slider9Count, smearCount, songPtrCount,
+    speedCount, squizCount, stepsPerOctaveCount, stutterdepthCount, stuttertimeCount, sustainCount,
+    sustainpedalCount, timescaleCount, timescalewinCount, toCount, tomdecayCount,
+    tremolodepthCount, tremolorateCount, triodeCount, tsdelayCount, uidCount, valCount,
+    vcfegintCount, vcoegintCount, velocityCount, voiceCount, wavelossCount, xsdelayCount,
+    accelerateCountTo, ampCountTo, attackCountTo, bandfCountTo, bandqCountTo, beginCountTo,
+    binshiftCountTo, button0CountTo, button1CountTo, button10CountTo, button11CountTo,
+    button12CountTo, button13CountTo, button14CountTo, button15CountTo, button2CountTo,
+    button3CountTo, button4CountTo, button5CountTo, button6CountTo, button7CountTo, button8CountTo,
+    button9CountTo, ccnCountTo, ccvCountTo, channelCountTo, clhatdecayCountTo, coarseCountTo,
+    combCountTo, controlCountTo, cpsCountTo, crushCountTo, ctlNumCountTo, ctransposeCountTo,
+    cutCountTo, cutoffCountTo, cutoffegintCountTo, decayCountTo, degreeCountTo, delayCountTo,
+    delayfeedbackCountTo, delaytimeCountTo, detuneCountTo, distortCountTo, djfCountTo, dryCountTo,
+    durCountTo, endCountTo, enhanceCountTo, expressionCountTo, fadeInTimeCountTo, fadeTimeCountTo,
+    frameRateCountTo, framesCountTo, freezeCountTo, freqCountTo, fromCountTo, fshiftCountTo,
+    fshiftnoteCountTo, fshiftphaseCountTo, gainCountTo, gateCountTo, harmonicCountTo,
+    hatgrainCountTo, hbrickCountTo, hcutoffCountTo, holdCountTo, hoursCountTo, hresonanceCountTo,
+    imagCountTo, kcutoffCountTo, krushCountTo, lagogoCountTo, lbrickCountTo, lclapCountTo,
+    lclavesCountTo, lclhatCountTo, lcrashCountTo, legatoCountTo, leslieCountTo, lfoCountTo,
+    lfocutoffintCountTo, lfodelayCountTo, lfointCountTo, lfopitchintCountTo, lfoshapeCountTo,
+    lfosyncCountTo, lhitomCountTo, lkickCountTo, llotomCountTo, lockCountTo, loopCountTo,
+    lophatCountTo, lrateCountTo, lsizeCountTo, lsnareCountTo, metatuneCountTo, midibendCountTo,
+    midichanCountTo, miditouchCountTo, minutesCountTo, modwheelCountTo, mtransposeCountTo,
+    nCountTo, noteCountTo, nudgeCountTo, octaveCountTo, octaveRCountTo, octerCountTo,
+    octersubCountTo, octersubsubCountTo, offsetCountTo, ophatdecayCountTo, orbitCountTo,
+    overgainCountTo, overshapeCountTo, panCountTo, panorientCountTo, panspanCountTo,
+    pansplayCountTo, panwidthCountTo, partialsCountTo, phaserdepthCountTo, phaserrateCountTo,
+    pitch1CountTo, pitch2CountTo, pitch3CountTo, polyTouchCountTo, portamentoCountTo,
+    progNumCountTo, rateCountTo, realCountTo, releaseCountTo, resonanceCountTo, ringCountTo,
+    ringdfCountTo, ringfCountTo, roomCountTo, sagogoCountTo, sclapCountTo, sclavesCountTo,
+    scramCountTo, scrashCountTo, secondsCountTo, semitoneCountTo, shapeCountTo, sizeCountTo,
+    slideCountTo, slider0CountTo, slider1CountTo, slider10CountTo, slider11CountTo,
+    slider12CountTo, slider13CountTo, slider14CountTo, slider15CountTo, slider2CountTo,
+    slider3CountTo, slider4CountTo, slider5CountTo, slider6CountTo, slider7CountTo, slider8CountTo,
+    slider9CountTo, smearCountTo, songPtrCountTo, speedCountTo, squizCountTo,
+    stepsPerOctaveCountTo, stutterdepthCountTo, stuttertimeCountTo, sustainCountTo,
+    sustainpedalCountTo, timescaleCountTo, timescalewinCountTo, toCountTo, tomdecayCountTo,
+    tremolodepthCountTo, tremolorateCountTo, triodeCountTo, tsdelayCountTo, uidCountTo, valCountTo,
+    vcfegintCountTo, vcoegintCountTo, velocityCountTo, voiceCountTo, wavelossCountTo,
+    xsdelayCountTo, pStateF, pStateList, pStateListF, pStateListS, valueToCtl, ctlToValue,
+    extractI, extractF, extractS, extractN, extractR, pF, pI, pS, pN, grp, mF, mI, mS,
     spin, chop, striate, striateBy, striate', gap, weave, weaveWith, weave', interlace,
     slice, randslice, splice, loopAt, hurry, smash, smash', echo, echoWith, stut, stutWith,
     stut', jux, juxBy, juxcut, juxcut', jux', jux4, ghost', ghost, contrast, contrastBy, contrastRange,
@@ -42,7 +136,59 @@ module control
   ) where
 import pattern as p
 
-data Value = VF Float | VI Int | VS String deriving (Eq, Ord, Show)
+-- Tidal's Value but VN, which is VF here, and VPattern, which is a Ctl's
+-- (lib/pattern.fk). VR holds a Float, as funk has no Rational. VState is a
+-- value computed from the stream's state as the event plays (resolveState).
+data Value = VF Float | VI Int | VS String | VB Bool | VR Float | VX [Int] | VList [Value]
+  | VState ([(String, p.Ctl)] -> ([(String, p.Ctl)], Value))
+
+-- as Tidal's: a Float equals an Int of its value; a VState equals nothing
+instance Eq Value where
+  a == b = case (a, b) of
+    (VF x, VF y) -> x == y
+    (VI x, VI y) -> x == y
+    (VS x, VS y) -> x == y
+    (VB x, VB y) -> x == y
+    (VR x, VR y) -> x == y
+    (VX x, VX y) -> x == y
+    (VList x, VList y) -> x == y
+    (VF x, VI y) -> x == toFloat y
+    (VI x, VF y) -> toFloat x == y
+    _ -> False
+
+-- by kind, then value, as Haskell's derived Ord; VStates are equal
+instance Ord Value where
+  compare a b = case (a, b) of
+    (VF x, VF y) -> compare x y
+    (VI x, VI y) -> compare x y
+    (VS x, VS y) -> compare x y
+    (VB x, VB y) -> compare x y
+    (VR x, VR y) -> compare x y
+    (VX x, VX y) -> compare x y
+    (VList x, VList y) -> compare x y
+    _ -> compare (valueKind a) (valueKind b)
+
+valueKind :: Value -> Int
+valueKind v = case v of
+  VF _ -> 0
+  VI _ -> 1
+  VS _ -> 2
+  VB _ -> 3
+  VR _ -> 4
+  VX _ -> 5
+  VList _ -> 6
+  VState _ -> 7
+
+instance Show Value where
+  showPrec d v = showParen (d > 10) (case v of
+    VF x -> "VF " ++ showPrec 11 x
+    VI i -> "VI " ++ showPrec 11 i
+    VS x -> "VS " ++ show x
+    VB b -> "VB " ++ show b
+    VR x -> "VR " ++ showPrec 11 x
+    VX xs -> "VX " ++ show xs
+    VList vs -> "VList " ++ show vs
+    VState _ -> "VState <stateful>")
 
 -- names and values, sorted by name, each name once
 data Controls = Controls [(String, Value)] deriving (Eq, Ord, Show)
@@ -75,6 +221,10 @@ num2 fi ff x y = case (x, y) of
   (VF a, VF b) -> VF (ff a b)
   (VI a, VF b) -> VF (ff (toFloat a) b)
   (VF a, VI b) -> VF (ff a (toFloat b))
+  (VState a, _) -> VState (\sm -> case a sm of
+    (sm', v) -> (sm', num2 fi ff v y))
+  (_, VState b) -> VState (\sm -> case b sm of
+    (sm', v) -> (sm', num2 fi ff x v))
   _ -> x
 
 -- Tidal's applyFIS
@@ -82,6 +232,8 @@ num1 :: (Float -> Float) -> (Int -> Int) -> Value -> Value
 num1 ff fi v = case v of
   VF a -> VF (ff a)
   VI a -> VI (fi a)
+  VState a -> VState (\sm -> case a sm of
+    (sm', x) -> (sm', num1 ff fi x))
   _ -> v
 
 mapValues :: (Value -> Value) -> Controls -> Controls
@@ -323,8 +475,180 @@ digitsF ds fs = toFloat (foldl (\a d -> a * 10 + ord d - 48) 0 (ds ++ fs)) / 10.
 getF :: Value -> Maybe Float
 getF v = case v of
   VF x -> Just x
+  VR x -> Just x
   VI i -> Just (toFloat i)
   _ -> Nothing
+
+-- Tidal's other Value accessors; getR reads a Float, as VR holds one
+getI :: Value -> Maybe Int
+getI v = case v of
+  VI i -> Just i
+  VR x -> Just (floor x)
+  VF x -> Just (floor x)
+  _ -> Nothing
+
+getB :: Value -> Maybe Bool
+getB v = case v of
+  VB b -> Just b
+  _ -> Nothing
+
+getBlob :: Value -> Maybe [Int]
+getBlob v = case v of
+  VX xs -> Just xs
+  _ -> Nothing
+
+getList :: Value -> Maybe [Value]
+getList v = case v of
+  VList vs -> Just vs
+  _ -> Nothing
+
+getS :: Value -> Maybe String
+getS v = case v of
+  VS x -> Just x
+  _ -> Nothing
+
+getN :: Value -> Maybe p.Note
+getN v = case v of
+  VF x -> Just (p.Note x)
+  VR x -> Just (p.Note x)
+  VI i -> Just (p.Note (toFloat i))
+  _ -> Nothing
+
+getR :: Value -> Maybe Float
+getR v = getF v
+
+-- f, g or h on a value by its kind, as Tidal's applyFIS
+applyFIS :: (Float -> Float) -> (Int -> Int) -> (String -> String) -> Value -> Value
+applyFIS f g h v = case v of
+  VF x -> VF (f x)
+  VI i -> VI (g i)
+  VS x -> VS (h x)
+  VState st -> VState (\sm -> case st sm of
+    (sm', x) -> (sm', applyFIS f g h x))
+  _ -> v
+
+-- a binary operation on numbers; an Int and a Float give a Float, and
+-- anything else is the left value, as Tidal's fNum2
+fNum2 :: (Int -> Int -> Int) -> (Float -> Float -> Float) -> Value -> Value -> Value
+fNum2 fi ff a b = case (a, b) of
+  (VI x, VI y) -> VI (fi x y)
+  (VF x, VF y) -> VF (ff x y)
+  (VI x, VF y) -> VF (ff (toFloat x) y)
+  (VF x, VI y) -> VF (ff x (toFloat y))
+  (VState st, _) -> VState (\sm -> case st sm of
+    (sm', v) -> (sm', fNum2 fi ff v b))
+  (_, VState st) -> VState (\sm -> case st sm of
+    (sm', v) -> (sm', fNum2 fi ff a v))
+  _ -> a
+
+-- Tidal's other makers: a pattern of one control's Bools, ratios or bytes
+pB :: String -> p.Pattern Bool -> p.Pattern Controls
+pB name pat = p.mapP (\x -> Controls [(name, VB x)]) pat
+
+pR :: String -> p.Pattern Float -> p.Pattern Controls
+pR name pat = p.mapP (\x -> Controls [(name, VR x)]) pat
+
+pX :: String -> p.Pattern [Int] -> p.Pattern Controls
+pX name pat = p.mapP (\x -> Controls [(name, VX x)]) pat
+
+array :: p.Pattern [Int] -> p.Pattern Controls
+array pat = pX "array" pat
+
+-- Tidal's state: each onset's VState values computed from the stream's
+-- state, in order, each passing the state on. The state holds the host's
+-- controls and the counters' values, as Tidal's one map does.
+resolveState :: [(String, p.Ctl)] -> [p.Event Controls] -> ([(String, p.Ctl)], [p.Event Controls])
+resolveState sm es = case es of
+  [] -> (sm, [])
+  e : rest -> case (if e.onset then mapAccumValues sm (controlPairs e.value) else (sm, filter (\(_, v) -> not (isState v)) (controlPairs e.value))) of
+    (sm', kvs) -> case resolveState sm' rest of
+      (sm'', rest') -> (sm'', p.Event e.whole e.part (Controls kvs) : rest')
+
+mapAccumValues :: [(String, p.Ctl)] -> [(String, Value)] -> ([(String, p.Ctl)], [(String, Value)])
+mapAccumValues sm kvs = case kvs of
+  [] -> (sm, [])
+  (k, v) : rest -> case (case v of
+      VState f -> f sm
+      _ -> (sm, v)) of
+    (sm', v') -> case mapAccumValues sm' rest of
+      (sm'', rest') -> (sm'', (k, v') : rest')
+
+isState :: Value -> Bool
+isState v = case v of
+  VState _ -> True
+  _ -> False
+
+-- the state with name set, first in the list as Tidal's Map.insert replaces it
+stateInsert :: String -> p.Ctl -> [(String, p.Ctl)] -> [(String, p.Ctl)]
+stateInsert name c sm = (name, c) : filter (\(k, _) -> k /= name) sm
+
+valueToCtl :: Value -> p.Ctl
+valueToCtl v = case v of
+  VF x -> p.CtlF x
+  VR x -> p.CtlF x
+  VI i -> p.CtlI i
+  VS x -> p.CtlS x
+  VB b -> p.CtlB b
+  VList vs -> p.CtlL (map valueToCtl vs)
+  VX xs -> p.CtlL (map p.CtlI xs)
+  VState _ -> error "control: a state value cannot be stored"
+
+ctlToValue :: p.Ctl -> Value
+ctlToValue c = case c of
+  p.CtlF x -> VF x
+  p.CtlI i -> VI i
+  p.CtlS x -> VS x
+  p.CtlB b -> VB b
+  p.CtlL cs -> VList (map ctlToValue cs)
+  p.CtlP _ -> VS "<pattern>"
+
+-- Tidal's pStateF: name is update of state sName's number, which it keeps
+pStateF :: String -> String -> (Maybe Float -> Float) -> p.Pattern Controls
+pStateF name sName update = p.atom (Controls [(name, VState (\sm -> case update (case lookup sName sm of
+    Just c -> p.ctlF c
+    Nothing -> Nothing) of
+  v -> (stateInsert sName (p.CtlF v) sm, VF v)))])
+
+-- Tidal's pStateList: name is the next of xs in turn, from state sName
+pStateList :: String -> String -> [Value] -> p.Pattern Controls
+pStateList name sName xs = p.atom (Controls [(name, VState (\sm -> case (case lookup sName sm of
+    Just (p.CtlL cs) -> map ctlToValue cs
+    _ -> xs) of
+  xs' -> case (if null xs' then xs else xs') of
+    looped -> case looped of
+      x : rest -> (stateInsert sName (p.CtlL (map valueToCtl rest)) sm, x)
+      [] -> error "control: pStateList of an empty list"))])
+
+pStateListF :: String -> String -> [Float] -> p.Pattern Controls
+pStateListF name sName xs = pStateList name sName (map VF xs)
+
+pStateListS :: String -> String -> [String] -> p.Pattern Controls
+pStateListS name sName xs = pStateList name sName (map VS xs)
+
+-- Haskell's mod' on Floats: x - i * floor (x / i)
+fmod :: Float -> Float -> Float
+fmod x i = x - i * toFloat (floor (x / i))
+
+-- a control's values as a pattern, events without it dropped
+extractWith :: (Value -> Maybe a) -> String -> p.Pattern Controls -> p.Pattern a
+extractWith f name pat = p.filterJust (p.mapP (\cs -> case getControl name cs of
+    Just v -> f v
+    Nothing -> Nothing) pat)
+
+extractI :: String -> p.Pattern Controls -> p.Pattern Int
+extractI name pat = extractWith getI name pat
+
+extractF :: String -> p.Pattern Controls -> p.Pattern Float
+extractF name pat = extractWith getF name pat
+
+extractS :: String -> p.Pattern Controls -> p.Pattern String
+extractS name pat = extractWith getS name pat
+
+extractN :: String -> p.Pattern Controls -> p.Pattern p.Note
+extractN name pat = extractWith getN name pat
+
+extractR :: String -> p.Pattern Controls -> p.Pattern Float
+extractR name pat = extractWith getR name pat
 
 -- name's Float value, or d
 floatOf :: Float -> String -> Controls -> Float
@@ -353,10 +677,10 @@ _spin copies pat = p.stack (map (\i -> case toFloat i / toFloat copies of
 
 -- each event cut into n, each playing the next part of its sample
 chop :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
-chop np pat = p.innerJoin (p.mapP (\n -> _chop n pat) np)
+chop np pat = p.patternify _chop np pat
 
 _chop :: Int -> p.Pattern Controls -> p.Pattern Controls
-_chop n pat = p.squeezeJoin (p.mapP (\v -> p.fastcat (map (\i -> p.atom (chopRange v (toFloat i / toFloat n) (toFloat (i + 1) / toFloat n))) [0 .. n - 1])) pat)
+_chop n pat = p.setSteps (p.mapMaybe1 (p.ratTimes (n, 1)) (p.steps pat)) (p.squeezeJoin (p.mapP (\v -> p.fastcat (map (\i -> p.atom (chopRange v (toFloat i / toFloat n) (toFloat (i + 1) / toFloat n))) [0 .. n - 1])) pat))
 
 chopRange :: Controls -> Float -> Float -> Controls
 chopRange v b e = case (getControl "begin" v, getControl "end" v) of
@@ -370,10 +694,10 @@ playRange b e = Controls [("begin", VF b), ("end", VF e)]
 
 -- n cycles through p, each playing the next nth of its samples
 striate :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
-striate np pat = p.innerJoin (p.mapP (\n -> _striate n pat) np)
+striate np pat = p.patternify _striate np pat
 
 _striate :: Int -> p.Pattern Controls -> p.Pattern Controls
-_striate n pat = p.fastcat (map (\i -> p.mapP (mergePlayRange (toFloat i / toFloat n) (toFloat (i + 1) / toFloat n)) pat) [0 .. n - 1])
+_striate n pat = p.setSteps (p.mapMaybe1 (p.ratTimes (n, 1)) (p.steps pat)) (p.fastcat (map (\i -> p.mapP (mergePlayRange (toFloat i / toFloat n) (toFloat (i + 1) / toFloat n)) pat) [0 .. n - 1]))
 
 -- [b, e) of the part of the sample the event already plays
 mergePlayRange :: Float -> Float -> Controls -> Controls
@@ -382,14 +706,14 @@ mergePlayRange b e cm = case (floatOf 0.0 "begin" cm, floatOf 1.0 "end" cm) of
 
 -- striate, each part f long
 striateBy :: p.Pattern Int -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
-striateBy np fp pat = p.innerJoin (p.apP (p.mapP (\n f -> _striateBy n f pat) np) fp)
+striateBy np fp pat = p.patternify2 _striateBy np fp pat
 
 striate' :: p.Pattern Int -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
 striate' np fp pat = striateBy np fp pat
 
 _striateBy :: Int -> Float -> p.Pattern Controls -> p.Pattern Controls
 _striateBy n f pat = case (1.0 - f) / toFloat (n - 1) of
-  slot -> p.fastcat (map (\i -> p.mapP (mergePlayRange (slot * toFloat i) (slot * toFloat i + f)) pat) [0 .. n - 1])
+  slot -> p.setSteps (p.mapMaybe1 (p.ratTimes (n, 1)) (p.steps pat)) (p.fastcat (map (\i -> p.mapP (mergePlayRange (slot * toFloat i) (slot * toFloat i + f)) pat) [0 .. n - 1]))
 
 -- chop, every other part silent; n set to 1 where absent, as Tidal's
 gap :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
@@ -423,14 +747,14 @@ _slice n i pat = pat # pF "begin" (p.atom (toFloat i / toFloat n)) # pF "end" (p
 
 -- one of n parts at random
 randslice :: p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
-randslice np pat = p.innerJoin (p.mapP (\n -> p.innerJoin (p.mapP (\i -> _slice n i pat) (p._irand n))) np)
+randslice np pat = p.patternify (\n x -> p.setSteps (p.mapMaybe1 (p.ratTimes (n, 1)) (p.steps x)) (p.innerJoin (p.mapP (\i -> _slice n i x) (p._irand n)))) np pat
 
 -- slice, with speed set so each part fills its event
 splice :: p.Pattern Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
 splice bp ip pat = p.innerJoin (p.mapP (\bits -> _splice bits ip pat) bp)
 
 _splice :: Int -> p.Pattern Int -> p.Pattern Controls -> p.Pattern Controls
-_splice bits ip pat = p.Pattern (\qst -> let q = qst.arc in map (\e -> case p.wholeOrPart e of
+_splice bits ip pat = p.pattern (\qst -> let q = qst.arc in map (\e -> case p.wholeOrPart e of
     w -> case (1.0 / toFloat bits) / p.cycles (w.stop - w.start) of
       d -> p.Event e.whole e.part (case getControl "speed" e.value of
         Just (VF sp) -> setControl "speed" (VF (d * sp)) e.value
@@ -455,7 +779,7 @@ smash' n xs pat = case _chop n pat of
 
 -- count copies, each time cycles later at feedback times the gain
 echo :: p.Pattern Int -> p.Pattern Float -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
-echo cp tp fp pat = p.innerJoin (p.apP (p.apP (p.mapP (\c t f -> _echo c t f pat) cp) tp) fp)
+echo cp tp fp pat = p.patternify3' _echo cp tp fp pat
 
 _echo :: Int -> Float -> Float -> p.Pattern Controls -> p.Pattern Controls
 _echo count time feedback pat = _echoWith count time (\x -> x |* pF "gain" (p.atom feedback)) pat
@@ -469,7 +793,7 @@ _echoWith count time f pat = if count <= 1 then pat else p.overlay (f (p.rotR ti
 
 -- count copies, steptime apart, their gain falling to feedback
 stut :: p.Pattern Int -> p.Pattern Float -> p.Pattern Float -> p.Pattern Controls -> p.Pattern Controls
-stut cp fp tp pat = p.innerJoin (p.apP (p.apP (p.mapP (\c f t -> _stut c f t pat) cp) fp) tp)
+stut cp fp tp pat = p.patternify3' _stut cp fp tp pat
 
 _stut :: Int -> Float -> Float -> p.Pattern Controls -> p.Pattern Controls
 _stut count feedback steptime pat = p.stack (pat : map (\x -> p.rotR (toFloat x * steptime)
@@ -518,7 +842,7 @@ contrast f g a pat = contrastBy (\x y -> x == y) f g (p.mapP controlPairs a) pat
 
 -- contrast, matching each name's value by comp
 contrastBy :: (a -> Value -> Bool) -> (p.Pattern Controls -> p.Pattern b) -> (p.Pattern Controls -> p.Pattern b) -> p.Pattern [(String, a)] -> p.Pattern Controls -> p.Pattern b
-contrastBy comp f g a pat = case p.Pattern (\qst -> let q = qst.arc in map (\e -> case (p.wholeOrPart e).start of
+contrastBy comp f g a pat = case p.pattern (\qst -> let q = qst.arc in map (\e -> case (p.wholeOrPart e).start of
     t -> p.Event e.whole e.part (any (\ea -> all (\(k, v) -> case getControl k e.value of
         Just x -> comp v x
         Nothing -> False) ea.value) (p.queryIn qst a (p.Span t (t + 1))), e.value)) (p.queryIn qst pat q)) of
@@ -554,10 +878,10 @@ grain s w = pF "begin" s # pF "end" (s + w)
 
 -- squeezeJoin, each inner pattern's speed raised by its event's shortness
 squeezeJoinUp :: p.Pattern (p.Pattern Controls) -> p.Pattern Controls
-squeezeJoinUp pp = p.Pattern (\qst -> let q = qst.arc in concatMap (\eo -> case eo.whole of
+squeezeJoinUp pp = p.pattern (\qst -> let q = qst.arc in concatMap (\eo -> case eo.whole of
     Just w -> case mod w.start p.cycleTicks of
       c -> concatMap (\ei -> case ei.whole of
-          Just iw -> concatMap (\nw -> map (\np -> p.Event (Just nw) np ei.value) (p.sect eo.part ei.part)) (p.sect w iw)
+          Just iw -> concatMap (\nw -> map (\np -> p.Event (Just nw) np ei.value) (p.sects eo.part ei.part)) (p.sects w iw)
           Nothing -> [])
         (p.queryIn qst (p.compressTicks c (c + w.stop - w.start) (eo.value |* pF "speed" (p.atom (1.0 / p.cycles (w.stop - w.start))))) eo.part)
     Nothing -> []) (p.queryIn qst pp q))
@@ -703,7 +1027,8 @@ recordsOf ups cyc dur cs = case getControl "s" cs of
     forVoice = concatMap (\(k, v) -> case v of
         VF x -> if elem k midiNames then [] else named k x
         VI i -> if elem k midiNames then [] else named k (toFloat i)
-        VS _ -> []) (controlPairs cs)
+        VR x -> if elem k midiNames then [] else named k x
+        _ -> []) (controlPairs cs)
       ++ map (\(m, l) -> RMidi m l) (midiOf ups dur cs)
     -- SuperDirt's: amp * (min gain 2 + overgain)^4, relative to amp's 0.4, so 1 by default
     level = num "amp" 0.4 / 0.4 * fourth (min (num "gain" 1.0) 2.0 + num "overgain" 0.0)
@@ -816,9 +1141,14 @@ endDirt :: Ptr Int -> Int -> Int ->> ()
 endDirt buf cap off = if off + 8 <= cap then pokeByteOff buf off (negate 1 :: Int) else ()
 
 dirtSize :: [(String, Value)] -> Int
-dirtSize kvs = 32 + sum (map (\(k, v) -> 8 + strSize k + (case v of
-    VS x -> strSize x
-    _ -> 8)) kvs)
+dirtSize kvs = 32 + sum (map (\(k, v) -> 8 + strSize k + valueSize v) kvs)
+
+-- a value's bytes in the buffer; a blob as a string of its bytes
+valueSize :: Value -> Int
+valueSize v = case v of
+  VS x -> strSize x
+  VX xs -> 8 + 8 * p.ceilDiv (length xs) 8
+  _ -> 8
 
 strSize :: String -> Int
 strSize s = 8 + 8 * p.ceilDiv (length s) 8
@@ -846,10 +1176,20 @@ writePairs buf off kvs = case kvs of
       VS x -> do
         pokeByteOff buf off (2 :: Int)
         pokeStr buf (off + 8 + strSize k) x
+      -- as Tidal's toDatum: a Bool an int32, a Rational a float, bytes a blob
+      VB b -> do
+        pokeByteOff buf off (1 :: Int)
+        pokeByteOff buf (off + 8 + strSize k) (if b then 1 else 0 :: Int)
+      VR x -> do
+        pokeByteOff buf off (0 :: Int)
+        pokeByteOff buf (off + 8 + strSize k) x
+      VX xs -> do
+        pokeByteOff buf off (3 :: Int)
+        pokeByteOff buf (off + 8 + strSize k) (length xs)
+        mapM_ (\(i, x) -> pokeByteOff buf (off + 16 + strSize k + i) (fromIntegral x :: CChar)) (zip (enumFromTo 0 (length xs - 1)) xs)
+      _ -> error "toDatum: unhandled value"
     pokeStr buf (off + 8) k
-    writePairs buf (off + 8 + strSize k + (case v of
-      VS x -> strSize x
-      _ -> 8)) rest
+    writePairs buf (off + 8 + strSize k + valueSize v) rest
 
 pokeStr :: Ptr Int -> Int -> String ->> ()
 pokeStr buf off s = do
@@ -1701,3 +2041,2104 @@ bpf pat = bandf pat
 att :: p.Pattern Float -> p.Pattern Controls
 att pat = attack pat
 
+
+-- Tidal's generated state families (Params.hs): xTake cycles through a
+
+-- list, xCount counts from 0 and xCountTo counts to a pattern's value.
+
+-- Their buses, xbus and xrecv, wait for SuperDirt's (S2). ringCount is
+-- missing: the prelude's ringCount, of a Ring, has the name.
+
+sTake :: String -> [String] -> p.Pattern Controls
+sTake name xs = pStateListS "s" name xs
+
+accelerateTake :: String -> [Float] -> p.Pattern Controls
+accelerateTake name xs = pStateListF "accelerate" name xs
+
+ampTake :: String -> [Float] -> p.Pattern Controls
+ampTake name xs = pStateListF "amp" name xs
+
+arrayTake :: String -> [Float] -> p.Pattern Controls
+arrayTake name xs = pStateListF "array" name xs
+
+attackTake :: String -> [Float] -> p.Pattern Controls
+attackTake name xs = pStateListF "attack" name xs
+
+bandfTake :: String -> [Float] -> p.Pattern Controls
+bandfTake name xs = pStateListF "bandf" name xs
+
+bandqTake :: String -> [Float] -> p.Pattern Controls
+bandqTake name xs = pStateListF "bandq" name xs
+
+beginTake :: String -> [Float] -> p.Pattern Controls
+beginTake name xs = pStateListF "begin" name xs
+
+binshiftTake :: String -> [Float] -> p.Pattern Controls
+binshiftTake name xs = pStateListF "binshift" name xs
+
+button0Take :: String -> [Float] -> p.Pattern Controls
+button0Take name xs = pStateListF "button0" name xs
+
+button1Take :: String -> [Float] -> p.Pattern Controls
+button1Take name xs = pStateListF "button1" name xs
+
+button10Take :: String -> [Float] -> p.Pattern Controls
+button10Take name xs = pStateListF "button10" name xs
+
+button11Take :: String -> [Float] -> p.Pattern Controls
+button11Take name xs = pStateListF "button11" name xs
+
+button12Take :: String -> [Float] -> p.Pattern Controls
+button12Take name xs = pStateListF "button12" name xs
+
+button13Take :: String -> [Float] -> p.Pattern Controls
+button13Take name xs = pStateListF "button13" name xs
+
+button14Take :: String -> [Float] -> p.Pattern Controls
+button14Take name xs = pStateListF "button14" name xs
+
+button15Take :: String -> [Float] -> p.Pattern Controls
+button15Take name xs = pStateListF "button15" name xs
+
+button2Take :: String -> [Float] -> p.Pattern Controls
+button2Take name xs = pStateListF "button2" name xs
+
+button3Take :: String -> [Float] -> p.Pattern Controls
+button3Take name xs = pStateListF "button3" name xs
+
+button4Take :: String -> [Float] -> p.Pattern Controls
+button4Take name xs = pStateListF "button4" name xs
+
+button5Take :: String -> [Float] -> p.Pattern Controls
+button5Take name xs = pStateListF "button5" name xs
+
+button6Take :: String -> [Float] -> p.Pattern Controls
+button6Take name xs = pStateListF "button6" name xs
+
+button7Take :: String -> [Float] -> p.Pattern Controls
+button7Take name xs = pStateListF "button7" name xs
+
+button8Take :: String -> [Float] -> p.Pattern Controls
+button8Take name xs = pStateListF "button8" name xs
+
+button9Take :: String -> [Float] -> p.Pattern Controls
+button9Take name xs = pStateListF "button9" name xs
+
+ccnTake :: String -> [Float] -> p.Pattern Controls
+ccnTake name xs = pStateListF "ccn" name xs
+
+ccvTake :: String -> [Float] -> p.Pattern Controls
+ccvTake name xs = pStateListF "ccv" name xs
+
+channelTake :: String -> [Float] -> p.Pattern Controls
+channelTake name xs = pStateListF "channel" name xs
+
+clhatdecayTake :: String -> [Float] -> p.Pattern Controls
+clhatdecayTake name xs = pStateListF "clhatdecay" name xs
+
+coarseTake :: String -> [Float] -> p.Pattern Controls
+coarseTake name xs = pStateListF "coarse" name xs
+
+combTake :: String -> [Float] -> p.Pattern Controls
+combTake name xs = pStateListF "comb" name xs
+
+controlTake :: String -> [Float] -> p.Pattern Controls
+controlTake name xs = pStateListF "control" name xs
+
+cpsTake :: String -> [Float] -> p.Pattern Controls
+cpsTake name xs = pStateListF "cps" name xs
+
+crushTake :: String -> [Float] -> p.Pattern Controls
+crushTake name xs = pStateListF "crush" name xs
+
+ctlNumTake :: String -> [Float] -> p.Pattern Controls
+ctlNumTake name xs = pStateListF "ctlNum" name xs
+
+ctransposeTake :: String -> [Float] -> p.Pattern Controls
+ctransposeTake name xs = pStateListF "ctranspose" name xs
+
+cutTake :: String -> [Float] -> p.Pattern Controls
+cutTake name xs = pStateListF "cut" name xs
+
+cutoffTake :: String -> [Float] -> p.Pattern Controls
+cutoffTake name xs = pStateListF "cutoff" name xs
+
+cutoffegintTake :: String -> [Float] -> p.Pattern Controls
+cutoffegintTake name xs = pStateListF "cutoffegint" name xs
+
+decayTake :: String -> [Float] -> p.Pattern Controls
+decayTake name xs = pStateListF "decay" name xs
+
+degreeTake :: String -> [Float] -> p.Pattern Controls
+degreeTake name xs = pStateListF "degree" name xs
+
+delayTake :: String -> [Float] -> p.Pattern Controls
+delayTake name xs = pStateListF "delay" name xs
+
+delayfeedbackTake :: String -> [Float] -> p.Pattern Controls
+delayfeedbackTake name xs = pStateListF "delayfeedback" name xs
+
+delaytimeTake :: String -> [Float] -> p.Pattern Controls
+delaytimeTake name xs = pStateListF "delaytime" name xs
+
+detuneTake :: String -> [Float] -> p.Pattern Controls
+detuneTake name xs = pStateListF "detune" name xs
+
+distortTake :: String -> [Float] -> p.Pattern Controls
+distortTake name xs = pStateListF "distort" name xs
+
+djfTake :: String -> [Float] -> p.Pattern Controls
+djfTake name xs = pStateListF "djf" name xs
+
+dryTake :: String -> [Float] -> p.Pattern Controls
+dryTake name xs = pStateListF "dry" name xs
+
+durTake :: String -> [Float] -> p.Pattern Controls
+durTake name xs = pStateListF "dur" name xs
+
+endTake :: String -> [Float] -> p.Pattern Controls
+endTake name xs = pStateListF "end" name xs
+
+enhanceTake :: String -> [Float] -> p.Pattern Controls
+enhanceTake name xs = pStateListF "enhance" name xs
+
+expressionTake :: String -> [Float] -> p.Pattern Controls
+expressionTake name xs = pStateListF "expression" name xs
+
+fadeInTimeTake :: String -> [Float] -> p.Pattern Controls
+fadeInTimeTake name xs = pStateListF "fadeInTime" name xs
+
+fadeTimeTake :: String -> [Float] -> p.Pattern Controls
+fadeTimeTake name xs = pStateListF "fadeTime" name xs
+
+frameRateTake :: String -> [Float] -> p.Pattern Controls
+frameRateTake name xs = pStateListF "frameRate" name xs
+
+framesTake :: String -> [Float] -> p.Pattern Controls
+framesTake name xs = pStateListF "frames" name xs
+
+freezeTake :: String -> [Float] -> p.Pattern Controls
+freezeTake name xs = pStateListF "freeze" name xs
+
+freqTake :: String -> [Float] -> p.Pattern Controls
+freqTake name xs = pStateListF "freq" name xs
+
+fromTake :: String -> [Float] -> p.Pattern Controls
+fromTake name xs = pStateListF "from" name xs
+
+fshiftTake :: String -> [Float] -> p.Pattern Controls
+fshiftTake name xs = pStateListF "fshift" name xs
+
+fshiftnoteTake :: String -> [Float] -> p.Pattern Controls
+fshiftnoteTake name xs = pStateListF "fshiftnote" name xs
+
+fshiftphaseTake :: String -> [Float] -> p.Pattern Controls
+fshiftphaseTake name xs = pStateListF "fshiftphase" name xs
+
+gainTake :: String -> [Float] -> p.Pattern Controls
+gainTake name xs = pStateListF "gain" name xs
+
+gateTake :: String -> [Float] -> p.Pattern Controls
+gateTake name xs = pStateListF "gate" name xs
+
+harmonicTake :: String -> [Float] -> p.Pattern Controls
+harmonicTake name xs = pStateListF "harmonic" name xs
+
+hatgrainTake :: String -> [Float] -> p.Pattern Controls
+hatgrainTake name xs = pStateListF "hatgrain" name xs
+
+hbrickTake :: String -> [Float] -> p.Pattern Controls
+hbrickTake name xs = pStateListF "hbrick" name xs
+
+hcutoffTake :: String -> [Float] -> p.Pattern Controls
+hcutoffTake name xs = pStateListF "hcutoff" name xs
+
+holdTake :: String -> [Float] -> p.Pattern Controls
+holdTake name xs = pStateListF "hold" name xs
+
+hoursTake :: String -> [Float] -> p.Pattern Controls
+hoursTake name xs = pStateListF "hours" name xs
+
+hresonanceTake :: String -> [Float] -> p.Pattern Controls
+hresonanceTake name xs = pStateListF "hresonance" name xs
+
+imagTake :: String -> [Float] -> p.Pattern Controls
+imagTake name xs = pStateListF "imag" name xs
+
+kcutoffTake :: String -> [Float] -> p.Pattern Controls
+kcutoffTake name xs = pStateListF "kcutoff" name xs
+
+krushTake :: String -> [Float] -> p.Pattern Controls
+krushTake name xs = pStateListF "krush" name xs
+
+lagogoTake :: String -> [Float] -> p.Pattern Controls
+lagogoTake name xs = pStateListF "lagogo" name xs
+
+lbrickTake :: String -> [Float] -> p.Pattern Controls
+lbrickTake name xs = pStateListF "lbrick" name xs
+
+lclapTake :: String -> [Float] -> p.Pattern Controls
+lclapTake name xs = pStateListF "lclap" name xs
+
+lclavesTake :: String -> [Float] -> p.Pattern Controls
+lclavesTake name xs = pStateListF "lclaves" name xs
+
+lclhatTake :: String -> [Float] -> p.Pattern Controls
+lclhatTake name xs = pStateListF "lclhat" name xs
+
+lcrashTake :: String -> [Float] -> p.Pattern Controls
+lcrashTake name xs = pStateListF "lcrash" name xs
+
+legatoTake :: String -> [Float] -> p.Pattern Controls
+legatoTake name xs = pStateListF "legato" name xs
+
+leslieTake :: String -> [Float] -> p.Pattern Controls
+leslieTake name xs = pStateListF "leslie" name xs
+
+lfoTake :: String -> [Float] -> p.Pattern Controls
+lfoTake name xs = pStateListF "lfo" name xs
+
+lfocutoffintTake :: String -> [Float] -> p.Pattern Controls
+lfocutoffintTake name xs = pStateListF "lfocutoffint" name xs
+
+lfodelayTake :: String -> [Float] -> p.Pattern Controls
+lfodelayTake name xs = pStateListF "lfodelay" name xs
+
+lfointTake :: String -> [Float] -> p.Pattern Controls
+lfointTake name xs = pStateListF "lfoint" name xs
+
+lfopitchintTake :: String -> [Float] -> p.Pattern Controls
+lfopitchintTake name xs = pStateListF "lfopitchint" name xs
+
+lfoshapeTake :: String -> [Float] -> p.Pattern Controls
+lfoshapeTake name xs = pStateListF "lfoshape" name xs
+
+lfosyncTake :: String -> [Float] -> p.Pattern Controls
+lfosyncTake name xs = pStateListF "lfosync" name xs
+
+lhitomTake :: String -> [Float] -> p.Pattern Controls
+lhitomTake name xs = pStateListF "lhitom" name xs
+
+lkickTake :: String -> [Float] -> p.Pattern Controls
+lkickTake name xs = pStateListF "lkick" name xs
+
+llotomTake :: String -> [Float] -> p.Pattern Controls
+llotomTake name xs = pStateListF "llotom" name xs
+
+lockTake :: String -> [Float] -> p.Pattern Controls
+lockTake name xs = pStateListF "lock" name xs
+
+loopTake :: String -> [Float] -> p.Pattern Controls
+loopTake name xs = pStateListF "loop" name xs
+
+lophatTake :: String -> [Float] -> p.Pattern Controls
+lophatTake name xs = pStateListF "lophat" name xs
+
+lrateTake :: String -> [Float] -> p.Pattern Controls
+lrateTake name xs = pStateListF "lrate" name xs
+
+lsizeTake :: String -> [Float] -> p.Pattern Controls
+lsizeTake name xs = pStateListF "lsize" name xs
+
+lsnareTake :: String -> [Float] -> p.Pattern Controls
+lsnareTake name xs = pStateListF "lsnare" name xs
+
+metatuneTake :: String -> [Float] -> p.Pattern Controls
+metatuneTake name xs = pStateListF "metatune" name xs
+
+midibendTake :: String -> [Float] -> p.Pattern Controls
+midibendTake name xs = pStateListF "midibend" name xs
+
+midichanTake :: String -> [Float] -> p.Pattern Controls
+midichanTake name xs = pStateListF "midichan" name xs
+
+midicmdTake :: String -> [Float] -> p.Pattern Controls
+midicmdTake name xs = pStateListF "midicmd" name xs
+
+miditouchTake :: String -> [Float] -> p.Pattern Controls
+miditouchTake name xs = pStateListF "miditouch" name xs
+
+minutesTake :: String -> [Float] -> p.Pattern Controls
+minutesTake name xs = pStateListF "minutes" name xs
+
+modwheelTake :: String -> [Float] -> p.Pattern Controls
+modwheelTake name xs = pStateListF "modwheel" name xs
+
+mtransposeTake :: String -> [Float] -> p.Pattern Controls
+mtransposeTake name xs = pStateListF "mtranspose" name xs
+
+nTake :: String -> [Float] -> p.Pattern Controls
+nTake name xs = pStateListF "n" name xs
+
+noteTake :: String -> [Float] -> p.Pattern Controls
+noteTake name xs = pStateListF "note" name xs
+
+nudgeTake :: String -> [Float] -> p.Pattern Controls
+nudgeTake name xs = pStateListF "nudge" name xs
+
+octaveTake :: String -> [Float] -> p.Pattern Controls
+octaveTake name xs = pStateListF "octave" name xs
+
+octaveRTake :: String -> [Float] -> p.Pattern Controls
+octaveRTake name xs = pStateListF "octaveR" name xs
+
+octerTake :: String -> [Float] -> p.Pattern Controls
+octerTake name xs = pStateListF "octer" name xs
+
+octersubTake :: String -> [Float] -> p.Pattern Controls
+octersubTake name xs = pStateListF "octersub" name xs
+
+octersubsubTake :: String -> [Float] -> p.Pattern Controls
+octersubsubTake name xs = pStateListF "octersubsub" name xs
+
+offsetTake :: String -> [Float] -> p.Pattern Controls
+offsetTake name xs = pStateListF "offset" name xs
+
+ophatdecayTake :: String -> [Float] -> p.Pattern Controls
+ophatdecayTake name xs = pStateListF "ophatdecay" name xs
+
+orbitTake :: String -> [Float] -> p.Pattern Controls
+orbitTake name xs = pStateListF "orbit" name xs
+
+overgainTake :: String -> [Float] -> p.Pattern Controls
+overgainTake name xs = pStateListF "overgain" name xs
+
+overshapeTake :: String -> [Float] -> p.Pattern Controls
+overshapeTake name xs = pStateListF "overshape" name xs
+
+panTake :: String -> [Float] -> p.Pattern Controls
+panTake name xs = pStateListF "pan" name xs
+
+panorientTake :: String -> [Float] -> p.Pattern Controls
+panorientTake name xs = pStateListF "panorient" name xs
+
+panspanTake :: String -> [Float] -> p.Pattern Controls
+panspanTake name xs = pStateListF "panspan" name xs
+
+pansplayTake :: String -> [Float] -> p.Pattern Controls
+pansplayTake name xs = pStateListF "pansplay" name xs
+
+panwidthTake :: String -> [Float] -> p.Pattern Controls
+panwidthTake name xs = pStateListF "panwidth" name xs
+
+partialsTake :: String -> [Float] -> p.Pattern Controls
+partialsTake name xs = pStateListF "partials" name xs
+
+phaserdepthTake :: String -> [Float] -> p.Pattern Controls
+phaserdepthTake name xs = pStateListF "phaserdepth" name xs
+
+phaserrateTake :: String -> [Float] -> p.Pattern Controls
+phaserrateTake name xs = pStateListF "phaserrate" name xs
+
+pitch1Take :: String -> [Float] -> p.Pattern Controls
+pitch1Take name xs = pStateListF "pitch1" name xs
+
+pitch2Take :: String -> [Float] -> p.Pattern Controls
+pitch2Take name xs = pStateListF "pitch2" name xs
+
+pitch3Take :: String -> [Float] -> p.Pattern Controls
+pitch3Take name xs = pStateListF "pitch3" name xs
+
+polyTouchTake :: String -> [Float] -> p.Pattern Controls
+polyTouchTake name xs = pStateListF "polyTouch" name xs
+
+portamentoTake :: String -> [Float] -> p.Pattern Controls
+portamentoTake name xs = pStateListF "portamento" name xs
+
+progNumTake :: String -> [Float] -> p.Pattern Controls
+progNumTake name xs = pStateListF "progNum" name xs
+
+rateTake :: String -> [Float] -> p.Pattern Controls
+rateTake name xs = pStateListF "rate" name xs
+
+realTake :: String -> [Float] -> p.Pattern Controls
+realTake name xs = pStateListF "real" name xs
+
+releaseTake :: String -> [Float] -> p.Pattern Controls
+releaseTake name xs = pStateListF "release" name xs
+
+resonanceTake :: String -> [Float] -> p.Pattern Controls
+resonanceTake name xs = pStateListF "resonance" name xs
+
+ringTake :: String -> [Float] -> p.Pattern Controls
+ringTake name xs = pStateListF "ring" name xs
+
+ringdfTake :: String -> [Float] -> p.Pattern Controls
+ringdfTake name xs = pStateListF "ringdf" name xs
+
+ringfTake :: String -> [Float] -> p.Pattern Controls
+ringfTake name xs = pStateListF "ringf" name xs
+
+roomTake :: String -> [Float] -> p.Pattern Controls
+roomTake name xs = pStateListF "room" name xs
+
+sagogoTake :: String -> [Float] -> p.Pattern Controls
+sagogoTake name xs = pStateListF "sagogo" name xs
+
+sclapTake :: String -> [Float] -> p.Pattern Controls
+sclapTake name xs = pStateListF "sclap" name xs
+
+sclavesTake :: String -> [Float] -> p.Pattern Controls
+sclavesTake name xs = pStateListF "sclaves" name xs
+
+scramTake :: String -> [Float] -> p.Pattern Controls
+scramTake name xs = pStateListF "scram" name xs
+
+scrashTake :: String -> [Float] -> p.Pattern Controls
+scrashTake name xs = pStateListF "scrash" name xs
+
+secondsTake :: String -> [Float] -> p.Pattern Controls
+secondsTake name xs = pStateListF "seconds" name xs
+
+semitoneTake :: String -> [Float] -> p.Pattern Controls
+semitoneTake name xs = pStateListF "semitone" name xs
+
+shapeTake :: String -> [Float] -> p.Pattern Controls
+shapeTake name xs = pStateListF "shape" name xs
+
+sizeTake :: String -> [Float] -> p.Pattern Controls
+sizeTake name xs = pStateListF "size" name xs
+
+slideTake :: String -> [Float] -> p.Pattern Controls
+slideTake name xs = pStateListF "slide" name xs
+
+slider0Take :: String -> [Float] -> p.Pattern Controls
+slider0Take name xs = pStateListF "slider0" name xs
+
+slider1Take :: String -> [Float] -> p.Pattern Controls
+slider1Take name xs = pStateListF "slider1" name xs
+
+slider10Take :: String -> [Float] -> p.Pattern Controls
+slider10Take name xs = pStateListF "slider10" name xs
+
+slider11Take :: String -> [Float] -> p.Pattern Controls
+slider11Take name xs = pStateListF "slider11" name xs
+
+slider12Take :: String -> [Float] -> p.Pattern Controls
+slider12Take name xs = pStateListF "slider12" name xs
+
+slider13Take :: String -> [Float] -> p.Pattern Controls
+slider13Take name xs = pStateListF "slider13" name xs
+
+slider14Take :: String -> [Float] -> p.Pattern Controls
+slider14Take name xs = pStateListF "slider14" name xs
+
+slider15Take :: String -> [Float] -> p.Pattern Controls
+slider15Take name xs = pStateListF "slider15" name xs
+
+slider2Take :: String -> [Float] -> p.Pattern Controls
+slider2Take name xs = pStateListF "slider2" name xs
+
+slider3Take :: String -> [Float] -> p.Pattern Controls
+slider3Take name xs = pStateListF "slider3" name xs
+
+slider4Take :: String -> [Float] -> p.Pattern Controls
+slider4Take name xs = pStateListF "slider4" name xs
+
+slider5Take :: String -> [Float] -> p.Pattern Controls
+slider5Take name xs = pStateListF "slider5" name xs
+
+slider6Take :: String -> [Float] -> p.Pattern Controls
+slider6Take name xs = pStateListF "slider6" name xs
+
+slider7Take :: String -> [Float] -> p.Pattern Controls
+slider7Take name xs = pStateListF "slider7" name xs
+
+slider8Take :: String -> [Float] -> p.Pattern Controls
+slider8Take name xs = pStateListF "slider8" name xs
+
+slider9Take :: String -> [Float] -> p.Pattern Controls
+slider9Take name xs = pStateListF "slider9" name xs
+
+smearTake :: String -> [Float] -> p.Pattern Controls
+smearTake name xs = pStateListF "smear" name xs
+
+songPtrTake :: String -> [Float] -> p.Pattern Controls
+songPtrTake name xs = pStateListF "songPtr" name xs
+
+speedTake :: String -> [Float] -> p.Pattern Controls
+speedTake name xs = pStateListF "speed" name xs
+
+squizTake :: String -> [Float] -> p.Pattern Controls
+squizTake name xs = pStateListF "squiz" name xs
+
+stepsPerOctaveTake :: String -> [Float] -> p.Pattern Controls
+stepsPerOctaveTake name xs = pStateListF "stepsPerOctave" name xs
+
+stutterdepthTake :: String -> [Float] -> p.Pattern Controls
+stutterdepthTake name xs = pStateListF "stutterdepth" name xs
+
+stuttertimeTake :: String -> [Float] -> p.Pattern Controls
+stuttertimeTake name xs = pStateListF "stuttertime" name xs
+
+sustainTake :: String -> [Float] -> p.Pattern Controls
+sustainTake name xs = pStateListF "sustain" name xs
+
+sustainpedalTake :: String -> [Float] -> p.Pattern Controls
+sustainpedalTake name xs = pStateListF "sustainpedal" name xs
+
+timescaleTake :: String -> [Float] -> p.Pattern Controls
+timescaleTake name xs = pStateListF "timescale" name xs
+
+timescalewinTake :: String -> [Float] -> p.Pattern Controls
+timescalewinTake name xs = pStateListF "timescalewin" name xs
+
+toTake :: String -> [Float] -> p.Pattern Controls
+toTake name xs = pStateListF "to" name xs
+
+toArgTake :: String -> [Float] -> p.Pattern Controls
+toArgTake name xs = pStateListF "toArg" name xs
+
+tomdecayTake :: String -> [Float] -> p.Pattern Controls
+tomdecayTake name xs = pStateListF "tomdecay" name xs
+
+tremolodepthTake :: String -> [Float] -> p.Pattern Controls
+tremolodepthTake name xs = pStateListF "tremolodepth" name xs
+
+tremolorateTake :: String -> [Float] -> p.Pattern Controls
+tremolorateTake name xs = pStateListF "tremolorate" name xs
+
+triodeTake :: String -> [Float] -> p.Pattern Controls
+triodeTake name xs = pStateListF "triode" name xs
+
+tsdelayTake :: String -> [Float] -> p.Pattern Controls
+tsdelayTake name xs = pStateListF "tsdelay" name xs
+
+uidTake :: String -> [Float] -> p.Pattern Controls
+uidTake name xs = pStateListF "uid" name xs
+
+unitTake :: String -> [Float] -> p.Pattern Controls
+unitTake name xs = pStateListF "unit" name xs
+
+valTake :: String -> [Float] -> p.Pattern Controls
+valTake name xs = pStateListF "val" name xs
+
+vcfegintTake :: String -> [Float] -> p.Pattern Controls
+vcfegintTake name xs = pStateListF "vcfegint" name xs
+
+vcoegintTake :: String -> [Float] -> p.Pattern Controls
+vcoegintTake name xs = pStateListF "vcoegint" name xs
+
+velocityTake :: String -> [Float] -> p.Pattern Controls
+velocityTake name xs = pStateListF "velocity" name xs
+
+voiceTake :: String -> [Float] -> p.Pattern Controls
+voiceTake name xs = pStateListF "voice" name xs
+
+vowelTake :: String -> [Float] -> p.Pattern Controls
+vowelTake name xs = pStateListF "vowel" name xs
+
+wavelossTake :: String -> [Float] -> p.Pattern Controls
+wavelossTake name xs = pStateListF "waveloss" name xs
+
+xsdelayTake :: String -> [Float] -> p.Pattern Controls
+xsdelayTake name xs = pStateListF "xsdelay" name xs
+
+accelerateCount :: String -> p.Pattern Controls
+accelerateCount name = pStateF "accelerate" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ampCount :: String -> p.Pattern Controls
+ampCount name = pStateF "amp" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+attackCount :: String -> p.Pattern Controls
+attackCount name = pStateF "attack" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+bandfCount :: String -> p.Pattern Controls
+bandfCount name = pStateF "bandf" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+bandqCount :: String -> p.Pattern Controls
+bandqCount name = pStateF "bandq" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+beginCount :: String -> p.Pattern Controls
+beginCount name = pStateF "begin" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+binshiftCount :: String -> p.Pattern Controls
+binshiftCount name = pStateF "binshift" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button0Count :: String -> p.Pattern Controls
+button0Count name = pStateF "button0" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button1Count :: String -> p.Pattern Controls
+button1Count name = pStateF "button1" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button10Count :: String -> p.Pattern Controls
+button10Count name = pStateF "button10" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button11Count :: String -> p.Pattern Controls
+button11Count name = pStateF "button11" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button12Count :: String -> p.Pattern Controls
+button12Count name = pStateF "button12" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button13Count :: String -> p.Pattern Controls
+button13Count name = pStateF "button13" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button14Count :: String -> p.Pattern Controls
+button14Count name = pStateF "button14" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button15Count :: String -> p.Pattern Controls
+button15Count name = pStateF "button15" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button2Count :: String -> p.Pattern Controls
+button2Count name = pStateF "button2" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button3Count :: String -> p.Pattern Controls
+button3Count name = pStateF "button3" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button4Count :: String -> p.Pattern Controls
+button4Count name = pStateF "button4" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button5Count :: String -> p.Pattern Controls
+button5Count name = pStateF "button5" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button6Count :: String -> p.Pattern Controls
+button6Count name = pStateF "button6" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button7Count :: String -> p.Pattern Controls
+button7Count name = pStateF "button7" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button8Count :: String -> p.Pattern Controls
+button8Count name = pStateF "button8" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+button9Count :: String -> p.Pattern Controls
+button9Count name = pStateF "button9" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ccnCount :: String -> p.Pattern Controls
+ccnCount name = pStateF "ccn" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ccvCount :: String -> p.Pattern Controls
+ccvCount name = pStateF "ccv" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+channelCount :: String -> p.Pattern Controls
+channelCount name = pStateF "channel" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+clhatdecayCount :: String -> p.Pattern Controls
+clhatdecayCount name = pStateF "clhatdecay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+coarseCount :: String -> p.Pattern Controls
+coarseCount name = pStateF "coarse" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+combCount :: String -> p.Pattern Controls
+combCount name = pStateF "comb" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+controlCount :: String -> p.Pattern Controls
+controlCount name = pStateF "control" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+cpsCount :: String -> p.Pattern Controls
+cpsCount name = pStateF "cps" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+crushCount :: String -> p.Pattern Controls
+crushCount name = pStateF "crush" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ctlNumCount :: String -> p.Pattern Controls
+ctlNumCount name = pStateF "ctlNum" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ctransposeCount :: String -> p.Pattern Controls
+ctransposeCount name = pStateF "ctranspose" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+cutCount :: String -> p.Pattern Controls
+cutCount name = pStateF "cut" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+cutoffCount :: String -> p.Pattern Controls
+cutoffCount name = pStateF "cutoff" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+cutoffegintCount :: String -> p.Pattern Controls
+cutoffegintCount name = pStateF "cutoffegint" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+decayCount :: String -> p.Pattern Controls
+decayCount name = pStateF "decay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+degreeCount :: String -> p.Pattern Controls
+degreeCount name = pStateF "degree" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+delayCount :: String -> p.Pattern Controls
+delayCount name = pStateF "delay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+delayfeedbackCount :: String -> p.Pattern Controls
+delayfeedbackCount name = pStateF "delayfeedback" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+delaytimeCount :: String -> p.Pattern Controls
+delaytimeCount name = pStateF "delaytime" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+detuneCount :: String -> p.Pattern Controls
+detuneCount name = pStateF "detune" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+distortCount :: String -> p.Pattern Controls
+distortCount name = pStateF "distort" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+djfCount :: String -> p.Pattern Controls
+djfCount name = pStateF "djf" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+dryCount :: String -> p.Pattern Controls
+dryCount name = pStateF "dry" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+durCount :: String -> p.Pattern Controls
+durCount name = pStateF "dur" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+endCount :: String -> p.Pattern Controls
+endCount name = pStateF "end" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+enhanceCount :: String -> p.Pattern Controls
+enhanceCount name = pStateF "enhance" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+expressionCount :: String -> p.Pattern Controls
+expressionCount name = pStateF "expression" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+fadeInTimeCount :: String -> p.Pattern Controls
+fadeInTimeCount name = pStateF "fadeInTime" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+fadeTimeCount :: String -> p.Pattern Controls
+fadeTimeCount name = pStateF "fadeTime" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+frameRateCount :: String -> p.Pattern Controls
+frameRateCount name = pStateF "frameRate" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+framesCount :: String -> p.Pattern Controls
+framesCount name = pStateF "frames" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+freezeCount :: String -> p.Pattern Controls
+freezeCount name = pStateF "freeze" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+freqCount :: String -> p.Pattern Controls
+freqCount name = pStateF "freq" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+fromCount :: String -> p.Pattern Controls
+fromCount name = pStateF "from" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+fshiftCount :: String -> p.Pattern Controls
+fshiftCount name = pStateF "fshift" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+fshiftnoteCount :: String -> p.Pattern Controls
+fshiftnoteCount name = pStateF "fshiftnote" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+fshiftphaseCount :: String -> p.Pattern Controls
+fshiftphaseCount name = pStateF "fshiftphase" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+gainCount :: String -> p.Pattern Controls
+gainCount name = pStateF "gain" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+gateCount :: String -> p.Pattern Controls
+gateCount name = pStateF "gate" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+harmonicCount :: String -> p.Pattern Controls
+harmonicCount name = pStateF "harmonic" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+hatgrainCount :: String -> p.Pattern Controls
+hatgrainCount name = pStateF "hatgrain" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+hbrickCount :: String -> p.Pattern Controls
+hbrickCount name = pStateF "hbrick" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+hcutoffCount :: String -> p.Pattern Controls
+hcutoffCount name = pStateF "hcutoff" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+holdCount :: String -> p.Pattern Controls
+holdCount name = pStateF "hold" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+hoursCount :: String -> p.Pattern Controls
+hoursCount name = pStateF "hours" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+hresonanceCount :: String -> p.Pattern Controls
+hresonanceCount name = pStateF "hresonance" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+imagCount :: String -> p.Pattern Controls
+imagCount name = pStateF "imag" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+kcutoffCount :: String -> p.Pattern Controls
+kcutoffCount name = pStateF "kcutoff" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+krushCount :: String -> p.Pattern Controls
+krushCount name = pStateF "krush" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lagogoCount :: String -> p.Pattern Controls
+lagogoCount name = pStateF "lagogo" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lbrickCount :: String -> p.Pattern Controls
+lbrickCount name = pStateF "lbrick" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lclapCount :: String -> p.Pattern Controls
+lclapCount name = pStateF "lclap" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lclavesCount :: String -> p.Pattern Controls
+lclavesCount name = pStateF "lclaves" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lclhatCount :: String -> p.Pattern Controls
+lclhatCount name = pStateF "lclhat" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lcrashCount :: String -> p.Pattern Controls
+lcrashCount name = pStateF "lcrash" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+legatoCount :: String -> p.Pattern Controls
+legatoCount name = pStateF "legato" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+leslieCount :: String -> p.Pattern Controls
+leslieCount name = pStateF "leslie" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lfoCount :: String -> p.Pattern Controls
+lfoCount name = pStateF "lfo" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lfocutoffintCount :: String -> p.Pattern Controls
+lfocutoffintCount name = pStateF "lfocutoffint" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lfodelayCount :: String -> p.Pattern Controls
+lfodelayCount name = pStateF "lfodelay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lfointCount :: String -> p.Pattern Controls
+lfointCount name = pStateF "lfoint" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lfopitchintCount :: String -> p.Pattern Controls
+lfopitchintCount name = pStateF "lfopitchint" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lfoshapeCount :: String -> p.Pattern Controls
+lfoshapeCount name = pStateF "lfoshape" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lfosyncCount :: String -> p.Pattern Controls
+lfosyncCount name = pStateF "lfosync" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lhitomCount :: String -> p.Pattern Controls
+lhitomCount name = pStateF "lhitom" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lkickCount :: String -> p.Pattern Controls
+lkickCount name = pStateF "lkick" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+llotomCount :: String -> p.Pattern Controls
+llotomCount name = pStateF "llotom" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lockCount :: String -> p.Pattern Controls
+lockCount name = pStateF "lock" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+loopCount :: String -> p.Pattern Controls
+loopCount name = pStateF "loop" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lophatCount :: String -> p.Pattern Controls
+lophatCount name = pStateF "lophat" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lrateCount :: String -> p.Pattern Controls
+lrateCount name = pStateF "lrate" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lsizeCount :: String -> p.Pattern Controls
+lsizeCount name = pStateF "lsize" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+lsnareCount :: String -> p.Pattern Controls
+lsnareCount name = pStateF "lsnare" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+metatuneCount :: String -> p.Pattern Controls
+metatuneCount name = pStateF "metatune" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+midibendCount :: String -> p.Pattern Controls
+midibendCount name = pStateF "midibend" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+midichanCount :: String -> p.Pattern Controls
+midichanCount name = pStateF "midichan" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+miditouchCount :: String -> p.Pattern Controls
+miditouchCount name = pStateF "miditouch" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+minutesCount :: String -> p.Pattern Controls
+minutesCount name = pStateF "minutes" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+modwheelCount :: String -> p.Pattern Controls
+modwheelCount name = pStateF "modwheel" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+mtransposeCount :: String -> p.Pattern Controls
+mtransposeCount name = pStateF "mtranspose" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+nCount :: String -> p.Pattern Controls
+nCount name = pStateF "n" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+noteCount :: String -> p.Pattern Controls
+noteCount name = pStateF "note" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+nudgeCount :: String -> p.Pattern Controls
+nudgeCount name = pStateF "nudge" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+octaveCount :: String -> p.Pattern Controls
+octaveCount name = pStateF "octave" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+octaveRCount :: String -> p.Pattern Controls
+octaveRCount name = pStateF "octaveR" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+octerCount :: String -> p.Pattern Controls
+octerCount name = pStateF "octer" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+octersubCount :: String -> p.Pattern Controls
+octersubCount name = pStateF "octersub" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+octersubsubCount :: String -> p.Pattern Controls
+octersubsubCount name = pStateF "octersubsub" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+offsetCount :: String -> p.Pattern Controls
+offsetCount name = pStateF "offset" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ophatdecayCount :: String -> p.Pattern Controls
+ophatdecayCount name = pStateF "ophatdecay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+orbitCount :: String -> p.Pattern Controls
+orbitCount name = pStateF "orbit" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+overgainCount :: String -> p.Pattern Controls
+overgainCount name = pStateF "overgain" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+overshapeCount :: String -> p.Pattern Controls
+overshapeCount name = pStateF "overshape" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+panCount :: String -> p.Pattern Controls
+panCount name = pStateF "pan" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+panorientCount :: String -> p.Pattern Controls
+panorientCount name = pStateF "panorient" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+panspanCount :: String -> p.Pattern Controls
+panspanCount name = pStateF "panspan" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+pansplayCount :: String -> p.Pattern Controls
+pansplayCount name = pStateF "pansplay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+panwidthCount :: String -> p.Pattern Controls
+panwidthCount name = pStateF "panwidth" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+partialsCount :: String -> p.Pattern Controls
+partialsCount name = pStateF "partials" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+phaserdepthCount :: String -> p.Pattern Controls
+phaserdepthCount name = pStateF "phaserdepth" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+phaserrateCount :: String -> p.Pattern Controls
+phaserrateCount name = pStateF "phaserrate" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+pitch1Count :: String -> p.Pattern Controls
+pitch1Count name = pStateF "pitch1" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+pitch2Count :: String -> p.Pattern Controls
+pitch2Count name = pStateF "pitch2" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+pitch3Count :: String -> p.Pattern Controls
+pitch3Count name = pStateF "pitch3" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+polyTouchCount :: String -> p.Pattern Controls
+polyTouchCount name = pStateF "polyTouch" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+portamentoCount :: String -> p.Pattern Controls
+portamentoCount name = pStateF "portamento" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+progNumCount :: String -> p.Pattern Controls
+progNumCount name = pStateF "progNum" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+rateCount :: String -> p.Pattern Controls
+rateCount name = pStateF "rate" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+realCount :: String -> p.Pattern Controls
+realCount name = pStateF "real" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+releaseCount :: String -> p.Pattern Controls
+releaseCount name = pStateF "release" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+resonanceCount :: String -> p.Pattern Controls
+resonanceCount name = pStateF "resonance" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ringdfCount :: String -> p.Pattern Controls
+ringdfCount name = pStateF "ringdf" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+ringfCount :: String -> p.Pattern Controls
+ringfCount name = pStateF "ringf" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+roomCount :: String -> p.Pattern Controls
+roomCount name = pStateF "room" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+sagogoCount :: String -> p.Pattern Controls
+sagogoCount name = pStateF "sagogo" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+sclapCount :: String -> p.Pattern Controls
+sclapCount name = pStateF "sclap" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+sclavesCount :: String -> p.Pattern Controls
+sclavesCount name = pStateF "sclaves" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+scramCount :: String -> p.Pattern Controls
+scramCount name = pStateF "scram" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+scrashCount :: String -> p.Pattern Controls
+scrashCount name = pStateF "scrash" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+secondsCount :: String -> p.Pattern Controls
+secondsCount name = pStateF "seconds" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+semitoneCount :: String -> p.Pattern Controls
+semitoneCount name = pStateF "semitone" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+shapeCount :: String -> p.Pattern Controls
+shapeCount name = pStateF "shape" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+sizeCount :: String -> p.Pattern Controls
+sizeCount name = pStateF "size" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slideCount :: String -> p.Pattern Controls
+slideCount name = pStateF "slide" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider0Count :: String -> p.Pattern Controls
+slider0Count name = pStateF "slider0" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider1Count :: String -> p.Pattern Controls
+slider1Count name = pStateF "slider1" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider10Count :: String -> p.Pattern Controls
+slider10Count name = pStateF "slider10" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider11Count :: String -> p.Pattern Controls
+slider11Count name = pStateF "slider11" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider12Count :: String -> p.Pattern Controls
+slider12Count name = pStateF "slider12" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider13Count :: String -> p.Pattern Controls
+slider13Count name = pStateF "slider13" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider14Count :: String -> p.Pattern Controls
+slider14Count name = pStateF "slider14" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider15Count :: String -> p.Pattern Controls
+slider15Count name = pStateF "slider15" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider2Count :: String -> p.Pattern Controls
+slider2Count name = pStateF "slider2" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider3Count :: String -> p.Pattern Controls
+slider3Count name = pStateF "slider3" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider4Count :: String -> p.Pattern Controls
+slider4Count name = pStateF "slider4" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider5Count :: String -> p.Pattern Controls
+slider5Count name = pStateF "slider5" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider6Count :: String -> p.Pattern Controls
+slider6Count name = pStateF "slider6" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider7Count :: String -> p.Pattern Controls
+slider7Count name = pStateF "slider7" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider8Count :: String -> p.Pattern Controls
+slider8Count name = pStateF "slider8" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+slider9Count :: String -> p.Pattern Controls
+slider9Count name = pStateF "slider9" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+smearCount :: String -> p.Pattern Controls
+smearCount name = pStateF "smear" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+songPtrCount :: String -> p.Pattern Controls
+songPtrCount name = pStateF "songPtr" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+speedCount :: String -> p.Pattern Controls
+speedCount name = pStateF "speed" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+squizCount :: String -> p.Pattern Controls
+squizCount name = pStateF "squiz" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+stepsPerOctaveCount :: String -> p.Pattern Controls
+stepsPerOctaveCount name = pStateF "stepsPerOctave" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+stutterdepthCount :: String -> p.Pattern Controls
+stutterdepthCount name = pStateF "stutterdepth" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+stuttertimeCount :: String -> p.Pattern Controls
+stuttertimeCount name = pStateF "stuttertime" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+sustainCount :: String -> p.Pattern Controls
+sustainCount name = pStateF "sustain" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+sustainpedalCount :: String -> p.Pattern Controls
+sustainpedalCount name = pStateF "sustainpedal" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+timescaleCount :: String -> p.Pattern Controls
+timescaleCount name = pStateF "timescale" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+timescalewinCount :: String -> p.Pattern Controls
+timescalewinCount name = pStateF "timescalewin" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+toCount :: String -> p.Pattern Controls
+toCount name = pStateF "to" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+tomdecayCount :: String -> p.Pattern Controls
+tomdecayCount name = pStateF "tomdecay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+tremolodepthCount :: String -> p.Pattern Controls
+tremolodepthCount name = pStateF "tremolodepth" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+tremolorateCount :: String -> p.Pattern Controls
+tremolorateCount name = pStateF "tremolorate" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+triodeCount :: String -> p.Pattern Controls
+triodeCount name = pStateF "triode" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+tsdelayCount :: String -> p.Pattern Controls
+tsdelayCount name = pStateF "tsdelay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+uidCount :: String -> p.Pattern Controls
+uidCount name = pStateF "uid" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+valCount :: String -> p.Pattern Controls
+valCount name = pStateF "val" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+vcfegintCount :: String -> p.Pattern Controls
+vcfegintCount name = pStateF "vcfegint" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+vcoegintCount :: String -> p.Pattern Controls
+vcoegintCount name = pStateF "vcoegint" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+velocityCount :: String -> p.Pattern Controls
+velocityCount name = pStateF "velocity" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+voiceCount :: String -> p.Pattern Controls
+voiceCount name = pStateF "voice" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+wavelossCount :: String -> p.Pattern Controls
+wavelossCount name = pStateF "waveloss" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+xsdelayCount :: String -> p.Pattern Controls
+xsdelayCount name = pStateF "xsdelay" name (\m -> fromMaybe (negate 1.0) m + 1.0)
+
+accelerateCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+accelerateCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "accelerate" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ampCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ampCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "amp" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+attackCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+attackCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "attack" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+bandfCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+bandfCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "bandf" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+bandqCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+bandqCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "bandq" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+beginCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+beginCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "begin" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+binshiftCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+binshiftCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "binshift" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button0CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button0CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button0" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button1CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button1CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button1" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button10CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button10CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button10" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button11CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button11CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button11" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button12CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button12CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button12" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button13CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button13CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button13" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button14CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button14CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button14" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button15CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button15CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button15" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button2CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button2CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button2" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button3CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button3CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button3" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button4CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button4CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button4" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button5CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button5CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button5" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button6CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button6CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button6" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button7CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button7CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button7" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button8CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button8CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button8" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+button9CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+button9CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "button9" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ccnCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ccnCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ccn" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ccvCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ccvCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ccv" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+channelCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+channelCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "channel" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+clhatdecayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+clhatdecayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "clhatdecay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+coarseCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+coarseCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "coarse" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+combCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+combCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "comb" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+controlCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+controlCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "control" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+cpsCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+cpsCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "cps" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+crushCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+crushCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "crush" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ctlNumCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ctlNumCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ctlNum" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ctransposeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ctransposeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ctranspose" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+cutCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+cutCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "cut" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+cutoffCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+cutoffCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "cutoff" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+cutoffegintCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+cutoffegintCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "cutoffegint" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+decayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+decayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "decay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+degreeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+degreeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "degree" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+delayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+delayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "delay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+delayfeedbackCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+delayfeedbackCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "delayfeedback" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+delaytimeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+delaytimeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "delaytime" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+detuneCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+detuneCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "detune" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+distortCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+distortCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "distort" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+djfCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+djfCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "djf" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+dryCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+dryCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "dry" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+durCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+durCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "dur" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+endCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+endCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "end" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+enhanceCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+enhanceCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "enhance" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+expressionCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+expressionCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "expression" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+fadeInTimeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+fadeInTimeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "fadeInTime" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+fadeTimeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+fadeTimeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "fadeTime" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+frameRateCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+frameRateCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "frameRate" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+framesCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+framesCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "frames" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+freezeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+freezeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "freeze" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+freqCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+freqCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "freq" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+fromCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+fromCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "from" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+fshiftCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+fshiftCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "fshift" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+fshiftnoteCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+fshiftnoteCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "fshiftnote" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+fshiftphaseCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+fshiftphaseCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "fshiftphase" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+gainCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+gainCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "gain" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+gateCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+gateCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "gate" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+harmonicCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+harmonicCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "harmonic" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+hatgrainCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+hatgrainCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "hatgrain" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+hbrickCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+hbrickCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "hbrick" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+hcutoffCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+hcutoffCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "hcutoff" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+holdCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+holdCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "hold" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+hoursCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+hoursCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "hours" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+hresonanceCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+hresonanceCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "hresonance" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+imagCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+imagCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "imag" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+kcutoffCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+kcutoffCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "kcutoff" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+krushCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+krushCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "krush" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lagogoCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lagogoCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lagogo" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lbrickCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lbrickCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lbrick" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lclapCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lclapCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lclap" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lclavesCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lclavesCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lclaves" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lclhatCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lclhatCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lclhat" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lcrashCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lcrashCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lcrash" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+legatoCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+legatoCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "legato" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+leslieCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+leslieCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "leslie" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lfoCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lfoCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lfo" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lfocutoffintCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lfocutoffintCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lfocutoffint" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lfodelayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lfodelayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lfodelay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lfointCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lfointCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lfoint" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lfopitchintCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lfopitchintCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lfopitchint" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lfoshapeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lfoshapeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lfoshape" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lfosyncCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lfosyncCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lfosync" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lhitomCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lhitomCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lhitom" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lkickCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lkickCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lkick" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+llotomCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+llotomCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "llotom" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lockCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lockCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lock" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+loopCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+loopCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "loop" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lophatCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lophatCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lophat" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lrateCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lrateCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lrate" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lsizeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lsizeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lsize" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+lsnareCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+lsnareCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "lsnare" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+metatuneCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+metatuneCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "metatune" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+midibendCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+midibendCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "midibend" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+midichanCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+midichanCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "midichan" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+miditouchCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+miditouchCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "miditouch" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+minutesCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+minutesCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "minutes" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+modwheelCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+modwheelCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "modwheel" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+mtransposeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+mtransposeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "mtranspose" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+nCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+nCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "n" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+noteCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+noteCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "note" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+nudgeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+nudgeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "nudge" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+octaveCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+octaveCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "octave" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+octaveRCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+octaveRCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "octaveR" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+octerCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+octerCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "octer" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+octersubCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+octersubCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "octersub" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+octersubsubCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+octersubsubCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "octersubsub" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+offsetCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+offsetCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "offset" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ophatdecayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ophatdecayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ophatdecay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+orbitCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+orbitCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "orbit" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+overgainCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+overgainCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "overgain" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+overshapeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+overshapeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "overshape" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+panCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+panCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "pan" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+panorientCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+panorientCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "panorient" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+panspanCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+panspanCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "panspan" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+pansplayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+pansplayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "pansplay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+panwidthCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+panwidthCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "panwidth" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+partialsCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+partialsCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "partials" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+phaserdepthCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+phaserdepthCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "phaserdepth" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+phaserrateCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+phaserrateCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "phaserrate" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+pitch1CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+pitch1CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "pitch1" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+pitch2CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+pitch2CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "pitch2" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+pitch3CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+pitch3CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "pitch3" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+polyTouchCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+polyTouchCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "polyTouch" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+portamentoCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+portamentoCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "portamento" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+progNumCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+progNumCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "progNum" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+rateCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+rateCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "rate" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+realCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+realCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "real" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+releaseCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+releaseCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "release" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+resonanceCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+resonanceCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "resonance" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ringCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ringCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ring" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ringdfCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ringdfCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ringdf" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+ringfCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+ringfCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "ringf" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+roomCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+roomCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "room" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+sagogoCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+sagogoCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "sagogo" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+sclapCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+sclapCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "sclap" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+sclavesCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+sclavesCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "sclaves" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+scramCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+scramCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "scram" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+scrashCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+scrashCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "scrash" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+secondsCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+secondsCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "seconds" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+semitoneCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+semitoneCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "semitone" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+shapeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+shapeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "shape" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+sizeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+sizeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "size" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slideCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slideCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slide" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider0CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider0CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider0" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider1CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider1CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider1" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider10CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider10CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider10" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider11CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider11CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider11" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider12CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider12CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider12" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider13CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider13CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider13" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider14CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider14CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider14" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider15CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider15CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider15" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider2CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider2CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider2" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider3CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider3CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider3" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider4CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider4CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider4" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider5CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider5CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider5" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider6CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider6CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider6" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider7CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider7CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider7" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider8CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider8CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider8" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+slider9CountTo :: String -> p.Pattern Float -> p.Pattern Controls
+slider9CountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "slider9" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+smearCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+smearCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "smear" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+songPtrCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+songPtrCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "songPtr" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+speedCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+speedCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "speed" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+squizCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+squizCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "squiz" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+stepsPerOctaveCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+stepsPerOctaveCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "stepsPerOctave" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+stutterdepthCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+stutterdepthCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "stutterdepth" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+stuttertimeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+stuttertimeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "stuttertime" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+sustainCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+sustainCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "sustain" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+sustainpedalCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+sustainpedalCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "sustainpedal" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+timescaleCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+timescaleCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "timescale" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+timescalewinCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+timescalewinCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "timescalewin" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+toCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+toCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "to" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+tomdecayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+tomdecayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "tomdecay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+tremolodepthCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+tremolodepthCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "tremolodepth" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+tremolorateCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+tremolorateCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "tremolorate" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+triodeCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+triodeCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "triode" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+tsdelayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+tsdelayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "tsdelay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+uidCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+uidCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "uid" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+valCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+valCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "val" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+vcfegintCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+vcfegintCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "vcfegint" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+vcoegintCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+vcoegintCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "vcoegint" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+velocityCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+velocityCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "velocity" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+voiceCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+voiceCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "voice" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+wavelossCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+wavelossCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "waveloss" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)
+
+xsdelayCountTo :: String -> p.Pattern Float -> p.Pattern Controls
+xsdelayCountTo name ipat = p.innerJoin (p.mapP (\i -> pStateF "xsdelay" name (\m -> case m of
+    Just x -> fmod (x + 1.0) i
+    Nothing -> 0.0)) ipat)

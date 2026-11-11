@@ -27,6 +27,7 @@ funk-midi: pat is not playing: it must be a Pattern Int or of Controls
 10900.000 off ch1 72 0
 runtime error: pattern.fast: a ratio's denominator must be positive
 runtime error: pattern.mini: expected ']' at column 7
+runtime error: pattern.mini: a factor cannot be '^name' at column 3
 11025.000 off ch1 48 0
 11025.000 on  ch1 48 100
 11025.000 on  ch1 72 100

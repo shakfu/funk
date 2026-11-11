@@ -10,7 +10,7 @@
 module stream
   ( ID(..), fromID, PlayState(..), p, _p, p_, playStack, setPreviousPatternOrSilence, only, hush, panic, list,
     mute, unmute, muteAll, unmuteAll, unsoloAll, solo, unsolo, streamSilence, once, asap, first, streamAll,
-    setF, setI, setS, setR, setB, getState, setcps, getcps, setbpm, getbpm, getnow, setCycle, resetCycles, nudgeAll, streamSetCPS, writeTempo,
+    setF, setI, setS, setR, setB, getState, resolveWindow, setcps, getcps, setbpm, getbpm, getnow, setCycle, resetCycles, nudgeAll, streamSetCPS, writeTempo,
     transition, xfade, xfadeIn, histpan, wait, waitT, jump, jumpIn, jumpIn', jumpMod, jumpMod', mortal, interpolate,
     interpolateIn, clutch, clutchIn, anticipate, anticipateIn, forId,
     _xfadeIn, _histpan, _wait, _waitT, _jump, _jumpIn, _jumpIn', _jumpMod, _jumpMod', _mortal, _interpolate,
@@ -104,7 +104,7 @@ p k pat = do
 
 -- as Tidal's withQueryControls (Map.union patControls): the slot's wins
 withPatternTime :: Float -> p.Pattern a -> p.Pattern a
-withPatternTime t pat = p.Pattern (\st -> p.queryState pat (p.State st.arc (("_t_pattern", p.CtlF t) : st.controls)))
+withPatternTime t pat = p.pattern (\st -> p.queryState pat (p.State st.arc (("_t_pattern", p.CtlF t) : st.controls)))
 
 -- silences slot k, whatever the pattern
 _p :: ID -> p.Pattern Controls ->> ()
@@ -187,6 +187,27 @@ setState name pat = case stable (p.CtlP pat) of
         then do
           freeStable sp
           error ("set: no room for control " ++ show name ++ ": 256 at most, each name under 48 bytes")
+        else freeStable (streamSetState name sp)
+
+-- a window's onsets, their state values resolved as Tidal's doTick does:
+-- in order of their parts, from the host's controls and the counters, with
+-- the state's changes kept for the next window
+resolveWindow :: [(String, p.Ctl)] -> [p.Event Controls] ->> [p.Event Controls]
+resolveWindow ctls es = if not (any (\e -> any (\(_, v) -> isState v) (controlPairs e.value)) es) then es
+  else case resolveState ctls (sortBy (\a b -> compare a.part.start b.part.start) es) of
+    (sm, es') -> do
+      mapM_ (\(k, c) -> case lookup k ctls of
+        Just old -> if old == c then () else storeCtl k c
+        Nothing -> storeCtl k c) sm
+      es'
+
+-- c as name's value, as setState keeps a pattern
+storeCtl :: String -> p.Ctl ->> ()
+storeCtl name c = case stable c of
+  sp -> if streamControl name sp == 0
+        then do
+          freeStable sp
+          error ("state: no room for control " ++ show name ++ ": 256 at most, each name under 48 bytes")
         else freeStable (streamSetState name sp)
 
 setF, setR :: String -> p.Pattern Float ->> ()
@@ -382,14 +403,9 @@ anticipateIn i t pat = transition True (_anticipateIn t) i pat
 -- pat for t cycles, from the cycle after the next multiple of t, then the slot's previous pattern
 forId i t pat = transition False (_mortalOverlay t) i pat
 
--- Tidal's sam and nextSam
-sam, nextSam :: Float -> Float
-sam x = toFloat (floor x)
-nextSam x = sam x + 1.0
-
 _mortalOverlay :: Float -> Float -> [p.Pattern a] -> p.Pattern a
 _mortalOverlay _ _ [] = p.silence
-_mortalOverlay t now (pat : ps) = case sam (now - toFloat (mod (floor now) (floor t))) + sam t of
+_mortalOverlay t now (pat : ps) = case p.sam (now - toFloat (mod (floor now) (floor t))) + p.sam t of
   s -> p.overlay (case ps of
                    [] -> p.silence
                    x : _ -> x) (p.playFor s (s + t) pat)
@@ -421,11 +437,11 @@ _histpan n _ ps = if n == 0 then p.silence else case take n ps of
 
 _wait :: Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
 _wait _ _ [] = p.silence
-_wait t now (pat : _) = p.filterWhen (\x -> x >= nextSam (now + t - 1.0)) pat
+_wait t now (pat : _) = p.filterWhen (\x -> x >= p.nextSam (now + t - 1.0)) pat
 
 _waitT :: (Float -> [p.Pattern Controls] -> p.Pattern Controls) -> Float -> Float -> [p.Pattern Controls] -> p.Pattern Controls
 _waitT _ _ _ [] = p.silence
-_waitT f t now pats = p.filterWhen (\x -> x >= nextSam (now + t - 1.0)) (f (now + t) pats)
+_waitT f t now pats = p.filterWhen (\x -> x >= p.nextSam (now + t - 1.0)) (f (now + t) pats)
 
 _jump :: Float -> [p.Pattern Controls] -> p.Pattern Controls
 _jump now pats = _jumpIn 0 now pats
@@ -435,7 +451,7 @@ _jumpIn n now pats = _wash (\x -> x) (\x -> x) (toFloat n) 0.0 0.0 now pats
 
 -- at the next cycle, plus n
 _jumpIn' :: Int -> Float -> [p.Pattern Controls] -> p.Pattern Controls
-_jumpIn' n now pats = _wash (\x -> x) (\x -> x) (nextSam now - now + toFloat n) 0.0 0.0 now pats
+_jumpIn' n now pats = _wash (\x -> x) (\x -> x) (p.nextSam now - now + toFloat n) 0.0 0.0 now pats
 
 _jumpMod :: Int -> Float -> [p.Pattern Controls] -> p.Pattern Controls
 _jumpMod n now pats = _jumpIn' ((n - 1) - mod (floor now) n) now pats
