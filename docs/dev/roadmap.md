@@ -179,7 +179,7 @@ In order:
 5. **Library (F1-F8, L3-L5, L8, M1-M3, C3):** `Fractional`, `RealFrac`, `Bool` mini-notation, scales and `Simple.hs` (done), an `Enum` class, `Time.hs`, the exported `Pattern.hs` functions, `drawLine`, steps, `^name`, `Params.hs`' generated families, monomorphic `<$>`, `<*>`, `<*`, `*>` and `<<*`, and an unqualified `pattern` import.
 6. **Review items (L7, F10, F11):** decide each. F10 and F11 done 2026-11-11.
 
-Acceptance test: the 22 patches of [patch-port.md](patch-port.md) in their Tidal 1.10 form, run unchanged but for the differences kept in [tidal-comparison.md](tidal-comparison.md), with every event matching Tidal's; and a live set on `d1`..`d4` with `hush`, `xfade` and `setcps`, played through SuperDirt.
+~~Acceptance test: the 22 patches of [patch-port.md](patch-port.md) in their Tidal 1.10 form, run unchanged but for the differences kept in [tidal-comparison.md](tidal-comparison.md), with every event matching Tidal's; and a live set on `d1`..`d4` with `hush`, `xfade` and `setcps`, played through SuperDirt.~~ Passed 2026-11-11, in release 0.11.0: all 6456 events match exactly (`lib/tidal-patches`), and a set on `d1`..`d4` played through SuperDirt, its OSC time tags checked in a capture. Open into 0.13: T3, R6, L7 and `showAll`.
 
 ## 0.13 -- SuperDirt sound in the plugin
 

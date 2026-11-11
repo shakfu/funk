@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-11
+
 ### Added
 
 - Haskell's `Enum` class in the prelude, with `succ`, `pred`, `toEnum`, `fromEnum` and ranges, for `Int`, `Float`, `Char`, `Bool`, `Ordering`, `()`, `Note` and `deriving Enum`. A `Float` range follows Haskell's rule, so `[1.0 .. 2.5]` is `[1.0, 2.0, 3.0]` and Tidal's `run 3.5` ends at 3. `Int` ranges still fuse into loops.
