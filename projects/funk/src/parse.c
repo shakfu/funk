@@ -1618,6 +1618,8 @@ static void build_binds(Decls *ds, Binds *out, Datas *datas) {
     for (int n = 0; d->k == D_FIXITY && n < d->nn; n++) {
       bool found = false;
       for (int j = start; j < out->n; j++) found |= out->a[j]->name == d->names[n];
+      for (int j = 0; j < ds->n; j++) /* a method of a class here, as Haskell's `infixr 6 <>` */
+        for (int m = 0; ds->a[j].k == D_CLASS && m < ds->a[j].cls->nsig; m++) found |= ds->a[j].cls->names[m] == d->names[n];
       if (!found) cerror(d->line, d->col, "fixity declaration for `%s` lacks a binding", d->names[n]);
     }
     if (d->k != D_SIG) continue;

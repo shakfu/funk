@@ -20,6 +20,6 @@ controls = []
 :wait 2000
 setI "i" "1 2"
 setS "v" "a o"
-setB "b" (p.fastFromList [True, False, True])
+setB "b" "t f t"
 setR "r" "0.5"
 :wait 2000

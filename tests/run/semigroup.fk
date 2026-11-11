@@ -1,0 +1,14 @@
+-- Haskell's Semigroup in the prelude, and a fixity declared for a class
+-- method, as Haskell allows: infixr 6 <>, and infixl 6 <+> below.
+class Join a where
+  (<+>) :: a -> a -> a
+
+infixl 6 <+>
+
+instance Join Int where
+  a <+> b = a * 10 + b
+
+main = do
+  print ("ab" <> "cd" <> "e", [1, 2] <> [3] <> [])
+  putStrLn ("x" <> "y" ++ "z")
+  print (1 <+> 2 <+> 3)

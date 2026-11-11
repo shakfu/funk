@@ -14,7 +14,8 @@ module control
     spin, chop, striate, striateBy, striate', gap, weave, weaveWith, weave', interlace,
     slice, randslice, splice, loopAt, hurry, smash, smash', echo, echoWith, stut, stutWith,
     stut', jux, juxBy, juxcut, juxcut', jux', jux4, ghost', ghost, contrast, contrastBy, contrastRange,
-    fix, unfix, fixRange, unfixRange, grain, squeezeJoinUp, chew, stackwith, splat, chopArc,
+    fix, unfix, fixRange, unfixRange, crunch, scratch, louder, quieter, silent, skip, left, right,
+    higher, lower, faster, slower, grain, grain', midinote, drum, drumN, squeezeJoinUp, chew, stackwith, splat, chopArc,
     midiOf, Record(..), recordsOf, sampleKey, writeControls, writeControlsWith, writeControlEvents, writeDirtWith, writeDirtEvents, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
     bank, begin, binshift, button0, button1, button10, button11, button12, button13, button14,
     button15, button2, button3, button4, button5, button6, button7, button8, button9, ccn, ccv,
@@ -142,11 +143,11 @@ modF a b = a - b * toFloat (floor (a / b))
 both :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
 both f a b = p.apP (p.mapP f a) b
 
-left :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
-left f a b = p.apLeft (p.mapP f a) b
+onLeft :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
+onLeft f a b = p.apLeft (p.mapP f a) b
 
-right :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
-right f a b = p.apRight (p.mapP f a) b
+onRight :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
+onRight f a b = p.apRight (p.mapP f a) b
 
 squeezed :: (a -> b -> c) -> p.Pattern a -> p.Pattern b -> p.Pattern c
 squeezed f a b = p.squeezeJoin (p.mapP (\x -> p.mapP (f x) b) a)
@@ -154,63 +155,63 @@ squeezed f a b = p.squeezeJoin (p.mapP (\x -> p.mapP (f x) b) a)
 (|+|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |+| b = both (+) a b
 (|+) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |+ b = left (+) a b
+a |+ b = onLeft (+) a b
 (+|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a +| b = right (+) a b
+a +| b = onRight (+) a b
 (||+) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||+ b = squeezed (+) a b
 
 (|-|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |-| b = both (-) a b
 (|-) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |- b = left (-) a b
+a |- b = onLeft (-) a b
 (-|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a -| b = right (-) a b
+a -| b = onRight (-) a b
 (||-) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||- b = squeezed (-) a b
 
 (|*|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |*| b = both (*) a b
 (|*) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |* b = left (*) a b
+a |* b = onLeft (*) a b
 (*|) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a *| b = right (*) a b
+a *| b = onRight (*) a b
 (||*) :: Num a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||* b = squeezed (*) a b
 
 (|/|) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |/| b = both (/) a b
 (|/) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |/ b = left (/) a b
+a |/ b = onLeft (/) a b
 (/|) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a /| b = right (/) a b
+a /| b = onRight (/) a b
 (||/) :: Fractional a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||/ b = squeezed (/) a b
 
 (|%|) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |%| b = both gmod a b
 (|%) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |% b = left gmod a b
+a |% b = onLeft gmod a b
 (%|) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a %| b = right gmod a b
+a %| b = onRight gmod a b
 (||%) :: Moddable a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||% b = squeezed gmod a b
 
 (|**|) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
 a |**| b = both (**) a b
 (|**) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
-a |** b = left (**) a b
+a |** b = onLeft (**) a b
 (**|) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
-a **| b = right (**) a b
+a **| b = onRight (**) a b
 (||**) :: p.Pattern Float -> p.Pattern Float -> p.Pattern Float
 a ||** b = squeezed (**) a b
 
 (|++|) :: p.Pattern String -> p.Pattern String -> p.Pattern String
 a |++| b = both (++) a b
 (|++) :: p.Pattern String -> p.Pattern String -> p.Pattern String
-a |++ b = left (++) a b
+a |++ b = onLeft (++) a b
 (++|) :: p.Pattern String -> p.Pattern String -> p.Pattern String
-a ++| b = right (++) a b
+a ++| b = onRight (++) a b
 (||++) :: p.Pattern String -> p.Pattern String -> p.Pattern String
 a ||++ b = squeezed (++) a b
 
@@ -218,7 +219,7 @@ a ||++ b = squeezed (++) a b
 (|>|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |>| b = both (flip union) a b
 (>|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a >| b = right (flip union) a b
+a >| b = onRight (flip union) a b
 (||>) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||> b = squeezed (flip union) a b
 
@@ -226,16 +227,16 @@ a ||> b = squeezed (flip union) a b
 (|<|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a |<| b = both union a b
 (|<) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a |< b = left union a b
+a |< b = onLeft union a b
 (<|) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a <| b = right union a b
+a <| b = onRight union a b
 (||<) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
 a ||< b = squeezed union a b
 
 -- structure from the left, values from the right: Tidal's |>, which the
 -- prelude's x |> f = f x keeps from this module
 (#) :: Unionable a => p.Pattern a -> p.Pattern a -> p.Pattern a
-a # b = left (flip union) a b
+a # b = onLeft (flip union) a b
 
 -- Param makers, as Tidal's: a pattern of one name's values
 pF :: String -> p.Pattern Float -> p.Pattern Controls
@@ -1511,6 +1512,74 @@ sag pat = sagogo pat
 
 s :: p.Pattern String -> p.Pattern Controls
 s pat = sound pat
+
+-- a string literal as a control pattern is a sound, as Tidal's Simple.hs:
+-- "bd*2 sn" # gain 0.8
+instance p.Parseable Controls where
+  parseBP_E str = sound (p.parseBP_E str)
+
+-- Tidal's grain': "0.2:0.3" is begin 0.2, end 0.3
+grain' :: p.Pattern String -> p.Pattern Controls
+grain' pat = grp [mF "begin", mF "end"] pat
+
+-- a MIDI note as Tidal's note, 60 being note 0
+midinote :: p.Pattern p.Note -> p.Pattern Controls
+midinote pat = note (p.mapP (\x -> x - 60) pat)
+
+-- a General MIDI drum by Tidal's two-letter name, as n: bd is 36, so n -24
+drum :: p.Pattern String -> p.Pattern Controls
+drum pat = n (p.mapP (\x -> drumN x - 60) pat)
+
+-- a drum name's General MIDI note, 0 for a name not in drumNames
+drumN :: Num a => String -> a
+drumN name = case lookup name (zip drumNames [27 .. 87]) of
+  Just k -> fromInt k
+  Nothing -> 0
+
+-- Tidal's drum names, from General MIDI's notes 27 to 87
+drumNames :: [String]
+drumNames =
+  ["hq", "sl", "ps", "pl", "st", "sq", "ml", "mb", "ab", "bd", "rm", "sn", "cp", "es", "lf", "ch",
+   "lt", "hh", "ft", "oh", "mt", "hm", "cr", "ht", "ri", "cy", "be", "ta", "sc", "cb", "cs", "vi",
+   "rc", "hb", "lb", "mh", "hc", "lc", "he", "le", "ag", "la", "ca", "ma", "sw", "lw", "sg", "lg",
+   "cl", "hi", "li", "mc", "oc", "tr", "ot", "sh", "jb", "bt", "ct", "ms", "os"]
+
+-- Tidal's Simple.hs
+crunch :: p.Pattern Controls -> p.Pattern Controls
+crunch x = x # crush 3
+
+scratch :: p.Pattern Controls -> p.Pattern Controls
+scratch x = p.rev (chop 32 x)
+
+louder :: p.Pattern Controls -> p.Pattern Controls
+louder x = x |* gain 1.2
+
+quieter :: p.Pattern Controls -> p.Pattern Controls
+quieter x = x |* gain 0.8
+
+silent :: p.Pattern Controls -> p.Pattern Controls
+silent _ = p.silence
+
+skip :: p.Pattern Controls -> p.Pattern Controls
+skip x = p.rotL 0.25 x
+
+left :: p.Pattern Controls -> p.Pattern Controls
+left x = x # pan 0
+
+right :: p.Pattern Controls -> p.Pattern Controls
+right x = x # pan 1
+
+higher :: p.Pattern Controls -> p.Pattern Controls
+higher x = x |* speed 1.5
+
+lower :: p.Pattern Controls -> p.Pattern Controls
+lower x = x |* speed 0.75
+
+faster :: p.Pattern Controls -> p.Pattern Controls
+faster x = hurry 2 x
+
+slower :: p.Pattern Controls -> p.Pattern Controls
+slower x = hurry 0.5 x
 
 rel :: p.Pattern Float -> p.Pattern Controls
 rel pat = release pat

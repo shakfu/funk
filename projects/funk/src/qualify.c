@@ -403,7 +403,10 @@ static Exports *qualify(Module *m, const char *prefix, ImportInfo *imps, int nim
     if (dot) from = qualifier(&q, intern_n(src, (size_t)(dot - src)));
     else if (!has(&q.classes, src) && unqualified(&q, NS_CLASS, src)) from = unqualified(&q, NS_CLASS, src)->from;
     q_type(&q, in->head);
-    q_sig(&q, in->ctx);
+    /* the context's classes; its type is the class applied to the head, so
+       not a type name to resolve: `instance p.Parseable T` */
+    for (int j = 0; j < in->ctx->nctx; j++) in->ctx->ctx_cls[j] = ren_class(&q, in->ctx->ctx_cls[j], in->ctx->line, in->ctx->col);
+    in->ctx->t->name = in->cls;
     dot = strrchr(in->cls, '.'); /* a module's class: its methods have its prefix */
     const char *pre = dot ? intern_n(in->cls, (size_t)(dot - in->cls)) : NULL;
     for (int j = 0; j < in->nb; j++) {

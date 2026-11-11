@@ -58,7 +58,7 @@ static bool divides(const char *n) {
 static bool shifts(const char *n) { return !strcmp(n, "shiftL") || !strcmp(n, "shiftR"); } /* fail on a negative count */
 
 static bool partial_prim(const char *n) {
-  static const char *const p[] = {"error", "chr", "floor", "ceiling", "round", "truncate", "readInt", "readFloat", "getLine",
+  static const char *const p[] = {"error", "chr", "primFloorFloat", "primCeilingFloat", "primRoundFloat", "primTruncateFloat", "readInt", "readFloat", "getLine",
                                   "primNewArray", "primNewRing", "mallocBytes", "newCString", "peekCString", "deRefStablePtr",
                                   "freeStablePtr", "waitEvent", "pollEvent", "indexString",
                                   "writeArrayString", "putArray", "getArray", "copyArray"};

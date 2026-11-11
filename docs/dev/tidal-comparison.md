@@ -27,11 +27,11 @@ Status:
 | Runtime and workflow | 6 | 1 | 0 |
 | SuperDirt sound | 8 | 0 | 1 |
 
-L1, L2 and L4 are done: string literals are patterns, controls take patterns, and patterns divide. The largest remaining gaps are scales (F1) and the runtime (R6).
+L1, L2 and L4 are done: string literals are patterns, controls take patterns, and patterns divide. The largest remaining gap is the runtime (R6).
 
 ## Language and literals
 
-**L1. Done 2026-11-09: a string literal is a pattern.** `class FromString` in the prelude, as `FromFloat`: a literal at another type calls its `fromString`, and an unfixed one is a `String`. `instance Parseable a => FromString (Pattern a)` parses it as Tidal's `parseBP_E` does, for `Int`, `Float` and `String`; `Bool` waits for M1. `lib/tidal` checks 7 cases of literals against Tidal. Generalization follows GHC's, done 2026-11-09 ([design.md](design.md#monomorphism-restriction)):
+**L1. Done 2026-11-09: a string literal is a pattern.** `class FromString` in the prelude, as `FromFloat`: a literal at another type calls its `fromString`, and an unfixed one is a `String`. `instance Parseable a => FromString (Pattern a)` parses it as Tidal's `parseBP_E` does, for `Int`, `Float`, `String`, `Note` and `Bool`. `lib/tidal` checks 7 cases of literals against Tidal. Generalization follows GHC's, done 2026-11-09 ([design.md](design.md#monomorphism-restriction)):
 
 - In a file, `riff = "0 2"` takes its type from its uses, under GHC's monomorphism restriction. A REPL or host input generalizes it, as GHCi's prompt does, so `riff :: FromString a => a` plays as `n riff` and `s riff` in later inputs, and `pat = p.fast 2 "0 2"` plays in a host as a `Pattern Int`.
 - Unlike GHCi, a generalized value is computed once per type it is used at, not at every use, and once at its default types (`Int`, `Float`, `String`) as it is defined, so its errors show then.
@@ -49,7 +49,11 @@ L1, L2 and L4 are done: string literals are patterns, controls take patterns, an
 
 **L8. Gap: no `Enum` class.** `enumFromTo` is `(Num a, Ord a)`, so `run`'s ranges follow `Int`'s rule at every type: Tidal's `run 3.5`, `[0 .. 2.5]`, ends at 3 by Haskell's `b + 1/2` rule for fractional types; funk's ends at 2. Ranges over `Char` and user types, `succ`, `pred`, `toEnum`, `fromEnum` and `deriving Enum` are missing too. Cost: `[a..b]` desugars to `enumFromTo` by name (`parse.c`), and fusion recognizes it by name (`fuse.c`); as a method it elaborates to an instance call that fusion must learn to match, or fused loops slow down. Do after L4.
 
-**L6. Kept: `|>` is the prelude's pipe.** Tidal's `|>` is `#`, and funk has `#`. Tidal patches use `#` far more than `|>` (judgement; not counted). Review this if a ported corpus shows otherwise.
+**L9. Done 2026-11-11: `RealFrac`.** `class (Fractional a, Ord a) => RealFrac a` has `floor`, `ceiling`, `round` and `truncate`, for `Float` and `Note`, so `quantise` and its kin take any `RealFrac`, as Tidal's do. The results are `Int`s, where Haskell's are any `Integral`: funk's `Integral` cannot make a value. `chromaticiseBy` takes any `(Num a, Ord a)`, as Tidal's `(Num a, Enum a, Ord a)`. `bench.py ab`: +0.1% and -0.6% geomean.
+
+**L10. Done 2026-11-11, but `Monoid`: `Semigroup`.** The prelude has `class Semigroup a` with `<>`, infixr 6, for `String` and lists, and `<>` on patterns overlays, as Tidal's instance. `Monoid`'s `mempty` is a constant method, which funk's classes do not have ([type-classes.md](type-classes.md)), so Tidal's `mempty = silence` is missing.
+
+**L6. Kept: `|>` is the prelude's pipe.** Tidal's `|>` is `#`, and funk has `#`. Of Tidal's 264 `d1 $` doc examples, 108 use `#` and 1 uses `|>` ([doc-census.md](doc-census.md)).
 
 **L7. Review: a mini-notation typo fails at definition, an unknown chord name too.** Tidal's `parseBP_E` raises its error when the pattern is queried, and an unknown chord name plays as its root ([music.md](../music.md#mini-notation)). funk reports both when the definition is evaluated, and the playing pattern goes on. Errors are reported, not played wrong. Keep this, unless a Tidal patch depends on the root fallback.
 
@@ -65,7 +69,7 @@ L1, L2 and L4 are done: string literals are patterns, controls take patterns, an
 
 Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/tidal` match ([combinators.md](combinators.md#status)). The functions inside block comments there are not exported by Tidal 1.10.3 either (checked: `preplace`, `fill`, `pequal`, `scrumple`, `toMIDI`, `striateL`, `en`, `<<~`, `<~>`). They are not gaps.
 
-**F1. Gap: `Scales.hs`.** Missing are `scale`, `scaleList`, `scaleTable`, `scaleWith`, `scaleWithList`, `getScale`, `raiseDegree(s)` and `lowerDegree(s)`, with the 75 scale tables. `toScale` and `toScale'` exist. `n (scale "major" "0 .. 7")` is common Tidal; this is the largest gap among the functions.
+**F1. Done 2026-11-11: `Scales.hs`.** `scale`, `scaleList`, `scaleTable` with Tidal's 76 scales, `getScale`, `scaleWith`, `scaleWithList`, `raiseDegree(s)` and `lowerDegree(s)`, in `lib/pattern.fk`. As in Tidal, the scales are not names of their own. `lib/tidal` checks every scale against Tidal.
 
 **F2. Gap: `Time.hs` functions are not exported.** `sam`, `nextSam`, `cyclePos`, `toTime`, `fromTime`, `hull`, `subArc`, `arcCycles`, `arcCyclesZW`, `cycleArc` and `isIn`. funk has `cycleOf` for its own use. User-written combinators call these.
 
@@ -78,7 +82,7 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are internal; port them as needed.
 
-**F4. Gap: `Simple.hs`.** 10 one-line aliases: `crunch`, `scratch`, `louder`, `quieter`, `silent`, `skip`, `faster`, `slower`, `higher` and `lower`.
+**F4. Done 2026-11-11: `Simple.hs`.** `crunch`, `scratch`, `louder`, `quieter`, `silent`, `skip`, `left`, `right`, `higher`, `lower`, `faster` and `slower`, in `lib/control.fk`. A string literal as a control pattern is a `sound`, as Tidal's `IsString ControlPattern`: `"bd*2 sn" # gain 0.8`. `control.fk`'s helpers `left` and `right` are now `onLeft` and `onRight`. `lib/tidal` checks each against Tidal; `scratch` through `rev (chop 16 ...)`, since `chop 32`'s 32nds round (T1).
 
 **F5. Gap: `Show.hs`.** `draw`, `drawLine`, `drawLineSz`, `showAll` and `stepcount`. Tidal users read `drawLine "bd*2 sn"` at the REPL to check a pattern. funk-midi prints events but has no text drawing.
 
@@ -96,7 +100,7 @@ The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are inte
 
 ## Mini-notation
 
-**M1. Gap: no `Bool` patterns.** Tidal parses `t`, `f`, `1` and `0` into a `Pattern Bool`. In Tidal's `Parseable Bool`, `euclidOffBool` fills a euclid's off steps with `False`. So `struct "t(3,8)"`, `mask "1 0 1 1"`, `sew "t f"` and `while "1 0"` are common. funk needs `p.fastFromList [True, False]`.
+**M1. Done 2026-11-11: `Bool` mini-notation.** `t` and `1` are `True`, `f` and `0` are `False`, one character each, as Tidal's `pBool`. A euclid negates its off steps, as `euclidOffBool` does. `lib/tidal` checks 25 cases against Tidal, and 8 of the 9 doc examples it blocked now match ([doc-census.md](doc-census.md)).
 
 **M2. Gap: no `^name`.** Tidal's `pVar` reads a control in mini-notation through the type's `getControl`, such as `cF_` and `cS_`. [music.md](../music.md#mini-notation) says it is missing "since there are no control inputs". That reason is stale: `cF` and the rest exist since 2026-11-08 ([controls-in.md](controls-in.md)).
 
@@ -117,7 +121,7 @@ The rest, such as `patternify*`, `applyPatToPat*` and `matchManyToOne`, are inte
 - `xCount`, `xCountTo` and `xTake` (189, 189 and 195): counters and lists that keep state across events, through `pStateF` and `pStateList`;
 - `xbus` and `xrecv` (246 and 208): SuperDirt control buses, which need S2's buses.
 
-Also missing are `midinote`, `drum`, `drumN`, `array`, `grain'`, `pB`, `pR`, `pX` and the `pState*` makers. `midinote` and `drum` are common in patches (judgement). That is 1039 names in total.
+Also missing are `array`, `pB`, `pR`, `pX` and the `pState*` makers. That is 1035 names in total. `midinote`, `drum`, `drumN` and `grain'` are done, 2026-11-11.
 
 ## Runtime and workflow
 

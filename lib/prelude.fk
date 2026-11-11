@@ -27,6 +27,12 @@ class Append a where
 class Sized a where
   length :: a -> Int
 
+-- Haskell's Semigroup: ++ for String and lists. Monoid's mempty would be a
+-- constant method, which classes do not have
+infixr 6 <>
+class Semigroup a where
+  (<>) :: a -> a -> a
+
 class Num a where
   (+), (-), (*) :: a -> a -> a
   negate, abs :: a -> a
@@ -46,6 +52,10 @@ class (Num a, FromFloat a) => Fractional a where
   recip :: a -> a
   x / y = x * recip y
   recip x = 1.0 / x
+
+-- rounding to an Int, as Haskell's RealFrac, whose results are any Integral
+class (Fractional a, Ord a) => RealFrac a where
+  floor, ceiling, round, truncate :: a -> Int
 
 -- Int, and the C integer types of foreign imports (CInt, CSize, ...)
 class Num a => Integral a where
@@ -92,6 +102,11 @@ instance FromFloat Float where
   fromFloat x = x
 instance Fractional Float where
   (/) = primDivFloat
+instance RealFrac Float where
+  floor = primFloorFloat
+  ceiling = primCeilingFloat
+  round = primRoundFloat
+  truncate = primTruncateFloat
 
 instance FromString String where
   fromString s = s
@@ -123,6 +138,11 @@ instance Append [a] where
   (x:xs) ++ ys = x : (xs ++ ys)
 instance Sized [a] where
   length xs = foldl (\n _ -> n + 1) 0 xs
+
+instance Semigroup String where
+  (<>) = primAppendString
+instance Semigroup [a] where
+  xs <> ys = xs ++ ys
 
 instance Eq a => Eq [a] where
   [] == [] = True

@@ -42,7 +42,6 @@ As Boot.hs's `setF`, `setI`, `setS`, `setR` and `setB` (`Stream/UI.hs`, `streamS
 - `setF "x" pat` makes `pat` the value of control `x`, from the next window. `cF` and the rest query it with no controls, as Tidal's `valueToPattern` and `queryArc` do.
 - A control's value is the latest set, by `setF` or by OSC `/ctrl`, as in Tidal's one map. Redefining `controls` keeps `setF`'s values.
 - `setR` takes `Float`s, as funk has no `Rational`; Tidal's `getF` and `getR` read either alike.
-- `setB` of a literal waits for `Bool` patterns (M1 in [tidal-comparison.md](tidal-comparison.md)).
 - `getState` returns a `Maybe Ctl`, where Tidal's returns a `Maybe Value`.
 - The host keeps 256 controls, each name under 48 bytes; Tidal has no limit.
 

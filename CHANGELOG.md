@@ -6,6 +6,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Haskell's `Semigroup` in the prelude: `<>`, infixr 6, for `String` and lists. On patterns it overlays, as in Tidal: `sound ("bd sn:2" <> "cp*3")`. `Monoid` waits for constant class methods.
+
+- A fixity declaration may name a class method of the same module, as in Haskell: `infixr 6 <>`. It was rejected as lacking a binding.
+
+- Tidal's scales: `scale`, `scaleList`, `scaleTable` with its 76 scales, `getScale`, `scaleWith`, `scaleWithList`, `raiseDegree`, `lowerDegree`, `raiseDegrees` and `lowerDegrees`. `lib/tidal` checks every scale against Tidal.
+
+  ```haskell
+  d1 $ n (scale "<major ritusen>" "0 .. 7") # s "superpiano"
+  ```
+
+- `class (Fractional a, Ord a) => RealFrac a` in the prelude, with `floor`, `ceiling`, `round` and `truncate`, for `Float` and `Note`. `quantise`, `qfloor`, `qceiling` and `qround` take any `RealFrac`, as Tidal's do. The results are `Int`s, not Haskell's any `Integral`, since funk's `Integral` cannot make a value.
+
+- Tidal's `Simple.hs` in `lib/control.fk`: `crunch`, `scratch`, `louder`, `quieter`, `silent`, `skip`, `left`, `right`, `higher`, `lower`, `faster` and `slower`. A string literal as a control pattern is a `sound`, as in Tidal: `euclidFull 3 7 "realclaps" ("realclaps" # gain 0.8)`.
+
+- Tidal's `grain'`, `midinote`, `drum` and `drumN`: `drum "bd*2 [~ hh]"` plays General MIDI drums by Tidal's two-letter names.
+
+- `chromaticiseBy` takes any `(Num a, Ord a)` pattern, as Tidal's does, so `up (chromaticiseBy "0 1" "0 3")` works on notes.
+
+- `Bool` mini-notation, as Tidal's: `t` and `1` are `True`, `f` and `0` are `False`, and a euclid's off steps are `False`. `lib/tidal` checks 25 cases against Tidal.
+
+  ```haskell
+  d1 $ struct "t(3,8)" $ s "cp"
+  d2 $ mask "1 0 1 1" $ s "hh*8"
+  ```
+
+- The test `lib/tidal-docs` plays the 248 `d1 $` examples of Tidal's doc comments that Tidal runs through `funk-midi --dirt` and Tidal's `toOSC`. 234 send what Tidal sends, and 13 are rejected ([docs/dev/doc-census.md](docs/dev/doc-census.md)).
+
 - Speed factors are `Float`s, as Tidal's are `Rational`s: `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze` and the rest, and `_fast`, `_slow`, `_ply` and `_segment`. Each factor is its nearest ratio with a denominator up to 65536, so `slow "<1.5 0.75>"` is exact in ticks. A `Pattern Int` factor needs `toFloat <$>`, as Tidal's needs `fromIntegral <$>`. A negative `slow` now reverses, as Tidal's does, where it raised an error. `lib/tidal` checks 17 cases against Tidal ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) T2).
 
   ```haskell
@@ -93,6 +120,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A sample folder or file path may start with `~/`, for `$HOME`: `d.kit "~/.local/share/funk/Dirt-Samples" ["bd"]`. The plugin's working directory is its host's, so a relative path never worked there.
 
 ### Fixed
+
+- An instance of a class named with its module's qualifier, `instance p.Parseable Controls`, was rejected: "module `pattern` does not export type `Parseable`". The class applied to the head is kept as a type, and qualify resolved its name as one. `tests/run/modinstance.fk` covers it.
 
 - A function whose signature has `->>` could not call a pure parameter inside an effectful lambda: `g f = mapM_ (\x -> print (f x)) xs` was rejected. The call through `f`'s signature `->` bound the lambda's still unknown effect to it, so the later `print` failed; it is now checked once the lambda's effect is known.
 

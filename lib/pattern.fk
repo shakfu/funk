@@ -547,6 +547,10 @@ fastAppend a b = _fastInt 2 (append a b)
 overlay :: Pattern a -> Pattern a -> Pattern a
 overlay a b = stack [a, b]
 
+-- as Tidal's: <> overlays
+instance Semigroup (Pattern a) where
+  a <> b = overlay a b
+
 -- one event at a time: an event starting while another sounds starts when
 -- it ends, as Tidal's mono
 mono :: Pattern a -> Pattern a
@@ -1733,6 +1737,143 @@ loopFirst p = Pattern (\qst -> let q = qst.arc in concatMap (\s -> case div s.st
 timeLoop :: Pattern Float -> Pattern a -> Pattern a
 timeLoop np p = outside np loopFirst p
 
+-- Tidal's Scales.hs: notes of a named scale by index, 12 to an octave
+scale :: Fractional a => Pattern String -> Pattern Int -> Pattern a
+scale sp p = getScale scaleTable sp p
+
+-- as scale, from table; an unknown name is [0]
+getScale :: Fractional a => [(String, [a])] -> Pattern String -> Pattern Int -> Pattern a
+getScale table sp p = scaleNotes (\name -> fromMaybe [0] (lookup name table)) sp p
+
+-- as scale, with each scale changed by f first, then its repeats dropped
+scaleWith :: (Eq a, Fractional a) => Pattern String -> ([a] -> [a]) -> Pattern Int -> Pattern a
+scaleWith sp f p = getScaleMod scaleTable sp f p
+
+-- scaleWith of each f in turn, a cycle each
+scaleWithList :: (Eq a, Fractional a) => Pattern String -> [[a] -> [a]] -> Pattern Int -> Pattern a
+scaleWithList sp fs p = slowcat (map (\f -> scaleWith sp f p) fs)
+
+getScaleMod :: (Eq a, Fractional a) => [(String, [a])] -> Pattern String -> ([a] -> [a]) -> Pattern Int -> Pattern a
+getScaleMod table sp f p = scaleNotes (\name -> uniq (f (fromMaybe [0] (lookup name table)))) sp p
+
+-- each index's note in the scale its name names, structure from the indices
+scaleNotes :: Num a => (String -> [a]) -> Pattern String -> Pattern Int -> Pattern a
+scaleNotes named sp p = apLeft (mapP (\x name -> case named name of
+    s -> cyc s x + fromInt (12 * div x (length s))) p) sp
+
+-- a sorted list without its adjacent repeats, as Tidal's
+uniq :: Eq a => [a] -> [a]
+uniq l = case l of
+  h1 : h2 : tl -> if h1 == h2 then h1 : uniq tl else h1 : uniq (h2 : tl)
+  _ -> l
+
+-- degree n of a scale a semitone up, or the last if n is past it
+raiseDegree :: Fractional a => Int -> [a] -> [a]
+raiseDegree n l = degreesBy 1 n n l
+
+lowerDegree :: Fractional a => Int -> [a] -> [a]
+lowerDegree n l = degreesBy (-1) n n l
+
+-- degrees n to m a semitone up
+raiseDegrees :: Fractional a => Int -> Int -> [a] -> [a]
+raiseDegrees n m l = degreesBy 1 n m l
+
+lowerDegrees :: Fractional a => Int -> Int -> [a] -> [a]
+lowerDegrees n m l = degreesBy (-1) n m l
+
+degreesBy :: Fractional a => a -> Int -> Int -> [a] -> [a]
+degreesBy d n m l = case l of
+  [] -> error "pattern.degrees: a degree is not in the scale"
+  [h] -> [h + d]
+  h : tl -> if n == 0 && m == 0 then (h + d) : tl
+    else if n == 0 then (h + d) : degreesBy d 0 (m - 1) tl
+    else h : degreesBy d (n - 1) (m - 1) tl
+
+-- the scale names, space-separated
+scaleList :: String
+scaleList = unwords (map fst (scaleTable :: [(String, [Float])]))
+
+-- Tidal's 76 scales by name, in semitones
+scaleTable :: Fractional a => [(String, [a])]
+scaleTable =
+  [ ("minPent", [0, 3, 5, 7, 10])
+  , ("majPent", [0, 2, 4, 7, 9])
+  , ("ritusen", [0, 2, 5, 7, 9])
+  , ("egyptian", [0, 2, 5, 7, 10])
+  , ("kumai", [0, 2, 3, 7, 9])
+  , ("hirajoshi", [0, 2, 3, 7, 8])
+  , ("iwato", [0, 1, 5, 6, 10])
+  , ("chinese", [0, 4, 6, 7, 11])
+  , ("indian", [0, 4, 5, 7, 10])
+  , ("pelog", [0, 1, 3, 7, 8])
+  , ("prometheus", [0, 2, 4, 6, 11])
+  , ("scriabin", [0, 1, 4, 7, 9])
+  , ("gong", [0, 2, 4, 7, 9])
+  , ("shang", [0, 2, 5, 7, 10])
+  , ("jiao", [0, 3, 5, 8, 10])
+  , ("zhi", [0, 2, 5, 7, 9])
+  , ("yu", [0, 3, 5, 7, 10])
+  , ("whole", [0, 2, 4, 6, 8, 10])
+  , ("wholetone", [0, 2, 4, 6, 8, 10])
+  , ("augmented", [0, 3, 4, 7, 8, 11])
+  , ("augmented2", [0, 1, 4, 5, 8, 9])
+  , ("hexMajor7", [0, 2, 4, 7, 9, 11])
+  , ("hexDorian", [0, 2, 3, 5, 7, 10])
+  , ("hexPhrygian", [0, 1, 3, 5, 8, 10])
+  , ("hexSus", [0, 2, 5, 7, 9, 10])
+  , ("hexMajor6", [0, 2, 4, 5, 7, 9])
+  , ("hexAeolian", [0, 3, 5, 7, 8, 10])
+  , ("major", [0, 2, 4, 5, 7, 9, 11])
+  , ("ionian", [0, 2, 4, 5, 7, 9, 11])
+  , ("dorian", [0, 2, 3, 5, 7, 9, 10])
+  , ("phrygian", [0, 1, 3, 5, 7, 8, 10])
+  , ("lydian", [0, 2, 4, 6, 7, 9, 11])
+  , ("mixolydian", [0, 2, 4, 5, 7, 9, 10])
+  , ("aeolian", [0, 2, 3, 5, 7, 8, 10])
+  , ("minor", [0, 2, 3, 5, 7, 8, 10])
+  , ("locrian", [0, 1, 3, 5, 6, 8, 10])
+  , ("harmonicMinor", [0, 2, 3, 5, 7, 8, 11])
+  , ("harmonicMajor", [0, 2, 4, 5, 7, 8, 11])
+  , ("melodicMinor", [0, 2, 3, 5, 7, 9, 11])
+  , ("melodicMinorDesc", [0, 2, 3, 5, 7, 8, 10])
+  , ("melodicMajor", [0, 2, 4, 5, 7, 8, 10])
+  , ("bartok", [0, 2, 4, 5, 7, 8, 10])
+  , ("hindu", [0, 2, 4, 5, 7, 8, 10])
+  , ("todi", [0, 1, 3, 6, 7, 8, 11])
+  , ("purvi", [0, 1, 4, 6, 7, 8, 11])
+  , ("marva", [0, 1, 4, 6, 7, 9, 11])
+  , ("bhairav", [0, 1, 4, 5, 7, 8, 11])
+  , ("ahirbhairav", [0, 1, 4, 5, 7, 9, 10])
+  , ("superLocrian", [0, 1, 3, 4, 6, 8, 10])
+  , ("romanianMinor", [0, 2, 3, 6, 7, 9, 10])
+  , ("hungarianMinor", [0, 2, 3, 6, 7, 8, 11])
+  , ("neapolitanMinor", [0, 1, 3, 5, 7, 8, 11])
+  , ("enigmatic", [0, 1, 4, 6, 8, 10, 11])
+  , ("spanish", [0, 1, 4, 5, 7, 8, 10])
+  , ("leadingWhole", [0, 2, 4, 6, 8, 10, 11])
+  , ("lydianMinor", [0, 2, 4, 6, 7, 8, 10])
+  , ("neapolitanMajor", [0, 1, 3, 5, 7, 9, 11])
+  , ("locrianMajor", [0, 2, 4, 5, 6, 8, 10])
+  , ("diminished", [0, 1, 3, 4, 6, 7, 9, 10])
+  , ("octatonic", [0, 1, 3, 4, 6, 7, 9, 10])
+  , ("diminished2", [0, 2, 3, 5, 6, 8, 9, 11])
+  , ("octatonic2", [0, 2, 3, 5, 6, 8, 9, 11])
+  , ("messiaen1", [0, 2, 4, 6, 8, 10])
+  , ("messiaen2", [0, 1, 3, 4, 6, 7, 9, 10])
+  , ("messiaen3", [0, 2, 3, 4, 6, 7, 8, 10, 11])
+  , ("messiaen4", [0, 1, 2, 5, 6, 7, 8, 11])
+  , ("messiaen5", [0, 1, 5, 6, 7, 11])
+  , ("messiaen6", [0, 2, 4, 5, 6, 8, 10, 11])
+  , ("messiaen7", [0, 1, 2, 3, 5, 6, 7, 8, 9, 11])
+  , ("chromatic", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  , ("bayati", [0, 1.5, 3, 5, 7, 8, 10])
+  , ("hijaz", [0, 1, 4, 5, 7, 8.5, 10])
+  , ("sikah", [0, 1.5, 3.5, 5.5, 7, 8.5, 10.5])
+  , ("rast", [0, 2, 3.5, 5, 7, 9, 10.5])
+  , ("saba", [0, 1.5, 3, 4, 6, 8, 10])
+  , ("iraq", [0, 1.5, 3.5, 5, 6.5, 8.5, 10.5])
+  ]
+
 -- notes from a scale, by index: 12 to an octave, or o
 toScale :: Num a => [a] -> Pattern Int -> Pattern a
 toScale s p = toScale' 12 s p
@@ -2013,16 +2154,16 @@ _pickF :: Int -> [Pattern a -> Pattern a] -> Pattern a -> Pattern a
 _pickF i fs p = (cyc fs i) p
 
 -- values rounded to the nearest 1 / n, or down, or up
-quantise :: Float -> Pattern Float -> Pattern Float
-quantise n p = mapP (\v -> toFloat (round (v * n)) / n) p
+quantise :: RealFrac a => a -> Pattern a -> Pattern a
+quantise n p = mapP (\v -> fromInt (round (v * n)) / n) p
 
-qfloor :: Float -> Pattern Float -> Pattern Float
-qfloor n p = mapP (\v -> toFloat (floor (v * n)) / n) p
+qfloor :: RealFrac a => a -> Pattern a -> Pattern a
+qfloor n p = mapP (\v -> fromInt (floor (v * n)) / n) p
 
-qceiling :: Float -> Pattern Float -> Pattern Float
-qceiling n p = mapP (\v -> toFloat (ceiling (v * n)) / n) p
+qceiling :: RealFrac a => a -> Pattern a -> Pattern a
+qceiling n p = mapP (\v -> fromInt (ceiling (v * n)) / n) p
 
-qround :: Float -> Pattern Float -> Pattern Float
+qround :: RealFrac a => a -> Pattern a -> Pattern a
 qround n p = quantise n p
 
 inv :: Pattern Bool -> Pattern Bool
@@ -2097,13 +2238,13 @@ necklace :: Float -> [Int] -> Pattern Bool
 necklace perCycle xs = slowT (toFloat (sum xs) / perCycle) (fastFromList (concatMap (\x -> True : replicate (x - 1) False) xs))
 
 -- each value followed by the n values above it, or below, in its event
-chromaticiseBy :: Pattern Int -> Pattern Int -> Pattern Int
+chromaticiseBy :: (Num a, Ord a) => Pattern a -> Pattern a -> Pattern a
 chromaticiseBy np p = innerJoin (mapP (\n -> _chromaticiseBy n p) np)
 
-_chromaticiseBy :: Int -> Pattern Int -> Pattern Int
+_chromaticiseBy :: (Num a, Ord a) => a -> Pattern a -> Pattern a
 _chromaticiseBy n p = squeezeJoin (mapP (\v -> fastcat (map atom (if n >= 0 then [v .. v + n] else reverse [v + n .. v]))) p)
 
-chromaticizeBy :: Pattern Int -> Pattern Int -> Pattern Int
+chromaticizeBy :: (Num a, Ord a) => Pattern a -> Pattern a -> Pattern a
 chromaticizeBy np p = chromaticiseBy np p
 
 -- _euclid, without its negative form, as Tidal's _euclid'
@@ -2434,6 +2575,11 @@ instance Parseable Float where
 instance Parseable String where
   parseBP_E s = miniS s
 
+-- t and 1 are True, f and 0 False, one character each, as Tidal's pBool; a
+-- euclid's off steps are negated, as Tidal's euclidOffBool
+instance Parseable Bool where
+  parseBP_E s = mapP mvBool (mParse MBool s)
+
 -- a note, as Tidal's Note: a Float whose mini-notation reads note names
 -- first, so "e" is note 4, where a Float's reads the ratio 1/8
 data Note = Note Float deriving (Eq, Ord)
@@ -2466,6 +2612,12 @@ instance Fractional Note where
   Note a / Note b = Note (a / b)
   recip (Note a) = Note (recip a)
 
+instance RealFrac Note where
+  floor (Note a) = floor a
+  ceiling (Note a) = ceiling a
+  round (Note a) = round a
+  truncate (Note a) = truncate a
+
 instance Parseable Note where
   parseBP_E s = mapP Note (miniN s)
 
@@ -2481,12 +2633,12 @@ mParse mode s = case unpack s of
       r -> mFail (length cs) r "unexpected character"
 
 -- what a parse yields: values, chord intervals, or chord modifiers
-data MV = VInt Int | VRat Int Int | VStr [Char] | VChord [Int] | VMods [Mod]
+data MV = VInt Int | VRat Int Int | VStr [Char] | VBool Bool | VChord [Int] | VMods [Mod]
 data Mod = Range Int | Drop Int | Invert | Open
 -- MInt's note names are MIDI's, c4 60; MTInt's, MNum's and MNote's Tidal's,
 -- c5 0. MNum is Tidal's Double, whose ratio letters, such as e for 1/8, come
 -- before note names; MNote is its Note, whose note names come first.
-data MMode = MInt | MTInt | MNum | MNote | MRat | MStr | MName | MMod deriving (Eq)
+data MMode = MInt | MTInt | MNum | MNote | MRat | MStr | MBool | MName | MMod deriving (Eq)
 
 -- a mode whose atoms are numbers
 mNumeric :: MMode -> Bool
@@ -2506,6 +2658,11 @@ mvStr :: MV -> String
 mvStr v = case v of
   VStr cs -> pack cs
   _ -> error "pattern.mini: not a name"
+
+mvBool :: MV -> Bool
+mvBool v = case v of
+  VBool b -> b
+  _ -> error "pattern.mini: not a Bool"
 
 mvChord :: MV -> [Int]
 mvChord v = case v of
@@ -2572,8 +2729,8 @@ mFeet n mode acc done (sd, cs) = case mSkip cs of
 -- after a part: '..' and a part, or weights, or copies
 mAfter :: Int -> MMode -> Pattern MV -> (Int, [Char]) -> ([((Int, Int), Pattern MV)], (Int, [Char]))
 mAfter n mode p (sd, cs) = case cs of
-  '.' : '.' : r -> if mode == MRat || not (mNumeric mode || mode == MStr) then mFail n cs "'..' needs numbers or names" else case mPart n mode (sd, mSkip r) of
-    (b, st2) -> ([((1, 1), if mode == MStr then fastcat [p, b] else mRange p b)], st2)
+  '.' : '.' : r -> if mode == MRat || not (mNumeric mode || mode == MStr || mode == MBool) then mFail n cs "'..' needs numbers or names" else case mPart n mode (sd, mSkip r) of
+    (b, st2) -> ([((1, 1), if mode == MStr || mode == MBool then fastcat [p, b] else mRange p b)], st2)
   c : _ -> if c == '@' || c == '_' then mWeights n p (1, 1) (sd, cs)
     else if c == '!' then mCopies n p 1 (sd, cs)
     else ([((1, 1), p)], (sd, cs))
@@ -2608,7 +2765,7 @@ mSteps steps = case foldl ratAdd (0, 1) (map fst steps) of
 -- a term, then its modifiers, adjacent
 mPart :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
 mPart n mode st = case mBase n mode st of
-  (p, st2) -> mMods n p st2
+  (p, st2) -> mMods n (mode == MBool) p st2
 
 mBase :: Int -> MMode -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
 mBase n mode (sd, cs) = case cs of
@@ -2637,28 +2794,30 @@ mClose n c cs = case mSkip cs of
   [] -> mFail n [] ("expected " ++ show c)
 
 -- '*', '/', '(', '?'; a factor is a term without modifiers, as Tidal's
-mMods :: Int -> Pattern MV -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
-mMods n p (sd, cs) = case cs of
+mMods :: Int -> Bool -> Pattern MV -> (Int, [Char]) -> (Pattern MV, (Int, [Char]))
+mMods n bool p (sd, cs) = case cs of
   '*' : r -> case mBase n MRat (sd, mSkip r) of
-    (k, st2) -> mMods n (innerJoin (mapP (\v -> case mvRat v of
+    (k, st2) -> mMods n bool (innerJoin (mapP (\v -> case mvRat v of
         (a, b) -> _fastR a b p) k)) st2
   '/' : r -> case mBase n MRat (sd, mSkip r) of
-    (k, st2) -> mMods n (innerJoin (mapP (\v -> case mvRat v of
+    (k, st2) -> mMods n bool (innerJoin (mapP (\v -> case mvRat v of
         (a, b) -> _slowR a b p) k)) st2
   '(' : r -> case mSeq n MInt (sd, r) of
     ((k, _), (sd2, r2)) -> case mSkip r2 of
       ',' : r3 -> case mSeq n MInt (sd2, r3) of
         ((m, _), (sd3, r4)) -> case mSkip r4 of
           ',' : r5 -> case mSeq n MInt (sd3, r5) of
-            ((rot, _), (sd4, r6)) -> mMods n (mEuclid k m rot p) (sd4, mClose n ')' r6)
-          r5 -> mMods n (mEuclid k m (atom (VInt 0)) p) (sd3, mClose n ')' r5)
+            ((rot, _), (sd4, r6)) -> mMods n bool (mEuclid bool k m rot p) (sd4, mClose n ')' r6)
+          r5 -> mMods n bool (mEuclid bool k m (atom (VInt 0)) p) (sd3, mClose n ')' r5)
       r3 -> mFail n r3 "expected ','"
   '?' : r -> case (if any isDigit (take 1 r) then mRatio n r else ((1, 2), r)) of
-    ((a, b), r2) -> mMods n (degradeWith sd a b p) (sd + 1, r2)
+    ((a, b), r2) -> mMods n bool (degradeWith sd a b p) (sd + 1, r2)
   _ -> (p, (sd, cs))
 
-mEuclid :: Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV
-mEuclid k m r p = innerJoin (apP (apP (mapP (\a b c -> _euclidOff (mvInt a) (mvInt b) (mvInt c) p) k) m) r)
+mEuclid :: Bool -> Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV -> Pattern MV
+mEuclid bool k m r p = innerJoin (apP (apP (mapP (\a b c -> if bool
+    then mapP VBool (_euclidOffBool (mvInt a) (mvInt b) (mvInt c) (mapP mvBool p))
+    else _euclidOff (mvInt a) (mvInt b) (mvInt c) p) k) m) r)
 
 -- a to b by 1, or b to a reversed, as Tidal's enumFromTo'; ratios as
 -- Haskell's for Double, up to b + 1/2
@@ -2693,6 +2852,11 @@ mAtom n mode (sd, cs) = case mode of
       else (case mRatio n cs of
         ((a, b), r2) -> (atom (VRat a b), (sd, r2)))
     [] -> mFail n cs "expected a number"
+  MBool -> case cs of
+    c : r -> if c == 't' || c == '1' then (atom (VBool True), (sd, r))
+      else if c == 'f' || c == '0' then (atom (VBool False), (sd, r))
+      else mFail n cs "expected t, f, 1 or 0"
+    [] -> mFail n cs "expected t, f, 1 or 0"
   MStr -> case cs of
     c : r -> if isAlpha c || isDigit c then (case span (\x -> isAlpha x || isDigit x || elem x (unpack ":.-_")) r of
         (name, r2) -> (atom (VStr (c : name)), (sd, r2)))

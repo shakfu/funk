@@ -33,4 +33,4 @@ After T2: 19 of 22 run unchanged, and all 22 with `toRational` stubbed as `Float
 
 ## Limits
 
-The patches date from about 2014. They use `striate`, `spread'` and `weave` heavily and none of `n "0 .. 7"`, scales, `struct "t(3,8)"`, `arp`, `chop` or `sometimesBy`. So they cannot rank F1-F8 or M1. tidal-core 1.10.2's and tidal 1.10.3's doc comments hold 253 `d1 $` examples in the current API: `n` 51 times, `every` 18, `chop` 12, `struct`, `mask` and `sew` 11.
+The patches date from about 2014. They use `striate`, `spread'` and `weave` heavily and none of `n "0 .. 7"`, scales, `struct "t(3,8)"`, `arp`, `chop` or `sometimesBy`. So they cannot rank F1-F8 or M1. tidal-core 1.10.2's and tidal 1.10.3's doc comments hold 253 `d1 $` examples in the current API: `n` 51 times, `every` 18, `chop` 12, `struct`, `mask` and `sew` 11. [doc-census.md](doc-census.md) runs them.

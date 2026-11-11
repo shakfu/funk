@@ -1,0 +1,10 @@
+-- An instance of an imported module's class, the class named qualified
+-- (docs/dev/modules.md), for a type of the program's own.
+import modules.geometry
+
+data Square = Square Float
+
+instance geometry.HasArea Square where
+  area (Square a) = a * a
+
+main = print (geometry.area (Square 3.0), geometry.area (geometry.Poly []))
