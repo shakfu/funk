@@ -28,7 +28,22 @@
 /* What every kernel may read. Fields are only ever added at the end. */
 typedef struct {
   double rate; /* frames per second */
+  double done; /* a kernel of an event sets it nonzero to end the event at
+                  its block's end, as SuperCollider's doneAction 14 frees a
+                  synth's group; of an orbit's effect, to pause it, as
+                  doneAction 1; elsewhere it is ignored */
+  double block; /* in the event layer, its blocks rendered: scsynth's mBufCounter */
+  double *rgen; /* the player's random generator, scsynth's world RGen
+                   (SC_RGen.h): s1, s2 and s3, each a uint32 in a double */
+  double ctor; /* nonzero in a UGen's constructor call (funk_graph_ugen) */
+  double freeself; /* a kernel of an event's stage sets it nonzero to free
+                      the stage at its block's end, as doneAction 2 frees a
+                      synth: from then on it is skipped and the chain passes
+                      it unchanged; elsewhere it is ignored */
 } funk_context;
+
+/* The event layer: orbits, channels per orbit, and its block in frames. */
+enum { FUNK_ORBITS = 16, FUNK_CHANNELS = 2, FUNK_EVENT_BLOCK = 64 };
 
 typedef void (*funk_kernel)(void *state, float **in, float *out, int n, const funk_context *cx);
 
@@ -88,6 +103,27 @@ int funk_graph_control(funk_graph *g, float value);
    Not after the graph is played. */
 int funk_graph_name(funk_graph *g, int node, const char *name);
 
+/* Adds a bus: a node whose output is channel of orbit, 0 to FUNK_ORBITS - 1
+   and 0 to FUNK_CHANNELS - 1, of the player's events. Its index, or -1 if
+   out of range or memory runs out. A graph with no bus has every orbit
+   added to its output instead. */
+int funk_graph_bus(funk_graph *g, int orbit, int channel);
+
+/* Adds an input of a template: channel, 0 to FUNK_CHANNELS - 1, of its
+   event's chain, which the stages before it wrote; in an orbit's effect,
+   up to 2 * FUNK_CHANNELS - 1, the dry bus, then the effect bus. In a graph that is
+   played, silence. Its index, or -1. */
+int funk_graph_in(funk_graph *g, int channel);
+
+/* Marks kernel node `node` a UGen, constructed as scsynth constructs a
+   synth's (Graph_FirstCalc): in a template, before its stage's first
+   block, each UGen in order is called once for 1 frame with ctor set,
+   reading its inputs' first frame: a control's value, the chain's, or an
+   earlier UGen's constructor frame. In a played graph there is no such
+   call. 0, or -1 if node is not a kernel node of g. Not after the graph
+   is played. */
+int funk_graph_ugen(funk_graph *g, int node);
+
 /* Makes node the output of the graph's next channel; the channel, or -1
    if node is not in g or memory runs out. A graph without outputs has one:
    its last node. Not after the graph is played. */
@@ -134,6 +170,81 @@ void funk_player_render(funk_player *p, float *out, int n);
 /* Once the audio thread has stopped calling funk_player_render. */
 void funk_player_free(funk_player *p);
 
+/* Templates (docs/dev/dirt-sound.md): graphs that are not played but made
+   anew for each event, from a fixed pool of slots, on the audio thread.
+   An event's chain is one source, then the modules its parameters select,
+   in the order added; each stage reads the chain through its inputs
+   (funk_graph_in) and replaces it with its outputs. The chain renders in
+   blocks of FUNK_EVENT_BLOCK frames into its orbit, from the start of the
+   block that holds its frame, its output delayed to that frame, as
+   scsynth's OffsetOut. An event ends when a kernel sets its context's
+   done. */
+typedef struct funk_templates funk_templates;
+
+/* A set of templates, each stage of an event in a slot; NULL if slots is
+   not positive or memory runs out. Templates whose sizes round up to one
+   power of two share a size class, of slots slots, or fewer, at least
+   one, if they would pass 8 MB, scsynth's default real-time memory. An
+   event is dropped when a class it needs is full. */
+funk_templates *funk_templates_new(int slots);
+
+/* Adds g, which the set then owns, as the template name. "s.KEY" is a
+   source, which an event names; "m.NAME" is a module, which an event
+   with a nonzero parameter "~NAME" runs. "o.NAME" and "a.NAME" are an
+   orbit's effects, as SuperDirt's GlobalDirtEffect: each orbit has one of
+   each, in the order added, after the orbit's events in each block. Their
+   inputs 0 and 1 read the orbit's dry bus, 2 and 3 its effect bus. With 4
+   outputs, an effect replaces both; with 2, it is the monitor, and its
+   outputs are the orbit's. A kernel that sets done pauses its effect. An
+   event resumes an "o." effect that has one of its parameters, and an
+   "a." effect always; it sets a parameter whose value differs from the
+   last such event's, to 0 if the event lacks it, and its control
+   "resumed" to 1 for one block. A new set keeps an effect's state, paused
+   or not, if its graph and name are unchanged. g must have been made with a
+   max_block of at least FUNK_EVENT_BLOCK, have no bus and not be played.
+   0, or -1, freeing g, if not, if name is taken, or memory runs out. */
+int funk_templates_add(funk_templates *t, const char *name, funk_graph *g);
+
+/* Seeds the player's random generator from the next block, as scsynth's
+   RandSeed does (RGen::init). A player is seeded from the time. */
+void funk_player_seed(funk_player *p, uint32_t seed);
+
+/* A set never given to a player. */
+void funk_templates_free(funk_templates *t);
+
+/* Host's thread: events from the next block use t; NULL ends new events.
+   The player owns t from here. Events already playing keep their set,
+   which is freed once they end. 0, or -1, freeing t, if memory runs out. */
+int funk_player_templates(funk_player *p, funk_templates *t);
+
+/* The host's thread or the audio thread, between renders: whether the
+   player's set has the template name. */
+bool funk_player_has_template(funk_player *p, const char *name);
+
+/* Host's thread, in time order: an event from frame of the source
+   template source, with parameters names[i] = values[i]. Each sets the
+   control of its name in every stage; "orbit" picks the orbit, 0 by
+   default; "cut" a cut group, as SuperDirt's; and each also sets the
+   played graph's control "oORBIT.NAME", a global effect's parameter,
+   from frame on. False if the queue, 256 events, is full or n is over 48. */
+bool funk_player_event(funk_player *p, int64_t frame, const char *source, int n, const char *const *names, const float *values);
+
+/* Host's thread: funk_player_event in parts, for callers without arrays
+   of strings, such as funk: begin, each parameter, then end, which sends
+   it. False if a part does not fit, or, from end, if the queue is full. */
+bool funk_player_event_begin(funk_player *p, int64_t frame, const char *source);
+bool funk_player_event_param(funk_player *p, const char *name, float value);
+bool funk_player_event_end(funk_player *p);
+
+/* The audio thread, between renders, in time order: funk_player_event. */
+bool funk_player_event_audio(funk_player *p, int64_t frame, const char *source, int n, const char *const *names,
+                             const float *values);
+
+/* Any thread: events playing, and those dropped because the pool or the
+   list of events was full, or their source was missing, and those that
+   came after their block had rendered, which start at the next. */
+void funk_player_event_counts(funk_player *p, int *live, uint64_t *dropped, uint64_t *late);
+
 /* Notes on the voices of lib/dsp.fk's d.poly and d.polyOn: events to the
    controls "vK.freq" and "vK.gate", or "cC.vK.freq" and "cC.vK.gate" for
    MIDI channel C, velocity / 127 while held. Each note N also sets "kN.gate",
@@ -172,7 +283,9 @@ bool funk_voices_on_with(funk_voices *v, int64_t on, int64_t off, int chan, int 
    Controls the graph lacks are skipped. A nonzero "cut" first stops, by
    "prefix.V.stop", each voice last played in the same orbit with a cut of
    that size: of any sample if the cut is positive, of this one if negative,
-   as SuperDirt's cut groups. Earlier offs go out first, as for a note. */
+   as SuperDirt's cut groups. Earlier offs go out first, as for a note.
+   If the player's templates have prefix, the trigger is an event of that
+   source instead (funk_player_event), with the same parameters. */
 bool funk_voices_trigger(funk_voices *v, int64_t frame, const char *prefix, int n, const char *const *names,
                          const float *values);
 

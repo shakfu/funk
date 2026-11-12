@@ -24,20 +24,67 @@ foreign export ccall "dsp_allpass" allpassK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr
 foreign export ccall "dsp_wavetable" wavetableK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_sampler" samplerK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_dirt" dirtK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_span" dirtSpanK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_sample" dirtSampleK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_gate" gateK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_shape" shapeK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_crush" crushK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_coarse" coarseK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_lpf" lpfK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_hpf" hpfK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_bpf" bpfK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_tremolo" tremoloK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_phaser" phaserK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_envelope" envelopeK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_grain_envelope" grainEnvelopeK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_vowel" vowelK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_rand" randK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_lfnoise1" lfnoise1K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_comb_delay" combDelayK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_switch_delay" switchDelayK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_reverb" reverbK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_leslie_dry" leslieDryK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_leslie" leslieK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_monitor" monitorK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_dirt_pitch_shift" pshiftK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign export ccall "dsp_zita" zitaK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Fold" uFoldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Impulse" uImpulseK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Pan2" uPan2K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_K" uConstK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_BinaryOpUGen" uBinK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_UnaryOpUGen" uUnK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_MulAdd" uMulAddK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Sum3" uSum3K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Sum4" uSum4K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Line" uLineK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Sweep" uSweepK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Clip" uClipK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_LinExp" uLinExpK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_ExpRand" uExpRandK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_SinOsc" uSinOscK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_Blip" uBlipK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_LFGauss" uLFGaussK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+foreign export ccall "dsp_u_EnvGen" uEnvGenK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
 foreign import ccall "math.h sin" csin :: Float -> Float
 foreign import ccall "math.h tan" ctan :: Float -> Float
 foreign import ccall "math.h exp" cexp :: Float -> Float
 foreign import ccall "math.h tanh" ctanh :: Float -> Float
 foreign import ccall "math.h pow" cpow :: Float -> Float -> Float
 foreign import ccall "math.h floor" cfloor :: Float -> Float
+foreign import ccall "math.h ceil" cceil :: Float -> Float
+foreign import ccall "math.h log2" clog2 :: Float -> Float
+foreign import ccall "math.h powf" cpowf :: CFloat -> CFloat -> CFloat
 foreign import ccall "math.h lrint" clrint :: Float -> CLong
 foreign import ccall "math.h cos" ccos :: Float -> Float
 foreign import ccall "math.h log" clog :: Float -> Float
+foreign import ccall "math.h log10" clog10 :: Float -> Float
 foreign import ccall "math.h sqrt" csqrt :: Float -> Float
 
--- projects/funkgraph's funk_context
-foreign struct Context { rate :: Float }
+-- projects/funkgraph's funk_context: done, set nonzero, ends an event or
+-- pauses an orbit's effect; block counts the event layer's blocks; rgen
+-- is the player's random generator
+foreign struct Context { rate :: Float, done :: Float, block :: Float, rgen :: Ptr (), ctor :: Float, freeself :: Float }
 
 foreign struct Phase { phase :: Float }
 foreign struct Const { value :: Float }
@@ -472,14 +519,17 @@ samplerK st ins out n cx = samplerFrom (castPtr st) (input ins 0) (input ins 1) 
 -- data, backwards for a negative speed, loop times, or for sustain seconds if
 -- that is not negative, never past the part's end. Speed ramps to speed *
 -- (1 + accelerate) over the event, unless accelerate is 1e30, Tidal's absent;
--- pitch multiplies it; cps above 0 is unit "c": speed in plays per cycle.
+-- pitch multiplies it; unitCps above 0 is unit "c": speed in plays per cycle.
 -- Fades of min 1 ms (sustain * 0.19098), a sine's half, at the end, and at
 -- the start unless it starts at frame 0; a rising stop ends it in a linear
 -- fade as long, as a cut group does. Interpolation is linear, where
 -- SuperDirt's is cubic. Inputs: gate, stop, speed, begin, end, loop,
--- accelerate, sustain, pitch, cps.
+-- accelerate, sustain, pitch, unitCps.
 dirtK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
-dirtK st ins out n cx = dirtLoop (castPtr st) ins out (rateOf cx) 0 (fromIntegral n)
+dirtK st ins out n cx = do
+  dirtLoop (castPtr st) ins out (rateOf cx) 0 (fromIntegral n)
+  -- an event's sample ends with its sound, as dirt_gate's envelope frees its group
+  if readField (castPtr st) Dirt.active <= 0.0 && readField (castPtr st) Dirt.gate > 0.0 then writeField cx Context.done 1.0 else ()
 
 dirtLoop :: Ptr Dirt -> Ptr (Ptr CFloat) -> Ptr CFloat -> Float -> Int -> Int ->> ()
 dirtLoop s ins out rate i n = if i == n then () else do
@@ -507,7 +557,7 @@ dirtStart s ins rate i = do
   s1 <- if cps > 0.0 then speed * cps * unitDur else speed
   absent <- acc > 1.0e29
   e1 <- if absent then s1 else s1 * (1.0 + acc)
-  avg <- if absent then abs s1 else abs s1 + abs e1 * 0.5
+  avg <- if absent then abs s1 else (abs s1 + abs e1) * 0.5
   len <- abs (e - b)
   natural <- unitDur * len / avg
   sus <- if susIn >= 0.0 then min natural susIn else natural * abs loop
@@ -549,6 +599,804 @@ dirtStep s out rate i = do
   writeField s Dirt.t (t + 1.0 / rate)
   if t + 1.0 / rate >= fadeIn + hold + fade || (cutAt >= 0.0 && t + 1.0 / rate - cutAt >= fade) then writeField s Dirt.active 0.0 else ()
 
+-- SuperDirt's sample event in three kernels, ported from SuperCollider
+-- 3.13.0 and SuperDirt 1.7.3: dirt_span computes DirtEvent.sc's time span,
+-- dirt_sample plays dirt_sample_N_2 (core-synths.scd), dirt_gate plays
+-- dirt_gate2. Each runs scsynth's UGens in float arithmetic, with its
+-- control rate one call, of 64 frames in the event layer.
+
+-- scsynth computes in floats: x rounded to the nearest. A double holds a
+-- float +, -, * or / exactly enough that this rounds it correctly.
+f32 :: Float -> Float
+f32 x = fromCFloat (toCFloat x)
+
+-- C's (int) cast: toward zero, clamped to 32 bits; 0 for NaN
+cInt :: Float -> Int
+cInt x = if not (x == x) then 0 else if x >= 2147483647.0 then 2147483647 else if x <= -2147483648.0 then -2147483648
+  else fromIntegral (clrint (if x >= 0.0 then cfloor x else 0.0 - cfloor (0.0 - x)))
+
+-- point i of scsynth's sine table, 8192 points a cycle (Samp.cpp)
+sineAt :: Int -> Float
+sineAt i = f32 (csin (toFloat i * (pi2 / 8192.0)))
+
+-- Pan2's and Balance2's gain of side 0 (left) or 1 (right) at pos in
+-- [-1, 1]: equal power, 0.7071 each at 0 (PanUGens.cpp)
+panAmp :: Float -> Float ->> Float
+panAmp side pos = do
+  ipos <- max 0 (min 2048 (cInt (f32 (f32 (f32 (1024.0 * pos) + 1024.0) + 0.5))))
+  sineAt (if side == 0.0 then 2048 - ipos else ipos)
+
+-- sc_fold (SC_InlineBinaryOp.h): x reflected into [lo, hi]
+fold :: Float -> Float -> Float ->> Float
+fold x lo hi = if x >= lo && x < hi then x
+  else if x >= hi && f32 (f32 (hi + hi) - x) >= lo then f32 (f32 (hi + hi) - x)
+  else if x < lo && f32 (f32 (lo + lo) - x) < hi then f32 (f32 (lo + lo) - x)
+  else if hi == lo then lo
+  else do
+    range <- f32 (hi - lo)
+    range2 <- f32 (range + range)
+    d <- f32 (x - lo)
+    c <- f32 (d - f32 (range2 * cfloor (f32 (d / range2))))
+    f32 ((if c >= range then f32 (range2 - c) else c) + lo)
+
+-- cubicinterp (SC_SndBuf.h): 4-point, 3rd-order Hermite, at x in [0, 1)
+cubic :: Float -> Float -> Float -> Float -> Float ->> Float
+cubic x y0 y1 y2 y3 = do
+  c1 <- f32 (0.5 * f32 (y2 - y0))
+  c2 <- f32 (f32 (f32 (y0 - f32 (2.5 * y1)) + f32 (2.0 * y2)) - f32 (0.5 * y3))
+  c3 <- f32 (f32 (0.5 * f32 (y3 - y0)) + f32 (1.5 * f32 (y1 - y2)))
+  f32 (f32 (f32 (f32 (f32 (f32 (c3 * x) + c2) * x) + c1) * x) + y1)
+
+-- BufRd at interpolation 4 and loop 0 (DelayUGens.cpp): the phase held in
+-- [0, frames - 1], and the neighbours past either end the end frame
+bufRd :: Ptr CFloat -> Int -> Float ->> Float
+bufRd dat frames ph = do
+  hi <- toFloat (frames - 1)
+  p <- if ph >= hi then hi else if ph >= 0.0 then ph else 0.0
+  i <- cInt p
+  y1 <- at dat i
+  cubic (f32 (p - toFloat i)) (at dat (max 0 (i - 1))) y1 (at dat (min (frames - 1) (i + 1))) (at dat (min (frames - 1) (i + 2)))
+
+-- dirt_span: DirtEvent.sc's orderTimeSpan and calcTimeSpan for one
+-- sample. Output `which` of 0 sustain (less its fades), 1 fadeTime, 2
+-- fadeInTime, 3 speed, 4 endSpeed, from its first frame on. Inputs, read
+-- once: speed, begin, end, loop, accelerate (1e30 is absent), sustain
+-- (below 0 absent; legato's sustain is given), freq, unitCps (above 0 is unit
+-- "c"), fadeTime. sclang reads + and * left to right, so the average
+-- speed is (|speed| + |endSpeed|) * 0.5.
+foreign struct DirtSpan { dat :: Ptr CFloat, frames :: Int, srate :: Float, which :: Float, ready :: Float, value :: Float }
+
+dirtSpanK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+dirtSpanK st ins out n cx = do
+  s <- castPtr st :: Ptr DirtSpan
+  if readField s DirtSpan.ready == 0.0 then do
+    writeField s DirtSpan.value (dirtSpan (readField s DirtSpan.which) (readField s DirtSpan.frames) (readField s DirtSpan.srate)
+      (at (input ins 0) 0) (at (input ins 1) 0) (at (input ins 2) 0) (at (input ins 3) 0) (at (input ins 4) 0)
+      (at (input ins 5) 0) (at (input ins 6) 0) (at (input ins 7) 0) (at (input ins 8) 0))
+    writeField s DirtSpan.ready 1.0
+  else ()
+  constLoop out (readField s DirtSpan.value) 0 (fromIntegral n)
+
+dirtSpan :: Float -> Int -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Float ->> Float
+dirtSpan which frames srate speed b e loop acc susIn freq cps fadeIn = do
+  unit <- toFloat frames / srate * 261.6255653005986 / freq
+  s1 <- if cps > 0.0 then speed * cps * unit else speed
+  absent <- acc > 1.0e29
+  e1 <- if absent then s1 else s1 * (1.0 + acc)
+  avg <- if absent then abs s1 else (abs s1 + abs e1) * 0.5
+  natural <- unit * abs (e - b) / avg
+  sus <- if susIn >= 0.0 then min natural susIn else natural * abs loop
+  fade <- min fadeIn (sus * 0.19098)
+  fadeInTime <- if (if speed < 0.0 then e else b) /= 0.0 then fade else 0.0
+  if which == 0.0 then sus - (fade + fadeInTime) else if which == 1.0 then fade else if which == 2.0 then fadeInTime
+  else if which == 3.0 then s1 else e1
+
+-- dirt_sample: Line.kr's speed to endSpeed over sustain, times freq /
+-- 60.midicps, drives an LFSaw from phase 1 over [begin, end) of the
+-- frames, read by cubic BufRd, then DirtPan to channel side (0 left, 1
+-- right) at pan, Tidal's 0 to 1. A mono sample reads its one channel on
+-- both sides, as Pan2; a stereo one its channel side, as Balance2. Inputs,
+-- read once but pan each call: sustain, begin, end, speed, endSpeed, freq,
+-- pan; any after are not read.
+foreign struct DirtSample { dat :: Ptr CFloat, frames :: Int, srate :: Float, side :: Float, started :: Float, level :: Float, slope :: Float, counter :: Float, endLevel :: Float, phase :: Float, sign :: Float, mul :: Float, add :: Float, ratio :: Float, absdif :: Float, pos :: Float, amp :: Float }
+
+dirtSampleK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+dirtSampleK st ins out n cx = dirtSampleRun (castPtr st) ins out (rateOf cx) (fromIntegral n)
+
+dirtSampleRun :: Ptr DirtSample -> Ptr (Ptr CFloat) -> Ptr CFloat -> Float -> Int ->> ()
+dirtSampleRun s ins out rate n = do
+  frames <- readField s DirtSample.frames
+  if frames < 1 || n <= 0 then silence out 0 n else do
+    if readField s DirtSample.started == 0.0 then dirtSampleStart s ins rate else ()
+    -- this call's Line.kr (LFUGens.cpp, Line_next), then the rates at control rate
+    counter <- readField s DirtSample.counter
+    line <- f32 (if counter <= 0.0 then readField s DirtSample.endLevel else readField s DirtSample.level)
+    if counter > 0.0 then do
+      writeField s DirtSample.level (readField s DirtSample.level + readField s DirtSample.slope)
+      writeField s DirtSample.counter (counter - 1.0)
+    else ()
+    r <- f32 (line * readField s DirtSample.ratio)
+    nf <- toFloat frames
+    sawrate <- f32 (f32 (r * f32 (readField s DirtSample.srate)) / f32 (readField s DirtSample.absdif * nf))
+    -- Pan2_next_ak: a moved pan ramps the gain over the call
+    side <- readField s DirtSample.side
+    pos <- fold (f32 (at (input ins 6) 0 * 2.0 - 1.0)) (-1.0) 1.0
+    amp <- readField s DirtSample.amp
+    next <- if pos /= readField s DirtSample.pos then panAmp side pos else amp
+    writeField s DirtSample.pos pos
+    writeField s DirtSample.amp next
+    freq <- f32 (sawrate * f32 (2.0 * (1.0 / rate)))
+    -- 3.13.0's LFSaw_Ctor takes a step, at the rate this first call has
+    if readField s DirtSample.started == 1.0 then do
+      sawStep s freq
+      writeField s DirtSample.started 2.0
+    else ()
+    dirtSampleLoop s (readField s DirtSample.dat) frames (readField s DirtSample.sign) (readField s DirtSample.mul) (readField s DirtSample.add)
+      nf freq amp (f32 (f32 (next - amp) * f32 (1.0 / toFloat n))) out 0 n
+
+dirtSampleStart :: Ptr DirtSample -> Ptr (Ptr CFloat) -> Float ->> ()
+dirtSampleStart s ins rate = do
+  sus <- at (input ins 0) 0
+  speed <- at (input ins 3) 0
+  start <- speed
+  end <- at (input ins 4) 0
+  -- orderTimeSpan: backwards, begin and end swap
+  lo <- if speed < 0.0 then at (input ins 2) 0 else at (input ins 1) 0
+  hi <- if speed < 0.0 then at (input ins 1) 0 else at (input ins 2) 0
+  mul <- f32 (f32 (hi - lo) * 0.5)
+  writeField s DirtSample.mul mul
+  writeField s DirtSample.add (f32 (mul + lo))
+  writeField s DirtSample.absdif (f32 (abs (hi - lo)))
+  writeField s DirtSample.sign (if speed > 0.0 then 1.0 else if speed < 0.0 then -1.0 else 0.0)
+  writeField s DirtSample.ratio (f32 (at (input ins 5) 0 / f32 261.6255653005986))
+  -- Line_Ctor, at scsynth's control rate
+  c <- cInt (sus * (rate / 64.0) + 0.5)
+  writeField s DirtSample.counter (toFloat (max 1 c))
+  -- 3.13.0's Line_Ctor starts a slope on
+  writeField s DirtSample.level (if c == 0 then end else start + (end - start) / toFloat (max 1 c))
+  writeField s DirtSample.slope (if c == 0 then 0.0 else (end - start) / toFloat (max 1 c))
+  writeField s DirtSample.endLevel end
+  -- LFSaw_Ctor's phase, and Pan2_Ctor's gain
+  writeField s DirtSample.phase 1.0
+  pos <- fold (f32 (at (input ins 6) 0 * 2.0 - 1.0)) (-1.0) 1.0
+  writeField s DirtSample.pos pos
+  writeField s DirtSample.amp (panAmp (readField s DirtSample.side) pos)
+  writeField s DirtSample.started 1.0
+
+dirtSampleLoop :: Ptr DirtSample -> Ptr CFloat -> Int -> Float -> Float -> Float -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+dirtSampleLoop s dat frames sign mul add nf freq amp slope out i n = if i == n then () else do
+  -- LFSaw_next_k, then the phase as frames, then BufRd and the gain
+  z <- f32 (readField s DirtSample.phase)
+  sawStep s freq
+  y <- bufRd dat frames (f32 (f32 (f32 (f32 (sign * z) * mul) + add) * nf))
+  put out i (f32 (y * amp))
+  dirtSampleLoop s dat frames sign mul add nf freq (f32 (amp + slope)) slope out (i + 1) n
+
+-- LFSaw_next_k's step of the phase
+sawStep :: Ptr DirtSample -> Float ->> ()
+sawStep s freq = do
+  q <- readField s DirtSample.phase + freq
+  writeField s DirtSample.phase (if freq >= 0.0 then (if q >= 1.0 then q - 2.0 else q) else (if q <= -1.0 then q + 2.0 else q))
+
+-- EnvGen.ar (LFUGens.cpp) of an envelope of levels [0, 1, 1, 0] and
+-- durations d0, d1, d2, each segment of shape segShape (sine, or curve by
+-- curve), its constructor's first frame included. NEON scsynth runs
+-- EnvGen_next_ak_nova: a linear segment longer than the call is filled by
+-- nova-simd's set_slope_vec_simd, four float lanes, not a running sum.
+foreign struct EnvGen { started :: Float, stage :: Float, counter :: Float, level :: Float, endLevel :: Float, shape :: Float, a2 :: Float, b1 :: Float, y1 :: Float, y2 :: Float, grow :: Float, done :: Float, d0 :: Float, d1 :: Float, d2 :: Float, segShape :: Float, curve :: Float }
+
+-- shapes, as EnvGen's
+shapeStep, shapeLinear, shapeSine, shapeCurve, shapeHold, never :: Float
+shapeStep = 0.0
+shapeLinear = 1.0
+shapeSine = 3.0
+shapeCurve = 5.0
+shapeHold = 8.0
+never = 2147483647.0
+
+-- EnvGen_Ctor, then its frame of EnvGen_next_k
+envStart :: Ptr EnvGen -> Float -> Float -> Float -> Float -> Float -> Float ->> ()
+envStart e d0 d1 d2 shape curve rate = do
+  writeField e EnvGen.d0 d0
+  writeField e EnvGen.d1 d1
+  writeField e EnvGen.d2 d2
+  writeField e EnvGen.segShape shape
+  writeField e EnvGen.curve curve
+  writeField e EnvGen.level 0.0
+  writeField e EnvGen.endLevel 0.0
+  writeField e EnvGen.shape shapeHold
+  writeField e EnvGen.stage (-1.0)
+  writeField e EnvGen.counter 0.0
+  envFrame e rate
+  writeField e EnvGen.started 1.0
+
+-- n frames of the envelope into out
+envFill :: Ptr EnvGen -> Float -> Ptr CFloat -> Int ->> ()
+envFill e rate out n = if readField e EnvGen.counter > toFloat n && readField e EnvGen.shape == shapeLinear then do
+    s0 <- f32 (readField e EnvGen.level)
+    sl <- f32 (readField e EnvGen.grow)
+    l1 <- f32 (s0 + sl)
+    l2 <- f32 (l1 + sl)
+    rampFill out s0 l1 l2 (f32 (l2 + sl)) (f32 (4.0 * sl)) 0 n
+    writeField e EnvGen.level (readField e EnvGen.level + toFloat n * readField e EnvGen.grow)
+    writeField e EnvGen.counter (readField e EnvGen.counter - toFloat n)
+  else envFrames e rate out 0 n
+
+-- four lanes, each a step of 4 frames on
+rampFill :: Ptr CFloat -> Float -> Float -> Float -> Float -> Float -> Int -> Int ->> ()
+rampFill out a b c d v i n = if i >= n then () else do
+  put out i a
+  if i + 1 < n then put out (i + 1) b else ()
+  if i + 2 < n then put out (i + 2) c else ()
+  if i + 3 < n then put out (i + 3) d else ()
+  rampFill out (f32 (a + v)) (f32 (b + v)) (f32 (c + v)) (f32 (d + v)) v (i + 4) n
+
+envFrames :: Ptr EnvGen -> Float -> Ptr CFloat -> Int -> Int ->> ()
+envFrames e rate out i n = if i == n then () else do
+  put out i (envFrame e rate)
+  envFrames e rate out (i + 1) n
+
+-- one frame (EnvGen_perform): its value, then a step on
+envFrame :: Ptr EnvGen -> Float ->> Float
+envFrame e rate = do
+  if readField e EnvGen.counter <= 0.0 then envNext e rate else ()
+  y <- f32 (readField e EnvGen.level)
+  shape <- readField e EnvGen.shape
+  if shape == shapeSine then do
+    y0 <- readField e EnvGen.b1 * readField e EnvGen.y1 - readField e EnvGen.y2
+    writeField e EnvGen.level (readField e EnvGen.a2 - y0)
+    writeField e EnvGen.y2 (readField e EnvGen.y1)
+    writeField e EnvGen.y1 y0
+  else if shape == shapeLinear then writeField e EnvGen.level (readField e EnvGen.level + readField e EnvGen.grow)
+  else if shape == shapeCurve then do
+    writeField e EnvGen.b1 (readField e EnvGen.b1 * readField e EnvGen.grow)
+    writeField e EnvGen.level (readField e EnvGen.a2 - readField e EnvGen.b1)
+  else ()
+  writeField e EnvGen.counter (readField e EnvGen.counter - 1.0)
+  y
+
+-- EnvGen_nextSegment: the next stage, or the end
+envNext :: Ptr EnvGen -> Float ->> ()
+envNext e rate = if readField e EnvGen.stage + 1.0 >= 3.0 then do
+    writeField e EnvGen.counter never
+    writeField e EnvGen.shape shapeStep
+    writeField e EnvGen.level (readField e EnvGen.endLevel)
+    writeField e EnvGen.done 1.0
+  else do
+    i <- readField e EnvGen.stage + 1.0
+    writeField e EnvGen.stage i
+    -- EnvGen_initSegment, for stage i
+    from <- if readField e EnvGen.shape == shapeHold then readField e EnvGen.endLevel else readField e EnvGen.level
+    to <- if i == 2.0 then 0.0 else 1.0
+    dur <- if i == 0.0 then readField e EnvGen.d0 else if i == 1.0 then readField e EnvGen.d1 else readField e EnvGen.d2
+    c <- toFloat (max 1 (cInt (dur * rate)))
+    curve <- readField e EnvGen.curve
+    shape <- if c == 1.0 || (readField e EnvGen.segShape == shapeCurve && abs curve < 0.001) then shapeLinear else readField e EnvGen.segShape
+    writeField e EnvGen.counter c
+    writeField e EnvGen.endLevel to
+    writeField e EnvGen.shape shape
+    writeField e EnvGen.level from
+    if shape == shapeLinear then writeField e EnvGen.grow ((to - from) / c)
+    else if shape == shapeSine then do
+      w <- 3.141592653589793 / c
+      writeField e EnvGen.a2 ((to + from) * 0.5)
+      writeField e EnvGen.b1 (2.0 * ccos w)
+      writeField e EnvGen.y1 ((to - from) * 0.5)
+      writeField e EnvGen.y2 ((to - from) * 0.5 * csin (3.141592653589793 * 0.5 - w))
+      writeField e EnvGen.level ((to + from) * 0.5 - (to - from) * 0.5)
+    else do
+      a1 <- (to - from) / (1.0 - cexp curve)
+      writeField e EnvGen.a2 (from + a1)
+      writeField e EnvGen.b1 a1
+      writeField e EnvGen.grow (cexp (curve / c))
+
+-- dirt_gate2 (core-synths.scd): x times EnvGen's Env([0, 1, 1, 0],
+-- [fadeInTime, sustain, fadeTime], \sin), times level, times
+-- DirtGateCutGroup's Env.cutoff(fadeTime) at control rate, which a rising
+-- stop releases; each ends the event, as doneAction 14 frees its group.
+-- An event whose sustain is under 8 frames is silent and ends at once, as
+-- SuperDirt drops it (DirtOrbit.sc's minSustain). The cutoff is
+-- LFUGens.cpp's EnvGen.kr, and BinaryOpUGens.cpp's mul_ak ramps its
+-- change over the call. Inputs, read once but amp and stop each call:
+-- x, sustain, fadeInTime, fadeTime, amp, gain, overgain, stop; its level is
+-- amp * pow(min gain 2 + overgain, 4), in floats, as SuperDirt's. The state
+-- is an EnvGen's, then the cutoff's.
+foreign struct Gate { started :: Float, stage :: Float, counter :: Float, level :: Float, endLevel :: Float, shape :: Float, a2 :: Float, b1 :: Float, y1 :: Float, y2 :: Float, grow :: Float, done :: Float, d0 :: Float, d1 :: Float, d2 :: Float, segShape :: Float, curve :: Float, cLevel :: Float, cGrow :: Float, cCounter :: Float, cStage :: Float, cGate :: Float, cPrev :: Float }
+
+gateK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+gateK st ins out n cx = do
+  s <- castPtr st :: Ptr Gate
+  e <- castPtr st :: Ptr EnvGen
+  rate <- rateOf cx
+  if readField e EnvGen.started == 0.0 then do
+    envStart e (at (input ins 2) 0) (at (input ins 1) 0) (at (input ins 3) 0) shapeSine 0.0 rate
+    -- the cutoff's EnvGen.kr: sustained at 1 from its constructor
+    writeField s Gate.cLevel 1.0
+    writeField s Gate.cStage 0.0
+    writeField s Gate.cGate 1.0
+    writeField s Gate.cPrev 1.0
+  else ()
+  sus <- readField e EnvGen.d1
+  if sus < 8.0 / rate || not (sus == sus) then do
+    silence out 0 (fromIntegral n)
+    writeField cx Context.done 1.0
+  else do
+    cut <- cutStep s (1.0 - at (input ins 7) 0) rate
+    prev <- readField s Gate.cPrev
+    writeField s Gate.cPrev cut
+    envFill e rate out (fromIntegral n)
+    gateLoop (input ins 0) (f32 (at (input ins 4) 0 * powf (f32 (min (at (input ins 5) 0) 2.0 + at (input ins 6) 0)) 4.0)) prev (if cut == prev then 0.0 else f32 (f32 (cut - prev) * f32 (1.0 / toFloat (fromIntegral n)))) out 0 (fromIntegral n)
+    if readField e EnvGen.done /= 0.0 || readField s Gate.cStage == 2.0 then writeField cx Context.done 1.0 else ()
+
+gateLoop :: Ptr CFloat -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+gateLoop x level cut slope out i n = if i == n then () else do
+  put out i (f32 (f32 (f32 (at x i * at out i) * level) * cut))
+  gateLoop x level (f32 (cut + slope)) slope out (i + 1) n
+
+cutStep :: Ptr Gate -> Float -> Float ->> Float
+cutStep s gate rate = do
+  if readField s Gate.cGate > 0.0 && gate <= 0.0 && readField s Gate.cStage == 0.0 then do
+    c <- toFloat (max 1 (cInt (readField s Gate.d2 * (rate / 64.0))))
+    writeField s Gate.cStage 1.0
+    writeField s Gate.cCounter c
+    writeField s Gate.cGrow ((0.0 - readField s Gate.cLevel) / c)
+  else ()
+  writeField s Gate.cGate gate
+  stage <- readField s Gate.cStage
+  if stage == 1.0 && readField s Gate.cCounter <= 0.0 then do
+    writeField s Gate.cStage 2.0
+    writeField s Gate.cLevel 0.0
+  else ()
+  y <- f32 (readField s Gate.cLevel)
+  if readField s Gate.cStage == 1.0 then do
+    writeField s Gate.cLevel (readField s Gate.cLevel + readField s Gate.cGrow)
+    writeField s Gate.cCounter (readField s Gate.cCounter - 1.0)
+  else ()
+  y
+
+-- SuperDirt's core modules (core-synths.scd), one channel each, as the
+-- UGen graphs SuperDirt 1.7.3's SynthDefs compile to. Their control-rate
+-- arithmetic is float, from inputs read at the event's start: a module's
+-- arguments do not change while it plays.
+
+powf :: Float -> Float -> Float
+powf a b = fromCFloat (cpowf (toCFloat a) (toCFloat b))
+
+clipF :: Float -> Float -> Float -> Float
+clipF x lo hi = max (min x hi) lo
+
+-- sclang's linexp from [0, 1] to [lo, hi], clipped: Clip.kr then
+-- LinExp.kr (LFUGens.cpp's LinExp_next, its members float)
+linexp01 :: Float -> Float -> Float -> Float
+linexp01 x lo hi = f32 (lo * powf (f32 (hi / lo)) (f32 (f32 (clipF x 0.0 1.0) + (-0.0))))
+
+-- the rate's float, as SampleRate.ir
+srate :: Ptr Context ->> Float
+srate cx = f32 (rateOf cx)
+
+-- zapgremlins (SC_InlineUnaryOp.h): denormals, infinities and NaNs become 0
+zap :: Float -> Float
+zap x = if abs x > 1.0e-15 && abs x < 1.0e15 then x else 0.0
+
+-- nova-simd's NEON division (vec_neon.hpp), which scsynth's audio-rate
+-- `/` runs: a times FRECPE's estimate of 1 / b after one FRECPS step, each
+-- as the ARM ARM's FPRecipEstimate and FPRecipStepFused define them. For
+-- b a normal float.
+neonDiv :: Float -> Float ->> Float
+neonDiv a b = do
+  r <- recipEstimate b
+  f32 (a * f32 (r * f32 (2.0 - b * r)))
+
+-- FRECPE of a normal float x: 1 / x to 8 bits, from the top 8 bits of its fraction
+recipEstimate :: Float ->> Float
+recipEstimate x = do
+  m <- abs x
+  e0 <- cfloor (clog2 m)
+  e <- if m / cpow 2.0 e0 >= 2.0 then e0 + 1.0 else if m / cpow 2.0 e0 < 1.0 then e0 - 1.0 else e0
+  a <- 2.0 * (256.0 + cfloor ((m / cpow 2.0 e - 1.0) * 256.0)) + 1.0
+  r <- cfloor ((cfloor (524288.0 / a) + 1.0) / 2.0)
+  (if x < 0.0 then -1.0 else 1.0) * cpow 2.0 (0.0 - e - 1.0) * (r / 256.0)
+
+-- dirt_shape: (1 + k) x / (1 + k |x|), k = 2 s / (1 - s), s = min shape 1.
+-- Inputs: x, shape.
+shapeK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+shapeK st ins out n cx = do
+  s <- min (at (input ins 1) 0) (f32 0.9999999996)
+  k <- f32 (f32 (2.0 * s) / f32 (1.0 - s))
+  shapeLoop (input ins 0) k (f32 (1.0 + k)) out 0 (fromIntegral n)
+
+shapeLoop :: Ptr CFloat -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+shapeLoop x k g out i n = if i == n then () else do
+  v <- at x i
+  put out i (neonDiv (f32 (g * v)) (f32 (f32 (abs v * k) + 1.0)))
+  shapeLoop x k g out (i + 1) n
+
+-- dirt_crush: x rounded to 0.5 ** (crush - 1) (sc_round). Inputs: x, crush.
+crushK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+crushK st ins out n cx = crushLoop (input ins 0) (powf 0.5 (f32 (at (input ins 1) 0 - 1.0))) out 0 (fromIntegral n)
+
+crushLoop :: Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+crushLoop x q out i n = if i == n then () else do
+  v <- at x i
+  put out i (if q == 0.0 then v else f32 (cfloor (f32 (f32 (v / q) + 0.5)) * q))
+  crushLoop x q out (i + 1) n
+
+-- dirt_coarse: Latch.ar of x on Impulse.ar(SampleRate / coarse), which
+-- fires on the first frame (Impulse_next_ki). Inputs: x, coarse.
+foreign struct Coarse { started :: Float, phase :: Float, inc :: Float, level :: Float, prev :: Float }
+
+coarseK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+coarseK st ins out n cx = do
+  s <- castPtr st :: Ptr Coarse
+  if readField s Coarse.started == 0.0 then do
+    writeField s Coarse.inc (f32 (f32 (srate cx / at (input ins 1) 0) * f32 (1.0 / rateOf cx)))
+    writeField s Coarse.phase (if readField s Coarse.inc >= 0.0 then 1.0 else 0.0)
+    writeField s Coarse.started 1.0
+  else ()
+  coarseLoop s (input ins 0) (readField s Coarse.inc) out 0 (fromIntegral n)
+
+coarseLoop :: Ptr Coarse -> Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+coarseLoop s x inc out i n = if i == n then () else do
+  ph <- readField s Coarse.phase
+  -- Impulse_testWrapPhase
+  trig <- if inc < 0.0 then (if ph <= 0.0 then 1.0 else 0.0) else (if ph >= 1.0 then 1.0 else 0.0)
+  ph1 <- if trig == 0.0 then ph else if inc < 0.0 then (if ph + 1.0 <= 0.0 then ph + 1.0 - cceil (ph + 1.0) else ph + 1.0)
+    else (if ph - 1.0 >= 1.0 then ph - 1.0 - cfloor (ph - 1.0) else ph - 1.0)
+  writeField s Coarse.phase (ph1 + inc)
+  -- Latch_next_aa
+  if readField s Coarse.prev <= 0.0 && trig > 0.0 then writeField s Coarse.level (at x i) else ()
+  writeField s Coarse.prev trig
+  put out i (readField s Coarse.level)
+  coarseLoop s x inc out (i + 1) n
+
+-- a two-pole filter's state and coefficients, in doubles, as RLPF's,
+-- RHPF's and BPF's (FilterUGens.cpp); g is a gain after it
+foreign struct Biquad { started :: Float, y1 :: Float, y2 :: Float, a0 :: Float, b1 :: Float, b2 :: Float, g :: Float }
+
+-- RLPF_next_1's or RHPF_next_1's coefficients, high nonzero for RHPF
+resonant :: Ptr Biquad -> Float -> Float -> Float -> Float ->> ()
+resonant s high freq reson rate = do
+  pfreq <- freq * (pi2 / rate)
+  d <- ctan (pfreq * max (f32 0.001) reson * 0.5)
+  c <- (1.0 - d) / (1.0 + d)
+  b1 <- (1.0 + c) * ccos pfreq
+  writeField s Biquad.b1 b1
+  writeField s Biquad.b2 (0.0 - c)
+  writeField s Biquad.a0 (if high /= 0.0 then (1.0 + c + b1) * 0.25 else (1.0 + c - b1) * 0.25)
+  writeField s Biquad.started 1.0
+
+-- dirt_lpf and dirt_hpf: RLPF or RHPF at |cutoff| in [20, SampleRate /
+-- 2], rq resonance.linexp(0, 1, 1, 0.001). Inputs: x, cutoff, resonance.
+lpfK, hpfK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+lpfK st ins out n cx = resonantK 0.0 st ins out n cx
+hpfK st ins out n cx = resonantK 1.0 st ins out n cx
+
+resonantK :: Float -> Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+resonantK high st ins out n cx = do
+  s <- castPtr st :: Ptr Biquad
+  if readField s Biquad.started == 0.0 then do
+    resonant s high (clipF (abs (at (input ins 1) 0)) 20.0 (f32 (srate cx / 2.0))) (linexp01 (at (input ins 2) 0) 1.0 (f32 0.001)) (rateOf cx)
+    -- RLPF_Ctor's frame of RLPF_next_1: scsynth constructs a synth at its
+    -- first calc, so In's constructor reads the chain's first frame
+    writeField s Biquad.y1 (zap (readField s Biquad.a0 * at (input ins 0) 0))
+  else ()
+  resonantLoop s (if high /= 0.0 then -2.0 else 2.0) (input ins 0) (readField s Biquad.a0) (readField s Biquad.b1) (readField s Biquad.b2)
+    (readField s Biquad.y1) (readField s Biquad.y2) out 0 (fromIntegral n)
+
+resonantLoop :: Ptr Biquad -> Float -> Ptr CFloat -> Float -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+resonantLoop s two x a0 b1 b2 y1 y2 out i n = if i == n then do
+    writeField s Biquad.y1 (zap y1)
+    writeField s Biquad.y2 (zap y2)
+  else do
+    y0 <- a0 * at x i + b1 * y1 + b2 * y2
+    put out i (y0 + two * y1 + y2)
+    resonantLoop s two x a0 b1 b2 y0 y1 out (i + 1) n
+
+-- BPF_next_1's coefficients, into the Biquad at slot b of st
+bandCoefs :: Ptr () -> Int -> Float -> Float -> Float ->> ()
+bandCoefs st b freq bw rate = do
+  pfreq <- freq * (pi2 / rate)
+  c <- 1.0 / ctan (bw * pfreq * 0.5)
+  a0 <- 1.0 / (1.0 + c)
+  setSlot st (b + 3) a0
+  setSlot st (b + 4) (c * (2.0 * ccos pfreq) * a0)
+  setSlot st (b + 5) ((1.0 - c) * a0)
+  setSlot st b 1.0
+
+-- one frame of BPF_next of the Biquad at slot b: its output, before any gain
+bandFrame :: Ptr () -> Int -> Float ->> Float
+bandFrame st b v = do
+  y1 <- slot st (b + 1)
+  y2 <- slot st (b + 2)
+  y0 <- v + slot st (b + 4) * y1 + slot st (b + 5) * y2
+  setSlot st (b + 2) y1
+  setSlot st (b + 1) y0
+  f32 (slot st (b + 3) * (y0 - y2))
+
+-- the end of a call: zapgremlins of the Biquad at slot b
+bandZap :: Ptr () -> Int ->> ()
+bandZap st b = do
+  setSlot st (b + 1) (zap (slot st (b + 1)))
+  setSlot st (b + 2) (zap (slot st (b + 2)))
+
+-- dirt_bpf: BPF at bandf in [20, SampleRate / 2], rq 1 / q, times q, q =
+-- max 1 bandq. Inputs: x, bandf, bandq.
+bpfK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+bpfK st ins out n cx = do
+  s <- castPtr st :: Ptr Biquad
+  if readField s Biquad.started == 0.0 then do
+    q <- max 1.0 (at (input ins 2) 0)
+    bandCoefs st 0 (clipF (at (input ins 1) 0) 20.0 (f32 (srate cx / 2.0))) (f32 (1.0 / q)) (rateOf cx)
+    -- BPF_Ctor's frame of the chain's first, as RLPF_Ctor's
+    setSlot st 1 (zap (at (input ins 0) 0))
+    writeField s Biquad.g q
+  else ()
+  bpfLoop st (input ins 0) (readField s Biquad.g) out 0 (fromIntegral n)
+  bandZap st 0
+
+bpfLoop :: Ptr () -> Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+bpfLoop st x g out i n = if i == n then () else do
+  put out i (f32 (bandFrame st 0 (at x i) * g))
+  bpfLoop st x g out (i + 1) n
+
+-- dirt_tremolo: x times 1 - d + d SinOsc.ar(tremolorate, pi / 2), d =
+-- tremolodepth in [0, 1] / 2 (OscUGens.cpp's SinOsc_next_ikk, its phase
+-- 32-bit fixed point). Inputs: x, tremolorate, tremolodepth.
+foreign struct Tremolo { started :: Float, phase :: Float, inc :: Float }
+
+tremoloK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+tremoloK st ins out n cx = do
+  s <- castPtr st :: Ptr Tremolo
+  if readField s Tremolo.started == 0.0 then do
+    writeField s Tremolo.phase (wrap32 (toFloat (cInt (f32 1.5707963267949 * (8192.0 * (65536.0 / pi2))))))
+    writeField s Tremolo.inc (toFloat (cInt (8192.0 * (1.0 / rateOf cx) * 65536.0 * at (input ins 1) 0)))
+    writeField s Tremolo.started 1.0
+  else ()
+  d <- f32 (clipF (at (input ins 2) 0) 0.0 1.0 * 0.5)
+  tremoloLoop s (input ins 0) d (f32 (1.0 - d)) (readField s Tremolo.inc) out 0 (fromIntegral n)
+
+tremoloLoop :: Ptr Tremolo -> Ptr CFloat -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+tremoloLoop s x d o inc out i n = if i == n then () else do
+  ph <- readField s Tremolo.phase
+  writeField s Tremolo.phase (wrap32 (ph + inc))
+  put out i (f32 (at x i * f32 (f32 (sineOsc ph * d) + o)))
+  tremoloLoop s x d o inc out (i + 1) n
+
+-- a phase as a uint32
+wrap32 :: Float -> Float
+wrap32 p = p - 4294967296.0 * cfloor (p / 4294967296.0)
+
+-- lookupi1 (SC_SndBuf.h) of the sine wavetable (Samp.cpp) at a uint32 phase
+sineOsc :: Float ->> Float
+sineOsc ph = do
+  i <- cInt (cfloor (ph / 65536.0)) `mod` 8192
+  a <- sineAt i
+  b <- sineAt (i + 1)
+  f32 (f32 (f32 (2.0 * a) - b) + f32 (f32 (b - a) * (1.0 + (ph - 65536.0 * cfloor (ph / 65536.0)) / 65536.0)))
+
+-- dirt_phaser: x + depth AllpassL.ar(x, 4, LFPar.kr(phaserrate).range(0.0088,
+-- 0.01), 0), depth in [0, 1]. A decay of 0 makes the allpass a delay, read
+-- between frames (DelayUGens.cpp's FilterX_perform: a new delay ramps over
+-- the call). SuperDirt passes no sustain, so the maximum is the SynthDef's
+-- 4 seconds; the delay never reaches it. Inputs: x, phaserrate, phaserdepth.
+foreign struct Phaser { mem :: Ptr CFloat, frames :: Int, started :: Float, phase :: Float, delay :: Float, dsamp :: Float, pos :: Float }
+
+phaserK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+phaserK st ins out n cx = do
+  s <- castPtr st :: Ptr Phaser
+  freq <- f32 (at (input ins 1) 0 * f32 (4.0 * (64.0 / rateOf cx)))
+  -- the constructors: LFPar's frame at phase 0, its 1, sets the delay
+  if readField s Phaser.started == 0.0 then do
+    writeField s Phaser.phase freq
+    writeField s Phaser.delay (lfDelay 1.0)
+    writeField s Phaser.dsamp (phaserSamples (lfDelay 1.0) cx)
+    writeField s Phaser.started 1.0
+  else ()
+  -- LFPar_next_k's frame, then the range's MulAdd
+  ph <- readField s Phaser.phase
+  ph1 <- if ph < 3.0 then ph else ph - 4.0
+  z <- f32 (if ph >= 1.0 && ph < 3.0 then ph - 2.0 else ph1)
+  writeField s Phaser.phase (ph1 + freq)
+  delay <- lfDelay (if ph >= 1.0 && ph < 3.0 then f32 (f32 (z * z) - 1.0) else f32 (1.0 - f32 (z * z)))
+  dsamp <- readField s Phaser.dsamp
+  slope <- if delay == readField s Phaser.delay then 0.0 else f32 (f32 (phaserSamples delay cx - dsamp) * f32 (1.0 / 64.0))
+  moved <- delay /= readField s Phaser.delay
+  writeField s Phaser.delay delay
+  phaserLoop s (readField s Phaser.mem) (readField s Phaser.frames) (input ins 0) (clipF (at (input ins 2) 0) 0.0 1.0) dsamp moved slope out 0 (fromIntegral n)
+
+-- i in [0, size), size above 0
+wrapIndex :: Int -> Int -> Int
+wrapIndex i size = if i < 0 then wrapIndex (i + size) size else if i >= size then wrapIndex (i - size) size else i
+
+-- the range's MulAdd, its constants as sclang's UGen.range makes them
+lfDelay :: Float -> Float
+lfDelay v = f32 (f32 (v * f32 ((0.01 - 0.0088) * 0.5)) + f32 ((0.01 - 0.0088) * 0.5 + 0.0088))
+
+-- CalcDelay: the delay in frames, at least 1
+phaserSamples :: Float -> Ptr Context ->> Float
+phaserSamples d cx = max (f32 (d * srate cx)) 1.0
+
+phaserLoop :: Ptr Phaser -> Ptr CFloat -> Int -> Ptr CFloat -> Float -> Float -> Bool -> Float -> Ptr CFloat -> Int -> Int ->> ()
+phaserLoop s mem size x depth dsamp moved slope out i n = if i == n then writeField s Phaser.dsamp dsamp else do
+  ds <- if moved then f32 (dsamp + slope) else dsamp
+  pos <- cInt (readField s Phaser.pos)
+  id <- cInt ds
+  d1 <- at mem (wrapIndex (pos - id) size)
+  d2 <- at mem (wrapIndex (pos - id - 1) size)
+  v <- f32 (d1 + f32 (f32 (ds - toFloat id) * f32 (d2 - d1)))
+  put mem pos (at x i)
+  writeField s Phaser.pos (toFloat (wrapIndex (pos + 1) size))
+  put out i (f32 (f32 (v * depth) + at x i))
+  phaserLoop s mem size x depth ds moved slope out (i + 1) n
+
+-- dirt_envelope: x times EnvGen.ar(Env.linen(attack, hold, release, 1,
+-- curve)). Inputs: x, attack, hold, release, curve.
+envelopeK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+envelopeK st ins out n cx = do
+  e <- castPtr st :: Ptr EnvGen
+  if readField e EnvGen.started == 0.0 then
+    envStart e (at (input ins 1) 0) (at (input ins 2) 0) (at (input ins 3) 0) shapeCurve (at (input ins 4) 0) (rateOf cx)
+  else ()
+  envFill e (rateOf cx) out (fromIntegral n)
+  mulInto (input ins 0) out 0 (fromIntegral n)
+
+-- dirt_grain_envelope: x times Env.linen(c r, p, (1 - c) r, 1, curve) over
+-- sustain, c = tilt and p = plat in [0, 1], r = 1 - p. Inputs: x, sustain,
+-- tilt, plat, curve.
+grainEnvelopeK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+grainEnvelopeK st ins out n cx = do
+  e <- castPtr st :: Ptr EnvGen
+  if readField e EnvGen.started == 0.0 then do
+    sus <- at (input ins 1) 0
+    c <- clipF (at (input ins 2) 0) 0.0 1.0
+    p <- clipF (at (input ins 3) 0) 0.0 1.0
+    r <- f32 (1.0 - p)
+    envStart e (f32 (f32 (c * r) * sus)) (f32 (p * sus)) (f32 (f32 (f32 (1.0 - c) * r) * sus)) shapeCurve (at (input ins 4) 0) (rateOf cx)
+  else ()
+  envFill e (rateOf cx) out (fromIntegral n)
+  mulInto (input ins 0) out 0 (fromIntegral n)
+
+-- out[i] = x[i] * out[i]
+mulInto :: Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+mulInto x out i n = if i == n then () else do
+  put out i (f32 (at x i * at out i))
+  mulInto x out (i + 1) n
+
+-- dirt_vowel: x crossfaded by XFade2 with five BPFs of it, at formants
+-- f, amplitudes a and rqs q from SuperDirt's vowel table (counterTenor),
+-- scaled by resonance. SuperDirt passes no cutoff, so the formants are
+-- unscaled. Inputs: x, resonance, f1..f5, a1..a5, q1..q5. The state is
+-- five Biquads, then XFade2's two gains.
+vowelK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+vowelK st ins out n cx = do
+  if slot st 0 == 0.0 then do
+    r <- clipF (at (input ins 1) 0) 0.0 1.0
+    vowelStart st ins (f32 (f32 (r * 150.0) + 50.0)) (f32 (f32 (r * f32 ((0.5 - 0.1) / 1.0)) + f32 0.1)) cx 0
+    -- XFade2_Ctor at pos resonance.linlin(0, 1, -0.5, 1), level 0.25
+    ipos <- max 0 (min 2048 (cInt (f32 (f32 (f32 (1024.0 * f32 (f32 (r * 1.5) + (-0.5))) + 1024.0) + 0.5))))
+    setSlot st 35 (f32 (0.25 * sineAt (2048 - ipos)))
+    setSlot st 36 (f32 (0.25 * sineAt ipos))
+  else ()
+  vowelLoop st (input ins 0) (slot st 35) (slot st 36) out 0 (fromIntegral n)
+  bandZap st 0
+  bandZap st 7
+  bandZap st 14
+  bandZap st 21
+  bandZap st 28
+
+-- band k's coefficients and gain, then the next band's
+vowelStart :: Ptr () -> Ptr (Ptr CFloat) -> Float -> Float -> Ptr Context -> Int ->> ()
+vowelStart st ins amp rq cx k = if k == 5 then () else do
+  bandCoefs st (7 * k) (min (at (input ins (2 + k)) 0) (f32 (srate cx * 0.5))) (f32 (at (input ins (12 + k)) 0 / rq)) (rateOf cx)
+  setSlot st (7 * k + 6) (f32 (at (input ins (7 + k)) 0 * amp))
+  setSlot st (7 * k + 1) (zap (at (input ins 0) 0))
+  vowelStart st ins amp rq cx (k + 1)
+
+-- each band's frame times its gain, summed as SuperDirt's MulAdds sum
+-- them: b0 a0 + b1 a1, then b2 a2 + that, and so on
+vowelLoop :: Ptr () -> Ptr CFloat -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+vowelLoop st x la ra out i n = if i == n then () else do
+  v <- at x i
+  y0 <- f32 (bandFrame st 0 v * slot st 6)
+  s1 <- f32 (y0 + f32 (bandFrame st 7 v * slot st 13))
+  s2 <- f32 (f32 (bandFrame st 14 v * slot st 20) + s1)
+  s3 <- f32 (f32 (bandFrame st 21 v * slot st 27) + s2)
+  s4 <- f32 (f32 (bandFrame st 28 v * slot st 34) + s3)
+  put out i (f32 (f32 (v * la) + f32 (s4 * ra)))
+  vowelLoop st x la ra out (i + 1) n
+
+-- dirt_pitch_shift: PitchShift.ar(x, w, psrate, 0, psdisp), w =
+-- sustain.linlin(0.01, 0.3, 0.01, 0.18) (DelayUGens.cpp): four read heads,
+-- a quarter window apart, each faded in and out by a triangle. Its
+-- delay memory is zeroed, so reading before the first frame reads 0, as
+-- PitchShift_next_z does. Each quarter window draws from the world
+-- RGen, psdisp 0 or not. Inputs: x, sustain, psrate, psdisp. The state:
+-- memory, frames, then started, window, frames per window, slope, the
+-- write position, counter, stage, unused, then per head dsamp, its slope,
+-- ramp and its slope.
+-- a Delay node's memory, the first two slots of its state
+foreign struct Memory { mem :: Ptr CFloat, frames :: Int }
+
+pshiftK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+pshiftK st ins out n cx = do
+  rate <- rateOf cx
+  if slot st 2 == 0.0 then do
+    scale <- (0.18 - 0.01) / (0.3 - 0.01)
+    w <- max (f32 (f32 (f32 (clipF (at (input ins 1) 0) (f32 0.01) (f32 0.3)) * f32 scale) + f32 (0.01 - scale * 0.01)))
+      (f32 (3.0 * (1.0 / rate)))
+    fs <- toFloat (2 * (2 * ((cInt (w * rate) + 2) `div` 4)))
+    sl <- f32 (2.0 / fs)
+    setSlot st 3 w
+    setSlot st 4 fs
+    setSlot st 5 sl
+    setSlot st 6 0.0
+    setSlot st 7 (toFloat (cInt fs `div` 4))
+    setSlot st 8 3.0
+    headStart st 0 2.0 1.0 0.5 (0.0 - sl)
+    headStart st 1 2.0 1.0 1.0 (0.0 - sl)
+    headStart st 2 2.0 1.0 0.5 sl
+    headStart st 3 2.0 1.0 0.0 sl
+    -- PitchShift_Ctor stores the chain's first frame at the line's start
+    put (readField (castPtr st :: Ptr Memory) Memory.mem) 0 (at (input ins 0) 0)
+    setSlot st 2 1.0
+  else ()
+  m <- castPtr st :: Ptr Memory
+  pshiftLoop st (readField m Memory.mem) (readField m Memory.frames) (input ins 0)
+    (at (input ins 2) 0) (f32 (clipF (at (input ins 3) 0) 0.0 (slot st 3) * rate)) cx out 0 (fromIntegral n)
+
+headStart :: Ptr () -> Int -> Float -> Float -> Float -> Float ->> ()
+headStart st k dsamp dslope ramp rslope = do
+  setSlot st (10 + 4 * k) dsamp
+  setSlot st (11 + 4 * k) dslope
+  setSlot st (12 + 4 * k) ramp
+  setSlot st (13 + 4 * k) rslope
+
+pshiftLoop :: Ptr () -> Ptr CFloat -> Int -> Ptr CFloat -> Float -> Float -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+pshiftLoop st mem size x ratio timedisp cx out i n = if i == n then () else do
+  if slot st 7 <= 0.0 then pshiftStage st ratio timedisp cx else ()
+  setSlot st 7 (slot st 7 - 1.0)
+  pos <- wrapIndex (cInt (slot st 6) + 1) size
+  setSlot st 6 (toFloat pos)
+  v1 <- headFrame st mem size pos 0
+  v2 <- f32 (v1 + headFrame st mem size pos 1)
+  v3 <- f32 (v2 + headFrame st mem size pos 2)
+  v4 <- f32 (v3 + headFrame st mem size pos 3)
+  put mem pos (at x i)
+  put out i (f32 (v4 * 0.5))
+  pshiftLoop st mem size x ratio timedisp cx out (i + 1) n
+
+-- head k's frame: its delay steps on, then its ramp
+headFrame :: Ptr () -> Ptr CFloat -> Int -> Int -> Int ->> Float
+headFrame st mem size pos k = do
+  d <- f32 (slot st (10 + 4 * k) + slot st (11 + 4 * k))
+  setSlot st (10 + 4 * k) d
+  id <- cInt d
+  frac <- f32 (d - toFloat id)
+  d1 <- at mem (wrapIndex (pos - id) size)
+  d2 <- at mem (wrapIndex (pos - id - 1) size)
+  ramp <- slot st (12 + 4 * k)
+  setSlot st (12 + 4 * k) (f32 (ramp + slot st (13 + 4 * k)))
+  f32 (f32 (d1 + f32 (frac * f32 (d2 - d1))) * ramp)
+
+-- a new quarter window: the next head restarts, its neighbours' ramps turn
+pshiftStage :: Ptr () -> Float -> Float -> Ptr Context ->> ()
+pshiftStage st ratio timedisp cx = do
+  fs <- slot st 4
+  sl <- slot st 5
+  setSlot st 7 (toFloat (cInt fs `div` 4))
+  stage <- toFloat ((cInt (slot st 8) + 1) `mod` 4)
+  setSlot st 8 stage
+  r1 <- f32 (clipF ratio 0.0 4.0 - 1.0)
+  -- the world RGen's frand, drawn even when timedisp is 0
+  start <- f32 (f32 (if r1 < 0.0 then 2.0 else f32 (fs * r1) + 2.0) + timedisp * frand cx)
+  k <- cInt stage
+  setSlot st (10 + 4 * k) start
+  setSlot st (11 + 4 * k) (0.0 - r1)
+  setSlot st (12 + 4 * k) 0.0
+  setSlot st (13 + 4 * k) sl
+  -- the head two quarters on fades out
+  setSlot st (13 + 4 * ((k + 2) `mod` 4)) (0.0 - sl)
+
 -- dirt_gate's envelope: up over fadeIn, held, down over fade, each a sine's half
 dirtEnv :: Float -> Float -> Float -> Float -> Float
 dirtEnv t fadeIn hold fade = if t < fadeIn then (1.0 - ccos (pi2 * 0.5 * t / fadeIn)) * 0.5
@@ -558,6 +1406,717 @@ dirtEnv t fadeIn hold fade = if t < fadeIn then (1.0 - ccos (pi2 * 0.5 * t / fad
 
 fract :: Float -> Float
 fract x = x - cfloor x
+
+-- SuperDirt's global effects (core-synths-global.scd), one channel each:
+-- dirt_delay, dirt_reverb, dirt_leslie and dirt_monitor, each an orbit's
+-- effect (graph.h, "o." and "a."). Their control-rate UGens step once per
+-- call, at scsynth's control rate, rate / 64; a UGen's constructor value
+-- is its first call's previous one. A kernel's state is slots of Floats.
+-- A kernel that sets done pauses its effect, as DirtPause's PauseSelf
+-- and DetectSilence do with doneAction 1.
+
+-- the world RGen (SC_RGen.h): trand's next uint32, frand in [0, 1),
+-- frand2 in [-1, 1), as scsynth's union of bits
+trand :: Ptr Context ->> Int
+trand cx = do
+  r <- readField cx Context.rgen
+  s1 <- fromIntegral (clrint (slot r 0))
+  s2 <- fromIntegral (clrint (slot r 1))
+  s3 <- fromIntegral (clrint (slot r 2))
+  n1 <- xor (shiftL (s1 .&. 4294967294) 12 .&. 4294967295) (shiftR (xor (shiftL s1 13 .&. 4294967295) s1) 19)
+  n2 <- xor (shiftL (s2 .&. 4294967288) 4 .&. 4294967295) (shiftR (xor (shiftL s2 2 .&. 4294967295) s2) 25)
+  n3 <- xor (shiftL (s3 .&. 4294967280) 17 .&. 4294967295) (shiftR (xor (shiftL s3 3 .&. 4294967295) s3) 11)
+  setSlot r 0 (toFloat n1)
+  setSlot r 1 (toFloat n2)
+  setSlot r 2 (toFloat n3)
+  xor (xor n1 n2) n3
+
+frand, frand2 :: Ptr Context ->> Float
+frand cx = toFloat (shiftR (trand cx) 9) / 8388608.0
+frand2 cx = toFloat (shiftR (trand cx) 9) / 4194304.0 - 1.0
+
+-- the control rate, frames per second / 64
+krRate :: Ptr Context ->> Float
+krRate cx = rateOf cx / 64.0
+
+log001 :: Float
+log001 = clog 0.001
+
+-- dirt_rand: Rand(lo, hi), drawn at the first call (Rand_Ctor), rounded
+-- once as clang fuses frand() * range + lo. Inputs: lo, hi, then any
+-- inputs that must draw first.
+foreign struct Rand { started :: Float, value :: Float }
+
+randK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+randK st ins out n cx = do
+  s <- castPtr st :: Ptr Rand
+  if readField s Rand.started == 0.0 then do
+    lo <- at (input ins 0) 0
+    writeField s Rand.value (f32 (frand cx * f32 (at (input ins 1) 0 - lo) + lo))
+    writeField s Rand.started 1.0
+  else ()
+  constLoop out (readField s Rand.value) 0 (fromIntegral n)
+
+-- dirt_lfnoise1: LFNoise1.kr(freq) (NoiseUGens.cpp), its constructor's
+-- draws included. Its output's frame 0 is this call's value, frame 1 its
+-- last call's, the constructor's at the first. Inputs: freq, then any
+-- inputs that must draw first.
+foreign struct Noise1 { started :: Float, level :: Float, slope :: Float, counter :: Float, prev :: Float }
+
+lfnoise1K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+lfnoise1K st ins out n cx = do
+  s <- castPtr st :: Ptr Noise1
+  freq <- at (input ins 0) 0
+  if readField s Noise1.started == 0.0 then do
+    writeField s Noise1.level (f32 (frand2 cx))
+    writeField s Noise1.counter 0.0
+    writeField s Noise1.slope 0.0
+    writeField s Noise1.prev (noise1Step s freq cx)
+    writeField s Noise1.started 1.0
+  else ()
+  prev <- readField s Noise1.prev
+  v <- noise1Step s freq cx
+  writeField s Noise1.prev v
+  constLoop out v 0 (fromIntegral n)
+  if n > 1 then put out 1 prev else ()
+
+-- LFNoise1_next for one control period: its value
+noise1Step :: Ptr Noise1 -> Float -> Ptr Context ->> Float
+noise1Step s freq cx = do
+  if readField s Noise1.counter <= 0.0 then do
+    c <- toFloat (max 1 (cInt (krRate cx / max freq (f32 0.001))))
+    writeField s Noise1.counter c
+    next <- f32 (frand2 cx)
+    writeField s Noise1.slope (f32 (f32 (next - readField s Noise1.level) / c))
+  else ()
+  v <- readField s Noise1.level
+  writeField s Noise1.level (f32 (v + readField s Noise1.slope))
+  writeField s Noise1.counter (readField s Noise1.counter - 1.0)
+  v
+
+-- Lag.kr (FilterUGens.cpp) in slots y1, b1, lag of st from k: its
+-- constructor (y1 the input, a step of Lag_next), then Lag_next_1
+lagStart :: Ptr () -> Int -> Float -> Float -> Ptr Context ->> Float
+lagStart st k x lag cx = do
+  setSlot st k x
+  lagStep st k x lag cx
+
+lagStep :: Ptr () -> Int -> Float -> Float -> Ptr Context ->> Float
+lagStep st k x lag cx = do
+  if lag /= slot st (k + 2) then do
+    setSlot st (k + 1) (if lag == 0.0 then 0.0 else cexp (log001 / (lag * krRate cx)))
+    setSlot st (k + 2) lag
+  else ()
+  y <- x + slot st (k + 1) * (slot st k - x)
+  setSlot st k (zap y)
+  f32 y
+
+-- EnvGen.kr(Env.asr) in slots k..k+5 of st, gate held: 0.01 s up, curve
+-- -4, then 1. asrStart is its constructor's step, asrStep a call's.
+asrStart :: Ptr () -> Int -> Ptr Context ->> Float
+asrStart st k cx = do
+  c <- toFloat (max 1 (cInt (f32 0.01 * krRate cx)))
+  a1 <- 1.0 / (1.0 - cexp (-4.0))
+  setSlot st k 0.0
+  setSlot st (k + 1) c
+  setSlot st (k + 2) 0.0
+  setSlot st (k + 3) a1
+  setSlot st (k + 4) a1
+  setSlot st (k + 5) (cexp (-4.0 / c))
+  asrStep st k
+
+asrStep :: Ptr () -> Int ->> Float
+asrStep st k = if slot st k /= 0.0 then 1.0 else if slot st (k + 1) <= 0.0 then do
+    setSlot st k 1.0
+    setSlot st (k + 2) 1.0
+    1.0
+  else do
+    y <- f32 (slot st (k + 2))
+    setSlot st (k + 4) (slot st (k + 4) * slot st (k + 5))
+    setSlot st (k + 2) (slot st (k + 3) - slot st (k + 4))
+    setSlot st (k + 1) (slot st (k + 1) - 1.0)
+    y
+
+-- the ramp of a control-rate input b to next that nova-simd's mul_ak
+-- multiplies by (wrap_argument_vector.hpp), in slots k..k+4 of st: four
+-- lanes, b, b + s, b + s + s, b + s + s + s, each stepped by s + s + s + s
+rampSet :: Ptr () -> Int -> Float -> Float ->> ()
+rampSet st k b next = if b == next then do
+    setSlot st k b
+    setSlot st (k + 1) b
+    setSlot st (k + 2) b
+    setSlot st (k + 3) b
+    setSlot st (k + 4) 0.0
+  else do
+    s <- f32 (f32 (next - b) * f32 (1.0 / 64.0))
+    setSlot st k b
+    setSlot st (k + 1) (f32 (b + s))
+    setSlot st (k + 2) (f32 (slot st (k + 1) + s))
+    setSlot st (k + 3) (f32 (slot st (k + 2) + s))
+    setSlot st (k + 4) (f32 (f32 (f32 (s + s) + s) + s))
+
+-- frame i's value of the ramp in slots k..: after the fourth lane, the
+-- lanes step on
+rampAt :: Ptr () -> Int -> Int ->> Float
+rampAt st k i = do
+  v <- slot st (k + mod i 4)
+  if mod i 4 == 3 then do
+    setSlot st k (f32 (slot st k + slot st (k + 4)))
+    setSlot st (k + 1) (f32 (slot st (k + 1) + slot st (k + 4)))
+    setSlot st (k + 2) (f32 (slot st (k + 2) + slot st (k + 4)))
+    setSlot st (k + 3) (f32 (slot st (k + 3) + slot st (k + 4)))
+  else ()
+  v
+
+-- Trig1.ar(resumed, 4) in slots k (counter) and k + 1 (last trigger):
+-- its frame, given the call's trigger
+trig1 :: Ptr () -> Int -> Float -> Float ->> Float
+trig1 st k trig rate = do
+  c <- slot st k
+  v <- if c > 0.0 then do
+      setSlot st k (c - 1.0)
+      if c - 1.0 /= 0.0 then 1.0 else 0.0
+    else if trig > 0.0 && slot st (k + 1) <= 0.0 then do
+      setSlot st k (toFloat (max 1 (cInt (f32 (f32 (4.0 * f32 rate) + 0.5)))))
+      1.0
+    else 0.0
+  setSlot st (k + 1) trig
+  v
+
+-- DetectSilence.ar(x, 0.0001, secs, 1) in slot k: its counter, from -1;
+-- done, pausing the effect, once x stays under the threshold for secs
+silent :: Ptr () -> Int -> Float -> Float -> Ptr Context ->> ()
+silent st k x secs cx = if abs x > f32 0.0001 then setSlot st k 0.0 else if slot st k >= 0.0 then do
+    setSlot st k (slot st k + 1.0)
+    if slot st k >= toFloat (cInt (rateOf cx * secs)) then writeField cx Context.done 1.0 else ()
+  else ()
+
+-- LFNoise1.kr(1).range(0.01, 0.02): a control-rate MulAdd, which clang fuses
+noiseLag :: Float -> Float
+noiseLag v = f32 (v * f32 0.005 + f32 0.015)
+
+-- dirt_delay with sc3-plugins (core-synths-global.scd): SwitchDelay
+-- (RFWUGens.cpp) of the dry bus times a lagged delaySend, times its
+-- envelope and a lagged delayAmp, added to the effect bus. SwitchDelay
+-- reads a buffer of 4 seconds, positions as uint32s. Inputs: dry, effect,
+-- LFNoise1.kr(1) (dirt_lfnoise1), delaytime, delayfeedback, delaySend,
+-- delayAmp, lock, cps, resumed. Memory: 4 s and 2 frames.
+switchDelayK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+switchDelayK st ins out n cx = do
+  m <- castPtr st :: Ptr Memory
+  rate <- rateOf cx
+  noise <- noiseLag (at (input ins 2) 0)
+  -- delaytime * if(lock, reciprocal(cps), 1), clipped to [0, 4]
+  dt <- clipF (f32 (at (input ins 3) 0 * f32 (at (input ins 7) 0 * f32 (f32 (1.0 / at (input ins 8) 0) - 1.0) + 1.0))) 0.0 4.0
+  if slot st 2 == 0.0 then do
+    -- the constructors, in the SynthDef's order
+    e0 <- asrStart st 3 cx
+    a0 <- lagStart st 9 (at (input ins 6) 0) (f32 0.01) cx
+    s0 <- lagStart st 12 (at (input ins 5) 0) (noiseLag (at (input ins 2) 1)) cx
+    setSlot st 15 s0
+    setSlot st 16 e0
+    setSlot st 17 a0
+    setSlot st 18 (toFloat (cInt (rate * 4.0)))
+    setSlot st 19 (toFloat (cInt (dt * rate)))
+    setSlot st 21 0.0
+    setSlot st 22 0.0
+    setSlot st 23 0.0
+    setSlot st 24 2000.0
+    setSlot st 25 0.0
+    setSlot st 26 0.0
+    setSlot st 27 (-1.0)
+    setSlot st 28 0.0
+    setSlot st 29 0.0
+    setSlot st 30 (-1.0)
+    setSlot st 2 1.0
+    -- PauseSelf: paused after this first call
+    writeField cx Context.done 1.0
+  else ()
+  env <- asrStep st 3
+  amp <- lagStep st 9 (at (input ins 6) 0) (f32 0.01) cx
+  send <- lagStep st 12 (at (input ins 5) 0) noise cx
+  rampSet st 31 (slot st 15) send
+  rampSet st 36 (slot st 16) env
+  rampSet st 41 (slot st 17) amp
+  setSlot st 15 send
+  setSlot st 16 env
+  setSlot st 17 amp
+  -- SwitchDelay_next: a new delay crossfades the read position over 2000 frames
+  size <- cInt (slot st 18)
+  decay <- cInt (dt * rate)
+  w <- cInt (slot st 26)
+  r <- wrapIndex (w - decay + size) size
+  mem <- readField m Memory.mem
+  if decay /= cInt (slot st 19) then do
+    offset <- f32 (f32 (at mem r + slot st 23) - at mem (wrapIndex (r - decay + size) size))
+    setSlot st 25 1.0
+    setSlot st 22 offset
+    setSlot st 23 offset
+    setSlot st 24 2000.0
+  else ()
+  setSlot st 19 (toFloat decay)
+  delayLoop2 st mem size w r (max (at (input ins 4) 0) 0.0) (input ins 0) (input ins 1) (at (input ins 9) 0) rate cx out 0 (fromIntegral n)
+
+delayLoop2 :: Ptr () -> Ptr CFloat -> Int -> Int -> Int -> Float -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+delayLoop2 st mem size w r factor dry eff trig rate cx out i n = if i == n then setSlot st 26 (toFloat w) else do
+  x <- f32 (at dry i * rampAt st 31 i)
+  readval <- f32 (at mem r + slot st 23)
+  -- recval + prev_samp * delayfactor, which clang fuses
+  rec <- f32 (x + slot st 21 * factor)
+  y <- f32 (x + readval)
+  put mem w rec
+  setSlot st 21 readval
+  if slot st 25 /= 0.0 then do
+    setSlot st 24 (slot st 24 - 1.0)
+    if slot st 24 > 0.0 then setSlot st 23 (f32 (slot st 22 * f32 (slot st 24 / 2000.0))) else do
+      setSlot st 25 0.0
+      setSlot st 23 0.0
+  else ()
+  silent st 27 y 1.0 cx
+  v <- f32 (f32 (y * rampAt st 36 i) * rampAt st 41 i)
+  silent st 30 (f32 (abs v + trig1 st 28 trig rate)) 4.0 cx
+  put out i (f32 (at eff i + v))
+  delayLoop2 st mem size (wrapIndex (w + 1) size) (wrapIndex (r + 1) size) factor dry eff trig rate cx out (i + 1) n
+
+-- a delay line at slot k of st: 0 its offset in the memory, 1 its frames,
+-- 2 its delay in frames, 3 its feedback, 4 its write position
+lineStart :: Ptr () -> Int -> Int -> Float -> Float -> Float -> Float ->> Int
+lineStart st k off most dt decay rate = do
+  -- DelayUnit_AllocDelayLine's length, a power of two, to which CalcDelay
+  -- clips a delay: a Rand past the maximum reads further, not less
+  len <- pow2Above (cInt (cceil (most * rate + 1.0)) + 64) 1
+  setSlot st k (toFloat off)
+  setSlot st (k + 1) (toFloat len)
+  -- CalcDelay, at least a frame; sc_CalcFeedback
+  setSlot st (k + 2) (toFloat (cInt (min (max (f32 (dt * f32 rate)) 1.0) (toFloat len))))
+  setSlot st (k + 3) (if dt == 0.0 || decay == 0.0 then 0.0 else f32 (cexp (log001 * dt / abs decay)))
+  setSlot st (k + 4) 0.0
+  off + len
+
+-- the least power of two of at least n, from p
+pow2Above :: Int -> Int -> Int
+pow2Above n p = if p >= n then p else pow2Above n (2 * p)
+
+-- AllpassN_helper (DelayUGens.cpp): its frame; clang fuses its two multiplies
+allpassN :: Ptr () -> Ptr CFloat -> Int -> Float ->> Float
+allpassN st mem k x = do
+  off <- cInt (slot st k)
+  len <- cInt (slot st (k + 1))
+  pos <- cInt (slot st (k + 4))
+  fb <- slot st (k + 3)
+  v <- at mem (off + wrapIndex (pos - cInt (slot st (k + 2))) len)
+  dwr <- f32 (v * fb + x)
+  put mem (off + pos) dwr
+  setSlot st (k + 4) (toFloat (wrapIndex (pos + 1) len))
+  f32 (v - fb * dwr)
+
+-- DelayN_helper: writes, then reads
+delayN :: Ptr () -> Ptr CFloat -> Int -> Float ->> Float
+delayN st mem k x = do
+  off <- cInt (slot st k)
+  len <- cInt (slot st (k + 1))
+  pos <- cInt (slot st (k + 4))
+  put mem (off + pos) x
+  setSlot st (k + 4) (toFloat (wrapIndex (pos + 1) len))
+  at mem (off + wrapIndex (pos - cInt (slot st (k + 2))) len)
+
+-- dirt_reverb (core-synths-global.scd), one channel: the dry bus's sum
+-- times a lagged room through four AllpassNs; a loop of LocalIn times the
+-- size's depth, OnePole, AllpassN, DelayN and AllpassN, plus those, then
+-- LeakDC, back through LocalOut; times a lagged 1 - dry and its envelope,
+-- added to the effect bus. LocalIn reads 0 after a paused block, as
+-- scsynth's reads a bus not written in the last block. Inputs: dry left,
+-- dry right, effect, LFNoise1 (room's lag), LFNoise1 (dry's lag), four
+-- allpass delays, depth's Rand, then the loop's allpass, delay and
+-- allpass Rands, room, size, dry, resumed, the loop delay's base.
+reverbK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+reverbK st ins out n cx = do
+  rate <- rateOf cx
+  mem <- readField (castPtr st :: Ptr Memory) Memory.mem
+  size <- at (input ins 14) 0
+  drylv <- f32 (1.0 - at (input ins 15) 0)
+  if slot st 2 == 0.0 then do
+    e0 <- asrStart st 3 cx
+    z0 <- lagStart st 9 size (f32 0.02) cx
+    r0 <- lagStart st 12 (at (input ins 13) 0) (noiseLag (at (input ins 3) 1)) cx
+    d0 <- lagStart st 15 drylv (noiseLag (at (input ins 4) 1)) cx
+    setSlot st 18 r0
+    setSlot st 19 (f32 (linexp01 z0 (f32 0.01) (f32 0.98) + at (input ins 9) 0))
+    setSlot st 20 d0
+    setSlot st 21 e0
+    o1 <- lineStart st 22 0 (f32 0.03) (at (input ins 5) 0) 1.0 rate
+    o2 <- lineStart st 27 o1 (f32 0.03) (at (input ins 6) 0) 1.0 rate
+    o3 <- lineStart st 32 o2 (f32 0.03) (at (input ins 7) 0) 1.0 rate
+    o4 <- lineStart st 37 o3 (f32 0.03) (at (input ins 8) 0) 1.0 rate
+    o5 <- lineStart st 42 o4 (f32 0.05) (at (input ins 10) 0) 2.0 rate
+    o6 <- lineStart st 47 o5 (f32 0.3) (f32 (at (input ins 17) 0 + at (input ins 11) 0)) 0.0 rate
+    o7 <- lineStart st 52 o6 (f32 0.05) (at (input ins 12) 0) 2.0 rate
+    setSlot st 57 0.0
+    setSlot st 58 0.0
+    setSlot st 59 0.0
+    setSlot st 60 (f32 0.995)
+    setSlot st 61 (-1.0)
+    setSlot st 62 (toFloat o7)
+    setSlot st 65 (-1.0)
+    setSlot st 2 1.0
+    writeField cx Context.done 1.0
+  else ()
+  env <- asrStep st 3
+  depth <- f32 (linexp01 (lagStep st 9 size (f32 0.02) cx) (f32 0.01) (f32 0.98) + at (input ins 9) 0)
+  room <- lagStep st 12 (at (input ins 13) 0) (noiseLag (at (input ins 3) 0)) cx
+  dry <- lagStep st 15 drylv (noiseLag (at (input ins 4) 0)) cx
+  rampSet st 66 (slot st 18) room
+  rampSet st 71 (slot st 19) depth
+  rampSet st 76 (slot st 20) dry
+  rampSet st 81 (slot st 21) env
+  setSlot st 18 room
+  setSlot st 19 depth
+  setSlot st 20 dry
+  setSlot st 21 env
+  block <- readField cx Context.block
+  fed <- block - slot st 61 == 1.0 || block - slot st 61 == 0.0
+  reverbLoop st mem (cInt (slot st 62)) fed (input ins 0) (input ins 1) (input ins 2) (at (input ins 16) 0) rate cx out 0 (fromIntegral n)
+  setSlot st 57 (zap (slot st 57))
+  setSlot st 59 (zap (slot st 59))
+  setSlot st 61 block
+
+reverbLoop :: Ptr () -> Ptr CFloat -> Int -> Bool -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+reverbLoop st mem loop fed l r eff trig rate cx out i n = if i == n then () else do
+  x <- f32 (f32 (at l i + at r i) * rampAt st 66 i)
+  a <- allpassN st mem 37 (allpassN st mem 32 (allpassN st mem 27 (allpassN st mem 22 x)))
+  li <- if fed then at mem (loop + i) else 0.0
+  y0 <- f32 (li * rampAt st 71 i)
+  -- OnePole_next_k, b1 0.5, in doubles
+  op <- y0 + 0.5 * (slot st 57 - y0)
+  setSlot st 57 op
+  s <- f32 (allpassN st mem 52 (delayN st mem 47 (allpassN st mem 42 (f32 op))) + a)
+  -- LeakDC_next_i_4, b1 0.995
+  leak <- s - slot st 58 + slot st 60 * slot st 59
+  setSlot st 59 leak
+  setSlot st 58 s
+  put mem (loop + i) (f32 leak)
+  v <- f32 (f32 leak * rampAt st 76 i)
+  silent st 65 (f32 (abs v + trig1 st 63 trig rate)) 4.0 cx
+  put out i (f32 (at eff i + f32 (v * rampAt st 81 i)))
+  reverbLoop st mem loop fed l r eff trig rate cx out (i + 1) n
+
+-- dirt_leslie's ReplaceOut of the dry bus: dry times 1 - leslie, ramped.
+-- Inputs: dry, leslie.
+leslieDryK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+leslieDryK st ins out n cx = do
+  w <- f32 (1.0 - at (input ins 1) 0)
+  if slot st 0 == 0.0 then do
+    setSlot st 1 w
+    setSlot st 0 1.0
+  else ()
+  rampSet st 2 (slot st 1) w
+  setSlot st 1 w
+  leslieDryLoop st (input ins 0) out 0 (fromIntegral n)
+
+leslieDryLoop :: Ptr () -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+leslieDryLoop st x out i n = if i == n then () else do
+  put out i (f32 (at x i * rampAt st 2 i))
+  leslieDryLoop st x out (i + 1) n
+
+-- SinOsc_next_ikk's phase increment for freq, at a rate of frames
+sineInc :: Float -> Float -> Float
+sineInc rate freq = toFloat (cInt (8192.0 * (1.0 / rate) * 65536.0 * freq))
+
+-- dirt_leslie, one channel, as its SynthDef's graph computes the channel:
+-- HPF(800) and the rest; the high band through DelayC by a SinOsc
+-- distance; each band times leslie and its SinOsc throb, Balance2'd by
+-- slow SinOsc.krs, summed, times 1.2 and the envelope, both of
+-- Balance2's sides added to the effect bus. Inputs: dry, effect,
+-- leslie, lrate, lsize, resumed. Memory: 1 s, then 6 frames.
+leslieK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+leslieK st ins out n cx = do
+  rate <- rateOf cx
+  kr <- krRate cx
+  mem <- readField (castPtr st :: Ptr Memory) Memory.mem
+  les <- at (input ins 2) 0
+  lrate <- at (input ins 3) 0
+  lsize <- at (input ins 4) 0
+  m18 <- f32 (lsize * 0.5)
+  m34 <- f32 (f32 (lsize * f32 1.3) * 0.5)
+  if slot st 2 == 0.0 then do
+    -- HPF_next_1's coefficients, its constructor's frame of a silent bus
+    pf <- 800.0 * (pi2 / rate) * 0.5
+    c <- ctan pf
+    c2 <- c * c
+    s2c <- c * f32 1.4142135623730951
+    a0 <- 1.0 / (1.0 + s2c + c2)
+    setSlot st 3 0.0
+    setSlot st 4 0.0
+    setSlot st 5 a0
+    setSlot st 6 (2.0 * (1.0 - c2) * a0)
+    setSlot st 7 (0.0 - (1.0 - s2c + c2) * a0)
+    l15 <- lagStart st 8 lrate 10.0 cx
+    l31 <- lagStart st 11 (f32 (lrate * f32 0.8)) 20.0 cx
+    l43 <- lagStart st 14 (f32 (lrate * f32 0.8)) 4.0 cx
+    l48 <- lagStart st 17 lrate 2.0 cx
+    -- the SinOscs' phases: the ars from 0, the krs from pi / 2
+    setSlot st 20 0.0
+    setSlot st 21 0.0
+    setSlot st 22 (wrap32 (toFloat (cInt (f32 1.5707963267949 * (8192.0 * ((1.0 / pi2) * 65536.0))))))
+    setSlot st 23 (slot st 22)
+    setSlot st 24 m18
+    setSlot st 25 m34
+    setSlot st 26 les
+    -- Balance2_Ctor's gains, from the krs' first value
+    setSlot st 27 (f32 (sineOsc (slot st 22) * f32 0.2))
+    setSlot st 28 (f32 (sineOsc (slot st 23) * f32 0.4))
+    setSlot st 29 (f32 (sineAt (2048 - balPos (slot st 27))))
+    setSlot st 30 (f32 (sineAt (balPos (slot st 27))))
+    setSlot st 31 (f32 (sineAt (2048 - balPos (slot st 28))))
+    setSlot st 32 (f32 (sineAt (balPos (slot st 28))))
+    setSlot st 33 (asrStart st 34 cx)
+    setSlot st 40 0.0
+    setSlot st 41 0.0
+    setSlot st 42 (-1.0)
+    setSlot st 43 (-1.0)
+    setSlot st 44 0.0
+    setSlot st 2 1.0
+    writeField cx Context.done 1.0
+  else ()
+  -- the call's control rate values
+  l15 <- lagStep st 8 lrate 10.0 cx
+  l31 <- lagStep st 11 (f32 (lrate * f32 0.8)) 20.0 cx
+  l43 <- lagStep st 14 (f32 (lrate * f32 0.8)) 4.0 cx
+  l48 <- lagStep st 17 lrate 2.0 cx
+  b1 <- f32 (sineOsc (slot st 22) * f32 0.2)
+  setSlot st 22 (wrap32 (slot st 22 + sineInc kr l43))
+  b2 <- f32 (sineOsc (slot st 23) * f32 0.4)
+  setSlot st 23 (wrap32 (slot st 23 + sineInc kr l48))
+  env <- asrStep st 34
+  rampSet st 45 (slot st 24) m18
+  rampSet st 50 (slot st 25) m34
+  rampSet st 55 (slot st 26) les
+  rampSet st 60 (slot st 29) (if b1 == slot st 27 then slot st 29 else f32 (sineAt (2048 - balPos b1)))
+  rampSet st 65 (slot st 30) (if b1 == slot st 27 then slot st 30 else f32 (sineAt (balPos b1)))
+  rampSet st 70 (slot st 31) (if b2 == slot st 28 then slot st 31 else f32 (sineAt (2048 - balPos b2)))
+  rampSet st 75 (slot st 32) (if b2 == slot st 28 then slot st 32 else f32 (sineAt (balPos b2)))
+  rampSet st 80 (slot st 33) env
+  setSlot st 24 m18
+  setSlot st 25 m34
+  setSlot st 26 les
+  if b1 /= slot st 27 then do
+    setSlot st 29 (f32 (sineAt (2048 - balPos b1)))
+    setSlot st 30 (f32 (sineAt (balPos b1)))
+    setSlot st 27 b1
+  else ()
+  if b2 /= slot st 28 then do
+    setSlot st 31 (f32 (sineAt (2048 - balPos b2)))
+    setSlot st 32 (f32 (sineAt (balPos b2)))
+    setSlot st 28 b2
+  else ()
+  setSlot st 33 env
+  leslieLoop st mem (input ins 0) (input ins 1) (sineInc rate l15) (sineInc rate l31) (at (input ins 5) 0) rate cx out 0 (fromIntegral n)
+  setSlot st 3 (zap (slot st 3))
+  setSlot st 4 (zap (slot st 4))
+
+-- Balance2's pos as an index of the sine table, 0 to 2048
+balPos :: Float ->> Int
+balPos p = max 0 (min 2048 (cInt (f32 (f32 (f32 (1024.0 * p) + 1024.0) + 0.5))))
+
+leslieLoop :: Ptr () -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Float -> Float -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+leslieLoop st mem x eff inc16 inc32 trig rate cx out i n = if i == n then () else do
+  v <- at x i
+  -- HPF_next
+  y1 <- slot st 3
+  y2 <- slot st 4
+  y0 <- v + slot st 6 * y1 + slot st 7 * y2
+  hi <- f32 (slot st 5 * (y0 - 2.0 * y1 + y2))
+  setSlot st 4 y1
+  setSlot st 3 y0
+  lo <- f32 (v - hi)
+  -- distance and throb: SinOsc.ar, then MulAdd (nova's, unfused)
+  m18 <- rampAt st 45 i
+  dist <- f32 (f32 (sineOsc (slot st 20) * m18) + m18)
+  setSlot st 20 (wrap32 (slot st 20 + inc16))
+  m34 <- rampAt st 50 i
+  throb <- f32 (f32 (sineOsc (slot st 21) * m34) + m34)
+  setSlot st 21 (wrap32 (slot st 21 + inc32))
+  -- DelayC_helper at an audio-rate delay of distance / 343 seconds, at
+  -- least a frame: DelayC is an InterpolationUnit, so the newest frame it
+  -- reads can be the one just written
+  w <- cInt (slot st 44)
+  len <- cInt (cceil rate) + 6
+  put mem w hi
+  ds <- clipF (f32 (f32 (dist * f32 (1.0 / 343.0)) * f32 rate)) 1.0 (toFloat (len - 2))
+  id <- cInt ds
+  dl <- cubic (f32 (ds - toFloat id)) (at mem (wrapIndex (w - id + 1) len)) (at mem (wrapIndex (w - id) len))
+    (at mem (wrapIndex (w - id - 1) len)) (at mem (wrapIndex (w - id - 2) len))
+  setSlot st 44 (toFloat (wrapIndex (w + 1) len))
+  les <- rampAt st 55 i
+  s2 <- f32 (f32 (les * f32 (1.0 - dist)) * dl)
+  s1 <- f32 (f32 (les * f32 (1.0 - throb)) * lo)
+  -- Balance2 of each band with itself, then the sums, times 1.2
+  bl1 <- rampAt st 60 i
+  br1 <- rampAt st 65 i
+  bl2 <- rampAt st 70 i
+  br2 <- rampAt st 75 i
+  a <- f32 (f32 1.2 * f32 (f32 (s1 * bl1) + f32 (s2 * bl2)))
+  b <- f32 (f32 1.2 * f32 (f32 (s1 * br1) + f32 (s2 * br2)))
+  trg <- trig1 st 40 trig rate
+  silent st 42 (f32 (abs a + trg)) 4.0 cx
+  silent st 43 (f32 (abs b + trg)) 4.0 cx
+  e <- rampAt st 80 i
+  put out i (f32 (f32 (at eff i + f32 (a * e)) + f32 (b * e)))
+  leslieLoop st mem x eff inc16 inc32 trig rate cx out (i + 1) n
+
+-- dirt_monitor (core-synths-global.scd), one channel: dry plus effect,
+-- 0 where CheckBadValues finds NaN, an infinity or a subnormal; then by
+-- limitertype 0 that, 1 its Limiter (FilterUGens.cpp: level 1 over 0.01
+-- s, so 881 frames late), 2 softclip(x / 2) * 2; times the envelope.
+-- Inputs: dry, effect, limitertype, resumed. Memory: three buffers of
+-- ceil(0.01 * rate) frames.
+monitorK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+monitorK st ins out n cx = do
+  rate <- rateOf cx
+  mem <- readField (castPtr st :: Ptr Memory) Memory.mem
+  if slot st 2 == 0.0 then do
+    setSlot st 9 (asrStart st 3 cx)
+    bs <- cceil (f32 0.01 * rate)
+    setSlot st 15 bs
+    setSlot st 16 (f32 (1.0 / bs))
+    setSlot st 17 0.0
+    setSlot st 18 0.0
+    setSlot st 19 1.0
+    setSlot st 20 0.0
+    setSlot st 21 0.0
+    setSlot st 22 0.0
+    setSlot st 23 0.0
+    setSlot st 24 1.0
+    setSlot st 25 2.0
+    setSlot st 28 (-1.0)
+    -- Limiter_Ctor's frame of a silent bus
+    limiter st mem 0.0
+    setSlot st 2 1.0
+    writeField cx Context.done 1.0
+  else ()
+  env <- asrStep st 3
+  rampSet st 10 (slot st 9) env
+  setSlot st 9 env
+  monitorLoop st mem (input ins 0) (input ins 1) (max 1 (min 3 (cInt (at (input ins 2) 0) + 1))) (at (input ins 3) 0) rate cx out 0 (fromIntegral n)
+
+-- Limiter_next's frame: slots 15 frames per buffer, 16 their inverse, 17
+-- position, 18 slope, 19 level, 20 this buffer's peak, 21 the last's, 22
+-- flips, 23..25 the in, mid and out buffers
+limiter :: Ptr () -> Ptr CFloat -> Float ->> Float
+limiter st mem v = do
+  bs <- cInt (slot st 15)
+  pos <- cInt (slot st 17)
+  put mem (cInt (slot st 23) * bs + pos) v
+  level <- slot st 19
+  y <- if slot st 22 >= 2.0 then f32 (level * at mem (cInt (slot st 25) * bs + pos)) else 0.0
+  setSlot st 19 (f32 (level + slot st 18))
+  if abs v > slot st 20 then setSlot st 20 (abs v) else ()
+  if pos + 1 >= bs then do
+    setSlot st 17 0.0
+    peak <- max (slot st 21) (slot st 20)
+    setSlot st 21 (slot st 20)
+    setSlot st 20 0.0
+    next <- if peak > 1.0 then f32 (1.0 / peak) else 1.0
+    setSlot st 18 (f32 (f32 (next - slot st 19) * slot st 16))
+    o <- slot st 25
+    setSlot st 25 (slot st 24)
+    setSlot st 24 (slot st 23)
+    setSlot st 23 o
+    setSlot st 22 (slot st 22 + 1.0)
+  else setSlot st 17 (toFloat (pos + 1))
+  y
+
+monitorLoop :: Ptr () -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Float -> Float -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+monitorLoop st mem dry eff sel trig rate cx out i n = if i == n then () else do
+  s <- f32 (at eff i + at dry i)
+  x <- if not (s == s) || abs s > 3.4028234663852886e38 || (s /= 0.0 && abs s < 1.1754943508222875e-38) then 0.0 else s
+  lim <- limiter st mem x
+  h <- f32 (x * 0.5)
+  soft <- f32 (2.0 * (if abs h < 0.5 then h else f32 (f32 (abs h - 0.25) / h)))
+  y <- if sel == 1 then x else if sel == 2 then lim else soft
+  silent st 28 (f32 (abs y + trig1 st 26 trig rate)) 4.0 cx
+  put out i (f32 (y * rampAt st 10 i))
+  monitorLoop st mem dry eff sel trig rate cx out (i + 1) n
+
+-- dirt_delay without sc3-plugins: CombL (DelayUGens.cpp's FilterX_perform,
+-- which ramps a new delay and decay over the call) of the dry bus, delay
+-- lagged over 1 s, decay log2(-60 dB) / log2(feedback) delays; LeakDC;
+-- times a lagged delayAmp and the envelope, added to the effect bus.
+-- Inputs: dry, effect, delaytime, delayfeedback, delayAmp, lock, cps,
+-- resumed. Memory: 4 s and 2 frames.
+combDelayK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+combDelayK st ins out n cx = do
+  rate <- rateOf cx
+  mem <- readField (castPtr st :: Ptr Memory) Memory.mem
+  frames <- readField (castPtr st :: Ptr Memory) Memory.frames
+  dt <- clipF (f32 (at (input ins 2) 0 * f32 (at (input ins 5) 0 * f32 (f32 (1.0 / at (input ins 6) 0) - 1.0) + 1.0))) 0.0 4.0
+  decay <- clipF (f32 (f32 (f32 (-9.965784284662087) / f32 (clog2 (abs (clipF (at (input ins 3) 0) 0.0 (f32 0.99))))) * dt)) 0.0 20.0
+  if slot st 2 == 0.0 then do
+    e0 <- asrStart st 3 cx
+    d0 <- lagStart st 9 dt 1.0 cx
+    a0 <- lagStart st 12 (at (input ins 4) 0) (f32 0.01) cx
+    setSlot st 15 a0
+    setSlot st 16 e0
+    -- FeedbackDelay_Reset, from the constructors' values
+    setSlot st 17 (combSamples d0 rate)
+    setSlot st 18 (feedback d0 decay)
+    setSlot st 19 d0
+    setSlot st 20 decay
+    setSlot st 21 0.0
+    setSlot st 22 0.0
+    setSlot st 23 0.0
+    setSlot st 24 (f32 0.995)
+    setSlot st 27 (-1.0)
+    setSlot st 2 1.0
+    writeField cx Context.done 1.0
+  else ()
+  env <- asrStep st 3
+  delay <- lagStep st 9 dt 1.0 cx
+  amp <- lagStep st 12 (at (input ins 4) 0) (f32 0.01) cx
+  rampSet st 28 (slot st 15) amp
+  rampSet st 33 (slot st 16) env
+  setSlot st 15 amp
+  setSlot st 16 env
+  moved <- delay /= slot st 19 || decay /= slot st 20
+  ds <- if moved then f32 (f32 (combSamples delay rate - slot st 17) * f32 (1.0 / 64.0)) else 0.0
+  fs <- if moved then f32 (f32 (feedback delay decay - slot st 18) * f32 (1.0 / 64.0)) else 0.0
+  setSlot st 19 delay
+  setSlot st 20 decay
+  combLoop2 st mem frames moved ds fs (input ins 0) (input ins 1) (at (input ins 7) 0) rate cx out 0 (fromIntegral n)
+  setSlot st 23 (zap (slot st 23))
+
+-- CalcDelay for CombL: at least a frame
+combSamples :: Float -> Float -> Float
+combSamples d rate = max (f32 (d * f32 rate)) 1.0
+
+-- sc_CalcFeedback (SC_InlineUnaryOp.h)
+feedback :: Float -> Float -> Float
+feedback d decay = if d == 0.0 || decay == 0.0 then 0.0 else (if decay < 0.0 then -1.0 else 1.0) * f32 (cexp (log001 * d / abs decay))
+
+combLoop2 :: Ptr () -> Ptr CFloat -> Int -> Bool -> Float -> Float -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+combLoop2 st mem frames moved ds fs dry eff trig rate cx out i n = if i == n then () else do
+  if moved then do
+    setSlot st 17 (f32 (slot st 17 + ds))
+    setSlot st 18 (f32 (slot st 18 + fs))
+  else ()
+  d <- slot st 17
+  id <- cInt d
+  frac <- f32 (d - toFloat id)
+  pos <- cInt (slot st 21)
+  d1 <- at mem (wrapIndex (pos - id) frames)
+  d2 <- at mem (wrapIndex (pos - id - 1) frames)
+  -- CombL_helper; clang fuses lininterp and the feedback's multiply-add
+  v <- f32 (d1 + frac * f32 (d2 - d1))
+  put mem pos (f32 (at dry i + slot st 18 * v))
+  setSlot st 21 (toFloat (wrapIndex (pos + 1) frames))
+  -- LeakDC_next_i_4, b1 0.995
+  leak <- v - slot st 22 + slot st 24 * slot st 23
+  setSlot st 23 leak
+  setSlot st 22 v
+  y <- f32 (f32 (f32 leak * rampAt st 28 i) * rampAt st 33 i)
+  silent st 27 (f32 (abs y + trig1 st 25 trig rate)) 4.0 cx
+  put out i (f32 (at eff i + y))
+  combLoop2 st mem frames moved ds fs dry eff trig rate cx out (i + 1) n
 
 -- Zita-Rev1 by Fons Adriaensen, ported from Faust's re.zita_rev1_stereo (reverbs.lib,
 -- by Julius O. Smith III), with a dry/wet mix added. tests/kernels/zita.c compares it
@@ -813,3 +2372,937 @@ zitaRun st h ins out n rate = do
       writeField h Zita.moving 0.0
     else ()
     zitaLoop st (readField h Zita.mem) (input ins 0) (input ins 1) (input ins 7) out (readField h Zita.b) (readField h Zita.a1) (readField h Zita.preLen) (readField h Zita.dB) (readField h Zita.dA1) (readField h Zita.dLen) (readField h Zita.channel) (readField h Zita.moving /= 0.0) 0 n
+
+-- SuperCollider 3.13.0's UGens, for lib/scsynth.fk's SynthDefs: kernel
+-- dsp_u_CLASS runs UGen CLASS as scsynth does with nova-simd on NEON. A
+-- state starts with scsynth.fk's header: the UGen's index, its rate (0
+-- scalar, 1 control, 2 audio), special index, output, number of inputs
+-- and each input's rate; the class's slots follow, the first 1 once it
+-- is constructed. The constructor runs in the event layer's constructor
+-- call (funk_graph_ugen), else at the first call. A control-rate UGen
+-- computes one value a call, filling the block. An input of a control's
+-- or scalar's rate is read at frame 0.
+
+-- a SynthDef's constant: state its value, without the header
+uConstK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uConstK st ins out n cx = constLoop out (slot st 0) 0 (fromIntegral n)
+
+-- the class's first slot
+ugBase :: Ptr () ->> Int
+ugBase st = 5 + cInt (slot st 4)
+
+ugRate, ugOutput :: Ptr () ->> Float
+ugRate st = slot st 1
+ugOutput st = slot st 3
+
+-- input j's rate
+ugInRate :: Ptr () -> Int ->> Float
+ugInRate st j = slot st (5 + j)
+
+-- whether this is the constructor's call: the constructor runs now if it
+-- has not, and calc runs unless it is
+ugCtorOnly :: Ptr Context ->> Bool
+ugCtorOnly cx = readField cx Context.ctor /= 0.0
+
+-- input j at frame 0
+in0 :: Ptr (Ptr CFloat) -> Int ->> Float
+in0 ins j = at (input ins j) 0
+
+-- frames per second at the UGen's rate, and seconds per frame
+ugSampleRate :: Ptr () -> Ptr Context ->> Float
+ugSampleRate st cx = if ugRate st == 2.0 then rateOf cx else rateOf cx / 64.0
+
+-- scsynth's mSlopeFactor: 1 / the buffer's frames
+slopeFactor :: Float
+slopeFactor = 1.0 / 64.0
+
+-- Fold (LFUGens.cpp): in folded into [lo, hi]. Slots: started, lo, hi.
+uFoldK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uFoldK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    setSlot st (b + 1) (in0 ins 1)
+    setSlot st (b + 2) (in0 ins 2)
+    put out 0 (fold (in0 ins 0) (in0 ins 1) (in0 ins 2))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then constLoop out (fold (in0 ins 0) (in0 ins 1) (in0 ins 2)) 0 (fromIntegral n)
+    else do
+      -- Fold_next_kk: lo and hi ramp over the call
+      lo <- slot st (b + 1)
+      hi <- slot st (b + 2)
+      los <- f32 (f32 (in0 ins 1 - lo) * slopeFactor)
+      his <- f32 (f32 (in0 ins 2 - hi) * slopeFactor)
+      foldLoop st b (input ins 0) los his out 0 (fromIntegral n)
+
+foldLoop :: Ptr () -> Int -> Ptr CFloat -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+foldLoop st b x los his out i n = if i == n then () else do
+  put out i (fold (at x i) (slot st (b + 1)) (slot st (b + 2)))
+  setSlot st (b + 1) (f32 (slot st (b + 1) + los))
+  setSlot st (b + 2) (f32 (slot st (b + 2) + his))
+  foldLoop st b x los his out (i + 1) n
+
+-- Impulse (LFUGens.cpp): 1 when its phase wraps. Inputs freq, phase.
+-- Slots: started, phase, inc, off, freqMul; the phase and increments are doubles.
+uImpulseK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uImpulseK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    off <- in0 ins 1
+    mul <- f32 (1.0 / ugSampleRate st cx)
+    inc <- f32 (in0 ins 0 * mul)
+    w <- scWrap off 0.0 1.0
+    phase <- if w == 0.0 && inc >= 0.0 then 1.0 else w
+    setSlot st (b + 1) phase
+    setSlot st (b + 2) inc
+    setSlot st (b + 3) off
+    setSlot st (b + 4) mul
+    impulseRun st b ins out 1
+    setSlot st (b + 1) phase
+    setSlot st (b + 2) inc
+    setSlot st (b + 3) off
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then do
+      impulseRun st b ins out 1
+      constLoop out (at out 0) 1 (fromIntegral n)
+    else impulseRun st b ins out (fromIntegral n)
+
+-- sc_wrap of doubles (SC_InlineBinaryOp.h)
+scWrap :: Float -> Float -> Float -> Float
+scWrap x lo hi = if x >= hi then (if x - (hi - lo) < hi then x - (hi - lo) else scWrapFar x lo hi)
+  else if x < lo then (if x + (hi - lo) >= lo then x + (hi - lo) else scWrapFar x lo hi)
+  else x
+
+scWrapFar :: Float -> Float -> Float -> Float
+scWrapFar x lo hi = if hi == lo then lo else x - (hi - lo) * cfloor ((x - lo) / (hi - lo))
+
+-- Impulse_testWrapPhase on slot b + 1: 1 if the phase wrapped
+impulseWrap :: Ptr () -> Int -> Float ->> Float
+impulseWrap st b inc = do
+  ph <- slot st (b + 1)
+  if inc < 0.0 then (if ph <= 0.0 then do
+      p1 <- ph + 1.0
+      setSlot st (b + 1) (if p1 <= 0.0 then p1 - cceil p1 else p1)
+      1.0
+    else 0.0)
+  else if ph >= 1.0 then do
+    p1 <- ph - 1.0
+    setSlot st (b + 1) (if p1 >= 1.0 then p1 - cfloor p1 else p1)
+    1.0
+  else 0.0
+
+-- n frames of the calc function its inputs' rates choose
+impulseRun :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr CFloat -> Int ->> ()
+impulseRun st b ins out n = do
+  fr <- ugInRate st 0
+  pr <- ugInRate st 1
+  mul <- slot st (b + 4)
+  prevOff <- slot st (b + 3)
+  prevInc <- slot st (b + 2)
+  -- at control rate, the increment and the offset ramp
+  incSlope <- if fr == 1.0 then (f32 (in0 ins 0 * mul) - prevInc) * slopeFactor else 0.0
+  offSlope <- if pr == 1.0 then (in0 ins 1 - prevOff) * slopeFactor else 0.0
+  impulseLoop st b ins out fr pr mul incSlope offSlope 0 n
+  if fr == 1.0 then setSlot st (b + 2) (f32 (in0 ins 0 * mul)) else ()
+  if pr == 1.0 then setSlot st (b + 3) (in0 ins 1) else ()
+
+impulseLoop :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr CFloat -> Float -> Float -> Float -> Float -> Float -> Int -> Int ->> ()
+impulseLoop st b ins out fr pr mul incSlope offSlope i n = if i == n then () else do
+  inc <- slot st (b + 2)
+  z <- impulseWrap st b inc
+  if pr == 2.0 then do
+    off <- at (input ins 1) i
+    setSlot st (b + 1) (slot st (b + 1) + f32 (off - slot st (b + 3)))
+    w <- impulseWrap st b inc
+    setSlot st (b + 3) off
+  else if offSlope /= 0.0 then do
+    setSlot st (b + 1) (slot st (b + 1) + offSlope)
+    w <- impulseWrap st b inc
+    ()
+  else ()
+  next <- if fr == 2.0 then f32 (at (input ins 0) i * mul) else if fr == 1.0 then inc + incSlope else inc
+  if fr == 2.0 || fr == 1.0 then setSlot st (b + 2) next else ()
+  put out i z
+  setSlot st (b + 1) (slot st (b + 1) + next)
+  impulseLoop st b ins out fr pr mul incSlope offSlope (i + 1) n
+
+-- Pan2 (PanUGens.cpp), output 0 the left: in times level times the
+-- equal-power gain at pos. Pan2_next_ak_nova for pos at control rate, its
+-- gain ramped in four lanes when pos or level changes; Pan2_next_aa for
+-- pos at audio rate. Inputs in, pos, level; level is read at frame 0.
+-- Slots: started, pos, level, amp, then a ramp's five (rampSet).
+uPan2K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uPan2K st ins out n cx = do
+  b <- ugBase st
+  side <- ugOutput st
+  if slot st b == 0.0 then do
+    setSlot st (b + 1) (in0 ins 1)
+    setSlot st (b + 2) (in0 ins 2)
+    setSlot st (b + 3) (f32 (in0 ins 2 * panAmp side (in0 ins 1)))
+    put out 0 (f32 (in0 ins 0 * f32 (in0 ins 2 * panAmp side (in0 ins 1))))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else do
+    pos <- in0 ins 1
+    level <- in0 ins 2
+    if ugInRate st 1 == 2.0 then do
+      prev <- slot st (b + 2)
+      pan2aa (input ins 0) (input ins 1) side prev (if level /= prev then f32 (f32 (level - prev) * f32 slopeFactor) else 0.0) out 0 (fromIntegral n)
+      if level /= prev then setSlot st (b + 2) (pan2Level prev level (fromIntegral n)) else ()
+    else if pos /= slot st (b + 1) || level /= slot st (b + 2) then do
+      next <- f32 (level * panAmp side pos)
+      rampSet st (b + 4) (slot st (b + 3)) next
+      pan2ak st (b + 4) (input ins 0) out 0 (fromIntegral n)
+      setSlot st (b + 1) pos
+      setSlot st (b + 2) level
+      setSlot st (b + 3) next
+    else mulConst (input ins 0) (slot st (b + 3)) out 0 (fromIntegral n)
+
+-- level after n float steps from prev toward next
+pan2Level :: Float -> Float -> Int -> Float
+pan2Level prev next n = stepN prev (f32 (f32 (next - prev) * f32 slopeFactor)) n
+
+stepN :: Float -> Float -> Int -> Float
+stepN x s n = if n <= 0 then x else stepN (f32 (x + s)) s (n - 1)
+
+pan2ak :: Ptr () -> Int -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+pan2ak st k x out i n = if i == n then () else do
+  put out i (f32 (at x i * rampAt st k i))
+  pan2ak st k x out (i + 1) n
+
+pan2aa :: Ptr CFloat -> Ptr CFloat -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+pan2aa x pos side level slope out i n = if i == n then () else do
+  put out i (f32 (at x i * f32 (level * panAmp side (at pos i))))
+  pan2aa x pos side (f32 (level + slope)) slope out (i + 1) n
+
+-- out = x * c
+mulConst :: Ptr CFloat -> Float -> Ptr CFloat -> Int -> Int ->> ()
+mulConst x c out i n = if i == n then () else do
+  put out i (f32 (at x i * c))
+  mulConst x c out (i + 1) n
+
+-- a control-rate input to an audio-rate UGen as nova-simd's
+-- slope_argument gives it, in slots k (the last value) and k + 1..k + 5
+-- (rampSet's lanes): constant if unchanged, else ramped to next over the
+-- call. Whether it changed.
+laneStart :: Ptr () -> Int -> Float ->> Bool
+laneStart st k next = do
+  prev <- slot st k
+  rampSet st (k + 1) prev next
+  setSlot st k next
+  prev /= next
+
+laneAt :: Ptr () -> Int -> Int ->> Float
+laneAt st k i = rampAt st (k + 1) i
+
+-- input j at frame i by its rate: audio per frame, else frame 0, or for
+-- control rate the lanes in slot k
+laneIn :: Ptr () -> Ptr (Ptr CFloat) -> Int -> Int -> Int ->> Float
+laneIn st ins j k i = if ugInRate st j == 2.0 then at (input ins j) i else if ugInRate st j == 1.0 then laneAt st k i else in0 ins j
+
+-- f32 (a * b + c) rounded once, as clang fuses it
+fma32 :: Float -> Float -> Float -> Float
+fma32 a b c = f32 (a * b + c)
+
+-- sc_mod of floats (SC_InlineBinaryOp.h)
+scMod :: Float -> Float -> Float
+scMod x hi = if x >= hi then (if f32 (x - hi) < hi then f32 (x - hi) else scModFar (f32 (x - hi)) hi)
+  else if x < 0.0 then (if f32 (x + hi) >= 0.0 then f32 (x + hi) else scModFar (f32 (x + hi)) hi)
+  else x
+
+scModFar :: Float -> Float -> Float
+scModFar x hi = if hi == 0.0 then 0.0 else f32 (x - hi * cfloor (f32 (x / hi)))
+
+-- BinaryOpUGen's operator, by sclang's special index, on floats
+binop :: Int -> Float -> Float ->> Float
+binop op a b = if op == 0 then f32 (a + b) else if op == 1 then f32 (a - b) else if op == 2 then f32 (a * b)
+  else if op == 4 then f32 (a / b) else if op == 5 then scMod a b
+  else if op == 6 then (if a == b then 1.0 else 0.0) else if op == 7 then (if a /= b then 1.0 else 0.0)
+  else if op == 8 then (if a < b then 1.0 else 0.0) else if op == 9 then (if a > b then 1.0 else 0.0)
+  else if op == 10 then (if a <= b then 1.0 else 0.0) else if op == 11 then (if a >= b then 1.0 else 0.0)
+  else if op == 12 then (if a < b then a else b) else if op == 13 then (if a > b then a else b)
+  else if op == 19 then (if b == 0.0 then a else f32 (cfloor (f32 (f32 (a / b) + 0.5)) * b))
+  else if op == 25 then (if a < 0.0 then 0.0 - powf (0.0 - a) b else powf a b)
+  else if op == 38 then f32 (abs (f32 (a - b)))
+  else if op == 42 then clipF a (0.0 - b) b
+  else if op == 44 then fold a (0.0 - b) b
+  else if op == 45 then scWrapF a (0.0 - b) b
+  else 0.0
+
+-- sc_wrap of floats
+scWrapF :: Float -> Float -> Float -> Float
+scWrapF x lo hi = if x >= hi then (if f32 (x - f32 (hi - lo)) < hi then f32 (x - f32 (hi - lo)) else scWrapFarF x lo hi)
+  else if x < lo then (if f32 (x + f32 (hi - lo)) >= lo then f32 (x + f32 (hi - lo)) else scWrapFarF x lo hi)
+  else x
+
+scWrapFarF :: Float -> Float -> Float -> Float
+scWrapFarF x lo hi = if hi == lo then lo else f32 (x - f32 (hi - lo) * cfloor (f32 (f32 (x - lo) / f32 (hi - lo))))
+
+-- whether nova-simd's wrapper for op ramps a changed control input in
+-- lanes (NOVA_BINARY_WRAPPER, _K); the others step it in a float
+novaBinop :: Int -> Bool
+novaBinop op = op == 0 || op == 1 || op == 2 || op == 4 || (op >= 6 && op <= 13) || op == 42
+
+-- BinaryOpUGen (BinaryOpUGens.cpp). At audio rate, nova-simd's functions
+-- for its inputs' rates; / divides by NEON's reciprocal estimate but by a
+-- constant, multiplying by its reciprocal. The constructor's frame runs
+-- the plain function. Slots: started, prevA, prevB, A's lanes (6), B's (6).
+uBinK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uBinK st ins out n cx = do
+  b <- ugBase st
+  op <- cInt (slot st 2)
+  if slot st b == 0.0 then do
+    setSlot st (b + 1) (in0 ins 0)
+    setSlot st (b + 2) (in0 ins 1)
+    setSlot st (b + 3) (in0 ins 0)
+    setSlot st (b + 9) (in0 ins 1)
+    put out 0 (binFrame0 st op (in0 ins 0) (in0 ins 1))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then constLoop out (binop op (in0 ins 0) (in0 ins 1)) 0 (fromIntegral n)
+    else binRun st b op ins out (fromIntegral n)
+
+-- the plain function's first frame: a / b by a constant or unchanged b is a * (1 / b)
+binFrame0 :: Ptr () -> Int -> Float -> Float ->> Float
+binFrame0 st op a b = if op == 4 && ugInRate st 1 /= 2.0 then (if b == 0.0 then 0.0 else if b == 1.0 then a else f32 (a * f32 (1.0 / b)))
+  else binop op a b
+
+binRun :: Ptr () -> Int -> Int -> Ptr (Ptr CFloat) -> Ptr CFloat -> Int ->> ()
+binRun st b op ins out n = do
+  ra <- ugInRate st 0
+  rb <- ugInRate st 1
+  ca <- if ra == 1.0 then laneStart st (b + 3) (in0 ins 0) else False
+  cb <- if rb == 1.0 then laneStart st (b + 9) (in0 ins 1) else False
+  if op == 4 then divLoop st b ins ra rb ca cb out 0 n
+  else if novaBinop op then binLoop st b op ins out 0 n
+  else seqLoop st b op ins ra rb (slot st (b + 1)) (slot st (b + 2))
+    (if ca then f32 (f32 (in0 ins 0 - slot st (b + 1)) * f32 slopeFactor) else 0.0)
+    (if cb then f32 (f32 (in0 ins 1 - slot st (b + 2)) * f32 slopeFactor) else 0.0) out 0 n
+  if ra == 1.0 then setSlot st (b + 1) (in0 ins 0) else ()
+  if rb == 1.0 then setSlot st (b + 2) (in0 ins 1) else ()
+
+binLoop :: Ptr () -> Int -> Int -> Ptr (Ptr CFloat) -> Ptr CFloat -> Int -> Int ->> ()
+binLoop st b op ins out i n = if i == n then () else do
+  x <- laneIn st ins 0 (b + 3) i
+  y <- laneIn st ins 1 (b + 9) i
+  put out i (binop op x y)
+  binLoop st b op ins out (i + 1) n
+
+-- the plain functions' float slope, for the operators without a nova wrapper
+seqLoop :: Ptr () -> Int -> Int -> Ptr (Ptr CFloat) -> Float -> Float -> Float -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+seqLoop st b op ins ra rb xa xb sa sb out i n = if i == n then () else do
+  x <- if ra == 2.0 then at (input ins 0) i else xa
+  y <- if rb == 2.0 then at (input ins 1) i else xb
+  -- mod_ak copies a by an unchanged 0, mod_ka gives 0 for one
+  put out i (if op == 5 && rb == 1.0 && sb == 0.0 && y == 0.0 then x else if op == 5 && ra == 1.0 && sa == 0.0 && x == 0.0 then 0.0 else binop op x y)
+  seqLoop st b op ins ra rb (f32 (xa + sa)) (f32 (xb + sb)) sa sb out (i + 1) n
+
+divLoop :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Float -> Float -> Bool -> Bool -> Ptr CFloat -> Int -> Int ->> ()
+divLoop st b ins ra rb ca cb out i n = if i == n then () else do
+  x <- laneIn st ins 0 (b + 3) i
+  y <- laneIn st ins 1 (b + 9) i
+  put out i (if rb /= 2.0 && not cb then (if y == 0.0 then 0.0 else if y == 1.0 && rb == 1.0 then x else f32 (x * f32 (1.0 / y)))
+    else if ra == 1.0 && not ca && x == 0.0 then 0.0 else neonDiv x y)
+  divLoop st b ins ra rb ca cb out (i + 1) n
+
+-- UnaryOpUGen's operator (UnaryOpUGens.cpp), by sclang's special index
+unop :: Int -> Float -> Float
+unop op x = if op == 0 then 0.0 - x else if op == 5 then abs x else if op == 8 then cceil x else if op == 9 then cfloor x
+  else if op == 10 then f32 (x - cfloor x) else if op == 11 then (if x > 0.0 then 1.0 else if x < 0.0 then -1.0 else 0.0)
+  else if op == 12 then f32 (x * x) else if op == 13 then f32 (f32 (x * x) * x) else if op == 14 then (if x < 0.0 then 0.0 - f32 (csqrt (0.0 - x)) else f32 (csqrt x))
+  else if op == 15 then f32 (cexp x) else if op == 16 then f32 (1.0 / x)
+  else if op == 17 then f32 (440.0 * powf 2.0 (f32 (f32 (x - 69.0) * f32 0.083333333333)))
+  else if op == 18 then f32 (f32 (clog2 (f32 (x * f32 (1.0 / 440.0)))) * 12.0 + 69.0)
+  else if op == 19 then powf 2.0 (f32 (x * f32 0.083333333333))
+  else if op == 21 then powf 10.0 (f32 (x * 0.05))
+  else if op == 22 then f32 (f32 (clog10 x) * 20.0)
+  else if op == 25 then f32 (clog x) else if op == 26 then f32 (clog2 x)
+  else if op == 28 then f32 (csin x) else if op == 29 then f32 (ccos x) else if op == 36 then f32 (ctanh x)
+  else if op == 42 then f32 (x / f32 (1.0 + abs x))
+  else if op == 43 then (if abs x <= 0.5 then x else f32 (f32 (abs x - 0.25) / x))
+  else 0.0
+
+-- UnaryOpUGen. Slots: started.
+uUnK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uUnK st ins out n cx = do
+  b <- ugBase st
+  op <- cInt (slot st 2)
+  if slot st b == 0.0 then do
+    put out 0 (unop op (in0 ins 0))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then constLoop out (unop op (in0 ins 0)) 0 (fromIntegral n)
+    else unLoop op (input ins 0) out 0 (fromIntegral n)
+
+unLoop :: Int -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+unLoop op x out i n = if i == n then () else do
+  put out i (unop op (at x i))
+  unLoop op x out (i + 1) n
+
+-- MulAdd (MulAddUGens.cpp): in * mul + add, nova's unfused multiply and
+-- add, a changed control input ramped in lanes; at control rate fused.
+-- Slots: started, mul's lanes (6), add's (6).
+uMulAddK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uMulAddK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    setSlot st (b + 1) (in0 ins 1)
+    setSlot st (b + 7) (in0 ins 2)
+    put out 0 (fma32 (in0 ins 0) (in0 ins 1) (in0 ins 2))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then constLoop out (fma32 (in0 ins 0) (in0 ins 1) (in0 ins 2)) 0 (fromIntegral n)
+    else do
+      if ugInRate st 1 == 1.0 then do
+        c <- laneStart st (b + 1) (in0 ins 1)
+        ()
+      else ()
+      if ugInRate st 2 == 1.0 then do
+        c <- laneStart st (b + 7) (in0 ins 2)
+        ()
+      else ()
+      mulAddLoop st b ins out 0 (fromIntegral n)
+
+mulAddLoop :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr CFloat -> Int -> Int ->> ()
+mulAddLoop st b ins out i n = if i == n then () else do
+  m <- laneIn st ins 1 (b + 1) i
+  a <- laneIn st ins 2 (b + 7) i
+  put out i (f32 (f32 (at (input ins 0) i * m) + a))
+  mulAddLoop st b ins out (i + 1) n
+
+-- Sum3 and Sum4 (MulAddUGens.cpp): at audio rate nova's (a + b) + c and
+-- (a + b) + (c + d), a changed control input ramped; at control rate in
+-- order. Slots: started, then six for each input after the first.
+uSum3K, uSum4K :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uSum3K st ins out n cx = sumK st ins out (fromIntegral n) cx 3
+uSum4K st ins out n cx = sumK st ins out (fromIntegral n) cx 4
+
+sumK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> Int -> Ptr Context -> Int ->> ()
+sumK st ins out n cx k = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    setSlot st (b + 1) (in0 ins 1)
+    setSlot st (b + 7) (in0 ins 2)
+    if k == 4 then setSlot st (b + 13) (in0 ins 3) else ()
+    put out 0 (sumScalar ins k)
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then constLoop out (sumScalar ins k) 0 n
+    else do
+      sumLanes st b ins 1 k
+      sumLoop st b ins k out 0 n
+
+sumScalar :: Ptr (Ptr CFloat) -> Int ->> Float
+sumScalar ins k = if k == 3 then f32 (f32 (in0 ins 0 + in0 ins 1) + in0 ins 2)
+  else f32 (f32 (f32 (in0 ins 0 + in0 ins 1) + in0 ins 2) + in0 ins 3)
+
+sumLanes :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Int -> Int ->> ()
+sumLanes st b ins j k = if j == k then () else do
+  if ugInRate st j == 1.0 then do
+    c <- laneStart st (b + 1 + 6 * (j - 1)) (in0 ins j)
+    ()
+  else ()
+  sumLanes st b ins (j + 1) k
+
+sumLoop :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Int -> Ptr CFloat -> Int -> Int ->> ()
+sumLoop st b ins k out i n = if i == n then () else do
+  x0 <- at (input ins 0) i
+  x1 <- laneIn st ins 1 (b + 1) i
+  x2 <- laneIn st ins 2 (b + 7) i
+  x3 <- if k == 4 then laneIn st ins 3 (b + 13) i else 0.0
+  put out i (if k == 3 then f32 (f32 (x0 + x1) + x2) else f32 (f32 (x0 + x1) + f32 (x2 + x3)))
+  sumLoop st b ins k out (i + 1) n
+
+-- nova-simd's set_slope_vec_simd: start, start + slope, ... in four lanes
+slopeFill :: Ptr CFloat -> Float -> Float -> Int ->> ()
+slopeFill out start slope n = do
+  s1 <- f32 (start + slope)
+  s2 <- f32 (s1 + slope)
+  rampFill out start s1 s2 (f32 (s2 + slope)) (f32 (f32 (f32 (slope + slope) + slope) + slope)) 0 n
+
+-- Line (LFUGens.cpp): start to end over dur, then end. Line_next_nova at
+-- audio rate; its constructor takes a step. Inputs start, end, dur,
+-- doneAction. Slots: started, level, slope (doubles), endLevel, counter.
+uLineK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uLineK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    start <- in0 ins 0
+    end <- in0 ins 1
+    c <- cInt (in0 ins 2 * ugSampleRate st cx + 0.5)
+    setSlot st (b + 4) (toFloat (max 1 c))
+    setSlot st (b + 1) (if c == 0 then end else start + (end - start) / toFloat (max 1 c))
+    setSlot st (b + 2) (if c == 0 then 0.0 else (end - start) / toFloat (max 1 c))
+    setSlot st (b + 3) end
+    put out 0 (f32 (slot st (b + 1)))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then do
+      lineLoop st b ins cx out 0 1
+      constLoop out (at out 0) 1 (fromIntegral n)
+    else do
+      counter <- cInt (slot st (b + 4))
+      if counter == 0 then constLoop out (f32 (slot st (b + 3))) 0 (fromIntegral n)
+      else if counter > fromIntegral n then do
+        slopeFill out (f32 (slot st (b + 1))) (f32 (slot st (b + 2))) (fromIntegral n)
+        setSlot st (b + 1) (slot st (b + 1) + toFloat (fromIntegral n) * slot st (b + 2))
+        setSlot st (b + 4) (toFloat (counter - fromIntegral n))
+      else lineLoop st b ins cx out 0 (fromIntegral n)
+
+-- Line_next_loop
+lineLoop :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+lineLoop st b ins cx out i n = if i == n then () else do
+  counter <- cInt (slot st (b + 4))
+  if counter == 0 then put out i (f32 (slot st (b + 3))) else do
+    put out i (f32 (slot st (b + 1)))
+    setSlot st (b + 1) (slot st (b + 1) + slot st (b + 2))
+    setSlot st (b + 4) (toFloat (counter - 1))
+    if counter == 1 then doneAction (cInt (in0 ins 3)) cx else ()
+  lineLoop st b ins cx out (i + 1) n
+
+-- a UGen's doneAction: 2 frees the synth, 14 its group
+doneAction :: Int -> Ptr Context ->> ()
+doneAction a cx = if a == 2 then writeField cx Context.freeself 1.0 else if a == 14 then writeField cx Context.done 1.0 else ()
+
+-- Sweep (TriggerUGens.cpp) at control rate: from 0 by rate per second,
+-- reset to 0 by a rising trig. Inputs trig, rate. Slots: started, level, previn.
+uSweepK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uSweepK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    setSlot st (b + 2) (in0 ins 0)
+    setSlot st (b + 1) 0.0
+    put out 0 0.0
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else do
+    rate <- in0 ins 1 * (1.0 / ugSampleRate st cx)
+    cur <- in0 ins 0
+    prev <- slot st (b + 2)
+    if ugInRate st 0 /= 0.0 && prev <= 0.0 && cur > 0.0 then setSlot st (b + 1) (f32 (f32 (0.0 - prev) / f32 (cur - prev)) * rate) else ()
+    setSlot st (b + 2) cur
+    setSlot st (b + 1) (slot st (b + 1) + rate)
+    constLoop out (f32 (slot st (b + 1))) 0 (fromIntegral n)
+
+-- Clip (LFUGens.cpp): at control rate Clip_next_k; at audio rate nova's,
+-- lo and hi ramped in lanes when changed. Slots: started, lo's lanes (6), hi's (6).
+uClipK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uClipK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    setSlot st (b + 1) (in0 ins 1)
+    setSlot st (b + 7) (in0 ins 2)
+    put out 0 (clipF (in0 ins 0) (in0 ins 1) (in0 ins 2))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then constLoop out (clipF (in0 ins 0) (in0 ins 1) (in0 ins 2)) 0 (fromIntegral n)
+    else do
+      if ugInRate st 1 == 1.0 then do
+        c <- laneStart st (b + 1) (in0 ins 1)
+        ()
+      else ()
+      if ugInRate st 2 == 1.0 then do
+        c <- laneStart st (b + 7) (in0 ins 2)
+        ()
+      else ()
+      clipLoop st b ins out 0 (fromIntegral n)
+
+clipLoop :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr CFloat -> Int -> Int ->> ()
+clipLoop st b ins out i n = if i == n then () else do
+  put out i (clipF (at (input ins 0) i) (laneIn st ins 1 (b + 1) i) (laneIn st ins 2 (b + 7) i))
+  clipLoop st b ins out (i + 1) n
+
+-- LinExp (LFUGens.cpp) at control rate: LinExp_next_kk, or LinExp_next
+-- if every range is a constant; its constructor's frame by LinExp_next
+-- from its own members. Slots: started.
+uLinExpK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uLinExpK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    put out 0 (linExpOf (in0 ins 0) (in0 ins 1) (in0 ins 2) (in0 ins 3) (f32 (in0 ins 4 / in0 ins 3)) (f32 (1.0 / f32 (in0 ins 2 - in0 ins 1))))
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else do
+    lo <- in0 ins 3
+    allConst <- ugInRate st 1 == 0.0 && ugInRate st 2 == 0.0 && ugInRate st 3 == 0.0 && ugInRate st 4 == 0.0
+    ratio <- if allConst then f32 (in0 ins 4 / lo) else f32 (in0 ins 4 * f32 (1.0 / lo))
+    constLoop out (linExpOf (in0 ins 0) (in0 ins 1) (in0 ins 2) lo ratio (f32 (1.0 / f32 (in0 ins 2 - in0 ins 1)))) 0 (fromIntegral n)
+
+linExpOf :: Float -> Float -> Float -> Float -> Float -> Float -> Float
+linExpOf x srclo srchi dstlo ratio r = f32 (dstlo * powf ratio (fma32 x r (f32 (r * (0.0 - srclo)))))
+
+-- ExpRand (NoiseUGens.cpp): lo * (hi / lo) ^ frand, drawn once. Slots: started, value.
+uExpRandK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uExpRandK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    lo <- in0 ins 0
+    setSlot st (b + 1) (f32 (powf (f32 (in0 ins 1 / lo)) (f32 (frand cx)) * lo))
+    setSlot st b 1.0
+  else ()
+  constLoop out (slot st (b + 1)) 0 (if ugCtorOnly cx then 1 else fromIntegral n)
+
+-- SinOsc (OscUGens.cpp), its phase a uint32 into the sine wavetable.
+-- Inputs freq, phase. Slots: started, phase, phasein.
+uSinOscK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uSinOscK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    setSlot st (b + 2) (in0 ins 1)
+    init <- if ugInRate st 0 /= 2.0 && ugInRate st 1 /= 2.0 then wrap32 (toFloat (cInt (in0 ins 1 * radToInc))) else 0.0
+    setSlot st (b + 1) init
+    if ugInRate st 0 /= 2.0 && ugInRate st 1 /= 2.0 then sinIkk st b ins cx out 1 else sinIaa st b ins cx out 0 1
+    setSlot st (b + 1) init
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else do
+    fr <- ugInRate st 0
+    pr <- ugInRate st 1
+    if ugRate st /= 2.0 then do
+      sinIkk st b ins cx out 1
+      constLoop out (at out 0) 1 (fromIntegral n)
+    else if fr == 2.0 && pr == 2.0 then sinIaa st b ins cx out 0 (fromIntegral n)
+    else if fr == 2.0 then do
+      pm <- slot st (b + 2)
+      next <- in0 ins 1
+      sinIak st b ins cx out pm (if pr == 1.0 && next /= pm then f32 (f32 (next - pm) * f32 slopeFactor) else 0.0) 0 (fromIntegral n)
+      setSlot st (b + 2) next
+    else if pr == 2.0 then sinIka st b ins cx out 0 (fromIntegral n)
+    else sinIkk st b ins cx out (fromIntegral n)
+
+-- 8192 * 65536 / 2 pi; and per Hz, the table's 8192 * 65536 / rate
+radToInc :: Float
+radToInc = 8192.0 * (0.15915494309189535 * 65536.0)
+
+cpsToInc :: Ptr Context ->> Float
+cpsToInc cx = 8192.0 * (1.0 / rateOf cx) * 65536.0
+
+sinIkk :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Int ->> ()
+sinIkk st b ins cx out n = do
+  ph <- in0 ins 1
+  inc <- toFloat (cInt (cpsToInc cx * in0 ins 0)) + toFloat (cInt (f32 (f32 (ph - slot st (b + 2)) * f32 slopeFactor) * radToInc))
+  setSlot st (b + 2) ph
+  sinConst st b inc out 0 n
+
+sinConst :: Ptr () -> Int -> Float -> Ptr CFloat -> Int -> Int ->> ()
+sinConst st b inc out i n = if i == n then () else do
+  put out i (sineOsc (slot st (b + 1)))
+  setSlot st (b + 1) (wrap32 (slot st (b + 1) + inc))
+  sinConst st b inc out (i + 1) n
+
+sinIka :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+sinIka st b ins cx out i n = if i == n then () else do
+  inc <- toFloat (cInt (cpsToInc cx * in0 ins 0))
+  put out i (sineOsc (wrap32 (slot st (b + 1) + toFloat (cInt (f32 (f32 radToInc * at (input ins 1) i))))))
+  setSlot st (b + 1) (wrap32 (slot st (b + 1) + inc))
+  sinIka st b ins cx out (i + 1) n
+
+sinIaa :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+sinIaa st b ins cx out i n = if i == n then () else do
+  z <- sineOsc (wrap32 (slot st (b + 1) + toFloat (cInt (f32 (f32 radToInc * at (input ins 1) i)))))
+  setSlot st (b + 1) (wrap32 (slot st (b + 1) + toFloat (cInt (f32 (f32 (cpsToInc cx) * at (input ins 0) i)))))
+  put out i z
+  sinIaa st b ins cx out (i + 1) n
+
+sinIak :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Float -> Float -> Int -> Int ->> ()
+sinIak st b ins cx out pm slope i n = if i == n then () else do
+  z <- sineOsc (wrap32 (slot st (b + 1) + toFloat (cInt (f32 (f32 radToInc * pm)))))
+  setSlot st (b + 1) (wrap32 (slot st (b + 1) + toFloat (cInt (f32 (f32 (cpsToInc cx) * at (input ins 0) i)))))
+  put out i z
+  sinIak st b ins cx out (f32 (pm + slope)) slope (i + 1) n
+
+-- Blip (OscUGens.cpp): numharm harmonics of freq, from the sine and
+-- cosecant tables, a change of harmonics crossfaded over the call.
+-- Inputs freq, numharm. Slots: started, phase, numharm, N, freqin, scale.
+uBlipK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uBlipK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    fin <- in0 ins 0
+    nh <- cInt (in0 ins 1)
+    maxN <- cInt (rateOf cx * 0.5 / fin)
+    nn <- max 1 (min nh maxN)
+    setSlot st (b + 4) fin
+    setSlot st (b + 2) (toFloat nh)
+    setSlot st (b + 3) (toFloat nn)
+    setSlot st (b + 5) (f32 (0.5 / toFloat nn))
+    setSlot st (b + 1) 0.0
+    blipRun st b ins cx out 1
+    setSlot st (b + 3) (toFloat nn)
+    setSlot st (b + 5) (f32 (0.5 / toFloat nn))
+    setSlot st (b + 1) 0.0
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else blipRun st b ins cx out (fromIntegral n)
+
+blipCps :: Ptr Context ->> Float
+blipCps cx = 8192.0 * (1.0 / rateOf cx) * 65536.0 * 0.5
+
+blipRun :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Int ->> ()
+blipRun st b ins cx out n = do
+  fin <- in0 ins 0
+  nh <- cInt (in0 ins 1)
+  prevN <- cInt (slot st (b + 3))
+  prevScale <- slot st (b + 5)
+  if nh /= cInt (slot st (b + 2)) || fin /= slot st (b + 4) then do
+    maxN <- cInt (rateOf cx * 0.5 / fin)
+    nn <- if nh > maxN then maxN else max 1 nh
+    freq <- toFloat (cInt (blipCps cx * (if nh > maxN then max (slot st (b + 4)) fin else fin)))
+    setSlot st (b + 3) (toFloat nn)
+    setSlot st (b + 5) (f32 (0.5 / toFloat nn))
+    if nn /= prevN then blipCross st b (2 * prevN + 1) prevScale (2 * nn + 1) (slot st (b + 5)) freq 0.0 out 0 n
+    else blipLoop st b (2 * nn + 1) (slot st (b + 5)) freq out 0 n
+  else blipLoop st b (2 * prevN + 1) prevScale (toFloat (cInt (blipCps cx * fin))) out 0 n
+  setSlot st (b + 4) fin
+  setSlot st (b + 2) (toFloat nh)
+
+-- gInvSine (Samp.cpp): 1 / sin, kBadValue near its poles
+cscAt :: Int -> Float
+cscAt i = if i == 0 || i == 4096 || i == 8192 || i <= 8 || i >= 8184 || (i >= 4088 && i <= 4104) then f32 1.0e20 else f32 (1.0 / sineAt i)
+
+-- PhaseFrac: the low 16 bits of a phase as a fraction
+phaseFrac :: Float -> Float
+phaseFrac ph = (ph - 65536.0 * cfloor (ph / 65536.0)) / 65536.0
+
+phaseIndex :: Float -> Int
+phaseIndex ph = mod (cInt (cfloor (ph / 65536.0))) 8192
+
+-- one frame of Blip with N2 = 2 N + 1 and scale
+blipFrame :: Float -> Int -> Float -> Float
+blipFrame ph n2 scale = case phaseIndex ph of
+  i -> if cscAt i == f32 1.0e20 || cscAt (i + 1) == f32 1.0e20 then (case fma32 (f32 (sineAt (i + 1) - sineAt i)) (phaseFrac ph) (sineAt i) of
+      denom -> if abs denom < f32 0.0005 then 1.0 else f32 (f32 (f32 (blipNumer ph n2 / denom) - 1.0) * scale))
+    else f32 (fma32 (blipNumer ph n2) (fma32 (f32 (cscAt (i + 1) - cscAt i)) (phaseFrac ph) (cscAt i)) (-1.0) * scale)
+
+blipNumer :: Float -> Int -> Float
+blipNumer ph n2 = case wrap32 (ph * toFloat n2) of
+  r -> case phaseIndex r of
+    j -> fma32 (phaseFrac r) (f32 (sineAt (j + 1) - sineAt j)) (sineAt j)
+
+blipLoop :: Ptr () -> Int -> Int -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+blipLoop st b n2 scale freq out i n = if i == n then () else do
+  put out i (blipFrame (slot st (b + 1)) n2 scale)
+  setSlot st (b + 1) (wrap32 (slot st (b + 1) + freq))
+  blipLoop st b n2 scale freq out (i + 1) n
+
+blipCross :: Ptr () -> Int -> Int -> Float -> Int -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> ()
+blipCross st b pn2 pscale n2 scale freq xf out i n = if i == n then () else do
+  ph <- slot st (b + 1)
+  n1 <- blipFrame ph pn2 pscale
+  nb <- blipFrame ph n2 scale
+  put out i (fma32 xf (f32 (nb - n1)) n1)
+  setSlot st (b + 1) (wrap32 (ph + freq))
+  blipCross st b pn2 pscale n2 scale freq (f32 (xf + f32 slopeFactor)) out (i + 1) n
+
+-- LFGauss (LFUGens.cpp) for dur and width not at audio rate: exp(x^2 /
+-- (-2 width^2)) as x runs from -1 by 2 / (dur rate), offset by iphase.
+-- Inputs dur, width, iphase, loop, doneAction. Slots: started, phase (a double).
+uLFGaussK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uLFGaussK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    setSlot st (b + 1) (-1.0)
+    gaussRun st b ins cx out 1
+    setSlot st (b + 1) (-1.0)
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else
+    if ugRate st /= 2.0 then do
+      gaussRun st b ins cx out 1
+      constLoop out (at out 0) 1 (fromIntegral n)
+    else gaussRun st b ins cx out (fromIntegral n)
+
+gaussRun :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Int ->> ()
+gaussRun st b ins cx out n = do
+  c <- in0 ins 1
+  off <- in0 ins 2
+  step <- f32 (2.0 / (in0 ins 0 * ugSampleRate st cx))
+  factor <- f32 (-1.0 / f32 (f32 (2.0 * c) * c))
+  x <- gaussLoop ins cx (slot st (b + 1) - off) step factor out 0 n
+  setSlot st (b + 1) (x + off)
+
+gaussLoop :: Ptr (Ptr CFloat) -> Ptr Context -> Float -> Float -> Float -> Ptr CFloat -> Int -> Int ->> Float
+gaussLoop ins cx x step factor out i n = if i == n then x else do
+  x1 <- if x > 1.0 then (if in0 ins 3 /= 0.0 then x - 2.0 else do
+      doneAction (cInt (in0 ins 4)) cx
+      x) else x
+  put out i (f32 (cexp (x1 * x1 * factor)))
+  gaussLoop ins cx (x1 + step) step factor out (i + 1) n
+
+-- EnvGen (LFUGens.cpp): an envelope of any stages and shapes, its gate
+-- read once a call; no release or loop node yet. Levels are doubles.
+-- EnvGen_next_ak_nova at audio rate, EnvGen_next_k at control rate.
+-- Inputs gate, levelScale, levelBias, timeScale, doneAction, initLevel,
+-- numStages, releaseNode, loopNode, then level, dur, shape, curve per
+-- stage. Slots: started, stage, counter, level, endLevel, shape, a2, b1,
+-- y1, y2, grow, prevGate.
+uEnvGenK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr Context ->> ()
+uEnvGenK st ins out n cx = do
+  b <- ugBase st
+  if slot st b == 0.0 then do
+    l0 <- in0 ins 5 * in0 ins 1 + in0 ins 2
+    setSlot st (b + 3) (if cInt (in0 ins 11) == 8 then in0 ins 9 else l0)
+    setSlot st (b + 4) l0
+    setSlot st (b + 2) 0.0
+    setSlot st (b + 1) 1000000000.0
+    setSlot st (b + 5) 8.0
+    setSlot st (b + 11) 0.0
+    envGate st b ins
+    put out 0 (envSample st b ins cx)
+    setSlot st b 1.0
+  else ()
+  if ugCtorOnly cx then () else do
+    envGate st b ins
+    if ugRate st /= 2.0 then do
+      v <- envSample st b ins cx
+      constLoop out v 0 (fromIntegral n)
+    else do
+      counter <- slot st (b + 2)
+      shape <- cInt (slot st (b + 5))
+      if counter > toFloat (fromIntegral n) && (shape == 0 || shape == 8 || shape == 9) then do
+        constLoop out (f32 (slot st (b + 3))) 0 (fromIntegral n)
+        setSlot st (b + 2) (counter - toFloat (fromIntegral n))
+      else if counter > toFloat (fromIntegral n) && shape == 1 then do
+        slopeFill out (f32 (slot st (b + 3))) (f32 (slot st (b + 10))) (fromIntegral n)
+        setSlot st (b + 3) (slot st (b + 3) + toFloat (fromIntegral n) * slot st (b + 10))
+        setSlot st (b + 2) (counter - toFloat (fromIntegral n))
+      else if counter > toFloat (fromIntegral n) && shape == 2 then do
+        envExpFill out (f32 (slot st (b + 3))) (f32 (slot st (b + 10))) 0 (fromIntegral n)
+        setSlot st (b + 3) (slot st (b + 3) * cpow (slot st (b + 10)) (toFloat (fromIntegral n)))
+        setSlot st (b + 2) (counter - toFloat (fromIntegral n))
+      else envFrames2 st b ins cx out 0 (fromIntegral n)
+
+-- set_exp_vec_simd: four lanes, start, start g, start g g, start g g g, each times g^4
+envExpFill :: Ptr CFloat -> Float -> Float -> Int -> Int ->> ()
+envExpFill out start g i n = do
+  l1 <- f32 (start * g)
+  l2 <- f32 (l1 * g)
+  l3 <- f32 (l2 * g)
+  expLanes out start l1 l2 l3 (f32 (f32 (f32 (g * g) * g) * g)) 0 n
+
+expLanes :: Ptr CFloat -> Float -> Float -> Float -> Float -> Float -> Int -> Int ->> ()
+expLanes out a b c d g i n = if i >= n then () else do
+  put out i a
+  if i + 1 < n then put out (i + 1) b else ()
+  if i + 2 < n then put out (i + 2) c else ()
+  if i + 3 < n then put out (i + 3) d else ()
+  expLanes out (f32 (a * g)) (f32 (b * g)) (f32 (c * g)) (f32 (d * g)) g (i + 4) n
+
+envFrames2 :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
+envFrames2 st b ins cx out i n = if i == n then () else do
+  put out i (envSample st b ins cx)
+  envFrames2 st b ins cx out (i + 1) n
+
+-- check_gate: a rising gate starts the envelope
+envGate :: Ptr () -> Int -> Ptr (Ptr CFloat) ->> ()
+envGate st b ins = do
+  gate <- in0 ins 0
+  if slot st (b + 11) <= 0.0 && gate > 0.0 then do
+    setSlot st (b + 1) (-1.0)
+    setSlot st (b + 2) 0.0
+  else ()
+  setSlot st (b + 11) gate
+
+-- one frame: the next segment if this one ended, then EnvGen_perform's step
+envSample :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context ->> Float
+envSample st b ins cx = do
+  if slot st (b + 2) <= 0.0 then envNextSegment st b ins cx else ()
+  y <- f32 (slot st (b + 3))
+  shape <- cInt (slot st (b + 5))
+  lv <- slot st (b + 3)
+  if shape == 1 then setSlot st (b + 3) (lv + slot st (b + 10))
+  else if shape == 2 then setSlot st (b + 3) (lv * slot st (b + 10))
+  else if shape == 3 || shape == 4 then do
+    y0 <- slot st (b + 7) * slot st (b + 8) - slot st (b + 9)
+    setSlot st (b + 3) (if shape == 3 then slot st (b + 6) - y0 else slot st (b + 6) + y0)
+    setSlot st (b + 9) (slot st (b + 8))
+    setSlot st (b + 8) y0
+  else if shape == 5 then do
+    setSlot st (b + 7) (slot st (b + 7) * slot st (b + 10))
+    setSlot st (b + 3) (slot st (b + 6) - slot st (b + 7))
+  else if shape == 6 then do
+    setSlot st (b + 8) (slot st (b + 8) + slot st (b + 10))
+    setSlot st (b + 3) (slot st (b + 8) * slot st (b + 8))
+  else if shape == 7 then do
+    setSlot st (b + 8) (max 0.0 (slot st (b + 8) + slot st (b + 10)))
+    setSlot st (b + 3) (slot st (b + 8) * slot st (b + 8) * slot st (b + 8))
+  else ()
+  setSlot st (b + 2) (slot st (b + 2) - 1.0)
+  y
+
+-- EnvGen_nextSegment, without release and loop nodes
+envNextSegment :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Ptr Context ->> ()
+envNextSegment st b ins cx = do
+  stage <- slot st (b + 1)
+  if stage + 1.0 >= in0 ins 6 then do
+    setSlot st (b + 2) never
+    setSlot st (b + 5) 0.0
+    setSlot st (b + 3) (slot st (b + 4))
+    doneAction (cInt (in0 ins 4)) cx
+  else if stage == 1000000000.0 then setSlot st (b + 2) never
+  else do
+    setSlot st (b + 1) (stage + 1.0)
+    envInitSegment st b ins (cInt (stage + 1.0)) (ugSampleRate st cx)
+
+-- EnvGen_initSegment
+envInitSegment :: Ptr () -> Int -> Ptr (Ptr CFloat) -> Int -> Float ->> ()
+envInitSegment st b ins k rate = do
+  j <- 9 + 4 * k
+  prevEnd <- f32 (slot st (b + 4))
+  level <- if cInt (slot st (b + 5)) == 8 then prevEnd else slot st (b + 3)
+  endLevel <- in0 ins j * in0 ins 1 + in0 ins 2
+  dur <- in0 ins (j + 1) * in0 ins 3
+  shape0 <- cInt (in0 ins (j + 2))
+  curve <- in0 ins (j + 3)
+  setSlot st (b + 4) endLevel
+  c <- toFloat (max 1 (cInt (dur * rate)))
+  shape <- if c == 1.0 then 1 else if shape0 == 5 && abs curve < 0.001 then 1 else shape0
+  setSlot st (b + 2) c
+  setSlot st (b + 5) (toFloat shape)
+  setSlot st (b + 3) level
+  if shape == 0 then setSlot st (b + 3) endLevel
+  else if shape == 8 then setSlot st (b + 3) prevEnd
+  else if shape == 1 then setSlot st (b + 10) ((endLevel - level) / c)
+  else if shape == 2 then setSlot st (b + 10) (cpow (endLevel / level) (1.0 / c))
+  else if shape == 3 then do
+    w <- 3.141592653589793 / c
+    setSlot st (b + 6) ((endLevel + level) * 0.5)
+    setSlot st (b + 7) (2.0 * ccos w)
+    setSlot st (b + 8) ((endLevel - level) * 0.5)
+    setSlot st (b + 9) ((endLevel - level) * 0.5 * csin (3.141592653589793 * 0.5 - w))
+    setSlot st (b + 3) ((endLevel + level) * 0.5 - (endLevel - level) * 0.5)
+  else if shape == 4 then do
+    w <- 3.141592653589793 * 0.5 / c
+    setSlot st (b + 7) (2.0 * ccos w)
+    if endLevel >= level then do
+      setSlot st (b + 6) level
+      setSlot st (b + 8) 0.0
+      setSlot st (b + 9) (0.0 - csin w * (endLevel - level))
+    else do
+      setSlot st (b + 6) endLevel
+      setSlot st (b + 8) (level - endLevel)
+      setSlot st (b + 9) (ccos w * (level - endLevel))
+    setSlot st (b + 3) (slot st (b + 6) + slot st (b + 8))
+  else if shape == 5 then do
+    a1 <- (endLevel - level) / (1.0 - cexp curve)
+    setSlot st (b + 6) (level + a1)
+    setSlot st (b + 7) a1
+    setSlot st (b + 10) (cexp (curve / c))
+  else if shape == 6 then do
+    setSlot st (b + 8) (csqrt level)
+    setSlot st (b + 9) (csqrt endLevel)
+    setSlot st (b + 10) ((csqrt endLevel - csqrt level) / c)
+  else if shape == 7 then do
+    setSlot st (b + 8) (cpow level (1.0 / 3.0))
+    setSlot st (b + 9) (cpow endLevel (1.0 / 3.0))
+    setSlot st (b + 10) ((cpow endLevel (1.0 / 3.0) - cpow level (1.0 / 3.0)) / c)
+  else ()

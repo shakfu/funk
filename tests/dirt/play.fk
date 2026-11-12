@@ -1,0 +1,67 @@
+-- play.fk -- tests/dirt/oracle.py's cases through funk's event layer, with
+-- SuperDirt's synths, core modules and global effects: each case on a player of
+-- its own, seeded; its controls through d.prepare and control.fk's
+-- soundParams, as the hosts send them, then g.event at its frame. Prints
+-- "case NAME", then per block of 64 frames both channels. $KERNELS names
+-- the kernel library, $SAMPLES the samples' folder; the cases module is
+-- oracle.py's.
+import graph as g
+import dsp as d
+import control (..)
+import cases (..)
+
+foreign import ccall "stdlib.h getenv" getenv :: String ->> Ptr CChar
+
+-- the next n frames of both channels, n at most 64
+blockOf :: g.Player -> Int ->> ([Float], [Float])
+blockOf p n = allocaBytes 512 (\out -> do
+  l <- out
+  r <- plusPtr out 256
+  g.renderChannels p [l, r] n
+  (map (\i -> fromCFloat (peekByteOff l (4 * i) :: CFloat)) (enumFromTo 0 (n - 1)),
+   map (\i -> fromCFloat (peekByteOff r (4 * i) :: CFloat)) (enumFromTo 0 (n - 1))))
+
+-- prints the next n frames, in blocks
+printFrames :: g.Player -> Int ->> ()
+printFrames p n = if n <= 0 then () else do
+  print (blockOf p (min n 64))
+  printFrames p (n - 64)
+
+-- oracle.py's vowel index as the vowel
+vowelName :: Int -> String
+vowelName i = case i of
+  0 -> "a"
+  1 -> "e"
+  2 -> "i"
+  3 -> "o"
+  _ -> "u"
+
+caseNumber :: String -> Float -> [(String, Float)] -> Float
+caseNumber k v ps = case lookup k ps of
+  Just x -> x
+  Nothing -> v
+
+-- an event of s at frame f, after t seconds
+playEvent :: g.Player -> d.Dirt -> String -> Int -> (Float, [(String, Float)]) ->> Bool
+playEvent p dt s f (t, ps) = do
+  ups <- 1000000
+  cs <- d.prepare dt (controlsFromList (("s", VS s) : map (\(k, v) -> if k == "unitc" then ("unit", VS "c") else if k == "vowel" then (k, VS (vowelName (round v))) else (k, VF v)) ps))
+  g.event p (f + round (t * 44100.0)) ("s." ++ (if getControl "_synth" cs /= Nothing then s else sampleKey s 0)) (soundParams ups (round (toFloat ups / caseNumber "cps" 1.0 ps)) (round (toFloat ups * caseNumber "delta" 1.0 ps)) cs)
+
+-- a case on a player of its own, seeded, so its effects start fresh, as
+-- render.scd's orbits do: the frames of secs seconds from the start
+playCase :: String -> String -> (String, String, Float, [(Float, [(String, Float)])], Bool) ->> ()
+playCase k dir (name, s, secs, es, core) = do
+  p <- g.player [k] 44100.0 64
+  g.seed p seed
+  dt <- d.loadSoundFiles dir ["mono", "stereo"] (if core then d.superDirtCore else d.superDirt)
+  d.playDirt p 256 dt
+  ok <- all (\e -> e) (map (\e -> playEvent p dt s 0 e) es)
+  putStrLn ("case " ++ name ++ (if ok then "" else " refused"))
+  printFrames p (round (secs * 44100.0))
+  g.close p
+
+main = do
+  k <- peekCString (getenv "KERNELS")
+  dir <- peekCString (getenv "SAMPLES")
+  mapM_ (playCase k dir) cases

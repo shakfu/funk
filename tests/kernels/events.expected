@@ -1,0 +1,54 @@
+True
+([0,0,0,0,0,0,0,0,0,0,707,707,707,707],[0,0,0,0,0,0,0,0,0,0,707,707,707,707])
+[680,603,489,354,218,104,27,0]
+(0,0,0)
+True
+[0,0,1414,1414]
+(0,0,0)
+True
+[2214,2214]
+(0,0,0)
+True
+[1414,1414]
+(0,0,0)
+["double","plus"]
+["double","plus"]
+True
+[1814,1814]
+(0,0,0)
+[True,True,True,True,True]
+[2828]
+(0,1,0)
+True
+(0,2,0)
+True
+True
+[707,707,2121,2121]
+[2121,2110,2099]
+[1425,1414]
+(0,2,0)
+True
+True
+[2121]
+(0,2,0)
+True
+[0,0,0,3000,3000]
+[707]
+(0,2,0)
+True
+[707,707]
+(0,2,1)
+True
+[4000,4000,4000,4000,4000,4000,4000,4000,4000,4000,3848,3414]
+(0,2,1)
+True
+True
+[707,2121]
+[1414,1414]
+(0,2,1)
+[("_dirt",VF 1.0),("cutoff",VF 300.0),("s",VS "bd"),("~dirt_gate",VF 1.0),("~lpf",VF 1.0)]
+[("_dirt",VF 1.0),("_synth",VF 1.0),("n",VF 3.0),("s",VS "one"),("~dirt_gate",VF 1.0)]
+[("s",VS "nosuch")]
+["s.bd:0","s.bd:1","s.one","m.lpf","m.dirt_gate"]
+[RName 431197876339,RParam 1.0,RName 465558725996,RParam 1.0,RName 7233904,RParam 0.5,RName 474214786402,RParam 0.0,RName 6581861,RParam 1.0,RName 1886351212,RParam 1.0,RName 7021786285255910241,RName 25972,RParam 1.0e30,RName 31078114724640115,RParam (-1.0),RName 448345172336,RParam 1.0,RName 32493057339911797,RParam 0.0,RName 7565411,RParam 1.0,RName 7632227,RParam 0.0,RName 499984265839,RParam 0.0,RName 1902473830,RParam 261.6255653005986,RName 112590142600547,RParam 300.0,RName 7018683498020562046,RName 25972,RParam 1.0,RName 1718643838,RParam 1.0,RName 809133154,RTrigger]
+[RName 31078114724640115,RParam 0.249,RName 7308613581491429734,RParam 1.0e-3,RName 7589812533538873702,RName 25965,RParam 0.0,RName 1902473830,RParam 440.0,RName 7233904,RParam 0.0,RName 110,RParam 9.0,RName 431197876339,RParam 1.0,RName 465558725996,RParam 1.0,RName 474214786402,RParam 0.0,RName 6581861,RParam 1.0,RName 1886351212,RParam 1.0,RName 448345172336,RParam 1.0,RName 32493057339911797,RParam 0.0,RName 7565411,RParam 1.0,RName 7632227,RParam 0.0,RName 499984265839,RParam 0.0,RName 122545641055596,RParam 0.5,RName 7018683498020562046,RName 25972,RParam 1.0,RName 6647407,RTrigger]

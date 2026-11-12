@@ -1,0 +1,29 @@
+-- funk-midi --audio --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
+-- control patterns as events of dirt's templates (docs/dev/dirt-sound.md).
+-- tests/hosts/samples: bd:0 is 0.25, bd:1 0.5 and sn 0.75, each 0.1 s,
+-- mono, so centred each channel gets Pan2's 0.7071 of it.
+-- With no sig, the orbits play as they are. pat is redefined 100 ms
+-- before a cycle.
+dirt = d.loadSoundFiles "tests/hosts/samples" ["bd", "bd:1", "sn"] d.noDirt
+pat = s "bd bd:1 sn nosuch"
+:wait 1900
+-- events of one sample overlap without a limit per name: every 15.6 ms,
+-- 0.1 s each, so 7 sum to 7 * 0.1768; d.kit's 4 voices would steal
+pat = s "bd*128"
+:wait 2000
+-- a module runs where its test passes: halved where cutoff is given
+dirt = d.addModule "half" (\param x -> x * d.dc 0.5) (d.has "cutoff") (d.loadSoundFiles "tests/hosts/samples" ["bd", "bd:1", "sn"] d.noDirt)
+pat = s "~ bd:1" # cutoff "300"
+:wait 2000
+pat = s "~ bd:1"
+:wait 2000
+-- a graph that reads orbit 0, and a global parameter the events set: room
+-- scales it, 1 until the first event
+sig = d.orbit 0 * g.control "o0.room" 1.0
+pat = s "sn" # room "0.5"
+:wait 2000
+-- a synth through dirt_gate: 1.0 for half the event
+dirt = d.addSynth "one" (\param -> d.dc 1.0) d.noDirt
+sig = d.orbits 1
+pat = s "one" # legato "0.5"
+:wait 2000

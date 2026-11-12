@@ -183,7 +183,7 @@ In order:
 
 ## 0.13 -- SuperDirt sound in the plugin
 
-`d.kit` and the voices sound as SuperDirt does, for hosts without SuperCollider (S1-S8, S10 in [tidal-comparison.md](tidal-comparison.md)): per-event effects, orbits with their global effects, the synths, the pan law, cubic interpolation and AIFF. Ports of SuperCollider's UGens from its C++, checked against scsynth's non-real-time renders. Needs a design note first: per-event chains in a fixed graph, and node state other than `Float`s ([audio.md](audio.md) item 4). Proposal: [dirt-sound.md](dirt-sound.md). Open: scsynth's RNG for random UGens, and `float32` against a stated error bound.
+`d.kit` and the voices sound as SuperDirt does, for hosts without SuperCollider (S1-S8, S10 in [tidal-comparison.md](tidal-comparison.md)): per-event effects, orbits with their global effects, the synths, the pan law, cubic interpolation and AIFF. Ports of SuperCollider's UGens from its C++, checked against scsynth's non-real-time renders. Needs a design note first: per-event chains in a fixed graph, and node state other than `Float`s ([audio.md](audio.md) item 4). Design: [dirt-sound.md](dirt-sound.md). Its event layer, option C, is done 2026-11-11, with S10; the module, synth and UGen ports remain. Open: scsynth's RNG for random UGens, and `float32` against a stated error bound.
 
 ## 0.14+ -- possible language growth
 

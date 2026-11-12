@@ -106,6 +106,11 @@ add_test(NAME hosts/controls
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --cycle 2000 --script tests/hosts/controls.txt 2>&1 | diff tests/hosts/controls.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/controls PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+# ... control patterns as events of dirt's templates (docs/dev/dirt-sound.md)
+add_test(NAME hosts/events
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --cycle 2000 --script tests/hosts/events.txt 2>&1 | diff tests/hosts/events.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/events PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... d.kit's samples on m.kit's notes, by name, from tests/hosts/samples
 add_test(NAME hosts/kit
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --cycle 2000 --script tests/hosts/kit.txt 2>&1 | diff tests/hosts/kit.expected -"
@@ -354,11 +359,13 @@ endif()
 # exports without the runtime, loaded by a C host (docs/dev/audio.md, D)
 funk_test(kernels/chain "ffi;kernels" kernels tests/kernels/chain.fk tests/kernels/host.c)
 # ... run as a graph by projects/funkgraph, swapped while an audio thread renders
-set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c projects/funkgraph/graph.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -lpthread -lm)
+set(GRAPH kernels tests/kernels/chain.fk tests/kernels/graph.c projects/funkgraph/graph.c projects/funkgraph/events.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -lpthread -lm)
 funk_test(kernels/graph "ffi;kernels" ${GRAPH})
-set(TABLES kernels lib/kernels.fk tests/kernels/tables.c projects/funkgraph/graph.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -lpthread -lm)
+set(TABLES kernels lib/kernels.fk tests/kernels/tables.c projects/funkgraph/graph.c projects/funkgraph/events.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -lpthread -lm)
 funk_test(kernels/tables "ffi;kernels" ${TABLES})
-funk_test(kernels/zita "ffi;kernels" kernels lib/kernels.fk tests/kernels/zita.c projects/funkgraph/graph.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -Itests/kernels -lpthread -lm)
+set(TEMPLATES kernels lib/kernels.fk tests/kernels/templates.c projects/funkgraph/graph.c projects/funkgraph/events.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -lpthread -lm)
+funk_test(kernels/templates "ffi;kernels" ${TEMPLATES})
+funk_test(kernels/zita "ffi;kernels" kernels lib/kernels.fk tests/kernels/zita.c projects/funkgraph/graph.c projects/funkgraph/events.c projects/funkgraph/voices.c projects/funkgraph/table.c -Iprojects/funkgraph -Itests/kernels -lpthread -lm)
 # ... built from funk by lib/graph.fk
 set(FUNKGRAPH -M lib -I projects/funkgraph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
 funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/chain.fk tests/kernels/build.fk ${FUNKGRAPH})
@@ -366,6 +373,8 @@ funk_test(kernels/dupname "ffi;kernels;lib" error tests/kernels/dupname.fk ${FUN
 funk_test(kernels/widths "ffi;kernels;lib" error tests/kernels/widths.fk ${FUNKGRAPH})
 # lib/dsp.fk over lib/kernels.fk
 funk_test(kernels/ugens "ffi;kernels;lib" kernels lib/kernels.fk tests/kernels/ugens.fk ${FUNKGRAPH})
+# ... as events made from templates (docs/dev/dirt-sound.md)
+funk_test(kernels/events "ffi;kernels;lib" kernels lib/kernels.fk tests/kernels/events.fk ${FUNKGRAPH})
 set(CMAKE_REQUIRED_FLAGS -fsanitize=address)
 set(CMAKE_REQUIRED_LINK_OPTIONS -fsanitize=address)
 check_c_source_compiles("int main(void) { return 0; }" HAVE_ASAN)
@@ -377,6 +386,8 @@ foreach(san address thread)
     set_tests_properties(kernels/graph/${san} PROPERTIES ENVIRONMENT "FUNK=$<TARGET_FILE:funk>;HOST_CFLAGS=-fsanitize=${san}")
     funk_test(kernels/tables/${san} "ffi;kernels;stress" ${TABLES})
     set_tests_properties(kernels/tables/${san} PROPERTIES ENVIRONMENT "FUNK=$<TARGET_FILE:funk>;HOST_CFLAGS=-fsanitize=${san}")
+    funk_test(kernels/templates/${san} "ffi;kernels;stress" ${TEMPLATES})
+    set_tests_properties(kernels/templates/${san} PROPERTIES ENVIRONMENT "FUNK=$<TARGET_FILE:funk>;HOST_CFLAGS=-fsanitize=${san}")
   endif()
 endforeach()
 
@@ -400,6 +411,21 @@ if(PYTHON3)
   set_tests_properties(lib/tidal-examples PROPERTIES LABELS lib)
 else()
   message(STATUS "No python3: lib/tidal-examples and lib/tidal-patches are skipped")
+endif()
+
+# funk's sample events against scsynth's, rendering SuperDirt's own SynthDefs
+# (tests/dirt/oracle.py); skipped without the SuperDirt quark
+find_program(SCLANG sclang HINTS /Applications/SuperCollider.app/Contents/MacOS)
+if(SCLANG AND PYTHON3)
+  add_test(NAME lib/dirt-scsynth COMMAND ${PYTHON3} -I tests/dirt/oracle.py ${SCLANG} $<TARGET_FILE:funk> $<TARGET_FILE:funkdsp>
+    ${CMAKE_CURRENT_BINARY_DIR}/dirt -- ${FUNKGRAPH} WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  set_tests_properties(lib/dirt-scsynth PROPERTIES LABELS lib TIMEOUT 600 SKIP_RETURN_CODE 77)
+  # lib/synthdefs.fk is what tests/dirt/synthdefs.scd writes from SuperDirt's SynthDefs
+  add_test(NAME lib/synthdefs COMMAND sh -c "out=\"${CMAKE_CURRENT_BINARY_DIR}/synthdefs.fk\"; \"${SCLANG}\" tests/dirt/synthdefs.scd \"$out\" $(sed -n 's/^--   sclang tests.dirt.synthdefs.scd lib.synthdefs.fk //p' lib/synthdefs.fk) >/dev/null 2>&1; r=$?; [ $r = 2 ] && exit 77; [ $r = 0 ] || exit $r; diff lib/synthdefs.fk \"$out\""
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  set_tests_properties(lib/synthdefs PROPERTIES LABELS lib TIMEOUT 120 SKIP_RETURN_CODE 77)
+else()
+  message(STATUS "No sclang (set SCLANG) or python3: lib/dirt-scsynth is skipped")
 endif()
 
 # the combinators against Tidal, where ghc has the tidal package (tests/tidal/compare.sh)

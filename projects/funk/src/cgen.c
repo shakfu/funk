@@ -1449,6 +1449,32 @@ char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
   sb_puts(&out, "#include <math.h> /* Float primitives, with no import to name it */\n");
   sb_puts(&out, "#pragma GCC diagnostic ignored \"-Wunused-function\" /* rt.h's helpers, outside a header */\n");
   sb_puts(&out, fk_rth_src);
+  /* rt.c's integer scalars, which kernels, without rt.c, reach: div, mod,
+     quot and rem by a literal divisor, which the check rules out being 0,
+     absi and the shifts; a kernel has no fk_error, so what would raise one traps */
+  sb_puts(&out, "static inline int64_t fk_s_div(int64_t x, int64_t y) {\n"
+                "  if (y == 0) __builtin_trap();\n"
+                "  if (y == -1) return (int64_t)(0 - (uint64_t)x);\n"
+                "  int64_t q = x / y;\n"
+                "  return x % y != 0 && ((x < 0) != (y < 0)) ? q - 1 : q;\n}\n"
+                "static inline int64_t fk_s_mod(int64_t x, int64_t y) {\n"
+                "  if (y == 0) __builtin_trap();\n"
+                "  if (y == -1) return 0;\n"
+                "  int64_t r = x % y;\n"
+                "  return r != 0 && ((r < 0) != (y < 0)) ? r + y : r;\n}\n"
+                "static inline int64_t fk_s_quot(int64_t x, int64_t y) {\n"
+                "  if (y == 0) __builtin_trap();\n"
+                "  return y == -1 ? (int64_t)(0 - (uint64_t)x) : x / y;\n}\n"
+                "static inline int64_t fk_s_rem(int64_t x, int64_t y) {\n"
+                "  if (y == 0) __builtin_trap();\n"
+                "  return y == -1 ? 0 : x % y;\n}\n"
+                "static inline int64_t fk_s_absi(int64_t x) { return x < 0 ? (int64_t)(0 - (uint64_t)x) : x; }\n"
+                "static inline int64_t fk_s_shl(int64_t x, int64_t n) {\n"
+                "  if (n < 0) __builtin_trap();\n"
+                "  return n >= 64 ? 0 : (int64_t)((uint64_t)x << n);\n}\n"
+                "static inline int64_t fk_s_shr(int64_t x, int64_t n) {\n"
+                "  if (n < 0) __builtin_trap();\n"
+                "  return n >= 64 ? (x < 0 ? -1 : 0) : x >> n;\n}\n");
   VEC(ForeignDecl *) fs = {0};
   for (int i = 0; i < CS->globals.n; i++)
     if (CS->globals.a[i].ffi && r.global[i]) VPUSH(fs, CS->globals.a[i].ffi);

@@ -4,6 +4,62 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Events as SuperDirt plays them, in funk-midi `--audio` and the plugin. A top-level `dirt` lists sounds and modules, with SuperDirt's names. Each event of one of its sounds plays on its own chain: the sound, then each module whose test passes, in order, on its orbit. A chain is made from templates in a fixed pool on the audio thread, so events of one name overlap without `d.kit`'s 4 voices (S10). An event starts in its 64-frame block, its output delayed to its frame, as scsynth's `OffsetOut`. Templates over per-voice copies of every module: a voice of each sound with every module would render while silent, and still limit a name's overlaps. Graphs are unchanged; `d.orbit` reads an orbit into one ([docs/dev/dirt-sound.md](docs/dev/dirt-sound.md)).
+
+  ```haskell
+  dirt = d.addModule "half" (\param x -> x * d.dc 0.5) (d.has "cutoff")
+           (d.loadSoundFiles "~/.local/share/funk/Dirt-Samples" ["bd", "sn:3"] d.noDirt)
+  d1 $ s "bd*8 sn:3" # cutoff "300"
+  ```
+
+- A kernel ends its event by setting `funk_context`'s new `done`, as SuperCollider's `doneAction: 14`. A template's node named `>NAME` sets the event's parameter NAME for the stages after it, so modules and `dirt_gate` read the sustain a sample's time span computes, as SuperDirt's read DirtEvent's.
+
+- A sample event plays SuperDirt's `dirt_sample` and `dirt_gate`, ported from SuperCollider 3.13.0's UGens in float arithmetic: cubic `BufRd`, `Line.kr`, `LFSaw`, `Pan2` and `Balance2`, `EnvGen`'s `\sin` segments and `DirtGateCutGroup`. A sample's modules run before its envelope, as SuperDirt's. `lib/dirt-scsynth` renders 16 cases with SuperDirt's own SynthDefs and `DirtEvent` code in scsynth, and funk matches every frame within 1.8e-7; a frame's shift misses by 0.018 or more. It runs where `sclang` and the SuperDirt quark are installed. Pan is equal-power, so a centred sample is 3 dB down on each channel against `d.kit`'s.
+
+- `d.superDirt`: SuperDirt's 12 core effect modules, in its order: `vowel`, `shape`, `hpf`, `bpf`, `crush`, `coarse`, `lpf`, `pshift`, `envelope`, `grenvelo`, `tremolo` and `phaser`. Each runs its SynthDef's UGen graph, ported from SuperCollider 3.13.0: `RLPF`, `RHPF`, `BPF`, `Latch`, `Impulse`, `SinOsc`, `LFPar`, `AllpassL`, `PitchShift`, `XFade2` and `EnvGen`'s curves. `lib/dirt-scsynth` adds 18 cases, run through SuperDirt's own module functions; all 34 match within 2.2e-7. Three behaviours of SuperDirt's that funk copies:
+  - An argument a module names but the event lacks is 0, not the SynthDef's default: sclang sends nil as 0. `# attack 0.01` alone has release 0.
+  - scsynth constructs a synth at its first calc, so a filter's constructor filters the chain's first frame once more.
+  - On arm64, scsynth's audio-rate `/` is nova-simd's reciprocal estimate with one Newton step, good to about 16 bits. `shape` divides that way.
+
+  Templates now share pools by size class, templates whose sizes round up to one power of two in one pool. A class has 256 slots, or as many as fit in 8 MB, scsynth's default real-time memory. A `pshift` stage, 196 KB at 44.1 kHz, gets 42. One pool sized by the largest template took 50 MB.
+
+  ```haskell
+  dirt = d.loadSoundFiles "~/.local/share/funk/Dirt-Samples" ["bd", "sn:3"] d.superDirt
+  d1 $ s "bd*8 sn:3" # cutoff "800" # resonance "0.3" # vowel "a"
+  ```
+
+- SuperDirt's orbits and global effects: `d.superDirt` gives each of 16 orbits `dirt_delay`, `dirt_reverb`, `dirt_leslie` and `dirt_monitor`, run after the orbit's events in scsynth's node order. Each pauses when silent and resumes on an event with one of its controls, as `DirtPause` and `GlobalDirtEffect.set`; a redefined `dirt` keeps an unchanged effect, its tail included. The monitor limits each orbit at 1, so `dirt` plays 20 ms late, as SuperDirt does. The delay is sc3-plugins' `SwitchDelay`; `d.superDirtCore` has SuperDirt's `CombL` for a SuperDirt without sc3-plugins. The reverb draws from a port of scsynth's random generator, which `g.seed` seeds as `RandSeed`. `lib/dirt-scsynth` grows to 48 cases on 16 orbits, all within 1.8e-7 of scsynth. Template names `o.` and `a.` add an orbit's effects (`graph.h`).
+
+  ```haskell
+  d1 $ s "bd*4" # room "0.4" # size "0.6" # delay "0.5" # delaytime "0.125"
+  ```
+
+- SuperDirt's synths, from their SynthDefs: `tests/dirt/synthdefs.scd` writes each SynthDef's UGen graph, as scsynth runs it, to `lib/synthdefs.fk`, and `lib/scsynth.fk` builds it into a template, one `lib/kernels.fk` kernel per UGen. Each UGen kernel picks scsynth's calc function by its inputs' rates and is constructed as scsynth constructs a synth (`funk_graph_ugen` in `graph.h`). One UGen library serves every synth, so a synth needs no kernel of its own; `superfm`'s presets, which sclang draws at random when SuperDirt starts, come with its data. `d.superDirt` and `d.superDirtCore` play 5 of `default-synths.scd`'s 11: `imp`, `psin`, `gabor`, `dirac` and `cyclo`. `lib/dirt-scsynth` adds 7 synth cases, all within 9e-8 of scsynth; `lib/synthdefs` checks the data against the installed SuperDirt.
+
+  ```haskell
+  d1 $ n "0 5 7" # s "imp" # sustain "0.2"
+  ```
+
+  A stage's kernel now frees the stage by setting `funk_context`'s new `freeself`, as `doneAction: 2` frees a synth while its `dirt_gate` plays on.
+
+### Changed
+
+- A synth event's records carry what `DirtEvent` sends a synth: `pan` from -1 to 1, `n`, `speed` times `cps` for `unit "c"`, and `accelerate` only if given.
+
+- `dirt` events play at SuperDirt's level, `amp` 0.4 times `(min gain 2 + overgain)^4`, computed in floats as `dirt_gate`'s SynthDef does: 8 dB below `d.kit`'s level 1. The monitor's limiter and softclip and its silence threshold act on absolute levels, so only that level matches SuperDirt.
+
+- A synth event's `sustain` excludes its fades, and a given `fadeTime` sets them, as SuperDirt sends them.
+
+### Fixed
+
+- `kernels/templates/thread` failed about once in 16 runs. Each template set waited 3 audio calls, as few as 35 frames, so the next set's tones could overlap the last set's and pass the peak bound of 8 overlapping tones. It now waits at least 64 frames.
+
+- `funk emit-c --kernels` emitted calls to `fk_s_div`, `fk_s_mod`, `fk_s_shl`, `fk_s_shr` and their kin without their definitions, which are in `rt.c`, not the kernels' `rt.h`. The check accepts them in a kernel, `div` and `mod` by a nonzero literal, so such a kernel passed the check and failed to compile.
+
+- `d.kit`'s sample voice averaged an accelerating speed as `|speed| + |endSpeed| * 0.5`. sclang reads binary operators left to right, so SuperDirt's `speed.abs + endSpeed.abs * 0.5` is their mean, and a sample with `accelerate` ended early.
+
 ## [0.11.0] - 2026-11-11
 
 ### Added

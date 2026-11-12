@@ -296,6 +296,31 @@ pat = s "bd*2 [sn bd:3]" # speed "<1 2>" # gain "0.9"
 
 A name not in the kit is silent. Each name has 4 voices, so 4 of its events overlap; a fifth takes the oldest's voice. `d.kitWith n dir names` gives `n`, up to 16. Interpolation is linear, where SuperDirt's is cubic, and `unit "s"` plays as `unit "r"`.
 
+### Events, as SuperDirt plays them
+
+A top-level `dirt` plays each event on its own chain, as SuperDirt does ([docs/dev/dirt-sound.md](dev/dirt-sound.md)). A chain is the event's sound, then each module whose test the event passes, in order. Events of one name overlap without a limit per name. The orbits play as they are, unless `sig` reads them with `d.orbit o`:
+
+```haskell
+dirt = d.addModule "half" (\param x -> x * d.dc 0.5) (d.has "cutoff")
+         (d.addSynth "tone" (\param -> d.sine (param "freq" 440.0))
+           (d.loadSoundFiles "~/.local/share/funk/Dirt-Samples" ["bd", "sn:3"] d.noDirt))
+d1 $ s "bd*2 [sn:3 tone]" # note "<0 7>"
+d2 $ s "tone*4" # note "12" # cutoff "300"   -- halved
+sig = d.orbit 0
+```
+
+- `d.loadSoundFiles dir names` adds samples. They play as SuperDirt's `dirt_sample` does, checked against scsynth: cubic interpolation, and equal-power pan, so a centred sample is 3 dB down on each channel against `d.kit`'s. They play at SuperDirt's level: `amp` 0.4, times `(min gain 2 + overgain)^4`, 8 dB below `d.kit`'s.
+- `d.addSynth name f` adds a synth for `s "name"`. `param name default` reads the event's parameter: `freq` from `note`, else `n`, and `octave`, and every other number the event has. `sustain` is the event's, else the event times `legato`, less its fades.
+- SuperDirt's `dirt_gate` ends every event: its envelope over `sustain`, its level, and its cut group.
+- `d.superDirt` has SuperDirt's 12 core effect modules, checked against scsynth: `vowel`, `shape`, `hpf`, `bpf`, `crush`, `coarse`, `lpf`, `pshift`, `envelope`, `grenvelo`, `tremolo` and `phaser`, run in that order, each on the controls SuperDirt's tests. Start from it in place of `d.noDirt` for SuperDirt's sound. A control a module reads but the event lacks is 0, as in SuperDirt, so `# attack 0.01` alone also has `release` 0. `out_to` and `map_from` are not ported.
+- `d.superDirt` also gives each of 16 orbits SuperDirt's global effects, checked against scsynth: `delay` (sc3-plugins' `SwitchDelay`), `room` and `size` (the reverb), `leslie`, and the monitor, which limits each orbit at 1 and so plays it 20 ms late. Each pauses when silent and wakes on an event that sets one of its controls, as SuperDirt's. `d.superDirtCore` has the delay SuperDirt uses without sc3-plugins, a `CombL`. They take about 34 MB a player at 44.1 kHz. `g.seed player n` seeds the reverb's and `pshift`'s random numbers, as scsynth's `RandSeed`; a player is seeded from the time.
+- `d.superDirt` and `d.superDirtCore` also play SuperDirt's synths `imp`, `psin`, `gabor`, `dirac` and `cyclo` (`default-synths.scd`), checked against scsynth: `s "imp"`. Not ported: `in`, `in1` and `inr`, which read the audio input; `pmsin`, which reads the mouse; `dirt_from` and `superpanic`, which route; and `debug`, which prints. `cyclo` reads `cycle`, which an event has only if given.
+- `d.addModule name f test` adds a module, as SuperDirt's `addModule`. `f param x` replaces the chain `x`. `test` takes the event's controls; `d.has "cutoff"` is SuperDirt's `{ ~cutoff.notNil }`. A module of the same name is replaced in its place. `d.removeModule`, `d.orderModules` and `d.addFilterModule` follow SuperDirt's.
+- An event's parameter `room` on orbit 2 also sets `sig`'s control `o2.room`, from the event's frame, for global effects of one's own in `sig`.
+- The pool has 256 stages: a sound or a module of an event. Stages of large templates have fewer, 42 for `pshift` at 44.1 kHz, so that each size of stage takes at most 8 MB, scsynth's default real-time memory. When a stage's pool is full, the newest event is dropped.
+
+An event renders in blocks of 64 frames, from the start of the block that holds its time, with its output delayed to that time, as scsynth's `OffsetOut`. In the plugin, an event for a block already rendered starts at the next one; a host block of a multiple of 64 frames avoids that. Redefining `dirt` affects new events. Those already playing finish on the old one. The 4 sample voices of `d.kit` remain for `m.kit`'s notes and for sounds `dirt` lacks.
+
 The control names are taken at the top level of these sessions: `speed = 2` is an error, "`speed` is imported from `control`; choose another name". A parameter or `let` of that name is fine, and `control.speed` always means the control.
 
 ### Controls from outside

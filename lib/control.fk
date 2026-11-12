@@ -110,7 +110,7 @@ module control
     stut', jux, juxBy, juxcut, juxcut', jux', jux4, ghost', ghost, contrast, contrastBy, contrastRange,
     fix, unfix, fixRange, unfixRange, crunch, scratch, louder, quieter, silent, skip, left, right,
     higher, lower, faster, slower, grain, grain', midinote, drum, drumN, squeezeJoinUp, chew, stackwith, splat, chopArc,
-    midiOf, Record(..), recordsOf, sampleKey, writeControls, writeControlsWith, writeControlEvents, writeDirtWith, writeDirtEvents, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
+    midiOf, Record(..), recordsOf, soundParams, sampleKey, writeControls, writeControlsWith, writeControlEvents, writeControlsWithBy, writeControlEventsBy, writeDirtWith, writeDirtEvents, sound, cc, nrpn, nrpnn, nrpnv, accelerate, amp, attack, bandf, bandq,
     bank, begin, binshift, button0, button1, button10, button11, button12, button13, button14,
     button15, button2, button3, button4, button5, button6, button7, button8, button9, ccn, ccv,
     channel, clhatdecay, coarse, comb, control, cps, crush, ctlNum, ctranspose, cut, cutoff,
@@ -1031,11 +1031,24 @@ recordsOf ups cyc dur cs = case getControl "s" cs of
         VR x -> if elem k midiNames then [] else named k x
         _ -> []) (controlPairs cs)
       ++ map (\(m, l) -> RMidi m l) (midiOf ups dur cs)
+    forSample x = concatMap (\(k, v) -> named k v) (soundParams ups cyc dur cs)
+      ++ map RName (chunks (unpack (if getControl "_synth" cs /= Nothing then x else sampleKey x (truncate (num "n" 0.0))))) ++ [RTrigger]
+
+-- the parameters recordsOf sends for a sound's event: d.kit's, and for an
+-- event dsp.fk's Dirt marked, SuperDirt's (DirtEvent.sc) and every other number
+soundParams :: Int -> Int -> Int -> Controls -> [(String, Float)]
+soundParams ups cyc dur cs = fixed ++ extra
+  where
+    num k d = case getControl k cs of
+      Just (VF x) -> x
+      Just (VI i) -> toFloat i
+      _ -> d
     -- SuperDirt's: amp * (min gain 2 + overgain)^4, relative to amp's 0.4, so 1 by default
     level = num "amp" 0.4 / 0.4 * fourth (min (num "gain" 1.0) 2.0 + num "overgain" 0.0)
     -- SuperDirt's: sustain, else legato times the event, else -1 for the
     -- sample's own; the pitch of note and octave, or of freq; for unit "c",
-    -- cycles per second; accelerate 1e30 if absent (dsp_dirt in lib/kernels.fk)
+    -- cycles per second as unitCps, else 0; accelerate 1e30 if absent (dsp_dirt
+    -- in lib/kernels.fk); and cps, as Tidal sends it
     sustain = case getControl "sustain" cs of
       Just _ -> num "sustain" 0.0
       Nothing -> case getControl "legato" cs of
@@ -1045,10 +1058,47 @@ recordsOf ups cyc dur cs = case getControl "s" cs of
       Just _ -> num "freq" 261.6255653005986 / 261.6255653005986
       Nothing -> 2.0 ** ((num "note" 0.0 + 12.0 * (num "octave" 5.0 - 5.0)) / 12.0)
     cps = if getControl "unit" cs == Just (VS "c") then toFloat ups / toFloat cyc else 0.0
-    forSample x = concatMap (\(k, v) -> named k v) [("speed", num "speed" 1.0), ("level", level), ("pan", num "pan" 0.5),
+    given = [("speed", num "speed" 1.0), ("level", level), ("pan", num "pan" 0.5),
         ("begin", num "begin" 0.0), ("end", num "end" 1.0), ("loop", num "loop" 1.0), ("accelerate", num "accelerate" 1.0e30),
-        ("sustain", sustain), ("pitch", pitch), ("cps", cps), ("cut", num "cut" 0.0), ("orbit", num "orbit" 0.0)]
-      ++ map RName (chunks (unpack (sampleKey x (truncate (num "n" 0.0))))) ++ [RTrigger]
+        ("sustain", sustain), ("pitch", pitch), ("unitCps", cps), ("cps", toFloat ups / toFloat cyc), ("cut", num "cut" 0.0),
+        ("orbit", num "orbit" 0.0)]
+    -- an event dsp.fk's Dirt plays (d.prepare): every other number too, for
+    -- its modules; a synth's key is its name
+    has k = case getControl k cs of
+      Just _ -> True
+      Nothing -> False
+    isDirt = has "_dirt"
+    isSynth = has "_synth"
+    -- SuperDirt's for a synth (DirtEvent.calcTimeSpan, DirtOrbit's defaults):
+    -- sustain, else the event times legato, else the event, less its fades
+    -- of at most fadeTime (1 ms unless given), fading in only from a begin;
+    -- the pitch of note, else n, and octave. A sample's note is 0 unless
+    -- given (DirtSoundLibrary's makeEventForBuffer); dsp_dirt_span does the rest.
+    synthSus = case getControl "sustain" cs of
+      Just _ -> num "sustain" 0.0
+      Nothing -> toFloat dur / toFloat ups * (case getControl "legato" cs of
+        Just _ -> num "legato" 1.0
+        Nothing -> abs (num "loop" 1.0))
+    fade = min (num "fadeTime" 0.001) (synthSus * 0.19098)
+    fadeIn = if num "begin" 0.0 /= 0.0 then fade else 0.0
+    synthFreq = case getControl "freq" cs of
+      Just _ -> num "freq" 261.6255653005986
+      Nothing -> 440.0 * 2.0 ** ((num "note" (num "n" 0.0) + 12.0 * num "octave" 5.0 - 69.0) / 12.0)
+    -- and what DirtEvent sends a synth: pan from -1 to 1 (finaliseParameters),
+    -- n (splitName), speed times cps for unit "c", and accelerate only if given
+    synthGiven = [("sustain", synthSus - (fade + fadeIn)), ("fadeTime", fade), ("fadeInTime", fadeIn), ("freq", synthFreq),
+      ("pan", num "pan" 0.5 * 2.0 - 1.0), ("n", num "n" 0.0),
+      ("speed", num "speed" 1.0 * (if getControl "unit" cs == Just (VS "c") then toFloat ups / toFloat cyc else 1.0))]
+      ++ (if has "accelerate" then [("accelerate", num "accelerate" 0.0)] else [])
+    sampleFreq = case getControl "freq" cs of
+      Just _ -> num "freq" 261.6255653005986
+      Nothing -> 440.0 * 2.0 ** ((num "note" 0.0 + 12.0 * num "octave" 5.0 - 69.0) / 12.0)
+    fixed = if isSynth then synthGiven ++ filter (\(k, v) -> not (elem k ["sustain", "pan", "speed", "accelerate"])) given else if isDirt then given ++ [("freq", sampleFreq)] else given
+    extra = if not isDirt then [] else concatMap (\(k, v) -> if elem k (["s", "n", "_dirt", "_synth"] ++ map fst fixed) then [] else case v of
+        VF y -> [(k, y)]
+        VI i -> [(k, toFloat i)]
+        VR y -> [(k, y)]
+        _ -> []) (controlPairs cs)
 
 -- a sample's key, as d.kit names its controls: "bd:3"
 sampleKey :: String -> Int -> String
@@ -1075,7 +1125,16 @@ writeControlsWith buf cap pat ctls cs ups a b = writeControlEvents buf cap (p.wi
 
 -- writeControls of onsets already queried (p.windowOnsets)
 writeControlEvents :: Ptr Int -> Int -> [p.Event Controls] -> Int -> Int ->> Int
-writeControlEvents buf cap es cs ups = writeRecords buf cap 0 (concatMap (\(s, d, v) -> map (\r -> (s, r)) (recordsOf ups cs d v)) (p.sampled cs es))
+writeControlEvents buf cap es cs ups = writeControlEventsBy (\x -> x) buf cap es cs ups
+
+-- writeControlsWith, each event's controls through f first, as d.prepare
+-- marks those a Dirt plays
+writeControlsWithBy :: (Controls -> Controls) -> Ptr Int -> Int -> p.Pattern Controls -> [(String, p.Ctl)] -> Int -> Int -> Int -> Int ->> Int
+writeControlsWithBy f buf cap pat ctls cs ups a b = writeControlEventsBy f buf cap (p.windowOnsets ctls pat cs a b) cs ups
+
+-- writeControlEvents, each event's controls through f first
+writeControlEventsBy :: (Controls -> Controls) -> Ptr Int -> Int -> [p.Event Controls] -> Int -> Int ->> Int
+writeControlEventsBy f buf cap es cs ups = writeRecords buf cap 0 (concatMap (\(s, d, v) -> map (\r -> (s, r)) (recordsOf ups cs d (f v))) (p.sampled cs es))
 
 writeRecords :: Ptr Int -> Int -> Int -> [(Int, Record)] ->> Int
 writeRecords buf cap i rs = case rs of

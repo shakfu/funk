@@ -643,6 +643,18 @@ void CheckParams(const clap_plugin_t* plugin, std::map<std::string, std::string>
 	for (const Event& e : ev.list) noteOn |= (e.data[0] & 0xF0) == 0x90;
 	check(ev.others.empty() && !noteOn && ev.audio.size() > 10 && std::fabs(ev.audio[10] - 2.0736f) < 1e-5f,
 	      "a sample event sets its controls, level 1.2^4, and sends no MIDI: " + std::to_string(ev.audio.empty() ? -1.f : ev.audio[10]));
+	// an event of dirt's templates (docs/dev/dirt-sound.md): a synth of 0.5, on orbit 0, which sig reads,
+	// at SuperDirt's level: amp 0.4
+	if (cases.count("events_sig") && cases.count("events_dirt") && cases.count("events")) {
+		reply = Eval(cases["events_sig"]) + Eval(cases["events_dirt"]);
+		check(reply.find("error") == std::string::npos && reply.find("not playing") == std::string::npos, "the [events] cases evaluate: " + reply);
+		reply = Eval(cases["events"]);
+		ev = Play(plugin, 0., 2);
+		noteOn = false;
+		for (const Event& e : ev.list) noteOn |= (e.data[0] & 0xF0) == 0x90;
+		check(ev.others.empty() && !noteOn && ev.audio.size() > 10 && std::fabs(ev.audio[10] - 0.2f) < 1e-6f,
+		      "a synth's event plays from its template, through dirt_gate: " + std::to_string(ev.audio.empty() ? -1.f : ev.audio[10]));
+	}
 	Eval(cases["audio"]); // the sig the later checks expect
 }
 

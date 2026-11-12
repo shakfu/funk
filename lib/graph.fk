@@ -11,8 +11,10 @@
 -- that send changes from a given frame, such as a note's gate. Channels
 -- is a signal of several channels: a node with such an input becomes one
 -- node per channel, so stereo builds from mono kernels, as SuperCollider's
--- multichannel expansion does; a mono input is shared, not copied. Link with -I projects/funkgraph and the funkgraph
--- library.
+-- multichannel expansion does; a mono input is shared, not copied. Bus o c
+-- reads channel c of orbit o of the player's events; In c, in a template,
+-- reads channel c of its event's chain (docs/dev/dirt-sound.md). Link with
+-- -I projects/funkgraph and the funkgraph library.
 module graph where
 
 foreign import ccall "graph.h funk_graph_new" graphNew :: CInt -> Float ->> Ptr ()
@@ -29,6 +31,18 @@ foreign import ccall "graph.h funk_sample_path" samplePath :: String -> String -
 foreign import ccall "graph.h funk_player_new" playerNew :: () ->> Ptr ()
 foreign import ccall "graph.h funk_player_play" playerPlay :: Ptr () -> Ptr () ->> ()
 foreign import ccall "graph.h funk_graph_output" graphOutput :: Ptr () -> CInt ->> CInt
+foreign import ccall "graph.h funk_graph_bus" graphBus :: Ptr () -> CInt -> CInt ->> CInt
+foreign import ccall "graph.h funk_graph_in" graphIn :: Ptr () -> CInt ->> CInt
+foreign import ccall "graph.h funk_graph_ugen" graphUgen :: Ptr () -> CInt ->> CInt
+foreign import ccall "graph.h funk_templates_new" templatesNew :: CInt ->> Ptr ()
+foreign import ccall "graph.h funk_templates_add" templatesAdd :: Ptr () -> String -> Ptr () ->> CInt
+foreign import ccall "graph.h funk_templates_free" templatesFree :: Ptr () ->> ()
+foreign import ccall "graph.h funk_player_templates" playerTemplates :: Ptr () -> Ptr () ->> CInt
+foreign import ccall "graph.h funk_player_seed" playerSeed :: Ptr () -> CUInt ->> ()
+foreign import ccall "graph.h funk_player_event_begin" eventBegin :: Ptr () -> CLLong -> String ->> CBool
+foreign import ccall "graph.h funk_player_event_param" eventParam :: Ptr () -> String -> CFloat ->> CBool
+foreign import ccall "graph.h funk_player_event_end" eventEnd :: Ptr () ->> CBool
+foreign import ccall "graph.h funk_player_event_counts" eventCounts :: Ptr () -> Ptr CInt -> Ptr CLLong -> Ptr CLLong ->> ()
 foreign import ccall "graph.h funk_player_render_channels" playerRender :: Ptr () -> Ptr (Ptr CFloat) -> CInt -> CInt ->> ()
 foreign import ccall "graph.h funk_player_free" playerFree :: Ptr () ->> ()
 foreign import ccall "dlfcn.h dlopen" dlopen :: String -> CInt ->> Ptr ()
@@ -45,7 +59,7 @@ foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
 -- are the nodes': the way to get several outputs from a state that one kernel owns.
 data Source = File String Int | Sample String String Int Int | Values [Float]
 
-data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Shared String Float [[Float]] Sig [Sig] | Named String Sig | Control Float | Channels [Sig]
+data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Shared String Float [[Float]] Sig [Sig] | Named String Sig | Control Float | Channels [Sig] | Bus Int Int | In Int
 
 -- a C player, its kernel libraries, frames per second, and the most
 -- frames per kernel call
@@ -67,6 +81,8 @@ same (Shared k m sts x ins) (Shared k2 m2 sts2 x2 ins2) = m == m2 && sts == sts2
 same (Named n s) (Named n2 s2) = n == n2 && same s s2
 same (Control v) (Control v2) = v == v2
 same (Channels ss) (Channels ss2) = length ss == length ss2 && and (zipWith same ss ss2)
+same (Bus o c) (Bus o2 c2) = o == o2 && c == c2
+same (In c) (In c2) = c == c2
 same _ _ = False
 
 sameSource :: Source -> Source -> Bool
@@ -129,11 +145,15 @@ names ns (Reader k src st ins) = names ns (Node k st ins)
 names ns (Shared k m sts x ins) = foldl names ns (x : ins)
 names ns (Control v) = ns
 names ns (Channels ss) = foldl names ns ss
+names ns (Bus o c) = ns
+names ns (In c) = ns
 
 kernels :: [Ptr ()] -> Sig ->> ()
 kernels libs Silence = ()
 kernels libs (Named n s) = kernels libs s
 kernels libs (Control v) = ()
+kernels libs (Bus o c) = ()
+kernels libs (In c) = ()
 kernels libs (Channels ss) = mapM_ (kernels libs) ss
 kernels libs (Delay k m st ins) = kernels libs (Node k st ins)
 kernels libs (Reader k src st ins) = kernels libs (Node k st ins)
@@ -177,6 +197,12 @@ add g libs (Seen named built own) (Named n s) = case lookup n named of
 add g libs ns (Control v) = do
   i <- graphControl g (toCFloat v)
   if i < 0 then error "graph: out of memory" else ([fromIntegral i], ns)
+add g libs ns (Bus o c) = do
+  i <- graphBus g (fromIntegral o) (fromIntegral c)
+  if i < 0 then error ("graph: no orbit " ++ show o ++ " channel " ++ show c) else ([fromIntegral i], ns)
+add g libs ns (In c) = do
+  i <- graphIn g (fromIntegral c)
+  if i < 0 then error ("graph: no chain channel " ++ show c) else ([fromIntegral i], ns)
 add g libs ns (Node k st ins) = once g libs ns ins (Node k st) (expand g libs k st)
 add g libs ns (Delay k m st ins) = once g libs ns ins (Delay k m st) (\iss -> do
   is <- expand g libs k st iss
@@ -254,7 +280,16 @@ inputHash s = []
 expand :: Ptr () -> [Ptr ()] -> String -> [Float] -> [[Int]] ->> [Int]
 expand g libs k st iss = do
   kp <- kernel libs k
-  nodes g kp st iss 0 (maximum (1 : map length iss))
+  is <- nodes g kp st iss 0 (maximum (1 : map length iss))
+  -- a kernel named dsp_u_NAME is a UGen (funk_graph_ugen in graph.h)
+  if take 6 (unpack k) == unpack "dsp_u_" then markUgens g is else ()
+  is
+
+markUgens :: Ptr () -> [Int] ->> ()
+markUgens g [] = ()
+markUgens g (i : is) = do
+  r <- graphUgen g (fromIntegral i)
+  markUgens g is
 
 sharedNodes :: Ptr () -> Ptr () -> String -> Float -> [[Float]] -> [Int] ->> [Int]
 sharedNodes g kp k m [] is = []
@@ -322,6 +357,50 @@ play (Player p libs rate maxBlock) s = do
     if w > 1 then mapM_ (output g) is else ()
     playerPlay p g
 
+-- A set of templates, each a name and a Sig, made anew for each event
+-- from slots slots (funk_templates_add in graph.h): "s.KEY" a source,
+-- "m.NAME" a module, run in the order given; "o.NAME" and "a.NAME" each
+-- orbit's effects. Events from the next block
+-- use them; events playing keep the set before. Checked as play checks a
+-- graph, each built in blocks of 64 frames.
+templates :: Player -> Int -> [(String, Sig)] ->> ()
+templates (Player p libs rate maxBlock) slots ts = do
+  mapM_ (\(n, s) -> do
+    names [] s
+    width s
+    kernels libs s) ts
+  t <- templatesNew (fromIntegral slots)
+  if t == nullPtr then error "graph: out of memory" else do
+    mapM_ (template t libs rate) ts
+    if playerTemplates p t < 0 then error "graph: out of memory" else ()
+
+template :: Ptr () -> [Ptr ()] -> Float -> (String, Sig) ->> ()
+template t libs rate (n, s) = do
+  w <- width s
+  g <- graphNew 64 rate
+  if g == nullPtr then error "graph: out of memory" else do
+    (is, ns) <- add g libs noneSeen s
+    if w > 1 then mapM_ (output g) is else ()
+    if templatesAdd t n g < 0 then do
+      templatesFree t
+      error ("graph: cannot add template " ++ n)
+    else ()
+
+-- an event of template source from frame on, with parameters ps
+-- (funk_player_event in graph.h); False if the queue is full. Events
+-- must come in time order.
+event :: Player -> Int -> String -> [(String, Float)] ->> Bool
+event (Player p libs rate maxBlock) frame source ps = do
+  b <- eventBegin p (fromIntegral frame) source /= 0
+  ok <- foldl (\acc (n, v) -> acc && eventParam p n (toCFloat v) /= 0) b ps
+  ok && eventEnd p /= 0
+
+-- events playing, dropped and late (funk_player_event_counts in graph.h)
+events :: Player ->> (Int, Int, Int)
+events (Player p libs rate maxBlock) = allocaBytes 24 (\a -> do
+  eventCounts p (castPtr a) (castPtr (plusPtr a 8)) (castPtr (plusPtr a 16))
+  (fromIntegral (peekByteOff a 0 :: CInt), fromIntegral (peekByteOff a 8 :: CLLong), fromIntegral (peekByteOff a 16 :: CLLong)))
+
 -- i as the next channel's output; a silent channel gets a control at 0
 output :: Ptr () -> Int ->> ()
 output g i = do
@@ -355,5 +434,10 @@ pokeAll a i (x:xs) = do
   pokeAll a (i + 1) xs
 
 -- once render is no longer called; the libraries stay loaded
+-- seeds the player's random generator from its next block, as scsynth's
+-- RandSeed (funk_player_seed in graph.h)
+seed :: Player -> Int ->> ()
+seed (Player p libs rate maxBlock) n = playerSeed p (fromIntegral n)
+
 close :: Player ->> ()
 close (Player p libs rate maxBlock) = playerFree p

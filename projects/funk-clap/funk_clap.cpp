@@ -75,6 +75,12 @@ const char* const kStepOnce = "stepOnce buf ctl nctl a b = p.writeEventsWith (pl
 // for a control pattern: three Ints a MIDI message, its time, bytes and note length (control.fk)
 const char* const kStepControls = "step buf ctl nctl a b = writeControlsWith (plusPtr nullPtr buf) 4096 pat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
 const char* const kStepOnceControls = "stepOnce buf ctl nctl a b = writeControlsWith (plusPtr nullPtr buf) 4096 once (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
+// ... with audio: each event through d.prepare dirt, so a sound of `dirt` plays as an event of
+// its templates (docs/dev/dirt-sound.md); compiled again after dirt changes, so they name the new dirt
+const char* const kStepDirt = "step buf ctl nctl a b = writeControlsWithBy (d.prepare dirt) (plusPtr nullPtr buf) 4096 pat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
+const char* const kStepOnceDirt = "stepOnce buf ctl nctl a b = writeControlsWithBy (d.prepare dirt) (plusPtr nullPtr buf) 4096 once (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
+// dirt's templates, from a pool of this many stages
+const char* const kPlayDirt = "playdirt :: Int ->> Int\nplaydirt u = do { d.playDirt audioPlayer 256 dirt ; 0 }";
 // control.fk, every name unqualified, as Tidal's are
 const char* const kControlImport = "import control (..)";
 
@@ -225,9 +231,12 @@ private:
 		char* shown = nullptr;
 		// graph.fk's imports: the plugin's own functions, which it does not export
 #define PROVIDE(fn) funk_provide(f, #fn, (void*)fn);
-		PROVIDE(funk_graph_new) PROVIDE(funk_graph_add) PROVIDE(funk_graph_control) PROVIDE(funk_graph_name)
+		PROVIDE(funk_graph_new) PROVIDE(funk_graph_add) PROVIDE(funk_graph_control) PROVIDE(funk_graph_name) PROVIDE(funk_graph_ugen)
 		PROVIDE(funk_graph_output) PROVIDE(funk_graph_memory) PROVIDE(funk_graph_table_file) PROVIDE(funk_graph_table_values) PROVIDE(funk_table_error) PROVIDE(funk_sample_path) PROVIDE(funk_player_new) PROVIDE(funk_player_send) PROVIDE(funk_player_frames)
 		PROVIDE(funk_player_play) PROVIDE(funk_player_render_channels) PROVIDE(funk_player_free)
+		PROVIDE(funk_graph_bus) PROVIDE(funk_graph_in) PROVIDE(funk_templates_new) PROVIDE(funk_templates_add)
+		PROVIDE(funk_templates_free) PROVIDE(funk_player_templates) PROVIDE(funk_player_seed) PROVIDE(funk_player_event_begin)
+		PROVIDE(funk_player_event_param) PROVIDE(funk_player_event_end) PROVIDE(funk_player_event_counts)
 #undef PROVIDE
 		funk_glue(f, funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed
 		funk_module_dir(f, s.dir_.c_str());
@@ -237,7 +246,8 @@ private:
 		          && funk_eval(f, kControlImport, "<setup>", &shown);
 		// If the linked glue does not match and no C compiler runs, graph.fk's imports fail:
 		// MIDI still plays, the output is silent.
-		s.graphs_ = ok && funk_eval(f, "import graph as g", "<setup>", &shown) && funk_eval(f, "import dsp as d", "<setup>", &shown);
+		s.graphs_ = ok && funk_eval(f, "import graph as g", "<setup>", &shown) && funk_eval(f, "import dsp as d", "<setup>", &shown)
+		            && funk_eval(f, "dirt = d.noDirt", "<setup>", &shown);
 		if (ok && !s.graphs_) fputs("funk-midi: no audio: graph.fk's foreign imports did not compile\n", stderr);
 		started->set_value(ok);
 		if (!ok) return 1;
@@ -427,7 +437,7 @@ public:
 		if (s.call([&] {
 			    char* type = funk_type_of(s.handle(), code.c_str(), "<eval>");
 			    onceControls_ = IsControlsType(type);
-			    once = IsPatternType(type) && (onceControls_ ? s.eval(AsOnceControls(code), ignored) && s.eval(kStepOnceControls, ignored)
+			    once = IsPatternType(type) && (onceControls_ ? s.eval(AsOnceControls(code), ignored) && s.eval(stepOnceControls(), ignored)
 			                                                 : s.eval(AsOnce(code), ignored) && s.eval(kStepOnce, ignored));
 			    free(type);
 		    }, &ignored)) {
@@ -439,14 +449,15 @@ public:
 			const bool interrupted = s.call([&] {
 				if (!s.eval(code, out)) return;
 				if (Defines(code, "sig")) playSig(out);
+				if (Defines(code, "dirt")) playDirt(out);
 				if (Defines(code, "controls")) bindControls(out);
 				if (!Defines(code, "pat")) return;
 				// Compiled again, so that it names the new pat; as a clip, pat plays once.
 				char* type = funk_type_of(s.handle(), "pat", "<eval>");
 				const bool controls = IsControlsType(type);
 				free(type);
-				pat = s.eval(controls ? kStepControls : kStep, out)
-				      && (live_ || (s.eval("once = pat", out) && s.eval(controls ? kStepOnceControls : kStepOnce, out)));
+				pat = s.eval(controls ? stepControls() : kStep, out)
+				      && (live_ || (s.eval("once = pat", out) && s.eval(controls ? stepOnceControls() : kStepOnce, out)));
 				if (pat) stepControls_ = onceControls_ = controls;
 				else out += "funk-midi: pat is not playing: it must be a Pattern Int or of Controls\n";
 			}, &out);
@@ -550,6 +561,7 @@ public:
 			ok = session_.eval(playerSource(), out) && session_.eval(voices, out);
 			audio_.ready = ok;
 			if (ok && audio_.haveSig) playSig(out);
+			if (ok && audio_.haveDirt) playDirt(out);
 		}, &out, false);
 		if (!out.empty()) fputs(out.c_str(), stderr);
 		return ok;
@@ -647,7 +659,10 @@ private:
 				dlclose(lib);
 			}
 			audio_.compiled.push_back(lib);
-			if (audio_.ready && session_.eval(playerSource(), out) && audio_.haveSig) playSig(out);
+			if (audio_.ready && session_.eval(playerSource(), out)) {
+				if (audio_.haveSig) playSig(out);
+				if (audio_.haveDirt) playDirt(out);
+			}
 			const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
 			out += "kernels loaded in " + std::to_string(ms) + " ms\n";
 		}, &out, false);
@@ -663,6 +678,22 @@ private:
 		    !funk_call(session_.handle(), "playsig", 1, &arg, &r))
 			out += "funk-midi: sig is not playing: it must be a g.Sig of funkdsp.so's kernels\n";
 	}
+
+	// On funk's thread: dirt's templates, and the steps of control patterns compiled again, so
+	// they name the new dirt. One that fails leaves the last set playing.
+	void playDirt(std::string& out)
+	{
+		audio_.haveDirt = true;
+		if (stepControls_) session_.eval(stepControls(), out);
+		if (onceControls_ && !live_) session_.eval(stepOnceControls(), out);
+		if (!audio_.ready) return;
+		long arg = 0, r = 0;
+		if (!session_.eval(kPlayDirt, out) || !funk_call(session_.handle(), "playdirt", 1, &arg, &r))
+			out += "funk-midi: dirt is not playing: it must be a d.Dirt of funkdsp.so's kernels\n";
+	}
+
+	const char* stepControls() { return session_.graphs() ? kStepDirt : kStepControls; }
+	const char* stepOnceControls() { return session_.graphs() ? kStepOnceDirt : kStepOnceControls; }
 
 	struct Msg {
 		double ms;
@@ -828,6 +859,7 @@ private:
 		uint32_t maxFrames = 0;
 		bool ready = false;   // audioPlayer and playsig are defined
 		bool haveSig = false; // sig is defined, and plays once ready
+		bool haveDirt = false; // dirt is defined, and its templates load once ready
 	} audio_;
 	bool live_ = false, looping_ = false;
 	bool stepControls_ = false, onceControls_ = false; // step's or stepOnce's pattern is of Controls

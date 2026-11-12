@@ -243,7 +243,7 @@ static void kernels(void) {
   };
   printf("one kernel, ns per block:\n");
   for (size_t i = 0; i < sizeof ks / sizeof *ks; i++) {
-    Call c = {kernel(ks[i].name), {0.5}, {0}, {0}, {RATE}};
+    Call c = {kernel(ks[i].name), {0.5}, {0}, {0}, {RATE, 0, 0, NULL, 0, 0}};
     memcpy(c.in, ks[i].in, sizeof c.in);
     printf("  %-13s %7.1f\n", ks[i].name, best(call, &c));
   }
@@ -253,7 +253,7 @@ static void kernels(void) {
       {"dsp_allpass", {noise, tiny, half}},
   };
   for (size_t i = 0; i < sizeof ds / sizeof *ds; i++) {
-    Call c = {kernel(ds[i].name), {0}, {0}, {0}, {RATE}};
+    Call c = {kernel(ds[i].name), {0}, {0}, {0}, {RATE, 0, 0, NULL, 0, 0}};
     float *mem = line;
     int64_t frames = sizeof line / sizeof *line;
     memcpy(&c.state[0], &mem, sizeof mem);
@@ -299,7 +299,7 @@ static void per_node(void) {
   int one = add(g, cst, 1.0, 1, NULL, 0), last = one;
   for (int i = 0; i < N; i++) last = add(g, mul, 0, 0, (int[]){last, one}, 2);
   double graph = graph_ns(g) / N;
-  Call c = {mul, {0}, {noise, noise}, {0}, {RATE}};
+  Call c = {mul, {0}, {noise, noise}, {0}, {RATE, 0, 0, NULL, 0, 0}};
   double direct = best(call, &c);
   printf("graph cost per node, %d dsp_mul in a chain, ns per block:\n", N);
   printf("  in the graph  %7.1f\n  called alone  %7.1f\n  difference    %7.1f\n", graph, direct, graph - direct);

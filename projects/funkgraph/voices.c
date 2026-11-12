@@ -38,6 +38,7 @@ struct funk_voices {
   Sample samples[SAMPLE_KEYS];
   funk_player *p;
   bool (*send)(funk_player *, int64_t, const char *, float);
+  bool (*event)(funk_player *, int64_t, const char *, int, const char *const *, const float *);
   int n;       /* voices per group */
   int64_t sent; /* the last event's frame: sends stay in time order */
   Key keys[KEYS];
@@ -50,6 +51,7 @@ funk_voices *funk_voices_new(funk_player *p, int n, bool audio_thread) {
   if (!vs) return NULL;
   vs->p = p;
   vs->send = audio_thread ? funk_player_send_audio : funk_player_send;
+  vs->event = audio_thread ? funk_player_event_audio : funk_player_event;
   vs->n = n;
   vs->sent = INT64_MIN;
   for (int k = 0; k < KEYS; k++) {
@@ -211,6 +213,7 @@ bool funk_voices_trigger(funk_voices *vs, int64_t frame, const char *prefix, int
                          const float *values) {
   bool ok = funk_voices_until(vs, frame + 1);
   if (frame < vs->sent) frame = vs->sent;
+  if (funk_player_has_template(vs->p, prefix)) return ok & vs->event(vs->p, frame, prefix, n, names, values);
   Sample *s = sample_for(vs, prefix);
   int count = s ? voices_of(vs, prefix) : 0;
   char voice[96];

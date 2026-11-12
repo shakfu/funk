@@ -22,6 +22,12 @@ note "0 ~ ~ ~" # pF "level" (p.miniF "0.5")
 sig = g.control "s.bd:0.level" 0.0
 [trigger]
 s "bd ~ ~ ~" # gain "1.2"
+[events_sig]
+sig = d.orbits 1
+[events_dirt]
+dirt = d.addSynth "one" (\param -> d.dc 0.5) d.noDirt
+[events]
+s "one ~ ~ ~"
 [slow_note]
 -- [note], evaluated for about 0.4 s: eight times the plugin's lookahead
 p.fastcat [p.atom (let go i acc = if i == 0 then acc else go (i - 1) (acc + 0 * i) in go 5000000 60), p.silence, p.silence, p.silence]

@@ -72,6 +72,12 @@ static int64_t lookahead_us = 50000;
 #define STEP "step buf ctl nctl cs ot a b = p.writeEventsWith (plusPtr nullPtr buf) 512 (p._shift (negate ot) pat) (p.readControls (plusPtr nullPtr ctl) nctl) cs a b"
 /* for the slots, d1 and the rest (lib/stream.fk): time, MIDI bytes and note length (control.fk) */
 #define SLOTS "slots buf ctl nctl cs ot a b tb = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (p._shift (negate ot) (playStack ())) cs a b) of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeControlEvents (plusPtr nullPtr buf) 512 es cs 1000000"
+/* SLOTS with --audio: each event through d.prepare dirt, so a sound of `dirt`
+   plays as an event of its templates (docs/dev/dirt-sound.md); compiled
+   again after dirt changes, so it names the new dirt */
+#define SLOTS_AUDIO "slots buf ctl nctl cs ot a b tb = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (p._shift (negate ot) (playStack ())) cs a b) of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeControlEventsBy (d.prepare dirt) (plusPtr nullPtr buf) 512 es cs 1000000"
+/* `dirt`'s templates, from a pool of this many stages */
+#define PLAYDIRT "playdirt :: Int ->> Int\nplaydirt u = do { d.playDirt audioPlayer 256 dirt ; 0 }"
 /* for --dirt: the onsets with an `s`, for SuperDirt (writeDirtWith, lib/control.fk) */
 #define SLOTS_DIRT "slots buf ctl nctl cs ot a b tb = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (p._shift (negate ot) (playStack ())) cs a b) of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeDirtEvents (plusPtr nullPtr buf) 65536 cs ot es"
 /* after a window fails, as Tidal's doTick: each slot plays its previous pattern */
@@ -667,7 +673,7 @@ static bool start_audio(const char *kernels_path) {
                        "voicesWith :: (g.Sig -> g.Sig -> (String -> Float -> g.Sig) -> g.Sig) -> g.Sig\nvoicesWith f = d.polyWith %d f\n"
                        "voicesOn :: Int -> (g.Sig -> g.Sig -> g.Sig) -> g.Sig\nvoicesOn ch f = d.polyOn ch %d f",
                        nvoices, nvoices, nvoices, nvoices) < 0) return false;
-  ok = eval(src);
+  ok = eval(src) && eval("dirt = d.noDirt") && (dirt || eval(SLOTS_AUDIO));
   free(src);
   if (!ok || !(voices = funk_voices_new(player, nvoices, false))) return false;
   playsig_src = "playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }";
@@ -880,6 +886,19 @@ static void rebind_sig(void) {
   play_sig();
 }
 
+/* After dirt may have changed: its templates from the next block, and the
+   slots' events through it. One that fails leaves the last set playing. */
+static void rebind_dirt(void) {
+  long r, arg = 0;
+  if (!audio) return;
+  if (dirt) {
+    fputs("funk-midi: dirt is not played with --dirt: SuperDirt plays the events\n", stderr);
+    return;
+  }
+  if (!eval(PLAYDIRT) || !funk_call(session, "playdirt", 1, &arg, &r) || !eval(SLOTS_AUDIO))
+    fputs("funk-midi: dirt failed; the last one plays on until dirt is defined again\n", stderr);
+}
+
 /* One line of input; false to quit. */
 static bool handle(char *line) {
   line[strcspn(line, "\n")] = 0;
@@ -889,6 +908,7 @@ static bool handle(char *line) {
     bool ok = eval(s);
     if (ok && defines(s, "pat")) rebind();
     if (ok && defines(s, "sig")) rebind_sig();
+    if (ok && defines(s, "dirt")) rebind_dirt();
     if (ok && defines(s, "controls")) rebind_controls();
     return true;
   }
@@ -1008,9 +1028,11 @@ typedef struct { const char *lib, *file, *script, *kernels; } Opts;
 /* graph.fk's imports: this program's functions, given to funk rather than
    exported, as a plugin must */
 #define GRAPH_FUNCTIONS(X)                                                                                     \
-  X(funk_graph_table_file) X(funk_graph_table_values) X(funk_table_error) X(funk_sample_path) X(funk_graph_new) X(funk_graph_add) X(funk_graph_control) X(funk_graph_name) X(funk_graph_output) X(funk_graph_memory)            \
+  X(funk_graph_table_file) X(funk_graph_table_values) X(funk_table_error) X(funk_sample_path) X(funk_graph_new) X(funk_graph_add) X(funk_graph_control) X(funk_graph_name) X(funk_graph_ugen) X(funk_graph_output) X(funk_graph_memory)            \
   X(funk_player_new) X(funk_player_send) X(funk_player_frames) X(funk_player_play)                            \
-  X(funk_player_render_channels) X(funk_player_free)
+  X(funk_player_render_channels) X(funk_player_free) X(funk_graph_bus) X(funk_graph_in) X(funk_templates_new)       \
+  X(funk_templates_add) X(funk_templates_free) X(funk_player_templates) X(funk_player_seed) X(funk_player_event_begin) \
+  X(funk_player_event_param) X(funk_player_event_end) X(funk_player_event_counts)
 #define PROVIDE(f) funk_provide(session, #f, (void *)f);
 /* stream.fk's imports (stream.h) */
 #define STREAM_FUNCTIONS(X)                                                                                     \
@@ -1058,6 +1080,7 @@ static int run(funk *f, void *arg) {
   if (o->file && funk_load_file(f, o->file)) {
     rebind();
     rebind_sig();
+    if (file_defines(o->file, "dirt")) rebind_dirt();
     if (file_defines(o->file, "controls")) rebind_controls();
   }
 

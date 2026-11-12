@@ -6,6 +6,11 @@
 module dsp where
 import graph as g
 import pattern as p
+import control as ctl
+import scsynth as sc
+import synthdefs as sd
+
+foreign import ccall "math.h pow" cpow :: Float -> Float -> Float
 
 dc :: Float -> g.Sig
 dc x = g.Node "dsp_const" [x] []
@@ -186,7 +191,7 @@ kitVoice dir name k v = case "s." ++ kitKey name ++ "." ++ show v of
 -- 1e30 is its absent
 dirtControls :: [(String, Float)]
 dirtControls = [("stop", 0.0), ("speed", 1.0), ("begin", 0.0), ("end", 1.0), ("loop", 1.0), ("accelerate", 1.0e30),
-  ("sustain", -1.0), ("pitch", 1.0), ("cps", 0.0)]
+  ("sustain", -1.0), ("pitch", 1.0), ("unitCps", 0.0)]
 
 dirtOf :: String -> String -> [g.Sig] -> g.Sig -> g.Sig
 dirtOf dir name ins gate = case p.soundParts name of
@@ -241,3 +246,299 @@ voicesAt :: String -> Int -> (Int -> g.Sig -> g.Sig -> g.Sig) -> g.Sig
 voicesAt pre n f = case map (\k -> f k (g.control (pre ++ show k ++ ".gate") 0.0) (g.control (pre ++ show k ++ ".freq") 440.0)) (enumFromTo 1 n) of
   [] -> g.Silence
   v : vs -> foldl (+) v vs
+
+-- SuperDirt's sounds and modules, played as events from templates
+-- (docs/dev/dirt-sound.md): each event of a control pattern whose sound is
+-- here runs that sound, then each module whose test its controls pass, in
+-- order, on the orbit its "orbit" names; then each orbit's effects, as
+-- SuperDirt's GlobalDirtEffects, "o.NAME" or "a.NAME" templates
+-- (graph.h). playDirt gives them to a player; orbit reads an orbit back
+-- into a graph. The names follow SuperDirt's.
+data Dirt = Dirt [Sound] [Module] [(String, g.Sig)]
+
+-- a sound's key ("bd:3", or a synth's name), whether it is a synth, and its signal
+data Sound = Sound String Bool g.Sig
+
+-- a module's name, its test of an event's controls, the controls it adds
+-- to an event it runs on, and its effect on the chain, given the event's
+-- parameters: param name default
+data Module = Module String (ctl.Controls -> Bool) (ctl.Controls -> [(String, ctl.Value)]) ((String -> Float -> g.Sig) -> g.Sig -> g.Sig)
+
+-- no sounds and no modules
+noDirt :: Dirt
+noDirt = Dirt [] [] []
+
+-- the samples names of dir, as d.kit names them ("bd", "sn:3"). SuperDirt
+-- loads every folder of a path; here each sample is named.
+loadSoundFiles :: String -> [String] -> Dirt -> Dirt
+loadSoundFiles dir names (Dirt ss ms gs) = Dirt (ss ++ map (\n -> Sound (kitKey n) False (sampleSound dir n)) names) ms gs
+
+-- a synth, played by s "name": f's param name default reads the event's
+-- parameter, freq and sustain among them; after its modules, dirt_gate's
+-- envelope and level end it, as SuperDirt's
+addSynth :: String -> ((String -> Float -> g.Sig) -> g.Sig) -> Dirt -> Dirt
+addSynth name f (Dirt ss ms gs) = Dirt (filter (\(Sound k y x) -> k /= name) ss ++ [Sound name True (f eventParam)]) ms gs
+
+-- SuperDirt's addModule: a module that runs on an event whose controls
+-- pass test. A module of the same name is replaced in its place.
+addModule :: String -> ((String -> Float -> g.Sig) -> g.Sig -> g.Sig) -> (ctl.Controls -> Bool) -> Dirt -> Dirt
+addModule name f test d = addModuleWith name f test (\cs -> []) d
+
+addModuleWith :: String -> ((String -> Float -> g.Sig) -> g.Sig -> g.Sig) -> (ctl.Controls -> Bool) -> (ctl.Controls -> [(String, ctl.Value)]) -> Dirt -> Dirt
+addModuleWith name f test args (Dirt ss ms gs) = case Module name test args f of
+  m -> Dirt ss (if any (\x -> moduleName x == name) ms then map (\x -> if moduleName x == name then m else x) ms else ms ++ [m]) gs
+
+-- a module's test: whether the event has the control name, as SuperDirt's
+-- { ~cutoff.notNil }
+has :: String -> ctl.Controls -> Bool
+has name cs = case ctl.getControl name cs of
+  Just _ -> True
+  Nothing -> False
+
+-- SuperDirt's addFilterModule, which differs there only in making a SynthDef
+addFilterModule :: String -> ((String -> Float -> g.Sig) -> g.Sig -> g.Sig) -> (ctl.Controls -> Bool) -> Dirt -> Dirt
+addFilterModule name f test d = addModule name f test d
+
+removeModule :: String -> Dirt -> Dirt
+removeModule name (Dirt ss ms gs) = Dirt ss (filter (\m -> moduleName m /= name) ms) gs
+
+-- SuperDirt's orderModules: names after the first move to follow it, in
+-- their order; the other modules keep theirs (SuperDirt.sc)
+orderModules :: [String] -> Dirt -> Dirt
+orderModules [] d = d
+orderModules (first : rest) (Dirt ss ms gs) = case filter (\n -> not (elem n rest)) (map moduleName ms) of
+  others -> case indexOf first others 0 + 1 of
+    at -> Dirt ss (concatMap (\n -> filter (\m -> moduleName m == n) ms) (take at others ++ rest ++ drop at others)) gs
+
+-- n's index in xs from i, or -1
+indexOf :: String -> [String] -> Int -> Int
+indexOf n [] i = -1
+indexOf n (x : xs) i = if x == n then i else indexOf n xs (i + 1)
+
+moduleName :: Module -> String
+moduleName (Module n t a f) = n
+
+-- SuperDirt's core modules (core-modules.scd), in its order, and its
+-- orbits' global effects, with sc3-plugins' SwitchDelay; no sounds.
+-- lib/kernels.fk's dsp_dirt_* run their SynthDefs. A module's argument
+-- the event lacks is 0, as sclang sends nil: an envelope with only attack
+-- has release 0. out_to, map_from and dirt_rms are not here.
+superDirt :: Dirt
+superDirt = case superDirtCore of
+  Dirt ss ms gs -> Dirt ss ms (("o.delay", dirtDelay) : drop 1 gs)
+
+-- SuperDirt's synths that lib/kernels.fk has every UGen of, by name
+-- (lib/synthdefs.fk): default-synths.scd's, which SuperDirt loads without
+-- sc3-plugins
+addSynthDefs :: [String] -> Dirt -> Dirt
+addSynthDefs names d = foldl (\x (name, def) -> if elem name names && sc.supported def then addSynth name (\param -> sc.build def param) x else x) d sd.synthDefs
+
+defaultSynths :: [String]
+defaultSynths = ["imp", "psin", "gabor", "dirac", "cyclo"]
+
+-- superDirt as SuperDirt is without sc3-plugins: its delay a CombL
+superDirtCore :: Dirt
+superDirtCore = case foldl (\d m -> m d) noDirt
+  [addModuleWith "vowel" (\q x -> g.Node "dsp_dirt_vowel" (replicate 37 0.0) ([x, q "resonance" 0.0]
+      ++ map (\k -> q ("vowelFreq" ++ show k) 1000.0) (enumFromTo 0 4) ++ map (\k -> q ("vowelAmp" ++ show k) 0.0) (enumFromTo 0 4)
+      ++ map (\k -> q ("vowelRq" ++ show k) 0.0) (enumFromTo 0 4)))
+    (\cs -> not (null (vowelArgs cs))) vowelArgs,
+   addModule "shape" (\q x -> g.Node "dsp_dirt_shape" [] [x, q "shape" 0.0]) (has "shape"),
+   addModule "hpf" (\q x -> g.Node "dsp_dirt_hpf" (replicate 7 0.0) [x, q "hcutoff" 0.0, q "hresonance" 0.0]) (has "hcutoff"),
+   addModule "bpf" (\q x -> g.Node "dsp_dirt_bpf" (replicate 7 0.0) [x, q "bandf" 0.0, q "bandq" 0.0]) (has "bandf"),
+   addModule "crush" (\q x -> g.Node "dsp_dirt_crush" [] [x, q "crush" 0.0]) (has "crush"),
+   addModule "coarse" (\q x -> g.Node "dsp_dirt_coarse" (replicate 5 0.0) [x, q "coarse" 0.0]) (\cs -> controlNumber "coarse" cs > 1.0),
+   addModule "lpf" (\q x -> g.Node "dsp_dirt_lpf" (replicate 7 0.0) [x, q "cutoff" 0.0, q "resonance" 0.0]) (has "cutoff"),
+   addModule "pshift" (\q x -> g.Delay "dsp_dirt_pitch_shift" 0.55 (replicate 26 0.0) [x, q "sustain" 1.0, q "psrate" 0.0, q "psdisp" 0.0])
+     (has "psrate"),
+   addModule "envelope" (\q x -> g.Node "dsp_dirt_envelope" (replicate 17 0.0) [x, q "attack" 0.0, q "hold" 0.0, q "release" 0.0, q "curve" 0.0])
+     (\cs -> has "attack" cs || has "release" cs),
+   addModule "grenvelo" (\q x -> g.Node "dsp_dirt_grain_envelope" (replicate 17 0.0) [x, q "sustain" 1.0, q "tilt" 0.0, q "plat" 0.0, q "curve" 0.0])
+     (has "tilt"),
+   addModule "tremolo" (\q x -> g.Node "dsp_dirt_tremolo" (replicate 3 0.0) [x, q "tremolorate" 0.0, q "tremolodepth" 0.0]) (has "tremolorate"),
+   addModule "phaser" (\q x -> g.Delay "dsp_dirt_phaser" 0.011 (replicate 7 0.0) [x, q "phaserrate" 0.0, q "phaserdepth" 0.0]) (has "phaserrate")] of
+  Dirt ss ms gs -> addSynthDefs defaultSynths (Dirt ss ms [("o.delay", dirtCombDelay), ("o.reverb", dirtReverb), ("o.leslie", dirtLeslie), ("a.monitor", dirtMonitor)])
+
+-- SuperDirt's global effects (core-synths-global.scd), as an orbit's
+-- effects read and write them: inputs 0 and 1 the dry bus, 2 and 3 the
+-- effect bus. dirt_rms, which measures and makes no sound, is not here.
+dryBus, effectBus :: g.Sig
+dryBus = stereo (g.In 0) (g.In 1)
+effectBus = stereo (g.In 2) (g.In 3)
+
+-- LFNoise1.kr(1), after the nodes in after
+lfnoise1 :: [g.Sig] -> g.Sig
+lfnoise1 after = g.Node "dsp_dirt_lfnoise1" (replicate 5 0.0) (dc 1.0 : after)
+
+-- dirt_delay with sc3-plugins' SwitchDelay
+dirtDelay :: g.Sig
+dirtDelay = case lfnoise1 [] of
+  n -> g.Channels [g.In 0, g.In 1, delayChannel n 0, delayChannel n 1]
+
+-- dirt_delay without sc3-plugins: CombL and LeakDC
+dirtCombDelay :: g.Sig
+dirtCombDelay = g.Channels ([g.In 0, g.In 1] ++ map (\c -> g.Delay "dsp_dirt_comb_delay" 4.0 (replicate 38 0.0) [g.In c, g.In (2 + c),
+  eventParam "delaytime" 0.0, eventParam "delayfeedback" 0.0, eventParam "delayAmp" 1.0, eventParam "lock" 0.0, eventParam "cps" 1.0,
+  eventParam "resumed" 0.0]) [0, 1])
+
+delayChannel :: g.Sig -> Int -> g.Sig
+delayChannel n c = g.Delay "dsp_dirt_switch_delay" 4.0 (replicate 46 0.0) [g.In c, g.In (2 + c), n, eventParam "delaytime" 0.0,
+  eventParam "delayfeedback" 0.0, eventParam "delaySend" 1.0, eventParam "delayAmp" 1.0, eventParam "lock" 0.0, eventParam "cps" 1.0,
+  eventParam "resumed" 0.0]
+
+-- dirt_reverb: its Rands drawn in the SynthDef's order, the first
+-- LFNoise1 before them and the second after, as scsynth constructs them
+dirtReverb :: g.Sig
+dirtReverb = case lfnoise1 [] of
+  na -> case randChain na [(0.005, 0.02), (0.005, 0.02), (0.005, 0.02), (0.005, 0.02), (0.005, 0.02), (0.005, 0.02), (0.005, 0.02),
+      (0.005, 0.02), (0.0, 0.05), (0.0, 0.05), (0.01, 0.05), (0.01, 0.05), (-0.003, 0.003), (-0.003, 0.003), (0.03, 0.15), (0.03, 0.15)] of
+    rs -> case lfnoise1 [last rs] of
+      nb -> g.Channels [g.In 0, g.In 1, reverbChannel na nb (pick rs [0, 2, 4, 6, 8, 10, 12, 14]) 2 0.19,
+        reverbChannel na nb (pick rs [1, 3, 5, 7, 9, 11, 13, 15]) 3 0.26]
+
+pick :: [a] -> [Int] -> [a]
+pick xs is = map (\i -> head (drop i xs)) is
+
+-- Rands, each after the last
+randChain :: g.Sig -> [(Float, Float)] -> [g.Sig]
+randChain prev [] = []
+randChain prev ((lo, hi) : rest) = case g.Node "dsp_dirt_rand" [0.0, 0.0] [dc lo, dc hi, prev] of
+  r -> r : randChain r rest
+
+reverbChannel :: g.Sig -> g.Sig -> [g.Sig] -> Int -> Float -> g.Sig
+reverbChannel na nb rs eff base = g.Delay "dsp_dirt_reverb" 1.05 (replicate 86 0.0) ([g.In 0, g.In 1, g.In eff, na, nb] ++ rs
+  ++ [eventParam "room" 0.0, eventParam "size" 0.1, eventParam "dry" 0.0, eventParam "resumed" 0.0, dc base])
+
+-- dirt_leslie: the dry bus times 1 - leslie, and its rotary sound added to the effect bus
+dirtLeslie :: g.Sig
+dirtLeslie = g.Channels (map (\c -> g.Node "dsp_dirt_leslie_dry" (replicate 7 0.0) [g.In c, eventParam "leslie" 0.5]) [0, 1]
+  ++ map (\c -> g.Delay "dsp_dirt_leslie" 1.01 (replicate 85 0.0) [g.In c, g.In (2 + c), eventParam "leslie" 0.5,
+    eventParam "lrate" 6.7, eventParam "lsize" 0.3, eventParam "resumed" 0.0]) [0, 1])
+
+-- dirt_monitor: the orbit's output, limited by default (limitertype 1)
+dirtMonitor :: g.Sig
+dirtMonitor = g.Channels (map (\c -> g.Delay "dsp_dirt_monitor" 0.031 (replicate 29 0.0) [g.In c, g.In (2 + c),
+  eventParam "limitertype" 1.0, eventParam "resumed" 0.0]) [0, 1])
+
+-- the formants of the event's vowel, as SuperDirt's vowel module sends
+-- them: Vowel's counterTenor freqs, dB.dbamp and 1 / bw (Vowel.sc); none
+-- for a vowel not in the table
+vowelArgs :: ctl.Controls -> [(String, ctl.Value)]
+vowelArgs cs = case ctl.getControl "vowel" cs of
+  Just (ctl.VS v) -> case lookup v vowels of
+    Just (fs, dbs, bws) -> concatMap (\(k, f, db, bw) -> [("vowelFreq" ++ show k, ctl.VF f), ("vowelAmp" ++ show k, ctl.VF (cpow 10.0 (db * 0.05))),
+        ("vowelRq" ++ show k, ctl.VF (1.0 / bw))])
+      (zip4 (enumFromTo 0 4) fs dbs bws)
+    Nothing -> []
+  _ -> []
+
+zip4 :: [a] -> [b] -> [c] -> [d] -> [(a, b, c, d)]
+zip4 (a : as) (b : bs) (c : cs) (d : ds) = (a, b, c, d) : zip4 as bs cs ds
+zip4 _ _ _ _ = []
+
+-- SuperDirt's vowels: Vowel.sc's counterTenor, its freq, db and bw
+vowels :: [(String, ([Float], [Float], [Float]))]
+vowels = [("a", ([660.0, 1120.0, 2750.0, 3000.0, 3350.0], [0.0, -6.0, -23.0, -24.0, -38.0], [80.0, 90.0, 120.0, 130.0, 140.0])),
+  ("e", ([440.0, 1800.0, 2700.0, 3000.0, 3300.0], [0.0, -14.0, -18.0, -20.0, -20.0], [70.0, 80.0, 100.0, 120.0, 120.0])),
+  ("i", ([270.0, 1850.0, 2900.0, 3350.0, 3590.0], [0.0, -24.0, -24.0, -36.0, -36.0], [40.0, 90.0, 100.0, 120.0, 120.0])),
+  ("o", ([430.0, 820.0, 2700.0, 3000.0, 3300.0], [0.0, -10.0, -26.0, -22.0, -34.0], [40.0, 80.0, 100.0, 120.0, 120.0])),
+  ("u", ([370.0, 630.0, 2750.0, 3000.0, 3400.0], [0.0, -20.0, -23.0, -30.0, -34.0], [40.0, 60.0, 100.0, 120.0, 120.0]))]
+
+-- the module names, in order
+moduleNames :: Dirt -> [String]
+moduleNames (Dirt ss ms gs) = map moduleName ms
+
+-- cs, marked for the hosts' records if its sound is here: "_dirt", "_synth"
+-- for a synth, and "~NAME" for each module whose test it passes, which
+-- runs it (ctl.writeControlsWithBy), with the controls that module adds;
+-- "~dirt_gate" always, as SuperDirt
+-- sends dirt_gate last. A sample comes before a synth of its
+-- name, as in SuperDirt's sound library.
+prepare :: Dirt -> ctl.Controls -> ctl.Controls
+prepare (Dirt ss ms gs) cs = case ctl.getControl "s" cs of
+  Just (ctl.VS x) -> case soundKind ss x cs of
+    0 -> cs
+    kind -> ctl.controlsFromList ((if null gs then ctl.controlPairs cs else orbitDefaults cs) ++ [("_dirt", ctl.VF 1.0)]
+      ++ (if kind == 2 then [("_synth", ctl.VF 1.0)] else []) ++ [("~dirt_gate", ctl.VF 1.0)]
+      ++ concatMap (\(Module n t a f) -> if t cs then ("~" ++ n, ctl.VF 1.0) : a cs else []) ms)
+  _ -> cs
+
+-- cs with what SuperDirt's event has for its orbit's effects to read
+-- (GlobalDirtEffect.set): DirtOrbit's dry 0 and lock 0, unless given,
+-- and DirtEvent.finaliseParameters's delayAmp, delay or 0
+orbitDefaults :: ctl.Controls -> [(String, ctl.Value)]
+orbitDefaults cs = filter (\(k, v) -> k /= "delayAmp") (ctl.controlPairs cs)
+  ++ (if has "dry" cs then [] else [("dry", ctl.VF 0.0)]) ++ (if has "lock" cs then [] else [("lock", ctl.VF 0.0)])
+  ++ [("delayAmp", ctl.VF (controlNumber "delay" cs))]
+
+-- 1 for a sample here, 2 for a synth, else 0
+soundKind :: [Sound] -> String -> ctl.Controls -> Int
+soundKind ss x cs = case ctl.sampleKey x (truncate (controlNumber "n" cs)) of
+  key -> if any (\(Sound k y s) -> not y && k == key) ss then 1 else if any (\(Sound k y s) -> y && k == x) ss then 2 else 0
+
+controlNumber :: String -> ctl.Controls -> Float
+controlNumber k cs = case ctl.getControl k cs of
+  Just (ctl.VF x) -> x
+  Just (ctl.VI i) -> toFloat i
+  _ -> 0.0
+
+-- the templates of d: its sounds, its modules, then dirt_gate, which ends each event
+templatesOf :: Dirt -> [(String, g.Sig)]
+templatesOf (Dirt ss ms gs) = map (\(Sound k y s) -> ("s." ++ k, s)) ss
+  ++ map (\(Module n t a f) -> ("m." ++ n, f eventParam chain)) ms ++ [("m.dirt_gate", dirtGate)] ++ gs
+
+-- d's templates from the player's next block, each event's stages from
+-- slots slots
+playDirt :: g.Player -> Int -> Dirt ->> ()
+playDirt pl slots d = g.templates pl slots (templatesOf d)
+
+-- an event's parameter: name, starting at default until the event sets it
+eventParam :: String -> Float -> g.Sig
+eventParam name d = g.control name d
+
+-- the chain a module reads, two channels
+chain :: g.Sig
+chain = stereo (g.In 0) (g.In 1)
+
+-- dirt_gate (dsp_gate in lib/kernels.fk). A sample's sustain, fadeTime and
+-- fadeInTime are its dirt_span's, which that sets for the stages after it.
+dirtGate :: g.Sig
+dirtGate = g.Node "dsp_gate" (replicate 23 0.0) [chain, eventParam "sustain" 1.0, eventParam "fadeInTime" 0.0,
+  eventParam "fadeTime" 0.001, eventParam "amp" 0.4, eventParam "gain" 1.0, eventParam "overgain" 0.0, eventParam "stop" 0.0]
+
+-- a sample as SuperDirt plays it (dsp_dirt_span and dsp_dirt_sample in
+-- lib/kernels.fk): DirtEvent's time span, then dirt_sample_N_2 on two
+-- channels. Its span's values are named ">NAME", so the stages after it,
+-- dirt_gate's among them, read them as the event's parameters, as
+-- SuperDirt's modules read the sustain DirtEvent computed.
+sampleSound :: String -> String -> g.Sig
+sampleSound dir name = case p.soundParts name of
+  (folder, index) -> case map (\(k, w) -> g.named (">" ++ k) (g.Reader "dsp_dirt_span" (g.Sample dir folder index 0)
+      [0.0, 0.0, 0.0, w, 0.0, 0.0] (map (\(c, v) -> eventParam c v) spanControls)))
+      [("sustain", 0.0), ("fadeTime", 1.0), ("fadeInTime", 2.0), ("speed", 3.0), ("endSpeed", 4.0)] of
+    span -> stereo (samplePlayer dir folder index 0 span) (samplePlayer dir folder index 1 span)
+
+-- dsp_dirt_span's inputs, with SuperDirt's defaults; accelerate's 1e30 is
+-- its absent, and a sustain below 0
+spanControls :: [(String, Float)]
+spanControls = [("speed", 1.0), ("begin", 0.0), ("end", 1.0), ("loop", 1.0), ("accelerate", 1.0e30), ("sustain", -1.0),
+  ("freq", 261.6255653005986), ("unitCps", 0.0), ("fadeTime", 0.001)]
+
+-- channel c of dirt_sample, from the span's sustain, speed and endSpeed.
+-- The span's fades are inputs it does not read: a template has only the
+-- nodes its output reaches, and dirt_gate reads them.
+samplePlayer :: String -> String -> Int -> Int -> [g.Sig] -> g.Sig
+samplePlayer dir folder index c span = case span of
+  [sus, fade, fadeIn, speed, endSpeed] -> g.Reader "dsp_dirt_sample" (g.Sample dir folder index c) ([0.0, 0.0, 0.0, toFloat c] ++ replicate 13 0.0)
+    [sus, eventParam "begin" 0.0, eventParam "end" 1.0, speed, endSpeed, eventParam "freq" 261.6255653005986, eventParam "pan" 0.5, fade, fadeIn]
+  _ -> g.Silence
+
+-- orbit o's two channels, of the player's events
+orbit :: Int -> g.Sig
+orbit o = stereo (g.Bus o 0) (g.Bus o 1)
+
+-- orbits 0 to n - 1, summed
+orbits :: Int -> g.Sig
+orbits n = case map orbit (enumFromTo 0 (n - 1)) of
+  [] -> g.Silence
+  o : os -> foldl (+) o os

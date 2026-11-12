@@ -65,6 +65,29 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Fix stale docs: `^name`'s reason in `docs/music.md`; `euclid` in `docs/dev/combinators.md`'s differences.
 
+### SuperDirt's sound, roadmap 0.13 ([docs/dev/dirt-sound.md](docs/dev/dirt-sound.md))
+
+- [x] The event layer, option C: templates, a pool, chains per event, orbits, `dirt` in both hosts. Done 2026-11-11.
+
+- [ ] Review decisions 4-6 of dirt-sound.md, taken in the implementation: a module's test is any predicate; 256 stages a set; samples named in `d.loadSoundFiles`.
+
+- [x] Plan step 2: `dirt_sample` and `dirt_gate` as SuperDirt's, cubic `BufRd` (S5) and `DirtPan` (S4), checked against scsynth by `lib/dirt-scsynth`. Done 2026-11-11.
+
+- [x] Plan step 4: SuperDirt's core modules and their UGens (S1, S8), each a `lib/dirt-scsynth` case, and size-class pools. Done 2026-11-12.
+
+- [x] `lib/dirt-scsynth` for synths; a case with more than one orbit. Done 2026-11-12.
+
+- [x] Plan step 5: orbits' global effects with `DirtPause` (S2), scsynth's `RGen`, `dirt` at SuperDirt's level. Done 2026-11-12.
+
+- [ ] Plan step 6: synths (S3). Done: the UGen library (`lib/scsynth.fk`), `default-synths.scd`'s 5 portable synths. Left: `default-synths-extra.scd`'s 33 synths and `default-effects-extra.scd`'s 19 effects, which need sc3-plugins' `MdaPiano`, `MembraneHexagon`, `AY` and `FM7` among some 50 UGens; a synth's `cycle` from the event.
+- [ ] Plan step 7: AIFF (S7), `unit "s"` (S6).
+
+- [ ] `out_to` and `map_from`, SuperDirt's routing modules, and `dirt_rms`.
+
+- [ ] Review decision 13 of dirt-sound.md: `dirt` events at SuperDirt's level, 8 dB below `d.kit`.
+
+- [ ] Decide whether the played graph renders on scsynth's 64-frame grid (difference 5).
+
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 
 - [ ] Node state other than `Float`s, one delay buffer and loaded data ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time) item 4).

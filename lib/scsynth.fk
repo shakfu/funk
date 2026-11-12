@@ -1,0 +1,75 @@
+-- scsynth.fk -- a SuperCollider SynthDef's UGen graph (synthdefs.fk) as a
+-- template's nodes, each UGen a kernel dsp_u_CLASS of lib/kernels.fk run as
+-- scsynth runs it: constructed in order (funk_graph_ugen in graph.h), its
+-- calc function chosen by its inputs' rates. A control-rate UGen fills its
+-- block with its one value. The template's channels are its Out's.
+module scsynth (build, supported) where
+import graph as g
+import synthdefs (..)
+
+-- a UGen's outputs: its rate and one signal each
+data Made = Made Int [g.Sig]
+
+-- def's graph, its controls read by param name default. Every UGen that
+-- draws random numbers reads the last one before it, so they draw in the
+-- SynthDef's order.
+build :: Def -> (String -> Float -> g.Sig) -> g.Sig
+build (Def cs us) param = makeAll cs param us 0 [] [] []
+
+makeAll :: [(String, Float)] -> (String -> Float -> g.Sig) -> [UGen] -> Int -> [Made] -> [g.Sig] -> [g.Sig] -> g.Sig
+makeAll cs param [] i made outs rng = case outs of
+  [] -> g.Silence
+  _ -> g.Channels outs
+makeAll cs param (UGen cls rate sp nout ins : rest) i made outs rng =
+  if cls == "Out" then makeAll cs param rest (i + 1) (made ++ [Made rate []]) (outs ++ map (input made) (drop 1 ins)) rng
+  else if isControl cls then makeAll cs param rest (i + 1)
+    (made ++ [Made rate (map (\k -> case cs !! (sp + k) of
+      (name, v) -> param name v) (enumFromTo 0 (nout - 1)))]) outs rng
+  else case map (\k -> g.Node ("dsp_u_" ++ cls) (header i rate sp k ins made ++ replicate (stateSize cls) 0.0)
+      (map (input made) ins ++ (if draws cls then rng else []))) (enumFromTo 0 (max 1 nout - 1)) of
+    sigs -> makeAll cs param rest (i + 1) (made ++ [Made rate sigs]) outs (if draws cls then [head sigs] else rng)
+
+isControl :: String -> Bool
+isControl cls = cls == "Control" || cls == "TrigControl" || cls == "AudioControl"
+
+-- a node's first slots: its UGen's index, rate, special index, output,
+-- number of inputs, and each input's rate
+header :: Int -> Int -> Int -> Int -> [In] -> [Made] -> [Float]
+header i rate sp k ins made = [toFloat i, toFloat rate, toFloat sp, toFloat k, toFloat (length ins)] ++ map (\x -> toFloat (inRate made x)) ins
+
+input :: [Made] -> In -> g.Sig
+-- a constant is a node of its value, so equal subtrees merge
+input made (K v) = g.Node "dsp_u_K" [v] []
+input made (U j k) = case made !! j of
+  Made r sigs -> sigs !! k
+
+inRate :: [Made] -> In -> Int
+inRate made (K v) = 0
+inRate made (U j k) = case made !! j of
+  Made r sigs -> r
+
+-- the UGens that draw from the world's random generator
+draws :: String -> Bool
+draws cls = elem cls ["ExpRand", "Rand", "IRand", "TRand", "TIRand", "WhiteNoise", "BrownNoise", "PinkNoise", "Dust",
+  "LFNoise0", "LFNoise1", "LFNoise2", "LFDNoise0", "LFDNoise1", "LFDNoise3"]
+
+-- slots each class keeps after its header (lib/kernels.fk)
+stateSize :: String -> Int
+stateSize cls = case lookup cls sizes of
+  Just n -> n
+  Nothing -> 0
+
+sizes :: [(String, Int)]
+sizes = [("Fold", 4), ("Impulse", 6), ("Pan2", 12), ("BinaryOpUGen", 15), ("UnaryOpUGen", 1), ("MulAdd", 13), ("Sum3", 13),
+  ("Sum4", 19), ("Line", 5), ("Sweep", 3), ("Clip", 13), ("LinExp", 1), ("ExpRand", 2), ("SinOsc", 3), ("Blip", 6), ("LFGauss", 2),
+  ("EnvGen", 12)]
+
+-- the operators lib/kernels.fk's binop and unop have, by special index
+binops, unops :: [Int]
+binops = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 19, 25, 38, 42, 44, 45]
+unops = [0, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 25, 26, 28, 29, 36, 42, 43]
+
+-- whether lib/kernels.fk has every UGen of def
+supported :: Def -> Bool
+supported (Def cs us) = all (\(UGen cls r sp n ins) -> cls == "Out" || isControl cls
+  || (elem cls (map fst sizes) && (cls /= "BinaryOpUGen" || elem sp binops) && (cls /= "UnaryOpUGen" || elem sp unops))) us
