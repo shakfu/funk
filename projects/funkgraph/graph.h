@@ -40,6 +40,8 @@ typedef struct {
                       the stage at its block's end, as doneAction 2 frees a
                       synth: from then on it is skipped and the chain passes
                       it unchanged; elsewhere it is ignored */
+  const double *tables; /* scsynth's sine and cosecant tables (Samp.cpp),
+                           8193 points each, float32s in doubles */
 } funk_context;
 
 /* The event layer: orbits, channels per orbit, and its block in frames. */

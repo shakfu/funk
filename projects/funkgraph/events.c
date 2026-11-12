@@ -342,7 +342,7 @@ int funk_player_templates(funk_player *p, funk_templates *t) {
         make(e, x, f->mem, &f->st);
         for (int c = 0; c < x->nouts; c++) f->outs[c] = f->st.nodes[x->g->outs[c]].out;
         f->run = 1; /* its first block, as a synth's first calc, before PauseSelf pauses it */
-        f->cx = (funk_context){x->g->cx.rate, 0, 0, e->rgen, 0, 0};
+        f->cx = (funk_context){x->g->cx.rate, 0, 0, e->rgen, 0, 0, x->g->cx.tables};
       }
     }
     for (int k = 0; k < CLASSES; k++) {
@@ -592,7 +592,7 @@ static void start(funk_events *e, const Rec *r, int64_t b) {
     make(e, &t->t[idx[i]], c->pool + (size_t)v->slot[i] * c->slot, &v->st[i]);
   }
   for (int j = 0; j < r->n; j++) set_param(v, r->p[j].key, r->p[j].value);
-  v->cx = (funk_context){t->t[src].g->cx.rate, 0, 0, e->rgen, 0, 0};
+  v->cx = (funk_context){t->t[src].g->cx.rate, 0, 0, e->rgen, 0, 0, t->t[src].g->cx.tables};
   v->offset = r->frame > b ? (int)(r->frame - b) : 0;
   v->orbit = r->orbit;
   v->cut = fabsf(cut);

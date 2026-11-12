@@ -4,6 +4,8 @@
    e + 1, and the next block copies named states from it, which ends by
    e + 2. So it is freed once the epoch exceeds e + 1. */
 #include "graph_internal.h"
+#include <math.h>
+#include <pthread.h>
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -42,12 +44,29 @@ static uint64_t mix(uint64_t h, uint64_t v) {
   return h ^ (h >> 32);
 }
 
+/* scsynth's gSine and gInvSine (Samp.cpp), 8192 points a cycle: the
+   kernels' sineAt and cscAt, which compute them without a table */
+enum { SINE = 8193 };
+static double tables[2 * SINE];
+static pthread_once_t tables_once = PTHREAD_ONCE_INIT;
+
+static void tables_init(void) {
+  for (int i = 0; i < SINE; i++) {
+    float s = (float)sin(i * (6.283185307179586 / 8192.0));
+    tables[i] = s;
+    int pole = i <= 8 || i >= 8184 || (i >= 4088 && i <= 4104);
+    tables[SINE + i] = pole ? (float)1.0e20 : (float)(1.0 / s);
+  }
+}
+
 funk_graph *funk_graph_new(int max_block, double rate) {
   if (max_block < 1 || !(rate > 0)) return NULL;
   funk_graph *g = calloc(1, sizeof *g);
   if (!g) return NULL;
   g->max_block = max_block;
   g->cx.rate = rate;
+  pthread_once(&tables_once, tables_init);
+  g->cx.tables = tables;
   g->silence = calloc((size_t)max_block, sizeof(float));
   if (!g->silence) {
     free(g);

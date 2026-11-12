@@ -52,6 +52,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A synth event's `sustain` excludes its fades, and a given `fadeTime` sets them, as SuperDirt sends them.
 
+- Kernels read scsynth's sine and cosecant tables from `funk_context`'s new `tables`, which `funk_graph_new` fills once, instead of calling `sin` per lookup; a context without them computes the points. A control-rate or scalar UGen writes frame 0 of its block, the only frame its readers read. At 16 voices, `superhammond` fell from 28.7% to 17.6% of real time and `imp` from 16.7% to 4.3%; output is unchanged.
+
 ### Fixed
 
 - `kernels/templates/thread` failed about once in 16 runs. Each template set waited 3 audio calls, as few as 35 frames, so the next set's tones could overlap the last set's and pass the peak bound of 8 overlapping tones. It now waits at least 64 frames.
