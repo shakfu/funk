@@ -100,7 +100,9 @@ int funk_graph_control(funk_graph *g, float value);
    kernel nodes by shape, their kernels' and inputs' without states, and
    their order among nodes of that shape: an oscillator keeps its phase
    when its frequency's constant changes or a filter is put around it.
-   Not after the graph is played. */
+   In a template, a node named "fed:NAME" takes, at each block's end, the
+   output of the node named "feed:NAME", as scsynth's LocalIn reads what
+   LocalOut wrote in the block before. Not after the graph is played. */
 int funk_graph_name(funk_graph *g, int node, const char *name);
 
 /* Adds a bus: a node whose output is channel of orbit, 0 to FUNK_ORBITS - 1

@@ -7,6 +7,10 @@
 (
 var args = thisProcess.argv, out = args[0], names = args[1..], f, num, rate;
 if(\SuperDirt.asClass.isNil) { "synthdefs.scd: no SuperDirt class".postln; 2.exit };
+// SuperDirt's SynthDefs draw constants from sclang's generator as they
+// are built (superhammond's phases, superfm's presets): seeded, as
+// render.scd seeds it, they are the same each run
+thisThread.randSeed = 1234;
 \SuperDirt.asClass.new(2, Server.default);
 // a float32 as funk reads it: every digit of the double it widens to
 num = { |x| var y = Float.from32Bits(x.asFloat.as32Bits), s = y.asStringPrec(17);
@@ -30,7 +34,7 @@ f.write("-- a SynthDef: its controls by index, each a name and default, and its 
 f.write("data Def = Def [(String, Float)] [UGen]\n\n");
 f.write("synthDefs :: [(String, Def)]\nsynthDefs = [\n");
 names.do { |name, n|
-	var def = SynthDescLib.global[name.asSymbol].def, controls = [];
+	var def = (SynthDescLib.global[name.asSymbol] ?? { Error("no SynthDef " ++ name).throw }).def, controls = [];
 	def.allControlNames.do { |c|
 		var d = c.defaultValue.asArray;
 		d.do { |v, k| controls = controls.add([c.name.asString ++ if(d.size > 1) { k.asString } { "" }, c.index + k, v]) }

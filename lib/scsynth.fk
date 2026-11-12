@@ -14,20 +14,82 @@ data Made = Made Int [g.Sig]
 -- draws random numbers reads the last one before it, so they draw in the
 -- SynthDef's order.
 build :: Def -> (String -> Float -> g.Sig) -> g.Sig
-build (Def cs us) param = makeAll cs param us 0 [] [] []
+build (Def cs us) param = makeAll us cs param us 0 [] [] [] []
 
-makeAll :: [(String, Float)] -> (String -> Float -> g.Sig) -> [UGen] -> Int -> [Made] -> [g.Sig] -> [g.Sig] -> g.Sig
-makeAll cs param [] i made outs rng = case outs of
-  [] -> g.Silence
-  _ -> g.Channels outs
-makeAll cs param (UGen cls rate sp nout ins : rest) i made outs rng =
-  if cls == "Out" then makeAll cs param rest (i + 1) (made ++ [Made rate []]) (outs ++ map (input made) (drop 1 ins)) rng
-  else if isControl cls then makeAll cs param rest (i + 1)
+-- the UGens from i on of whole, after those made; Out's channels, LocalOut's
+-- nodes, and the last UGen that drew
+makeAll :: [UGen] -> [(String, Float)] -> (String -> Float -> g.Sig) -> [UGen] -> Int -> [Made] -> [g.Sig] -> [g.Sig] -> [g.Sig] -> g.Sig
+makeAll whole cs param [] i made outs sinks rng = case (outs, sinks) of
+  ([], []) -> g.Silence
+  (_, []) -> g.Channels outs
+  _ -> g.Channels (pad outs ++ sinks)
+makeAll whole cs param (UGen cls rate sp nout ins : rest) i made outs sinks rng =
+  if cls == "Out" then makeAll whole cs param rest (i + 1) (made ++ [Made rate []]) (outs ++ map (input made) (drop 1 ins)) sinks rng
+  -- LocalOut's channels follow the template's two, so they are built; each
+  -- feeds LocalIn's of its number (graph.h)
+  else if cls == "LocalOut" then makeAll whole cs param rest (i + 1) (made ++ [Made rate []])
+    outs (sinks ++ map (\(k, x) -> g.named ("feed:" ++ show k) (g.Node "dsp_u_LocalOut" (header i rate sp k [x] made ++ [0.0]) [input made x]))
+      (zip (enumFromTo 0 (length ins - 1)) ins)) rng
+  else if cls == "LocalIn" then makeAll whole cs param rest (i + 1)
+    (made ++ [Made rate (map (\k -> g.named ("fed:" ++ show k) (g.Node "dsp_u_LocalIn" (header i rate sp k ins made ++ [0.0]) (map (input made) ins)))
+      (enumFromTo 0 (nout - 1)))]) outs sinks rng
+  -- a Dseq of constants is its Duty's state; Duty reads only dur, reset, doneAction
+  else if cls == "Dseq" then makeAll whole cs param rest (i + 1) (made ++ [Made 3 [g.Silence]]) outs sinks rng
+  else if cls == "Duty" then makeAll whole cs param rest (i + 1)
+    (made ++ [Made rate [g.Node "dsp_u_Duty" (header i rate sp 0 (take 3 ins) made ++ dutyState whole (ins !! 3)) (map (input made) (take 3 ins))]])
+    outs sinks rng
+  else if isControl cls then makeAll whole cs param rest (i + 1)
     (made ++ [Made rate (map (\k -> case cs !! (sp + k) of
-      (name, v) -> param name v) (enumFromTo 0 (nout - 1)))]) outs rng
-  else case map (\k -> g.Node ("dsp_u_" ++ cls) (header i rate sp k ins made ++ replicate (stateSize cls) 0.0)
+      (name, v) -> param name v) (enumFromTo 0 (nout - 1)))]) outs sinks rng
+  else case map (\k -> node cls (header i rate sp k ins made ++ classState cls nout) ins
       (map (input made) ins ++ (if draws cls then rng else []))) (enumFromTo 0 (max 1 nout - 1)) of
-    sigs -> makeAll cs param rest (i + 1) (made ++ [Made rate sigs]) outs (if draws cls then [head sigs] else rng)
+    sigs -> makeAll whole cs param rest (i + 1) (made ++ [Made rate sigs]) outs sinks (if draws cls then [head sigs] else rng)
+
+-- a UGen's node: a delay line's has memory for twice its maximum, a
+-- constant, as its line's power-of-two length may need
+node :: String -> [Float] -> [In] -> [g.Sig] -> g.Sig
+node cls st ins sigs = if elem cls delays then (case ins !! 1 of
+    K most -> g.Delay ("dsp_u_" ++ cls) (2.0 * most + 0.01) ([0.0, 0.0] ++ st) sigs
+    _ -> g.Silence)
+  -- GVerb's lines: 44000 frames, four of maxroomsize / 340 seconds and 1000
+  -- frames, and its diffusers; enough at 20 kHz and over
+  -- Limiter's three buffers of dur
+  else if cls == "Limiter" then (case ins !! 2 of
+    K dur -> g.Delay "dsp_u_Limiter" (3.0 * dur + 0.01) ([0.0, 0.0] ++ st) sigs
+    _ -> g.Silence)
+  else if cls == "GVerb" then (case ins !! 9 of
+    K most -> g.Delay "dsp_u_GVerb" (4.0 * most / 340.0 + 2.5) ([0.0, 0.0] ++ st) sigs
+    _ -> g.Silence)
+  else g.Node ("dsp_u_" ++ cls) st sigs
+
+-- the delay lines, their maximum delay a constant
+delays :: [String]
+delays = ["DelayN", "DelayC", "CombL", "CombC"]
+
+-- the template's two channels, before any LocalOut's
+pad :: [g.Sig] -> [g.Sig]
+pad outs = case outs of
+  [] -> [g.Silence, g.Silence]
+  [x] -> [x, x]
+  _ -> outs
+
+-- a class's slots after the header: zeros, but PanAz's second its outputs
+classState :: String -> Int -> [Float]
+classState cls nout = if cls == "PanAz" then [0.0, toFloat nout] ++ replicate (stateSize cls - 2) 0.0 else replicate (stateSize cls) 0.0
+
+-- Duty's slots: its own, then its Dseq's repeats, values' count and values
+dutyState :: [UGen] -> In -> [Float]
+dutyState us (U j k) = case us !! j of
+  UGen c r sp n ins -> [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, dseqRepeats (head ins), toFloat (length ins - 1)] ++ map (\(K v) -> v) (drop 1 ins)
+dutyState us (K v) = []
+
+-- Dseq_next's repeats: floor (x + 1/2)
+dseqRepeats :: In -> Float
+dseqRepeats (K x) = if not (x == x) then 0.0 else if abs x > 1.0e15 then x else f32r (x + 0.5)
+dseqRepeats (U j k) = 0.0
+
+f32r :: Float -> Float
+f32r x = toFloat (floor x)
 
 isControl :: String -> Bool
 isControl cls = cls == "Control" || cls == "TrigControl" || cls == "AudioControl"
@@ -50,7 +112,7 @@ inRate made (U j k) = case made !! j of
 
 -- the UGens that draw from the world's random generator
 draws :: String -> Bool
-draws cls = elem cls ["ExpRand", "Rand", "IRand", "TRand", "TIRand", "WhiteNoise", "BrownNoise", "PinkNoise", "Dust",
+draws cls = elem cls ["ExpRand", "Rand", "IRand", "TRand", "TIRand", "WhiteNoise", "BrownNoise", "PinkNoise", "Dust", "Crackle",
   "LFNoise0", "LFNoise1", "LFNoise2", "LFDNoise0", "LFDNoise1", "LFDNoise3"]
 
 -- slots each class keeps after its header (lib/kernels.fk)
@@ -62,14 +124,49 @@ stateSize cls = case lookup cls sizes of
 sizes :: [(String, Int)]
 sizes = [("Fold", 4), ("Impulse", 6), ("Pan2", 12), ("BinaryOpUGen", 15), ("UnaryOpUGen", 1), ("MulAdd", 13), ("Sum3", 13),
   ("Sum4", 19), ("Line", 5), ("Sweep", 3), ("Clip", 13), ("LinExp", 1), ("ExpRand", 2), ("SinOsc", 3), ("Blip", 6), ("LFGauss", 2),
-  ("EnvGen", 12)]
+  ("EnvGen", 12), ("LPF", 8), ("HPF", 8), ("BPF", 8), ("BRF", 8), ("RLPF", 8), ("RHPF", 8), ("Resonz", 8), ("LeakDC", 4),
+  ("Decay", 4), ("WhiteNoise", 1), ("Wrap", 1), ("Saw", 7), ("Pulse", 7), ("LFPulse", 6), ("LFSaw", 6), ("LFPar", 6),
+  ("LFTri", 6), ("VarSaw", 6), ("XLine", 5), ("SinOscFB", 4), ("Balance2", 12), ("XFade2", 15), ("LinXFade2", 13), ("Rand", 2),
+  ("TIRand", 3), ("BrownNoise", 2), ("Dust", 4), ("LFNoise2", 7), ("Crackle", 3), ("Latch", 3), ("Select", 1), ("ControlDur", 1),
+  ("ControlRate", 1), ("Sanitize", 1), ("DelayN", 7), ("DelayC", 7), ("CombL", 7), ("CombC", 7), ("MoogFF", 9), ("BPeakEQ", 21), ("BAllPass", 21), ("SawDPW", 5), ("LFDNoise0", 3), ("BMoog", 10), ("GVerb", 105), ("Limiter", 12), ("PanAz", 8), ("Phasor", 3)]
 
 -- the operators lib/kernels.fk's binop and unop have, by special index
 binops, unops :: [Int]
-binops = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 19, 25, 38, 42, 44, 45]
+binops = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 19, 20, 21, 25, 38, 42, 44, 45]
 unops = [0, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 25, 26, 28, 29, 36, 42, 43]
 
 -- whether lib/kernels.fk has every UGen of def
 supported :: Def -> Bool
-supported (Def cs us) = all (\(UGen cls r sp n ins) -> cls == "Out" || isControl cls
-  || (elem cls (map fst sizes) && (cls /= "BinaryOpUGen" || elem sp binops) && (cls /= "UnaryOpUGen" || elem sp unops))) us
+supported (Def cs us) = all (\(UGen cls r sp n ins) -> cls == "Out" || isControl cls || (r == 2 && (cls == "LocalIn" || cls == "LocalOut"))
+  || (cls == "Dseq" && all constant ins)
+  || (cls == "Duty" && r == 1 && all (\x -> inRateOf us x /= 3) (take 3 ins) && isDseq us (ins !! 3))
+  || (elem cls (map fst sizes) && (cls /= "BinaryOpUGen" || elem sp binops) && (cls /= "UnaryOpUGen" || elem sp unops)
+    && (r /= 2 || not (elem cls controlOnly)) && (r == 2 || not (elem cls audioOnly))
+    && (not (elem cls ["BPeakEQ", "BAllPass"]) || all (\x -> inRateOf us x /= 2) (drop 1 ins))
+    && (cls /= "GVerb" || constant (ins !! 9))
+    && (cls /= "Limiter" || constant (ins !! 2))
+    && (cls /= "PanAz" || inRateOf us (ins !! 1) /= 2)
+    && (not (elem cls delays) || (r == 2 && constant (ins !! 1) && (take 4 (unpack cls) /= unpack "Comb" || inRateOf us (ins !! 2) /= 2))))) us
+
+constant :: In -> Bool
+constant (K v) = True
+constant (U j k) = False
+
+-- an input's rate, from the UGens before it
+inRateOf :: [UGen] -> In -> Int
+inRateOf us (K v) = 0
+inRateOf us (U j k) = case us !! j of
+  UGen c r s n i -> r
+
+isDseq :: [UGen] -> In -> Bool
+isDseq us (U j k) = case us !! j of
+  UGen c r sp n ins -> c == "Dseq"
+isDseq us (K v) = False
+
+-- the classes ported at audio rate only
+audioOnly :: [String]
+audioOnly = ["Blip", "Saw", "Pulse", "Pan2", "Balance2"]
+
+-- the classes ported at control rate only
+controlOnly :: [String]
+controlOnly = ["Sweep", "LinExp", "Wrap", "TIRand", "Select"]

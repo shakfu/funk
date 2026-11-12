@@ -19,6 +19,8 @@ var rate = 44100, top = 900, dirt, seeder, core = false;
 if(\SuperDirt.asClass.isNil) { "render.scd: no SuperDirt class".postln; 2.exit };
 // SuperDirt.new loads its SynthDefs and modules, and needs no server for
 // it. Its classes go by symbol: a missing class would stop the file compiling.
+// as synthdefs.scd, so the constants SynthDefs draw are lib/synthdefs.fk's
+thisThread.randSeed = 1234;
 dirt = \SuperDirt.asClass.new(2, Server.default);
 seeder = SynthDef(\oracle_seed, { RandSeed.ir(1, \seed.ir(0)) });
 fork { try {
@@ -85,8 +87,10 @@ fork { try {
 			++ [[0.0, [\g_new, top, 0, 0]], [0.0, [\s_new, \oracle_seed, -1, 0, 0, \seed, seed]]]
 			++ score ++ [[secs, [\c_set, 0, 0]]];
 		Score.recordNRT(score, outDir +/+ name ++ ".osc", outDir +/+ name ++ ".wav", nil, rate, "WAV", "float",
-			// memSize: 16 orbits' delay lines need some 30 MB, over scsynth's default 8 MB
-			ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0).memSize_(8192 * 64), "", secs, { c.unhang });
+			// memSize: 16 orbits' delay lines need some 30 MB, over scsynth's default 8 MB;
+			// numWireBufs: superprimes needs more than SuperDirt's startup gives, 64
+			ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0).memSize_(8192 * 64).numWireBufs_(1024),
+			"", secs, { c.unhang });
 		c.hang;
 	};
 	0.exit;

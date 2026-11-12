@@ -36,13 +36,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   d1 $ s "bd*4" # room "0.4" # size "0.6" # delay "0.5" # delaytime "0.125"
   ```
 
-- SuperDirt's synths, from their SynthDefs: `tests/dirt/synthdefs.scd` writes each SynthDef's UGen graph, as scsynth runs it, to `lib/synthdefs.fk`, and `lib/scsynth.fk` builds it into a template, one `lib/kernels.fk` kernel per UGen. Each UGen kernel picks scsynth's calc function by its inputs' rates and is constructed as scsynth constructs a synth (`funk_graph_ugen` in `graph.h`). One UGen library serves every synth, so a synth needs no kernel of its own; `superfm`'s presets, which sclang draws at random when SuperDirt starts, come with its data. `d.superDirt` and `d.superDirtCore` play 5 of `default-synths.scd`'s 11: `imp`, `psin`, `gabor`, `dirac` and `cyclo`. `lib/dirt-scsynth` adds 7 synth cases, all within 9e-8 of scsynth; `lib/synthdefs` checks the data against the installed SuperDirt.
+- SuperDirt's synths, from their SynthDefs: `tests/dirt/synthdefs.scd` writes each SynthDef's UGen graph, as scsynth runs it, to `lib/synthdefs.fk`, and `lib/scsynth.fk` builds it into a template, one `lib/kernels.fk` kernel per UGen. Each UGen kernel picks scsynth's calc function by its inputs' rates and is constructed as scsynth constructs a synth (`funk_graph_ugen` in `graph.h`). One UGen library serves every synth, so a synth needs no kernel of its own; `superfm`'s presets, which sclang draws at random when SuperDirt starts, come with its data. `d.superDirt` and `d.superDirtCore` play 5 of `default-synths.scd`'s 11: `imp`, `psin`, `gabor`, `dirac` and `cyclo`. `d.superDirt` also plays 28 of `default-synths-extra.scd`'s 32, which SuperDirt loads with sc3-plugins, from `supergong` to `superprimes` and `soskick`. `lib/dirt-scsynth` adds 37 synth cases, all within 1.2e-7 of scsynth and 21 exact; `lib/synthdefs` checks the data against the installed SuperDirt. Its UGens compute `a * b + c` unfused: probes of scsynth's `Pulse` show SuperCollider.app 3.13.0 does not fuse it, and `supertron`'s feedback grew one ulp to 1e-5.
 
   ```haskell
   d1 $ n "0 5 7" # s "imp" # sustain "0.2"
   ```
 
-  A stage's kernel now frees the stage by setting `funk_context`'s new `freeself`, as `doneAction: 2` frees a synth while its `dirt_gate` plays on.
+  A stage's kernel now frees the stage by setting `funk_context`'s new `freeself`, as `doneAction: 2` frees a synth while its `dirt_gate` plays on. A template's node named `fed:NAME` takes, at each block's end, the output of the node named `feed:NAME`, for `LocalIn` and `LocalOut`. SynthDefs whose constants sclang draws at random, `superhammond`'s phases and `superfm`'s presets, are drawn with sclang's generator seeded, so funk's and the comparison's are the same; a SuperDirt boot draws others.
 
 ### Changed
 

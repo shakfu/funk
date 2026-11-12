@@ -325,16 +325,23 @@ moduleName (Module n t a f) = n
 -- has release 0. out_to, map_from and dirt_rms are not here.
 superDirt :: Dirt
 superDirt = case superDirtCore of
-  Dirt ss ms gs -> Dirt ss ms (("o.delay", dirtDelay) : drop 1 gs)
+  Dirt ss ms gs -> addSynthDefs extraSynths (Dirt ss ms (("o.delay", dirtDelay) : drop 1 gs))
 
 -- SuperDirt's synths that lib/kernels.fk has every UGen of, by name
--- (lib/synthdefs.fk): default-synths.scd's, which SuperDirt loads without
--- sc3-plugins
+-- (lib/synthdefs.fk)
 addSynthDefs :: [String] -> Dirt -> Dirt
 addSynthDefs names d = foldl (\x (name, def) -> if elem name names && sc.supported def then addSynth name (\param -> sc.build def param) x else x) d sd.synthDefs
 
+-- default-synths.scd's, which SuperDirt loads without sc3-plugins
 defaultSynths :: [String]
 defaultSynths = ["imp", "psin", "gabor", "dirac", "cyclo"]
+
+-- default-synths-extra.scd's, which SuperDirt loads with sc3-plugins
+extraSynths :: [String]
+extraSynths = ["supermandolin", "supergong", "superpiano", "superhex", "superkick", "super808", "superhat", "supersnare",
+  "superclap", "supersiren", "supersquare", "supersaw", "superpwm", "supercomparator", "superchip", "supernoise", "superfork",
+  "superhammond", "supervibe", "superhoover", "superzow", "superstatic", "supergrind", "superprimes", "superwavemechanics",
+  "supertron", "superreese", "superfm", "soskick", "soshats", "sostoms", "sossnare"]
 
 -- superDirt as SuperDirt is without sc3-plugins: its delay a CombL
 superDirtCore :: Dirt

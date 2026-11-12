@@ -7,6 +7,7 @@
 
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -66,7 +67,7 @@ int funk_graph_add(funk_graph *g, funk_kernel k, const void *state, size_t size,
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {k, NULL, NULL, nin, NULL, 0, mix(1, (uint64_t)(uintptr_t)k), NULL, size, NULL, 0, NULL, KERNEL, 0, NULL, 0, 0};
+  Node x = {k, NULL, NULL, nin, NULL, 0, mix(1, (uint64_t)(uintptr_t)k), NULL, size, NULL, 0, NULL, KERNEL, 0, NULL, 0, 0, 0};
   x.state = size ? calloc(1, size) : NULL;
   x.in = calloc((size_t)(nin ? nin : 1), sizeof *x.in);
   x.out = calloc((size_t)g->max_block, sizeof(float));
@@ -130,6 +131,11 @@ int funk_graph_name(funk_graph *g, int node, const char *name) {
   g->nnames++;
   x->key = key;
   x->exp = name[0] == '>' ? funk_hash(name + 1) : 0;
+  if (!strncmp(name, "fed:", 4)) {
+    char feed[256];
+    snprintf(feed, sizeof feed, "feed:%s", name + 4);
+    x->fed = funk_hash(feed);
+  }
   return 0;
 }
 
@@ -247,7 +253,7 @@ int funk_graph_control(funk_graph *g, float value) {
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, 3, NULL, sizeof value, NULL, 0, NULL, CONTROL, 0, NULL, 0, 0};
+  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, 3, NULL, sizeof value, NULL, 0, NULL, CONTROL, 0, NULL, 0, 0, 0};
   if (!x.state || !x.out) {
     free(x.state);
     free(x.out);
@@ -267,7 +273,7 @@ static int plain(funk_graph *g, int kind, int bus) {
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {NULL, NULL, NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, mix(4 + (uint64_t)kind, (uint64_t)bus), NULL, 0, NULL, 0, NULL, kind, bus, NULL, 0, 0};
+  Node x = {NULL, NULL, NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, mix(4 + (uint64_t)kind, (uint64_t)bus), NULL, 0, NULL, 0, NULL, kind, bus, NULL, 0, 0, 0};
   if (!x.out) return -1;
   g->nodes[g->n] = x;
   g->nbus += kind == BUS;

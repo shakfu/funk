@@ -53,6 +53,7 @@ typedef struct {
   float *out;
   uint64_t key, exp;
   int kind, ugen;
+  const float *feed; /* fed: the output it takes at a block's end */
 } INode;
 
 typedef struct {
@@ -472,6 +473,7 @@ static void make(funk_events *e, const Template *t, unsigned char *m, Stage *s) 
       q += al(B * sizeof(float));
     }
     for (int j = 0; j < x->nin; j++) y->in[j] = x->ix[j] < 0 ? e->silence : nd[x->ix[j]].out;
+    y->feed = NULL;
     if (x->mem) { /* as funk_player_play gives a graph's: the pointer and the frames */
       float *mem = (float *)q;
       q += al((size_t)x->frames * sizeof(float));
@@ -481,6 +483,11 @@ static void make(funk_events *e, const Template *t, unsigned char *m, Stage *s) 
     }
   }
   for (int c = 0; c < FUNK_CHANNELS; c++) s->outs[c] = nd[g->nouts ? g->outs[c % g->nouts] : g->n - 1].out;
+  /* LocalIn's feedback: a "fed:" node takes its "feed:" node's output */
+  for (int i = 0; i < g->n; i++)
+    if (g->nodes[i].fed)
+      for (int j = 0; j < g->n; j++)
+        if (g->nodes[j].key == g->nodes[i].fed) nd[i].feed = nd[j].out;
   s->nodes = nd;
   s->n = g->n;
   s->begun = s->freed = 0;
@@ -651,6 +658,8 @@ static void run(funk_events *e, Ev *v, int k) {
   }
   for (int c = 0; c < FUNK_CHANNELS; c++) memcpy(e->tmp[c], s->outs[c], sizeof e->tmp[c]); /* an output may be an input */
   memcpy(e->chain, e->tmp, sizeof e->chain);
+  for (int i = 0; i < s->n; i++)
+    if (s->nodes[i].feed) memcpy(s->nodes[i].out, s->nodes[i].feed, B * sizeof(float));
   if (v->cx.freeself != 0) {
     s->freed = 1;
     v->cx.freeself = 0;

@@ -31,6 +31,7 @@ typedef struct {
   int *ix;  /* the inputs' indices, -1 for silence */
   uint64_t exp; /* named ">NAME": NAME's hash, which a template's later stages read */
   int ugen; /* funk_graph_ugen */
+  uint64_t fed; /* named "fed:NAME": the hash of "feed:NAME", whose output it takes at a block's end */
 } Node;
 
 typedef struct {
