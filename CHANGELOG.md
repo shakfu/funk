@@ -23,7 +23,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - scsynth constructs a synth at its first calc, so a filter's constructor filters the chain's first frame once more.
   - On arm64, scsynth's audio-rate `/` is nova-simd's reciprocal estimate with one Newton step, good to about 16 bits. `shape` divides that way.
 
-  Templates now share pools by size class, templates whose sizes round up to one power of two in one pool. A class has 256 slots, or as many as fit in 8 MB, scsynth's default real-time memory. A `pshift` stage, 196 KB at 44.1 kHz, gets 42. One pool sized by the largest template took 50 MB.
+  Templates now share pools by size class, templates whose sizes round up to one power of two in one pool. A class has 256 slots, or as many as fit in 8 MB, scsynth's default real-time memory; then the classes with the fewest slots get more, one at a time, while all pools fit in 128 MB, the `memSize` that `SuperDirt.start` sets. A `pshift` stage, 196 KB at 44.1 kHz, gets 42; `superprimes`, 9.8 MB, gets 7. The budget covers all classes, as scsynth's one `memSize` does; 128 MB a class took 443 MB a player for `d.superDirt`. One pool sized by the largest template took 50 MB.
 
   ```haskell
   dirt = d.loadSoundFiles "~/.local/share/funk/Dirt-Samples" ["bd", "sn:3"] d.superDirt
@@ -36,13 +36,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   d1 $ s "bd*4" # room "0.4" # size "0.6" # delay "0.5" # delaytime "0.125"
   ```
 
-- SuperDirt's synths, from their SynthDefs: `tests/dirt/synthdefs.scd` writes each SynthDef's UGen graph, as scsynth runs it, to `lib/synthdefs.fk`, and `lib/scsynth.fk` builds it into a template, one `lib/kernels.fk` kernel per UGen. Each UGen kernel picks scsynth's calc function by its inputs' rates and is constructed as scsynth constructs a synth (`funk_graph_ugen` in `graph.h`). One UGen library serves every synth, so a synth needs no kernel of its own; `superfm`'s presets, which sclang draws at random when SuperDirt starts, come with its data. `d.superDirt` and `d.superDirtCore` play 5 of `default-synths.scd`'s 11: `imp`, `psin`, `gabor`, `dirac` and `cyclo`. `d.superDirt` also plays 28 of `default-synths-extra.scd`'s 32, which SuperDirt loads with sc3-plugins, from `supergong` to `superprimes` and `soskick`. `lib/dirt-scsynth` adds 37 synth cases, all within 1.2e-7 of scsynth and 21 exact; `lib/synthdefs` checks the data against the installed SuperDirt. Its UGens compute `a * b + c` unfused: probes of scsynth's `Pulse` show SuperCollider.app 3.13.0 does not fuse it, and `supertron`'s feedback grew one ulp to 1e-5.
+- SuperDirt's synths, from their SynthDefs: `tests/dirt/synthdefs.scd` writes each SynthDef's UGen graph, as scsynth runs it, to `lib/synthdefs.fk`, and `lib/scsynth.fk` builds it into a template, one `lib/kernels.fk` kernel per UGen. Each UGen kernel picks scsynth's calc function by its inputs' rates and is constructed as scsynth constructs a synth (`funk_graph_ugen` in `graph.h`). One UGen library serves every synth, so a synth needs no kernel of its own; `superfm`'s presets, which sclang draws at random when SuperDirt starts, come with its data. `d.superDirt` and `d.superDirtCore` play 5 of `default-synths.scd`'s 11: `imp`, `psin`, `gabor`, `dirac` and `cyclo`. `d.superDirt` also plays all 32 of `default-synths-extra.scd`'s, which SuperDirt loads with sc3-plugins, from `supergong` to `superpiano`, `superfm`, `superhex`, `superchip` and `soskick`. `lib/dirt-scsynth` adds 46 synth cases, all within 1.2e-7 of scsynth and 32 exact; `lib/synthdefs` checks the data against the installed SuperDirt. Its UGens compute `a * b + c` unfused: probes of scsynth's `Pulse` show SuperCollider.app 3.13.0 does not fuse it, and `supertron`'s feedback grew one ulp to 1e-5. sc3-plugins' `MembraneHexagon` does fuse one, which its kernel calls `fmaf` for.
+
+  `superpiano`'s `MdaPiano` plays sc3-plugins' recorded piano: 586,349 16-bit samples, MIT-licensed, in `thirdparty/mdapiano/mdapiano.wav`. The build compiles them into funkgraph, and `funk_graph_table_builtin` (`graph.h`) gives them to a node. Embedding them works in every host and compiled program; a file beside `lib/` would need a path that funk code cannot find at run time.
 
   ```haskell
   d1 $ n "0 5 7" # s "imp" # sustain "0.2"
   ```
 
   A stage's kernel now frees the stage by setting `funk_context`'s new `freeself`, as `doneAction: 2` frees a synth while its `dirt_gate` plays on. A template's node named `fed:NAME` takes, at each block's end, the output of the node named `feed:NAME`, for `LocalIn` and `LocalOut`. SynthDefs whose constants sclang draws at random, `superhammond`'s phases and `superfm`'s presets, are drawn with sclang's generator seeded, so funk's and the comparison's are the same; a SuperDirt boot draws others.
+
+- `d.superDirt` runs `default-effects-extra.scd`'s 19 modules after the core ones, in its order: `waveloss`, `squiz`, `fshift`, `triode`, `krush`, `octer`, `ring`, `distort`, `spectral-delay`, the FFT effects `spectral-freeze`, `-comb`, `-smear`, `-scram`, `-binshift`, `-hbrick`, `-lbrick`, `-conformer` and `-enhance`, and `dj-filter`. Each runs its SynthDef from `lib/synthdefs.fk`: `In` reads the chain and `ReplaceOut` replaces it. An FFT chain, `FFT` to one `PV_` UGen to `IFFT`, runs as one node per channel, since a node's output cannot carry a spectrum. `lib/dirt-scsynth` adds 24 cases: the 14 time-domain ones within 1.1e-8 of scsynth, 13 exact; the 10 FFT ones within 2e-5, as funk cannot match vDSP's rounding (`docs/dev/dirt-sound.md`, difference 13). A `g.In` or `g.Bus` read is now one node however often a graph reaches it. Each read had made its own, so `WaveLoss`'s right channel, which reads the left one's random draws, built a second left channel that drew too.
+
+  ```haskell
+  d1 $ s "bd*4 sn" # squiz "2" # djf "0.3" # freeze "<0 1>"
+  ```
+
+- `foreign export ccall "exact cname"` compiles a kernel and the functions it reaches without fused multiply-adds, which `emit-c --kernels` otherwise lets clang form. lib/kernels.fk's scsynth ports are exact: clang had fused across their explicit float roundings, and `lib/dirt-scsynth`'s exact matches rose from 23 of 89 to 69. funk's own kernels keep contraction, which makes `dsp_lowpass1` 1.4 times faster (docs/dev/dsp.md, Decisions).
 
 ### Changed
 
@@ -52,7 +62,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A synth event's `sustain` excludes its fades, and a given `fadeTime` sets them, as SuperDirt sends them.
 
-- Kernels read scsynth's sine and cosecant tables from `funk_context`'s new `tables`, which `funk_graph_new` fills once, instead of calling `sin` per lookup; a context without them computes the points. A control-rate or scalar UGen writes frame 0 of its block, the only frame its readers read. At 16 voices, `superhammond` fell from 28.7% to 17.6% of real time and `imp` from 16.7% to 4.3%; output is unchanged.
+- Kernels read scsynth's sine and cosecant tables from `funk_context`'s new `tables`, which `funk_graph_new` fills once, instead of calling `sin` per lookup; a context without them computes the points. A control-rate or scalar UGen writes frame 0 of its block, the only frame its readers read. `BinaryOpUGen`'s `+`, `-` and `*` of an audio input and an audio or unchanged one run their own loops. A `GVerb` is one node that computes both channels, where each channel was a node running the whole reverb: `graph.h`'s new `funk_graph_outputs` gives a node several outputs. At 16 voices, `superhammond` fell from 28.7% to 11.7% of real time and `supergong` from 27.6% to 13.1%; one `superprimes` from 9.9% to 4.8%. Output is unchanged.
 
 ### Fixed
 

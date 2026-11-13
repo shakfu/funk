@@ -1,6 +1,14 @@
 # The graph player for compiled kernels (docs/dev/audio.md, D); static and
 # position-independent, so foreign-import glue can link it.
-add_library(funkgraph STATIC graph.c events.c voices.c table.c controls.c)
+# thirdparty/mdapiano's samples, built in (table.h's funk_table_builtin)
+set(MDAPIANO_C ${CMAKE_CURRENT_BINARY_DIR}/mdapiano.c)
+set(MDAPIANO_C ${MDAPIANO_C} PARENT_SCOPE) # tests/ compiles it with table.c
+add_custom_command(OUTPUT ${MDAPIANO_C}
+  COMMAND ${CMAKE_COMMAND} -DIN=${funk_SOURCE_DIR}/thirdparty/mdapiano/mdapiano.wav -DOUT=${MDAPIANO_C} -DNAME=funk_mdapiano
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
+  DEPENDS ${funk_SOURCE_DIR}/thirdparty/mdapiano/mdapiano.wav ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
+  VERBATIM)
+add_library(funkgraph STATIC graph.c events.c voices.c table.c controls.c ${MDAPIANO_C})
 target_link_libraries(funkgraph PUBLIC Threads::Threads)
 set_target_properties(funkgraph PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(funkgraph PRIVATE -Wall -Wextra)

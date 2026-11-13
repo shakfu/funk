@@ -24,7 +24,9 @@ makeAll whole cs param [] i made outs sinks rng = case (outs, sinks) of
   (_, []) -> g.Channels outs
   _ -> g.Channels (pad outs ++ sinks)
 makeAll whole cs param (UGen cls rate sp nout ins : rest) i made outs sinks rng =
-  if cls == "Out" then makeAll whole cs param rest (i + 1) (made ++ [Made rate []]) (outs ++ map (input made) (drop 1 ins)) sinks rng
+  -- a module's In reads the chain's channels (lib/dsp.fk); ReplaceOut is its Out
+  if cls == "In" then makeAll whole cs param rest (i + 1) (made ++ [Made rate (map (\k -> g.In k) (enumFromTo 0 (nout - 1)))]) outs sinks rng
+  else if cls == "Out" || cls == "ReplaceOut" then makeAll whole cs param rest (i + 1) (made ++ [Made rate []]) (outs ++ map (input made) (drop 1 ins)) sinks rng
   -- LocalOut's channels follow the template's two, so they are built; each
   -- feeds LocalIn's of its number (graph.h)
   else if cls == "LocalOut" then makeAll whole cs param rest (i + 1) (made ++ [Made rate []])
@@ -33,6 +35,13 @@ makeAll whole cs param (UGen cls rate sp nout ins : rest) i made outs sinks rng 
   else if cls == "LocalIn" then makeAll whole cs param rest (i + 1)
     (made ++ [Made rate (map (\k -> g.named ("fed:" ++ show k) (g.Node "dsp_u_LocalIn" (header i rate sp k ins made ++ [0.0]) (map (input made) ins)))
       (enumFromTo 0 (nout - 1)))]) outs sinks rng
+  -- a spectral chain is its IFFT's node (lib/kernels.fk's dsp_u_Spectral)
+  else if elem cls ["MaxLocalBufs", "LocalBuf", "FFT"] || elem cls (map fst pvKinds) then
+    makeAll whole cs param rest (i + 1) (made ++ [Made rate [g.Silence]]) outs sinks rng
+  else if cls == "IFFT" then (case spectralChain whole (head ins) of
+    (kind, size, sigIns) -> case g.Delay "dsp_u_Spectral" 1.0 ([0.0, 0.0] ++ header i rate sp 0 sigIns made ++ [0.0, toFloat kind, toFloat size]
+        ++ replicate (13 + size) 0.0) (map (input made) sigIns ++ (if kind == 5 then rng else [])) of
+      x -> makeAll whole cs param rest (i + 1) (made ++ [Made rate [x]]) outs sinks (if kind == 5 then [x] else rng))
   -- a Dseq of constants is its Duty's state; Duty reads only dur, reset, doneAction
   else if cls == "Dseq" then makeAll whole cs param rest (i + 1) (made ++ [Made 3 [g.Silence]]) outs sinks rng
   else if cls == "Duty" then makeAll whole cs param rest (i + 1)
@@ -41,6 +50,9 @@ makeAll whole cs param (UGen cls rate sp nout ins : rest) i made outs sinks rng 
   else if isControl cls then makeAll whole cs param rest (i + 1)
     (made ++ [Made rate (map (\k -> case cs !! (sp + k) of
       (name, v) -> param name v) (enumFromTo 0 (nout - 1)))]) outs sinks rng
+  -- one node computes all its outputs: output 0 is the node's, k a Pick's
+  else if elem cls wides then (case node cls (header i rate sp 0 ins made ++ classState cls nout) ins (map (input made) ins) of
+    w -> makeAll whole cs param rest (i + 1) (made ++ [Made rate (w : map (\k -> g.Node "dsp_u_Pick" [toFloat k] [w]) (enumFromTo 1 (nout - 1)))]) outs sinks rng)
   else case map (\k -> node cls (header i rate sp k ins made ++ classState cls nout) ins
       (map (input made) ins ++ (if draws cls then rng else []))) (enumFromTo 0 (max 1 nout - 1)) of
     sigs -> makeAll whole cs param rest (i + 1) (made ++ [Made rate sigs]) outs sinks (if draws cls then [head sigs] else rng)
@@ -58,9 +70,72 @@ node cls st ins sigs = if elem cls delays then (case ins !! 1 of
     K dur -> g.Delay "dsp_u_Limiter" (3.0 * dur + 0.01) ([0.0, 0.0] ++ st) sigs
     _ -> g.Silence)
   else if cls == "GVerb" then (case ins !! 9 of
-    K most -> g.Delay "dsp_u_GVerb" (4.0 * most / 340.0 + 2.5) ([0.0, 0.0] ++ st) sigs
+    K most -> g.Wide "dsp_u_GVerb" (4.0 * most / 340.0 + 2.5) Nothing ([0.0, 0.0] ++ st) 2 sigs
     _ -> g.Silence)
+  -- Squiz's buffer of memlen seconds
+  else if cls == "Squiz" then (case ins !! 3 of
+    K secs -> g.Delay "dsp_u_Squiz" (secs + 0.01) ([0.0, 0.0] ++ st) sigs
+    _ -> g.Silence)
+  else if cls == "FM7" then g.Wide "dsp_u_FM7" 0.0 Nothing st 6 sigs
+  -- MdaPiano reads sc3-plugins' pianoData
+  else if cls == "MdaPiano" then g.Wide "dsp_u_MdaPiano" 0.0 (Just (g.Builtin "mdapiano" 0)) ([0.0, 0.0, 0.0] ++ st) 2 sigs
   else g.Node ("dsp_u_" ++ cls) st sigs
+
+-- the PV_ UGens dsp_u_Spectral runs, by its kind
+pvKinds :: [(String, Int)]
+pvKinds = [("PV_BrickWall", 1), ("PV_RectComb", 2), ("PV_MagSmear", 3), ("PV_BinShift", 4), ("PV_BinScramble", 5),
+  ("PV_ConformalMap", 6), ("PV_Freeze", 7), ("PV_SpectralEnhance", 8)]
+
+-- an IFFT's chain: the PV_ UGen's kind, or 0 for none; the FFT's size; the
+-- FFT's audio and the PV_ UGen's inputs after its chain
+spectralChain :: [UGen] -> In -> (Int, Int, [In])
+spectralChain us (U j k) = case us !! j of
+  UGen c r sp n ins -> if c == "FFT" then (0, fftSize us ins, [ins !! 1]) else case (lookup c pvKinds, head ins) of
+    (Just kind, U f fk) -> case us !! f of
+      UGen fc fr fsp fn fins -> (kind, fftSize us fins, (fins !! 1) : drop 1 ins)
+    _ -> (0, 0, [])
+spectralChain us (K v) = (0, 0, [])
+
+-- an FFT's LocalBuf's frames
+fftSize :: [UGen] -> [In] -> Int
+fftSize us ins = case head ins of
+  U b k -> case us !! b of
+    UGen c r sp n bins -> case bins of
+      [K chans, K frames, _] -> if c == "LocalBuf" && chans == 1.0 then cInt frames else 0
+      _ -> 0
+  K v -> 0
+
+-- whether an IFFT's chain is what dsp_u_Spectral runs: FFT of a power of two
+-- from 256 to 8192 frames, sine window, half a frame's hop, always active, and at
+-- most one PV_ UGen, whose other inputs are not at audio rate; IFFT's window sine
+spectralOk :: [UGen] -> [In] -> Bool
+spectralOk us ins = case spectralChain us (head ins) of
+  (kind, size, sigIns) -> constants (drop 1 ins) [0.0, 0.0] && elem size [256, 512, 1024, 2048, 4096, 8192] && fftOk us (head ins)
+    && all (\x -> inRateOf us x /= 2) (drop 1 sigIns)
+
+fftOk :: [UGen] -> In -> Bool
+fftOk us (U j k) = case us !! j of
+  UGen c r sp n ins -> if c == "FFT" then constants (drop 2 ins) [0.5, 0.0, 1.0, 0.0] && inRateOf us (ins !! 1) == 2
+    else (case lookup c pvKinds of
+      Just kind -> (case head ins of
+        U f fk -> (case us !! f of
+          UGen fc fr fsp fn fins -> fc == "FFT" && fftOk us (head ins))
+        K v -> False)
+      Nothing -> False)
+fftOk us (K v) = False
+
+cInt :: Float -> Int
+cInt x = round x
+
+-- whether ins are the constants vs
+constants :: [In] -> [Float] -> Bool
+constants ins vs = length ins == length vs && and (zipWith (\x v -> case x of
+  K k -> k == v
+  U j o -> False) ins vs)
+
+-- the classes whose node gives every output (funk_graph_outputs)
+wides :: [String]
+wides = ["GVerb", "FM7", "MdaPiano"]
 
 -- the delay lines, their maximum delay a constant
 delays :: [String]
@@ -75,7 +150,60 @@ pad outs = case outs of
 
 -- a class's slots after the header: zeros, but PanAz's second its outputs
 classState :: String -> Int -> [Float]
-classState cls nout = if cls == "PanAz" then [0.0, toFloat nout] ++ replicate (stateSize cls - 2) 0.0 else replicate (stateSize cls) 0.0
+classState cls nout = if cls == "MembraneHexagon" then membraneState
+  else if cls == "PanAz" then [0.0, toFloat nout] ++ replicate (stateSize cls - 2) 0.0 else replicate (stateSize cls) 0.0
+
+-- MembraneHexagon's slots (sc3-plugins' Membrane.cpp): started; each
+-- junction's input count, self loop and 6 input and 6 output delays; each
+-- delay's a, b and c; each delay's invert. getShape's mesh of size 12.
+membraneState :: [Float]
+membraneState = case hexShape of
+  (pts, lns) -> case length (filter (\(x, y, e) -> e) pts) of
+    edges -> case 2 * length lns + length pts + edges of
+      nd -> case rimDelays (2 * length lns) pts of
+        (selfs, rims) -> [0.0] ++ concat (map (\i -> junction i lns (selfs !! i) (rims !! i)) (enumFromTo 0 (length pts - 1)))
+          ++ replicate (3 * nd) 0.0 ++ map (\d -> if elem d (concat (map (\r -> case r of
+            Just k -> [k]
+            Nothing -> []) rims)) then 1.0 else 0.0) (enumFromTo 0 (nd - 1))
+
+-- a junction's slots: its line delays in line order, then its rim's
+junction :: Int -> [(Int, Int)] -> Int -> Maybe Int -> [Float]
+junction i lns self rim = case zip (enumFromTo 0 (length lns - 1)) lns of
+  kl -> case concat (map (\(k, (a, b)) -> if a == i then [(2 * k, 2 * k + 1)] else if b == i then [(2 * k + 1, 2 * k)] else []) kl) ++ (case rim of
+      Just r -> [(r, r)]
+      Nothing -> []) of
+    oi -> [toFloat (length oi), toFloat self] ++ take 6 (map (\(o, x) -> toFloat x) oi ++ replicate 6 0.0)
+      ++ take 6 (map (\(o, x) -> toFloat o) oi ++ replicate 6 0.0)
+
+-- each point's self loop and rim delay, numbered from d in point order
+rimDelays :: Int -> [(Int, Int, Bool)] -> ([Int], [Maybe Int])
+rimDelays d [] = ([], [])
+rimDelays d ((x, y, e) : ps) = case rimDelays (if e then d + 2 else d + 1) ps of
+  (ss, rs) -> (d : ss, (if e then Just (d + 1) else Nothing) : rs)
+
+-- getShape (Membrane_shape.c) of the hexagon: its points, each x, y and
+-- whether on the edge, in id order, and its lines, half of each neighbour pair
+hexShape :: ([(Int, Int, Bool)], [(Int, Int)])
+hexShape = shapeWalk 0 [(0, 0, False)] [] []
+
+shapeWalk :: Int -> [(Int, Int, Bool)] -> [Int] -> [(Int, Int)] -> ([(Int, Int, Bool)], [(Int, Int)])
+shapeWalk look pts search lns = case shapeDirs look 0 pts search lns of
+  (pts2, search2, lns2) -> case search2 of
+    [] -> (pts2, lns2)
+    s : rest -> shapeWalk s pts2 rest lns2
+
+shapeDirs :: Int -> Int -> [(Int, Int, Bool)] -> [Int] -> [(Int, Int)] -> ([(Int, Int, Bool)], [Int], [(Int, Int)])
+shapeDirs look i pts search lns = if i == 6 then (pts, search, lns) else case pts !! look of
+  (lx, ly, le) -> case [(1, 1), (2, 0), (1, -1), (-1, -1), (-2, 0), (-1, 1)] !! i of
+    (dx, dy) -> if not (inHexagon 12 (lx + dx) (ly + dy))
+      then shapeDirs look (i + 1) (take look pts ++ [(lx, ly, True)] ++ drop (look + 1) pts) search lns
+      else case filter (\(k, (x, y, e)) -> x == lx + dx && y == ly + dy) (zip (enumFromTo 0 (length pts - 1)) pts) of
+        (p, q) : _ -> shapeDirs look (i + 1) pts search (if i < 3 then lns ++ [(look, p)] else lns)
+        [] -> shapeDirs look (i + 1) (pts ++ [(lx + dx, ly + dy, False)]) (length pts : search) (if i < 3 then lns ++ [(look, length pts)] else lns)
+
+inHexagon :: Int -> Int -> Int -> Bool
+inHexagon size x0 y0 = case (abs x0, abs y0) of
+  (x, y) -> x < div size 2 && y < div size 4 && (x < div size 4 || x < div size 2 - y)
 
 -- Duty's slots: its own, then its Dseq's repeats, values' count and values
 dutyState :: [UGen] -> In -> [Float]
@@ -113,7 +241,7 @@ inRate made (U j k) = case made !! j of
 -- the UGens that draw from the world's random generator
 draws :: String -> Bool
 draws cls = elem cls ["ExpRand", "Rand", "IRand", "TRand", "TIRand", "WhiteNoise", "BrownNoise", "PinkNoise", "Dust", "Crackle",
-  "LFNoise0", "LFNoise1", "LFNoise2", "LFDNoise0", "LFDNoise1", "LFDNoise3"]
+  "LFNoise0", "LFNoise1", "LFNoise2", "LFDNoise0", "LFDNoise1", "LFDNoise3", "WaveLoss"]
 
 -- slots each class keeps after its header (lib/kernels.fk)
 stateSize :: String -> Int
@@ -128,16 +256,18 @@ sizes = [("Fold", 4), ("Impulse", 6), ("Pan2", 12), ("BinaryOpUGen", 15), ("Unar
   ("Decay", 4), ("WhiteNoise", 1), ("Wrap", 1), ("Saw", 7), ("Pulse", 7), ("LFPulse", 6), ("LFSaw", 6), ("LFPar", 6),
   ("LFTri", 6), ("VarSaw", 6), ("XLine", 5), ("SinOscFB", 4), ("Balance2", 12), ("XFade2", 15), ("LinXFade2", 13), ("Rand", 2),
   ("TIRand", 3), ("BrownNoise", 2), ("Dust", 4), ("LFNoise2", 7), ("Crackle", 3), ("Latch", 3), ("Select", 1), ("ControlDur", 1),
-  ("ControlRate", 1), ("Sanitize", 1), ("DelayN", 7), ("DelayC", 7), ("CombL", 7), ("CombC", 7), ("MoogFF", 9), ("BPeakEQ", 21), ("BAllPass", 21), ("SawDPW", 5), ("LFDNoise0", 3), ("BMoog", 10), ("GVerb", 105), ("Limiter", 12), ("PanAz", 8), ("Phasor", 3)]
+  ("ControlRate", 1), ("Sanitize", 1), ("DelayN", 7), ("DelayC", 7), ("CombL", 7), ("CombC", 7), ("MoogFF", 9), ("BPeakEQ", 21), ("BAllPass", 21), ("SawDPW", 5), ("LFDNoise0", 3), ("BMoog", 10), ("GVerb", 105), ("Limiter", 12), ("PanAz", 8), ("Phasor", 3), ("FM7", 127), ("MembraneHexagon", 727), ("AY", 128), ("MdaPiano", 275), ("Ringz", 8), ("DC", 1), ("ToggleFF", 3), ("WaveLoss", 4), ("Squiz", 6),
+  ("CrossoverDistortion", 4), ("FreqShift", 27)]
 
 -- the operators lib/kernels.fk's binop and unop have, by special index
 binops, unops :: [Int]
-binops = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 19, 20, 21, 25, 38, 42, 44, 45]
+binops = [0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 19, 20, 21, 25, 30, 38, 42, 44, 45]
 unops = [0, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 25, 26, 28, 29, 36, 42, 43]
 
 -- whether lib/kernels.fk has every UGen of def
 supported :: Def -> Bool
-supported (Def cs us) = all (\(UGen cls r sp n ins) -> cls == "Out" || isControl cls || (r == 2 && (cls == "LocalIn" || cls == "LocalOut"))
+supported (Def cs us) = all (\(UGen cls r sp n ins) -> cls == "Out" || isControl cls || (r == 2 && (cls == "In" || cls == "ReplaceOut"))
+  || elem cls ["MaxLocalBufs", "LocalBuf", "FFT"] || elem cls (map fst pvKinds) || (cls == "IFFT" && r == 2 && spectralOk us ins) || (r == 2 && (cls == "LocalIn" || cls == "LocalOut"))
   || (cls == "Dseq" && all constant ins)
   || (cls == "Duty" && r == 1 && all (\x -> inRateOf us x /= 3) (take 3 ins) && isDseq us (ins !! 3))
   || (elem cls (map fst sizes) && (cls /= "BinaryOpUGen" || elem sp binops) && (cls /= "UnaryOpUGen" || elem sp unops)
@@ -145,7 +275,10 @@ supported (Def cs us) = all (\(UGen cls r sp n ins) -> cls == "Out" || isControl
     && (not (elem cls ["BPeakEQ", "BAllPass"]) || all (\x -> inRateOf us x /= 2) (drop 1 ins))
     && (cls /= "GVerb" || constant (ins !! 9))
     && (cls /= "Limiter" || constant (ins !! 2))
+    && (cls /= "MembraneHexagon" || inRateOf us (head ins) == 2)
     && (cls /= "PanAz" || inRateOf us (ins !! 1) /= 2)
+    && (cls /= "FreqShift" || all (\x -> inRateOf us x /= 2) (drop 1 ins))
+    && (cls /= "Squiz" || constant (ins !! 3))
     && (not (elem cls delays) || (r == 2 && constant (ins !! 1) && (take 4 (unpack cls) /= unpack "Comb" || inRateOf us (ins !! 2) /= 2))))) us
 
 constant :: In -> Bool
@@ -165,8 +298,9 @@ isDseq us (K v) = False
 
 -- the classes ported at audio rate only
 audioOnly :: [String]
-audioOnly = ["Blip", "Saw", "Pulse", "Pan2", "Balance2"]
+audioOnly = ["Blip", "Saw", "Pulse", "Pan2", "Balance2", "FM7", "MembraneHexagon", "AY", "MdaPiano", "ToggleFF", "WaveLoss", "Squiz",
+  "CrossoverDistortion", "FreqShift"]
 
 -- the classes ported at control rate only
 controlOnly :: [String]
-controlOnly = ["Sweep", "LinExp", "Wrap", "TIRand", "Select"]
+controlOnly = ["Sweep", "LinExp", "Wrap", "TIRand"]

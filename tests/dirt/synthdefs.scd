@@ -1,4 +1,4 @@
-// synthdefs.scd -- SuperDirt's synths as funk data: lib/synthdefs.fk.
+// synthdefs.scd -- SuperDirt's synths and effects as funk data: lib/synthdefs.fk.
 // Run: sclang synthdefs.scd OUT NAME... Loads SuperDirt (its extra synths
 // need sc3-plugins), then writes each named SynthDef's UGen graph as
 // scsynth runs it: its controls, by index, with defaults; and its UGens
@@ -22,8 +22,8 @@ try {
 rate = { |r| (scalar: 0, control: 1, audio: 2, demand: 3)[r] };
 f = File(out, "w");
 f.write("module synthdefs where\n\n");
-f.write("-- synthdefs.fk -- SuperDirt's synths, written by tests/dirt/synthdefs.scd from\n");
-f.write("-- their SynthDefs; do not edit. lib/scsynth.fk builds them. Written by:\n");
+f.write("-- synthdefs.fk -- SuperDirt's synths and effects, written by tests/dirt/synthdefs.scd\n");
+f.write("-- from their SynthDefs; do not edit. lib/scsynth.fk builds them. Written by:\n");
 f.write("--   sclang tests/dirt/synthdefs.scd lib/synthdefs.fk " ++ names.join(" ") ++ "\n\n");
 f.write("-- an input: a constant, or UGen i's output k\n");
 f.write("data In = K Float | U Int Int\n\n");

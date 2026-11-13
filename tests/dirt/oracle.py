@@ -5,7 +5,8 @@ scsynth (render.scd) and with funk's event layer (play.fk), each with 16
 orbits of SuperDirt's global effects, the random generator seeded with
 SEED, and compares every frame of both channels. Events start LEAD in,
 after the effects' first block has paused them. A case passes within
-TOLERANCE; a negative control, funk's output a frame late, must fail it,
+TOLERANCE, or FFT_TOLERANCE for the FFT effects; a negative control,
+funk's output a frame late, must fail it,
 so the bound separates a right render from a wrong one. Exits 77, ctest's
 skip, if sclang lacks the SuperDirt quark.
 
@@ -19,6 +20,11 @@ import sys
 
 RATE = 44100
 TOLERANCE = 1e-6  # absolute, at samples of up to 0.4
+# scsynth's macOS FFT is vDSP's, whose float rounding funk cannot match: a
+# bin it rounds across a step of SC_Complex.h's polar table differs by 1e-3
+# (docs/dev/dirt-sound.md, difference 13)
+FFT_TOLERANCE = 2e-5
+FFT_CASES = ["freeze", "freezeOff", "comb", "smear", "scram", "binshift", "hbrick", "lbrick", "conformer", "enhance"]
 SEED = 1234
 LEAD = 256 / RATE
 TAIL = 0.03  # past a case's seconds: dirt_monitor's Limiter is 881 frames late
@@ -65,6 +71,31 @@ CASES = [
     ("pshift", "mono", 0.2, {"psrate": 1.5}),
     ("pshiftDown", "stereo", 0.2, {"psrate": 0.7, "speed": 0.8}),
     ("chain", "mono", 0.2, {"cutoff": 2000.0, "shape": 0.3, "crush": 6.0, "hcutoff": 200.0, "tremolorate": 7.0}),
+    # default-effects-extra.scd's modules
+    ("waveloss", "mono", 0.2, {"waveloss": 40.0}),
+    ("squiz", "mono", 0.2, {"squiz": 2.5}),
+    ("fshift", "mono", 0.2, {"fshift": 150.0}),
+    ("fshiftNote", "stereo", 0.2, {"fshift": 20.0, "fshiftnote": 0.5, "note": 3.0}),
+    ("triode", "mono", 0.2, {"triode": 0.5}),
+    ("krush", "mono", 0.2, {"krush": 0.6, "kcutoff": 2000.0}),
+    ("krushDefault", "stereo", 0.2, {"krush": 0.3}),
+    ("octer", "mono", 0.2, {"octer": 0.6, "octersub": 0.5, "octersubsub": 0.3}),
+    ("ring", "mono", 0.2, {"ring": 0.7, "ringf": 300.0, "ringdf": 200.0}),
+    ("distort", "mono", 0.2, {"distort": 0.5}),
+    ("spectralDelay", "mono", 0.3, {"tsdelay": 0.6, "xsdelay": 5.0}),
+    ("spectralDelayX", "stereo", 0.3, {"xsdelay": 11.0}),
+    ("freeze", "mono", 0.3, {"freeze": 1.0}),
+    ("freezeOff", "stereo", 0.3, {"freeze": 0.0}),
+    ("comb", "mono", 0.3, {"comb": 0.3}),
+    ("smear", "mono", 0.3, {"smear": 0.5}),
+    ("scram", "mono", 0.3, {"scram": 0.4}),
+    ("binshift", "mono", 0.3, {"binshift": 0.3}),
+    ("hbrick", "mono", 0.3, {"hbrick": 0.4}),
+    ("lbrick", "stereo", 0.3, {"lbrick": 0.6}),
+    ("conformer", "mono", 0.3, {"real": 0.3, "imag": 0.4}),
+    ("enhance", "mono", 0.3, {"enhance": 0.5}),
+    ("djf", "mono", 0.2, {"djf": 0.3}),
+    ("djfHigh", "stereo", 0.2, {"djf": 0.8}),
     # SuperDirt's global effects (core-synths-global.scd)
     ("room", "mono", 0.6, {"room": 0.4, "size": 0.6}),
     ("roomDry", "stereo", 0.6, {"room": 0.3, "size": 0.9, "dry": 0.5}),
@@ -118,6 +149,15 @@ CASES = [
     ("superprimes", "superprimes", 0.3, {"note": -5.0, "sustain": 0.25, "voice": 0.5, "detune": 0.3, "rate": 1.5}),
     ("supergrind", "supergrind", 0.3, {"note": -5.0, "sustain": 0.25, "voice": 0.5, "detune": 0.3, "rate": 2.0}),
     ("superpwm", "superpwm", 0.3, {"note": -5.0, "sustain": 0.25, "voice": 0.4, "decay": 0.2}),
+    ("superfm", "superfm", 0.3, {"note": -5.0, "sustain": 0.25, "voice": 2.0, "lfodepth": 0.1, "lfofreq": 5.0}),
+    ("superfmUser", "superfm", 0.3, {"note": 3.0, "sustain": 0.25, "voice": 0.0, "amp1": 1.0, "amp2": 0.0, "mod11": 0.5, "mod12": 0.78, "ratio2": 2.0, "feedback": 1.0}),
+    ("superhex", "superhex", 0.3, {"note": 5.0, "sustain": 0.25, "rate": 2.0}),
+    ("superhexAccelerate", "superhex", 0.3, {"note": -7.0, "sustain": 0.25, "accelerate": 0.5, "pan": 0.7}),
+    ("superchip", "superchip", 0.3, {"note": 5.0, "sustain": 0.25, "voice": 0.3}),
+    ("superchipSlide", "superchip", 0.3, {"note": -7.0, "sustain": 0.25, "slide": 0.5, "rate": 2.0, "accelerate": 0.3}),
+    ("superpiano", "superpiano", 0.3, {"note": 5.0, "sustain": 0.25}),
+    ("superpianoLow", "superpiano", 0.3, {"note": -26.0, "sustain": 0.25, "velocity": 0.4, "muffle": 0.3, "pan": 0.2}),
+    ("superpianoHigh", "superpiano", 0.3, {"note": 38.0, "sustain": 0.25, "stereo": 0.7, "detune": 0.6, "accelerate": 0.4}),
     ("supertronFeedback", "supertron", 0.4, {"note": -17.0, "sustain": 0.35, "voice": 1.0, "detune": 1.0}),
     # last: render.scd keeps the core delay for the cases after a core one
     ("combDelay", "mono", 0.5, {"delay": 0.6, "delaytime": 0.05, "delayfeedback": 0.5}, True),
@@ -267,7 +307,8 @@ def main():
     for name, s, secs, cs, core in CASES:
         sc = read_float_wav(os.path.join(outdir, name + ".wav"))
         err, wrong = worst(sc, got[name], 0), worst(sc, got[name], 1)
-        ok = err <= TOLERANCE and wrong > TOLERANCE
+        bound = FFT_TOLERANCE if name in FFT_CASES else TOLERANCE
+        ok = err <= bound and wrong > bound
         failed += not ok
         print("%-14s %s  error %.3g, a frame late %.3g" % (name, "ok  " if ok else "FAIL", err, wrong))
     sys.exit(1 if failed else 0)

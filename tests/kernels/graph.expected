@@ -1,5 +1,9 @@
 silent   0.000000
 forward input rejected: yes
+outputs: none rejected: yes, a control's rejected: yes
+outputs: two given: yes
+outputs: twice rejected: yes, once read rejected: yes
+outputs: 0/-0 1/-1 2/-2 3/-3 4/-4 5/-5 6/-6 7/-7
 clip     -0.500000 -0.500000 -0.397748 -0.155465 -0.000000 -0.008969 -0.185063 -0.467353
 clip      0.247070  0.460586  0.353035  0.143366 -0.000000  0.011994  0.187858  0.469179
 named states continue: yes

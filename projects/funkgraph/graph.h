@@ -81,6 +81,7 @@ int funk_graph_memory(funk_graph *g, int node, double seconds);
    file is read on the calling thread. Not after the graph is played. */
 int funk_graph_table_file(funk_graph *g, int node, const char *path, int channel);
 int funk_graph_table_values(funk_graph *g, int node, const double *values, int64_t frames);
+int funk_graph_table_builtin(funk_graph *g, int node, const char *name, int channel); /* table.h */
 const char *funk_table_error(void);
 
 /* The index-th WAV file of dir/name, sorted by name, the index wrapping as
@@ -127,6 +128,11 @@ int funk_graph_in(funk_graph *g, int channel);
    call. 0, or -1 if node is not a kernel node of g. Not after the graph
    is played. */
 int funk_graph_ugen(funk_graph *g, int node);
+
+/* Gives kernel node `node` k outputs, before any node reads it: a call of
+   n frames writes output j at out + j * n, which a later node reads from
+   its input, so one state can compute several channels. 0, or -1. */
+int funk_graph_outputs(funk_graph *g, int node, int k);
 
 /* Makes node the output of the graph's next channel; the channel, or -1
    if node is not in g or memory runs out. A graph without outputs has one:
@@ -188,7 +194,9 @@ typedef struct funk_templates funk_templates;
 /* A set of templates, each stage of an event in a slot; NULL if slots is
    not positive or memory runs out. Templates whose sizes round up to one
    power of two share a size class, of slots slots, or fewer, at least
-   one, if they would pass 8 MB, scsynth's default real-time memory. An
+   one, if they would pass 8 MB, scsynth's default real-time memory; then
+   classes with the fewest get more while all fit in 128 MB, the memSize
+   SuperDirt.start sets. An
    event is dropped when a class it needs is full. */
 funk_templates *funk_templates_new(int slots);
 

@@ -12,6 +12,10 @@ typedef struct funk_table funk_table;
    failure: funk_table_error. */
 funk_table *funk_table_file(const char *path, int channel);
 
+/* Channel c of a WAV file built into funkgraph, shared: "mdapiano", sc3-plugins'
+   MdaPiano samples (thirdparty/mdapiano). NULL on failure: funk_table_error. */
+funk_table *funk_table_builtin(const char *name, int channel);
+
 /* A copy of values as floats; equal tables are shared. */
 funk_table *funk_table_values(const double *values, int64_t frames);
 

@@ -29,9 +29,12 @@ enum {
   FXPARAMS = 16   /* an orbit effect's parameters */
 };
 
-/* A size class's slots, at most this many bytes, unless that is under
-   one: scsynth's default real-time memory (ServerOptions.memSize) */
+/* A size class's slots take this many bytes, or one slot if that is
+   under one: scsynth's default real-time memory (ServerOptions.memSize).
+   Then classes with the fewest slots get more, one at a time, while all
+   pools fit in POOL_BYTES: the memSize SuperDirt.start sets. */
 #define CLASS_BYTES ((size_t)8192 * 1024)
+#define POOL_BYTES ((size_t)128 * 1024 * 1024)
 
 typedef struct {
   uint64_t key, okey; /* "NAME" and "oORBIT.NAME" */
@@ -253,7 +256,7 @@ static size_t layout(const funk_graph *g) {
   for (int i = 0; i < g->n; i++) {
     const Node *x = &g->nodes[i];
     b += al(x->size) + al((size_t)x->nin * sizeof(float *)) + al((size_t)x->frames * sizeof(float));
-    if (x->kind != IN) b += al(B * sizeof(float));
+    if (x->kind != IN) b += al((size_t)(1 + x->extra) * B * sizeof(float));
   }
   return b;
 }
@@ -345,11 +348,27 @@ int funk_player_templates(funk_player *p, funk_templates *t) {
         f->cx = (funk_context){x->g->cx.rate, 0, 0, e->rgen, 0, 0, x->g->cx.tables};
       }
     }
+    size_t used = 0;
     for (int k = 0; k < CLASSES; k++) {
       Class *c = &t->c[k];
       if (!c->slot) continue;
       size_t most = CLASS_BYTES / c->slot;
       c->slots = most < 1 ? 1 : most < (size_t)t->slots ? (int)most : t->slots;
+      used += (size_t)c->slots * c->slot;
+    }
+    for (;;) { /* the class of fewest slots that fits, the smaller slot on a tie */
+      Class *best = NULL;
+      for (int k = 0; k < CLASSES; k++) {
+        Class *c = &t->c[k];
+        if (c->slot && c->slots < t->slots && used + c->slot <= POOL_BYTES && (!best || c->slots < best->slots)) best = c;
+      }
+      if (!best) break;
+      best->slots++;
+      used += best->slot;
+    }
+    for (int k = 0; k < CLASSES; k++) {
+      Class *c = &t->c[k];
+      if (!c->slot) continue;
       c->pool = malloc((size_t)c->slots * c->slot);
       c->free = malloc((size_t)c->slots * sizeof *c->free);
       if (!c->pool || !c->free) {
@@ -470,7 +489,7 @@ static void make(funk_events *e, const Template *t, unsigned char *m, Stage *s) 
       y->out = x->bus < FUNK_CHANNELS ? e->chain[x->bus] : e->eff[x->bus - FUNK_CHANNELS];
     } else {
       y->out = (float *)q;
-      q += al(B * sizeof(float));
+      q += al((size_t)(1 + x->extra) * B * sizeof(float));
     }
     for (int j = 0; j < x->nin; j++) y->in[j] = x->ix[j] < 0 ? e->silence : nd[x->ix[j]].out;
     y->feed = NULL;

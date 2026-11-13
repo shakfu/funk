@@ -49,6 +49,7 @@ static void cg_tail(CG *c, Expr *e);
 typedef struct {
   bool kmode; /* cgen_kernels: no runtime, no G */
   Bind **kbind; /* there: each global's binding */
+  bool *klam;    /* there: the functions an exact export reaches */
   Rep **freps;
   signed char *af_state; /* by lambda id: 0 unknown, 1 being checked, 2 rejected, 3 accepted */
   const char **af_why;
@@ -1199,6 +1200,8 @@ static void cg_lambda(SB *out, Lambda *L) {
   sb_printf(out, "static %s%s w_%d(V self", trmc ? "" : "inline ", result_ctype(L, rr), L->id);
   for (int i = 0; i < L->n; i++) sb_printf(out, ", %s p%d", ctype[param_rep(L, i)], i);
   sb_printf(out, ") { /* %s */\n", nm);
+  if (ST->kmode && ST->klam[L->id]) /* an exact export's: as written, without fused multiply-adds */
+    sb_puts(out, "#ifdef __clang__\n#pragma clang fp contract(off)\n#endif\n");
   for (int i = 0; i < L->nslots; i++)
     sb_printf(out, "  %s l%d = %s;\n", ctype[slot[i]], i, i < L->n ? conv(tv(xsprintf("p%d", i), param_rep(L, i)), slot[i]) : "0");
   if (c.trmc) sb_puts(out, "  V head = 0, *dst = &head;\n");
@@ -1435,8 +1438,12 @@ char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
         return NULL;
       }
     }
+  Reach x = reach_new(chunks, nchunks);
+  for (int i = 0; i < CS->ffi_exports.n; i++)
+    if (CS->ffi_exports.a[i]->exact) reach_global(&x, CS->ffi_exports.a[i]->gidx);
   ST->kmode = true;
   ST->kbind = r.bind;
+  ST->klam = x.lam;
   SB out = {0};
   sb_puts(&out, "/* link:");
   bool m = false; /* as the interpreter's glue: the `foreign library` names, then libm */
@@ -1481,7 +1488,7 @@ char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
   sb_puts(&out, ffi_headers(fs.a, fs.n));
   for (int i = 0; i < CS->ffi_exports.n; i++)
     sb_printf(&out, "__attribute__((visibility(\"default\"))) %s;\n", export_head(CS->ffi_exports.a[i]));
-  /* contract across statements, which clang's default does not; docs/dev/dsp.md, Decisions */
+  /* contract across statements, which clang's default does not, but in an exact export's functions; docs/dev/dsp.md, Decisions */
   sb_puts(&out, "\n/* ---- generated kernels ---- */\n\n#ifdef __clang__\n#pragma clang diagnostic ignored \"-Wunknown-warning-option\"\n#pragma clang fp contract(fast)\n#endif\n"
                 "#pragma GCC diagnostic ignored \"-Wunused-variable\"\n#pragma GCC diagnostic ignored \"-Wunused-but-set-variable\"\n\n");
   cg_functions(&out, &r);

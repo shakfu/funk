@@ -32,6 +32,7 @@ typedef struct {
   uint64_t exp; /* named ">NAME": NAME's hash, which a template's later stages read */
   int ugen; /* funk_graph_ugen */
   uint64_t fed; /* named "fed:NAME": the hash of "feed:NAME", whose output it takes at a block's end */
+  int extra; /* outputs after its first (funk_graph_outputs) */
 } Node;
 
 typedef struct {

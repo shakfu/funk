@@ -1,0 +1,22 @@
+-- An export written "exact NAME" rounds each operation as written: its C
+-- has no fused multiply-add, as the event layer's scsynth ports need
+-- (docs/dev/dsp.md, Decisions). exact.c compares it with the rounded sum.
+foreign export ccall "exact k_exact" madK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+
+f32 :: Float -> Float
+f32 x = fromCFloat (toCFloat x)
+
+input :: Ptr (Ptr CFloat) -> Int ->> Ptr CFloat
+input ins j = peekByteOff ins (8 * j)
+
+at :: Ptr CFloat -> Int ->> Float
+at buf i = fromCFloat (peekByteOff buf (4 * i))
+
+-- out = a * b + c, the product rounded to a float first
+madK :: Ptr () -> Ptr (Ptr CFloat) -> Ptr CFloat -> CInt -> Ptr () ->> ()
+madK st ins out n cx = madLoop (input ins 0) (input ins 1) (input ins 2) out 0 (fromIntegral n)
+
+madLoop :: Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+madLoop a b c out i n = if i == n then () else do
+  pokeByteOff out (4 * i) (toCFloat (f32 (f32 (at a i * at b i) + at c i)))
+  madLoop a b c out (i + 1) n

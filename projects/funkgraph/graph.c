@@ -86,7 +86,7 @@ int funk_graph_add(funk_graph *g, funk_kernel k, const void *state, size_t size,
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {k, NULL, NULL, nin, NULL, 0, mix(1, (uint64_t)(uintptr_t)k), NULL, size, NULL, 0, NULL, KERNEL, 0, NULL, 0, 0, 0};
+  Node x = {k, NULL, NULL, nin, NULL, 0, mix(1, (uint64_t)(uintptr_t)k), NULL, size, NULL, 0, NULL, KERNEL, 0, NULL, 0, 0, 0, 0};
   x.state = size ? calloc(1, size) : NULL;
   x.in = calloc((size_t)(nin ? nin : 1), sizeof *x.in);
   x.out = calloc((size_t)g->max_block, sizeof(float));
@@ -218,7 +218,7 @@ static void carry(funk_graph *g, funk_graph *old) {
     if (at == old->nnames || old->names[at].key != g->names[i].key) continue;
     Node *x = &g->nodes[g->names[i].node];
     Node *y = &old->nodes[old->names[at].node];
-    if (x->k != y->k || x->size != y->size || x->frames != y->frames || (x->size && memcmp(x->init, y->init, x->size))) continue;
+    if (x->k != y->k || x->size != y->size || x->frames != y->frames || x->extra != y->extra || (x->size && memcmp(x->init, y->init, x->size))) continue;
     if (x->size) memcpy(x->state, y->state, x->size);
     if (x->mem) { /* by pointer: copying a second of delay would take a block's time. old frees x's. */
       float *m = x->mem;
@@ -228,6 +228,19 @@ static void carry(funk_graph *g, funk_graph *old) {
     }
     if (x->table) funk_table_state(x); /* its own data: only the position carries */
   }
+}
+
+int funk_graph_outputs(funk_graph *g, int node, int k) {
+  if (node < 0 || node >= g->n || k < 1 || g->nodes[node].kind != KERNEL || g->nodes[node].extra) return -1;
+  for (int i = node + 1; i < g->n; i++)
+    for (int j = 0; j < g->nodes[i].nin; j++)
+      if (g->nodes[i].ix[j] == node) return -1;
+  float *out = calloc((size_t)k * (size_t)g->max_block, sizeof(float));
+  if (!out) return -1;
+  free(g->nodes[node].out);
+  g->nodes[node].out = out;
+  g->nodes[node].extra = k - 1;
+  return 0;
 }
 
 int funk_graph_memory(funk_graph *g, int node, double seconds) {
@@ -260,6 +273,10 @@ int funk_graph_table_file(funk_graph *g, int node, const char *path, int channel
   return takes_table(g, node) ? give_table(g, node, funk_table_file(path, channel)) : -1;
 }
 
+int funk_graph_table_builtin(funk_graph *g, int node, const char *name, int channel) {
+  return takes_table(g, node) ? give_table(g, node, funk_table_builtin(name, channel)) : -1;
+}
+
 int funk_graph_table_values(funk_graph *g, int node, const double *values, int64_t frames) {
   return takes_table(g, node) ? give_table(g, node, funk_table_values(values, frames)) : -1;
 }
@@ -272,7 +289,7 @@ int funk_graph_control(funk_graph *g, float value) {
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, 3, NULL, sizeof value, NULL, 0, NULL, CONTROL, 0, NULL, 0, 0, 0};
+  Node x = {NULL, malloc(sizeof value), NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, 3, NULL, sizeof value, NULL, 0, NULL, CONTROL, 0, NULL, 0, 0, 0, 0};
   if (!x.state || !x.out) {
     free(x.state);
     free(x.out);
@@ -292,7 +309,7 @@ static int plain(funk_graph *g, int kind, int bus) {
     g->nodes = a;
     g->cap = cap;
   }
-  Node x = {NULL, NULL, NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, mix(4 + (uint64_t)kind, (uint64_t)bus), NULL, 0, NULL, 0, NULL, kind, bus, NULL, 0, 0, 0};
+  Node x = {NULL, NULL, NULL, 0, calloc((size_t)g->max_block, sizeof(float)), 0, mix(4 + (uint64_t)kind, (uint64_t)bus), NULL, 0, NULL, 0, NULL, kind, bus, NULL, 0, 0, 0, 0};
   if (!x.out) return -1;
   g->nodes[g->n] = x;
   g->nbus += kind == BUS;

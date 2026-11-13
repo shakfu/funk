@@ -275,6 +275,7 @@ typedef struct {
   int gidx, arity;
   char cb;     /* "callback" 'c', "queue" 'q': the import is a trampoline */
   bool exported; /* foreign export: the C function cname runs the funk function name */
+  bool exact;    /* an export written "exact cname": it and what it calls round each operation */
   Type *xtype;   /* an export's declared type */
   const char *cdef; /* C emitted after the headers: a struct's definition and field checks */
   Strs xheaders;    /* headers it needs besides header: a struct's nested structs' */

@@ -199,7 +199,7 @@ The cost is a larger runner. Steps 1 and 2 of the plan measure it before any UGe
 Done 2026-11-11, as option C:
 
 - **C:** `projects/funkgraph/events.c`, with its API in `graph.h`. A template is a `funk_graph` built by `lib/graph.fk`'s builder and not played. A set of templates owns pools of slots, allocated when it is given to the player. A stage is laid out in a free slot on the audio thread: its states copied, its pointers set, its delay memory zeroed.
-- **Size classes:** templates whose sizes round up to one power of two share a pool, its slots as large as the largest of them. A class has 256 slots in the hosts, or fewer if they would pass 8 MB, scsynth's default real-time memory (`memSize`). A `pshift` stage takes 196 KB at 44.1 kHz, so `pshift` has 42 slots. One pool sized by the largest template took 50 MB for 256 slots.
+- **Size classes:** templates whose sizes round up to one power of two share a pool, its slots as large as the largest of them. A class has 256 slots in the hosts, or fewer if they would pass 8 MB, scsynth's default real-time memory (`memSize`). Then the classes with the fewest slots get one more at a time, the smaller slot first, while all pools fit in 128 MB, the `memSize` of `SuperDirt.start` (`classes/extSuperDirtStartup.sc`). For `d.superDirt` at 44.1 kHz the pools take 128 MB a player, from 63 MB. A `pshift` stage takes 196 KB at 44.1 kHz, so `pshift` has 42 slots. One pool sized by the largest template took 50 MB for 256 slots.
 - **Graphs:** `g.Bus o c` reads an orbit into a played graph; `g.In c` reads the chain into a template. A graph with no bus has every orbit added to its output.
 - **funk:** `lib/dsp.fk`'s `Dirt`, with `superDirt`, `loadSoundFiles`, `addSynth`, `addModule`, `addFilterModule`, `removeModule`, `orderModules`, `has`, `prepare`, `playDirt`, `orbit` and `orbits`. `d.prepare` marks an event with `~NAME` for each module whose test passes; `c.writeControlsWithBy` sends every number of a marked event. A module may add controls to an event it runs on, as SuperDirt's module function computes its arguments: `vowel` adds its formants.
 - **Hosts:** funk-midi and the plugin load a top-level `dirt` as they play `sig`. `funk_voices_trigger` sends a trigger whose sound has a template to the event layer.
@@ -234,12 +234,13 @@ Where it differs from SuperDirt, or from the plan:
 4. **The played graph still renders in the host's blocks**, not scsynth's 64-frame grid, so requirement 6 holds for events only.
 5. **An event under 8 frames still sets its orbit's effects.** SuperDirt drops it before `playSynths`; funk knows a sample's sustain only in its span's kernel.
 6. **Routing.** The `out_to` and `map_from` modules, and `dirt_rms`, which sends levels to editors, are not ported.
-7. **Memory.** A size class may hold fewer events than scsynth's memory would: scsynth allocates a `PitchShift`'s delay line by its window; funk sizes the slot for the largest window, 0.18 s. The orbit effects take about 34 MB a player at 44.1 kHz, mostly the delay's 4 s lines; SuperDirt's setup raises scsynth's `memSize` for the same. A `GVerb` node takes about 1 MB of delay lines, and each of its two outputs is a node: `superprimes` has 18 and `superwavemechanics` 16, so each rounds to a 32 MB slot, and the class's one slot plays one such event at a time.
+7. **Memory.** A size class may hold fewer events than scsynth's memory would: scsynth allocates a `PitchShift`'s delay line by its window; funk sizes the slot for the largest window, 0.18 s. The orbit effects take about 34 MB a player at 44.1 kHz, mostly the delay's 4 s lines; SuperDirt's setup raises scsynth's `memSize` for the same. A `GVerb` node takes about 1 MB of delay lines and gives both outputs (`funk_graph_outputs` in `graph.h`): `superprimes` has 9 and `superwavemechanics` 8, so each takes a 9.8 MB slot, and their class gets 7 slots of the 128 MB. scsynth at its default 8 MB could not play one.
 8. **Synths not ported:** `in`, `in1` and `inr` read the audio input, which an event has no access to; `pmsin` reads the mouse; `dirt_from` and `superpanic` route and free; `debug` prints. `cyclo`'s `cycle` is 0 unless the event gives it: funk's records do not carry Tidal's cycle. The extra synths and effects are step 6's remainder.
 9. **`numWireBufs`:** the comparison raises scsynth's to 1024, as `superprimes` needs more than SuperDirt's startup sets, 64; with 64, SuperDirt does not load it.
 10. **A UGen no output reaches is not built.** scsynth runs every UGen of a SynthDef; a template has only the nodes its channels reach. No ported synth has such a UGen; `LocalOut` and a `Rand` read by nothing would.
 11. **A played graph has no constructor call:** a `dsp_u_` kernel there constructs itself at its first call, from its inputs' first frame of that call.
 12. **`funk_player_event_audio` formats names with `snprintf`** on the audio thread, as `funk_voices_trigger` does. No test yet shows the audio path allocates nothing ([TODO.md](../../TODO.md), "From rustel").
+13. **The FFT effects are within 2e-5 of scsynth, not 1e-6.** scsynth's macOS build transforms with vDSP, in float; `dsp_u_Spectral` transforms in double, to float buffers. 8 of the 10 FFT cases are within 5e-7. `spectral-conformer` is within 1.5e-6, as close as funk's double and float transforms are to each other. `spectral-enhance` differs by 9.7e-6, at one bin that scsynth's rounding moves across a step of `SC_Complex.h`'s polar table. Calling vDSP on macOS would need a C FFT the kernels can reach; Linux builds, which use FFTW, could not match either way.
 
 ## Plan
 
@@ -250,7 +251,7 @@ Steps 1 to 5 are done, and of step 6 the API, the UGen library and `default-synt
 3. **The plugin and `funk-midi --audio`** play control patterns through the event layer. `d.kit`'s fixed voices remain for notes (`m.kit`).
 4. **The 13 core modules** (S1) and their UGens (S8), each checked against scsynth. Done 2026-11-12: `sound` and 12 effects.
 5. **Orbits and global effects** (S2): pausing and resuming as `DirtPause`, and parameters set by events. Done 2026-11-12.
-6. **Synths** (S3), and the funk API for user templates, with SuperDirt's names (decision 3): `addModule`, `addFilterModule`, `removeModule`, `orderModules`, synths and global effects. Done 2026-11-12: the API, the UGen library, `default-synths.scd`'s 5 portable synths and 28 of `default-synths-extra.scd`'s 32, 37 `lib/dirt-scsynth` synth cases within 1.2e-7. Left: `superpiano`, `superhex`, `superchip` and `superfm`, and `default-effects-extra.scd`'s 19 effects.
+6. **Synths** (S3), and the funk API for user templates, with SuperDirt's names (decision 3): `addModule`, `addFilterModule`, `removeModule`, `orderModules`, synths and global effects. Done 2026-11-12: the API, the UGen library, `default-synths.scd`'s 5 portable synths and all 32 of `default-synths-extra.scd`'s, 46 `lib/dirt-scsynth` synth cases within 1.2e-7. Done 2026-11-13: `default-effects-extra.scd`'s 19 effects, 24 cases: 14 within 1.1e-8, the 10 FFT ones within 2e-5 (difference 13).
 7. **AIFF** (S7) and `unit "s"` (S6).
 
 ## Open
@@ -274,7 +275,7 @@ Taken in the implementation, 2026-11-11, for the user to review:
 
 Taken 2026-11-12, by the user:
 
-8. Size classes for the pool, at most 8 MB each.
+8. Size classes for the pool, 8 MB each, then more slots within 128 MB in all.
 9. Global effects run per orbit in the event layer, not in `sig`.
 10. `dirt_monitor` is ported with its limiter and so its 20 ms; the alternatives were sending events 20 ms early, or no monitor.
 11. scsynth's `RGen` is ported, seedable, so the oracle checks the reverb frame by frame.

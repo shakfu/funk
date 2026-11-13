@@ -26,6 +26,7 @@ foreign import ccall "graph.h funk_graph_name" graphName :: Ptr () -> CInt -> St
 foreign import ccall "graph.h funk_graph_memory" graphMemory :: Ptr () -> CInt -> Float ->> CInt
 foreign import ccall "graph.h funk_graph_table_file" graphTableFile :: Ptr () -> CInt -> String -> CInt ->> CInt
 foreign import ccall "graph.h funk_graph_table_values" graphTableValues :: Ptr () -> CInt -> Ptr () -> CLLong ->> CInt
+foreign import ccall "graph.h funk_graph_table_builtin" graphTableBuiltin :: Ptr () -> CInt -> String -> CInt ->> CInt
 foreign import ccall "graph.h funk_table_error" tableError :: () ->> String
 foreign import ccall "graph.h funk_sample_path" samplePath :: String -> String -> CInt ->> String
 foreign import ccall "graph.h funk_player_new" playerNew :: () ->> Ptr ()
@@ -34,6 +35,7 @@ foreign import ccall "graph.h funk_graph_output" graphOutput :: Ptr () -> CInt -
 foreign import ccall "graph.h funk_graph_bus" graphBus :: Ptr () -> CInt -> CInt ->> CInt
 foreign import ccall "graph.h funk_graph_in" graphIn :: Ptr () -> CInt ->> CInt
 foreign import ccall "graph.h funk_graph_ugen" graphUgen :: Ptr () -> CInt ->> CInt
+foreign import ccall "graph.h funk_graph_outputs" graphOutputs :: Ptr () -> CInt -> CInt ->> CInt
 foreign import ccall "graph.h funk_templates_new" templatesNew :: CInt ->> Ptr ()
 foreign import ccall "graph.h funk_templates_add" templatesAdd :: Ptr () -> String -> Ptr () ->> CInt
 foreign import ccall "graph.h funk_templates_free" templatesFree :: Ptr () ->> ()
@@ -57,9 +59,12 @@ foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
 -- Shared k secs sts x ins: one Delay node per state in sts, each reading all of
 -- x's channels (a mono x fills them all), then ins, which are mono. Its channels
 -- are the nodes': the way to get several outputs from a state that one kernel owns.
-data Source = File String Int | Sample String String Int Int | Values [Float]
+-- Wide k secs src st n ins: a node with n outputs (funk_graph_outputs in graph.h),
+-- a Delay if secs > 0, else a Reader if src is Just; a node that reads it reads them all.
+-- Builtin name c: channel c of a WAV built into funkgraph (table.h)
+data Source = File String Int | Sample String String Int Int | Values [Float] | Builtin String Int
 
-data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Shared String Float [[Float]] Sig [Sig] | Named String Sig | Control Float | Channels [Sig] | Bus Int Int | In Int
+data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Shared String Float [[Float]] Sig [Sig] | Wide String Float (Maybe Source) [Float] Int [Sig] | Named String Sig | Control Float | Channels [Sig] | Bus Int Int | In Int
 
 -- a C player, its kernel libraries, frames per second, and the most
 -- frames per kernel call
@@ -76,6 +81,7 @@ same :: Sig -> Sig -> Bool
 same Silence Silence = True
 same (Node k st ins) (Node k2 st2 ins2) = k == k2 && st == st2 && length ins == length ins2 && and (zipWith same ins ins2)
 same (Delay k m st ins) (Delay k2 m2 st2 ins2) = m == m2 && same (Node k st ins) (Node k2 st2 ins2)
+same (Wide k m src st w ins) (Wide k2 m2 src2 st2 w2 ins2) = m == m2 && w == w2 && sameMaybe src src2 && same (Node k st ins) (Node k2 st2 ins2)
 same (Reader k src st ins) (Reader k2 src2 st2 ins2) = sameSource src src2 && same (Node k st ins) (Node k2 st2 ins2)
 same (Shared k m sts x ins) (Shared k2 m2 sts2 x2 ins2) = m == m2 && sts == sts2 && same x x2 && same (Node k [] ins) (Node k2 [] ins2)
 same (Named n s) (Named n2 s2) = n == n2 && same s s2
@@ -87,9 +93,15 @@ same _ _ = False
 
 sameSource :: Source -> Source -> Bool
 sameSource (File p c) (File p2 c2) = p == p2 && c == c2
+sameSource (Builtin n c) (Builtin n2 c2) = n == n2 && c == c2
 sameSource (Sample d n i c) (Sample d2 n2 i2 c2) = d == d2 && n == n2 && i == i2 && c == c2
 sameSource (Values v) (Values v2) = v == v2
 sameSource _ _ = False
+
+sameMaybe :: Maybe Source -> Maybe Source -> Bool
+sameMaybe (Just a) (Just b) = sameSource a b
+sameMaybe Nothing Nothing = True
+sameMaybe _ _ = False
 
 -- s's channels; an error if a node's inputs have different numbers of
 -- channels, other than 1. Checked before a C graph is allocated.
@@ -101,6 +113,7 @@ width (Node k st ins) = case map width ins of
     w -> if any (\x -> x /= 1 && x /= w) ws then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else w
 width (Delay k m st ins) = width (Node k st ins)
 width (Reader k src st ins) = width (Node k st ins)
+width (Wide k m src st w ins) = width (Node k st ins)
 width (Shared k m sts x ins) = case width x : map width ins of
   ws -> if (head ws /= 1 && head ws /= length sts) || any (\w -> w /= 1) (tail ws) then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else length sts
 width s = 1
@@ -142,6 +155,7 @@ names ns (Named n s) = case lookup n ns of
 names ns (Node k st ins) = foldl names ns ins
 names ns (Delay k m st ins) = names ns (Node k st ins)
 names ns (Reader k src st ins) = names ns (Node k st ins)
+names ns (Wide k m src st w ins) = names ns (Node k st ins)
 names ns (Shared k m sts x ins) = foldl names ns (x : ins)
 names ns (Control v) = ns
 names ns (Channels ss) = foldl names ns ss
@@ -157,6 +171,7 @@ kernels libs (In c) = ()
 kernels libs (Channels ss) = mapM_ (kernels libs) ss
 kernels libs (Delay k m st ins) = kernels libs (Node k st ins)
 kernels libs (Reader k src st ins) = kernels libs (Node k st ins)
+kernels libs (Wide k m src st w ins) = kernels libs (Node k st ins)
 kernels libs (Shared k m sts x ins) = kernels libs (Node k [] (x : ins))
 kernels libs (Node k st ins) = do
   kernel libs k
@@ -197,16 +212,23 @@ add g libs (Seen named built own) (Named n s) = case lookup n named of
 add g libs ns (Control v) = do
   i <- graphControl g (toCFloat v)
   if i < 0 then error "graph: out of memory" else ([fromIntegral i], ns)
-add g libs ns (Bus o c) = do
+add g libs ns (Bus o c) = reader ns (Bus o c) (1000 + 64 * o + c) (\u -> do
   i <- graphBus g (fromIntegral o) (fromIntegral c)
-  if i < 0 then error ("graph: no orbit " ++ show o ++ " channel " ++ show c) else ([fromIntegral i], ns)
-add g libs ns (In c) = do
+  if i < 0 then error ("graph: no orbit " ++ show o ++ " channel " ++ show c) else fromIntegral i)
+add g libs ns (In c) = reader ns (In c) (c + 1) (\u -> do
   i <- graphIn g (fromIntegral c)
-  if i < 0 then error ("graph: no chain channel " ++ show c) else ([fromIntegral i], ns)
+  if i < 0 then error ("graph: no chain channel " ++ show c) else fromIntegral i)
 add g libs ns (Node k st ins) = once g libs ns ins (Node k st) (expand g libs k st)
 add g libs ns (Delay k m st ins) = once g libs ns ins (Delay k m st) (\iss -> do
   is <- expand g libs k st iss
   mapM_ (\i -> if graphMemory g (fromIntegral i) m < 0 then error ("graph: no memory for " ++ k) else ()) is
+  is)
+add g libs ns (Wide k m src st w ins) = once g libs ns ins (Wide k m src st w) (\iss -> do
+  is <- expand g libs k st iss
+  case src of
+    Just t -> mapM_ (giveTable g k t) is
+    Nothing -> ()
+  mapM_ (\i -> if (m > 0.0 && graphMemory g (fromIntegral i) m < 0) || graphOutputs g (fromIntegral i) (fromIntegral w) < 0 then error ("graph: no memory for " ++ k) else ()) is
   is)
 add g libs ns (Reader k src st ins) = once g libs ns ins (Reader k src st) (\iss -> do
   is <- expand g libs k st iss
@@ -231,6 +253,15 @@ once g libs ns ins key make = do
     Nothing -> do
       is <- make iss
       (is, Seen named (insertBuilt builtDepth h (k, is) built) "")
+
+-- a Bus or In node, shared like any other: a UGen that reads the chain
+-- twice, once through another's input, is one node. A named one is its own.
+reader :: Seen -> Sig -> Int -> (() ->> Int) ->> ([Int], Seen)
+reader (Seen named built own) key h make = case (if own == "" then findBuilt key h built else Nothing) of
+  Just is -> (is, Seen named built own)
+  Nothing -> do
+    i <- make ()
+    ([i], if own == "" then Seen named (insertBuilt builtDepth h (key, [i]) built) own else Seen named built own)
 
 -- a pure hash trie of the nodes built, so a graph of n nodes takes n log n compares.
 -- A hash only picks the bucket: same decides, so a collision cannot merge two nodes.
@@ -265,6 +296,7 @@ hashKey :: Sig -> Int
 hashKey (Node k st ins) = hashParts k st ins
 hashKey (Delay k m st ins) = hashParts k st ins
 hashKey (Reader k src st ins) = hashParts k st ins
+hashKey (Wide k m src st w ins) = hashParts k st ins
 hashKey (Shared k m sts x ins) = hashParts k (concat sts) ins
 hashKey s = 0
 
@@ -303,6 +335,7 @@ giveTable g k (File path c) i = if graphTableFile g (fromIntegral i) path (fromI
 giveTable g k (Sample dir name index c) i = case samplePath dir name (fromIntegral index) of
   "" -> error ("graph: " ++ k ++ " has no sample " ++ name ++ ":" ++ show index ++ " in " ++ dir ++ ": " ++ tableError ())
   path -> giveTable g k (File path c) i
+giveTable g k (Builtin name c) i = if graphTableBuiltin g (fromIntegral i) name (fromIntegral c) < 0 then error ("graph: " ++ k ++ ": " ++ tableError ()) else ()
 giveTable g k (Values vs) i = allocaBytes (8 * length vs + 8) (\p -> do
   pokeFloats p 0 vs
   if graphTableValues g (fromIntegral i) p (fromIntegral (length vs)) < 0 then error ("graph: " ++ k ++ ": " ++ tableError ()) else ())

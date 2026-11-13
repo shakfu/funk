@@ -1390,9 +1390,11 @@ static void parse_foreign(P *p, Decl *d) {
   ForeignDecl *f = NEW(ForeignDecl);
   f->line = t->line;
   f->col = t->col;
-  if (!strcmp(what, "export")) { /* foreign export ccall "cname" name :: type (realtime.md, R4) */
+  if (!strcmp(what, "export")) { /* foreign export ccall "[exact ]cname" name :: type (realtime.md, R4) */
     f->exported = true;
-    f->cname = intern(xsprintf("%.*s", ent->len, ent->s));
+    char *e = xsprintf("%.*s", ent->len, ent->s);
+    if (!strncmp(e, "exact ", 6)) f->exact = true, e += 6;
+    f->cname = intern(e);
     f->name = expect(p, T_VARID, "the funk function to export")->s;
     expect(p, T_DCOLON, NULL);
     f->sig = parse_sig(p);

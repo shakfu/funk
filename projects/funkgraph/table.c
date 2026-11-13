@@ -222,6 +222,43 @@ funk_table *funk_table_file(const char *given, int channel) {
   return t;
 }
 
+extern const unsigned char funk_mdapiano[]; /* mdapiano.c, from thirdparty/mdapiano by embed.cmake */
+extern const size_t funk_mdapiano_size;
+
+funk_table *funk_table_builtin(const char *name, int channel) {
+  if (!name || channel < 0 || strcmp(name, "mdapiano")) {
+    last_error = "no such built-in table";
+    return NULL;
+  }
+  pthread_mutex_lock(&lock);
+  for (funk_table *t = tables; t; t = t->next)
+    if (t->path && t->size < 0 && t->channel == channel && !strcmp(t->path, name)) {
+      t->refs++;
+      pthread_mutex_unlock(&lock);
+      return t;
+    }
+  pthread_mutex_unlock(&lock);
+  funk_table *t = calloc(1, sizeof *t);
+  char *copy = malloc(strlen(name) + 1);
+  const char *why = !t || !copy ? "out of memory" : decode(funk_mdapiano, funk_mdapiano_size, channel, t);
+  if (why) {
+    if (t) free(t->data);
+    free(t);
+    free(copy);
+    last_error = why;
+    return NULL;
+  }
+  t->path = strcpy(copy, name);
+  t->channel = channel;
+  t->size = -1; /* never a file's */
+  t->refs = 1;
+  pthread_mutex_lock(&lock);
+  t->next = tables;
+  tables = t;
+  pthread_mutex_unlock(&lock);
+  return t;
+}
+
 funk_table *funk_table_values(const double *values, int64_t frames) {
   if (frames < 0 || frames > INT32_MAX || (frames && !values)) {
     last_error = "bad argument";

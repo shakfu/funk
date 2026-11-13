@@ -47,14 +47,14 @@ static funk_graph *half(void) {
   return g;
 }
 
-/* "m.big": the chain times 1, with 3 MB of memory it does not read, so
-   its size class has 2 slots of 8 MB's worth */
+/* "m.big": the chain times 1, with 50 MB of memory it does not read, so
+   its size class has 2 slots: a third would pass the pools' 128 MB */
 static funk_graph *big(void) {
   funk_graph *g = funk_graph_new(64, 8000.0);
   int in[2] = {funk_graph_in(g, 0), control(g, "one", 1)};
   double st[2] = {0};
   int m = funk_graph_add(g, mul, st, sizeof st, in, 2);
-  funk_graph_memory(g, m, 3.0 * 1024 * 1024 / 4 / 8000.0);
+  funk_graph_memory(g, m, 50.0 * 1024 * 1024 / 4 / 8000.0);
   funk_graph_output(g, m);
   return g;
 }

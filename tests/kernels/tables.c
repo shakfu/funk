@@ -153,6 +153,13 @@ static void sharing(void) {
   printf("equal values are shared: %d; others are not: %d\n", a == b, a != c);
   funk_table_release(a), funk_table_release(b), funk_table_release(c);
   printf("a negative length: %s\n", funk_table_values(v, -1) ? "accepted" : funk_table_error());
+  /* mdaPianoData.h's first values are 5, -7, 5, -6 */
+  a = funk_table_builtin("mdapiano", 0), b = funk_table_builtin("mdapiano", 0);
+  const float *pd = funk_table_data(a);
+  printf("mdapiano: %lld frames at %.0f: %.0f %.0f %.0f %.0f; shared: %d\n", (long long)funk_table_frames(a), funk_table_rate(a),
+         pd[0] * 32768, pd[1] * 32768, pd[2] * 32768, pd[3] * 32768, a == b);
+  funk_table_release(a), funk_table_release(b);
+  printf("another built-in name: %s\n", funk_table_builtin("piano", 0) ? "accepted" : funk_table_error());
 }
 
 static funk_kernel sampler, wavetable;

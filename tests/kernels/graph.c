@@ -1,6 +1,7 @@
 /* projects/funkgraph/graph.c over the kernels of chain.fk. First host.c's chain as
    a graph, in blocks of 8 split into calls of at most 5 frames: the output
-   must equal host.c's clip rows. Then an audio thread renders while this
+   must equal host.c's clip rows; a node of two outputs gives them at
+   each call's frame count. Then an audio thread renders while this
    thread plays and reclaims 2000 graphs; run under ThreadSanitizer too.
    Between, named nodes' states carry across swaps, and controls take
    events at their frames, from the host's queue and the audio thread's,
@@ -103,6 +104,20 @@ static void fresh(funk_graph *g, int skip, float *out, int n) {
   funk_player_free(p);
 }
 
+/* two outputs of a call's frames: the frame count since the start, and its negation */
+static void counts(void *st, float **in, float *out, int n, const funk_context *cx) {
+  (void)in, (void)cx;
+  double *t = st;
+  for (int i = 0; i < n; i++) out[i] = (float)(*t + i), out[n + i] = (float)-(*t + i);
+  *t += n;
+}
+
+/* its input's second output */
+static void second(void *st, float **in, float *out, int n, const funk_context *cx) {
+  (void)st, (void)cx;
+  for (int i = 0; i < n; i++) out[i] = in[0][n + i];
+}
+
 static const char *same(const float *a, const float *b) {
   for (int i = 0; i < N; i++)
     if (a[i] != b[i]) return "no";
@@ -139,6 +154,32 @@ int main(int argc, char **argv) {
   funk_graph *g = funk_graph_new(4, 8000.0);
   printf("forward input rejected: %s\n", funk_graph_add(g, saw, NULL, 0, &bad_input, 1) < 0 ? "yes" : "no");
   funk_graph_free(g);
+
+  { /* a node of two outputs, read in calls of 5 and 3 frames */
+    g = funk_graph_new(5, 8000.0);
+    double zero = 0;
+    int w = funk_graph_add(g, counts, &zero, sizeof zero, NULL, 0);
+    printf("outputs: none rejected: %s, a control's rejected: %s\n", funk_graph_outputs(g, w, 0) < 0 ? "yes" : "no",
+           funk_graph_outputs(g, funk_graph_control(g, 0), 2) < 0 ? "yes" : "no");
+    printf("outputs: two given: %s\n", funk_graph_outputs(g, w, 2) == 0 ? "yes" : "no");
+    int r = funk_graph_add(g, second, NULL, 0, &w, 1);
+    funk_graph *h = funk_graph_new(5, 8000.0);
+    int a = funk_graph_add(h, counts, &zero, sizeof zero, NULL, 0);
+    funk_graph_add(h, second, NULL, 0, &a, 1);
+    printf("outputs: twice rejected: %s, once read rejected: %s\n", funk_graph_outputs(g, w, 3) < 0 ? "yes" : "no",
+           funk_graph_outputs(h, a, 2) < 0 ? "yes" : "no");
+    funk_graph_free(h);
+    funk_graph_output(g, w);
+    funk_graph_output(g, r);
+    funk_player *two = funk_player_new();
+    funk_player_play(two, g);
+    float l[N], rr[N];
+    funk_player_render_channels(two, (float *[]){l, rr}, 2, N);
+    printf("outputs:");
+    for (int i = 0; i < N; i++) printf(" %g/%g", l[i], rr[i]);
+    printf("\n");
+    funk_player_free(two);
+  }
   funk_player_play(player, chain(5, 0, 1000.0));
   for (int block = 0; block < 2; block++) {
     funk_player_render(player, out, N);
