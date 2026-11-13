@@ -23,6 +23,19 @@ a fmt chunk too small: no fmt chunk
 a frame size that disagrees: bad frame size
 missing: cannot open
 a directory: cannot open
+AIFF s16: 2 frames at 44100: 0.5000 -0.5000
+AIFF s8, signed: 2 frames at 8000: 0.5000 -0.5000
+AIFF s24: 1 frames at 48000: -0.5000
+AIFF 12 bits: 1 frames at 8000: 0.5000
+AIFF stereo after an offset, left: 2 frames at 8000: 0.2500 0.7500
+AIFF stereo after an offset, right: 2 frames at 8000: 0.5000 1.0000
+AIFC NONE s32: 1 frames at 8000: 0.5000
+AIFC sowt: 2 frames at 8000: 0.5000 -0.5000
+AIFC fl32: 1 frames at 8000: 0.2500
+AIFC fl64: 1 frames at 8000: 0.1250
+AIFC ulaw: unsupported AIFC compression
+AIFF without chunks: no COMM chunk
+FORM of another kind: not an AIFF file
 one file and channel is shared: 1; another channel is not: 1
 a replaced file is read again: 1, the old stays readable: 0.50, the new: 0.25
 equal values are shared: 1; others are not: 1
@@ -40,9 +53,9 @@ a NaN frequency stays in bounds
 an empty wavetable is silent: 0.000 0.000
 refused: state too small -1, a control -1, a second table: -1
 400 replaced files during playback: 0 wrong samples
-sample paths: -1 b.wav 0 a.WAV 1 b.wav 2 a.WAV
+sample paths: -1 e.aifc 0 a.WAV 1 b.wav 2 c.aif 3 d.AIFF 4 e.aifc 5 a.WAV
 sample path 'sn': '', no such sample folder
-sample path 'empty': '', no WAV files in the sample folder
+sample path 'empty': '', no WAV or AIFF files in the sample folder
 sample path '../bd': '', a sample name is one folder's name
 sample path 'bd/a.WAV': '', a sample name is one folder's name
 sample path '': '', a sample name is one folder's name

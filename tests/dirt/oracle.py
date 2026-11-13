@@ -44,6 +44,10 @@ CASES = [
     ("legato", "mono", 0.2, {"legato": 0.5, "delta": 0.2}),
     # cps 2.5: play.fk's cycle is a whole number of microseconds
     ("unitc", "mono", 0.5, {"unitc": 1.0, "cps": 2.5, "speed": 1.0}),
+    # unit "s": the span's length in seconds (DirtEvent.sc), the 0.11 s sample looping
+    ("units", "mono", 0.4, {"units": 1.0, "begin": 0.1, "end": 0.4}),
+    ("unitsLoop", "stereo", 0.5, {"units": 1.0, "end": 0.2, "loop": 2.0, "speed": 1.5}),
+    ("unitsSustain", "mono", 0.4, {"units": 1.0, "end": 0.3, "sustain": 0.12}),
     ("fade", "mono", 0.2, {"begin": 0.1, "sustain": 0.08, "fadeTime": 0.01}),
     ("gain", "mono", 0.2, {"gain": 1.2, "amp": 0.5}),
     ("stereo", "stereo", 0.2, {"pan": 0.8}),
@@ -70,6 +74,9 @@ CASES = [
     ("grenvelo", "mono", 0.2, {"tilt": 0.3, "plat": 0.2, "curve": 2.0}),
     ("pshift", "mono", 0.2, {"psrate": 1.5}),
     ("pshiftDown", "stereo", 0.2, {"psrate": 0.7, "speed": 0.8}),
+    # a 24-bit AIFF, at a third rate (S7)
+    ("aiff", "aiff", 0.2, {"speed": 1.3, "pan": 0.3}),
+    ("aiffLoop", "aiff", 0.3, {"begin": 0.2, "end": 0.6, "loop": 2.0, "cutoff": 900.0}),
     ("chain", "mono", 0.2, {"cutoff": 2000.0, "shape": 0.3, "crush": 6.0, "hcutoff": 200.0, "tremolorate": 7.0}),
     # default-effects-extra.scd's modules
     ("waveloss", "mono", 0.2, {"waveloss": 40.0}),
@@ -178,7 +185,9 @@ def events(controls):
     return controls if isinstance(controls, list) else [(0.0, controls)]
 
 # the samples: frames, file rate, channels; any other sound is a synth
-SAMPLES = {"mono": (5000, 44100, 1), "stereo": (4000, 48000, 2)}
+SAMPLES = {"mono": (5000, 44100, 1), "stereo": (4000, 48000, 2), "aiff": (4500, 22050, 2)}
+# the samples written as 24-bit AIFF, a.aif; the others are 16-bit WAV, a.wav
+AIFF = ["aiff"]
 
 
 def signal(i, c):
@@ -194,6 +203,21 @@ def write_wav(path, frames, rate, chans):
     with open(path, "wb") as f:
         f.write(b"RIFF" + struct.pack("<I", 4 + 8 + len(fmt) + 8 + len(data)) + b"WAVE")
         f.write(b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(data)) + data)
+
+
+def write_aiff(path, frames, rate, chans):
+    data = b"".join(struct.pack(">i", max(-8388608, min(8388607, round(8388607 * signal(i, c)))))[1:]
+                    for i in range(frames) for c in range(chans))
+    e = rate.bit_length() - 1  # rate as an 80-bit extended
+    comm = struct.pack(">hIh", chans, frames, 24) + struct.pack(">HQ", 16383 + e, rate << (63 - e))
+    ssnd = struct.pack(">II", 0, 0) + data
+    body = b"AIFF" + b"COMM" + struct.pack(">I", len(comm)) + comm + b"SSND" + struct.pack(">I", len(ssnd)) + ssnd
+    with open(path, "wb") as f:
+        f.write(b"FORM" + struct.pack(">I", len(body)) + body)
+
+
+def sample_file(name):
+    return "a.aif" if name in AIFF else "a.wav"
 
 
 def read_float_wav(path):
@@ -225,6 +249,8 @@ def sc_event(controls):
     for k, v in controls.items():
         if k == "unitc":
             parts.append("unit: \\c")
+        elif k == "units":
+            parts.append("unit: \\s")
         elif isinstance(v, str):
             parts.append("%s: \\%s" % (k, v))
         else:
@@ -233,7 +259,7 @@ def sc_event(controls):
 
 
 def funk_cases(controls):
-    """A case's controls as funk's: unit "c" is play.fk's unitc, a vowel its index."""
+    """A case's controls as funk's: unit "c" is play.fk's unitc, "s" its units, a vowel its index."""
     return "[" + ", ".join("(%s, %r)" % (f'"{k}"', float(VOWELS.index(v) if isinstance(v, str) else v)) for k, v in controls.items()) + "]"
 
 
@@ -273,12 +299,12 @@ def main():
     samples = os.path.join(outdir, "samples")
     for name, (frames, rate, chans) in SAMPLES.items():
         os.makedirs(os.path.join(samples, name), exist_ok=True)
-        write_wav(os.path.join(samples, name, "a.wav"), frames, rate, chans)
+        (write_aiff if name in AIFF else write_wav)(os.path.join(samples, name, sample_file(name)), frames, rate, chans)
     with open(os.path.join(outdir, "cases.scd"), "w") as f:
         f.write("[%d, [\n" % SEED)
         for name, s, secs, cs, core in CASES:
             frames, rate, chans = SAMPLES.get(s, SAMPLES["mono"])
-            f.write('  ["%s", "%s", %d, %d, %d, %s, %r, %s, "%s"],\n' % (name, os.path.abspath(os.path.join(samples, s if s in SAMPLES else "mono", "a.wav")),
+            f.write('  ["%s", "%s", %d, %d, %d, %s, %r, %s, "%s"],\n' % (name, os.path.abspath(os.path.join(samples, s if s in SAMPLES else "mono", sample_file(s if s in SAMPLES else "mono"))),
                                                              frames, rate, chans,
                 "[" + ", ".join("[%r, %s]" % (sc_time(LEAD + t), sc_event(c)) for t, c in events(cs)) + "]", LEAD + secs + TAIL,
                 "true" if core else "false", "" if s in SAMPLES else s))

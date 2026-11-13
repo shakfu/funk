@@ -592,7 +592,8 @@ samplerK st ins out n cx = samplerFrom (castPtr st) (input ins 0) (input ins 1) 
 -- data, backwards for a negative speed, loop times, or for sustain seconds if
 -- that is not negative, never past the part's end. Speed ramps to speed *
 -- (1 + accelerate) over the event, unless accelerate is 1e30, Tidal's absent;
--- pitch multiplies it; unitCps above 0 is unit "c": speed in plays per cycle.
+-- pitch multiplies it; unitCps above 0 is unit "c": speed in plays per cycle;
+-- below 0 is unit "s": the span lasts its length in seconds.
 -- Fades of min 1 ms (sustain * 0.19098), a sine's half, at the end, and at
 -- the start unless it starts at frame 0; a rising stop ends it in a linear
 -- fade as long, as a cut group does. Interpolation is linear, where
@@ -632,7 +633,7 @@ dirtStart s ins rate i = do
   e1 <- if absent then s1 else s1 * (1.0 + acc)
   avg <- if absent then abs s1 else (abs s1 + abs e1) * 0.5
   len <- abs (e - b)
-  natural <- unitDur * len / avg
+  natural <- if cps < 0.0 then len else unitDur * len / avg
   sus <- if susIn >= 0.0 then min natural susIn else natural * abs loop
   if frames < 1 || len == 0.0 || avg == 0.0 || not (sus >= 8.0 / rate) then writeField s Dirt.active 0.0 else do
     fade <- min 0.001 (sus * 0.19098)
@@ -740,7 +741,7 @@ bufRd dat frames ph = do
 -- fadeInTime, 3 speed, 4 endSpeed, from its first frame on. Inputs, read
 -- once: speed, begin, end, loop, accelerate (1e30 is absent), sustain
 -- (below 0 absent; legato's sustain is given), freq, unitCps (above 0 is unit
--- "c"), fadeTime. sclang reads + and * left to right, so the average
+-- "c", below 0 unit "s": the span's length is its seconds), fadeTime. sclang reads + and * left to right, so the average
 -- speed is (|speed| + |endSpeed|) * 0.5.
 foreign struct DirtSpan { dat :: Ptr CFloat, frames :: Int, srate :: Float, which :: Float, ready :: Float, value :: Float }
 
@@ -762,7 +763,7 @@ dirtSpan which frames srate speed b e loop acc susIn freq cps fadeIn = do
   absent <- acc > 1.0e29
   e1 <- if absent then s1 else s1 * (1.0 + acc)
   avg <- if absent then abs s1 else (abs s1 + abs e1) * 0.5
-  natural <- unit * abs (e - b) / avg
+  natural <- if cps < 0.0 then abs (e - b) else unit * abs (e - b) / avg
   sus <- if susIn >= 0.0 then min natural susIn else natural * abs loop
   fade <- min fadeIn (sus * 0.19098)
   fadeInTime <- if (if speed < 0.0 then e else b) /= 0.0 then fade else 0.0

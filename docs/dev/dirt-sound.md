@@ -252,7 +252,7 @@ Steps 1 to 5 are done, and of step 6 the API, the UGen library and `default-synt
 4. **The 13 core modules** (S1) and their UGens (S8), each checked against scsynth. Done 2026-11-12: `sound` and 12 effects.
 5. **Orbits and global effects** (S2): pausing and resuming as `DirtPause`, and parameters set by events. Done 2026-11-12.
 6. **Synths** (S3), and the funk API for user templates, with SuperDirt's names (decision 3): `addModule`, `addFilterModule`, `removeModule`, `orderModules`, synths and global effects. Done 2026-11-12: the API, the UGen library, `default-synths.scd`'s 5 portable synths and all 32 of `default-synths-extra.scd`'s, 46 `lib/dirt-scsynth` synth cases within 1.2e-7. Done 2026-11-13: `default-effects-extra.scd`'s 19 effects, 24 cases: 14 within 1.1e-8, the 10 FFT ones within 2e-5 (difference 13).
-7. **AIFF** (S7) and `unit "s"` (S6).
+7. **AIFF** (S7) and `unit "s"` (S6). Done 2026-11-13: 5 `lib/dirt-scsynth` cases, exact.
 
 ## Open
 

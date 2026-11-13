@@ -155,7 +155,7 @@ sampleChannel path c gate speed = g.Reader "dsp_sampler" (g.File path c) [0.0, 0
 key :: Int -> g.Sig
 key k = g.control ("k" ++ show k ++ ".gate") 0.0
 
--- a Tidal sample such as "sn:3": the index-th WAV file of dir/sn, sorted,
+-- a Tidal sample such as "sn:3": the index-th WAV or AIFF file of dir/sn, sorted,
 -- wrapping, as sample plays a file
 sampleOf :: String -> String -> g.Sig -> g.Sig -> g.Sig
 sampleOf dir name gate speed = case p.soundParts name of

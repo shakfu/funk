@@ -7,6 +7,7 @@
 
 #include <dirent.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,16 @@ static int home_path(const char *path, char *out, size_t n) {
   return snprintf(out, n, "%s", path) < (int)n;
 }
 
+/* SuperDirt's fileExtensions (DirtSoundLibrary.sc), in any case */
+static bool sample_name(const char *name, size_t len) {
+  static const char *const exts[] = {".wav", ".aif", ".aiff", ".aifc"};
+  for (size_t i = 0; i < sizeof exts / sizeof *exts; i++) {
+    size_t k = strlen(exts[i]);
+    if (len > k && !strcasecmp(name + len - k, exts[i])) return true;
+  }
+  return false;
+}
+
 const char *funk_sample_path(const char *dir, const char *name, int index) {
   static _Thread_local char out[4096];
   if (!*name || strchr(name, '/') || !strcmp(name, ".") || !strcmp(name, "..")) {
@@ -61,7 +72,7 @@ const char *funk_sample_path(const char *dir, const char *name, int index) {
   size_t n = 0, cap = 0;
   for (struct dirent *e; (e = readdir(d));) {
     size_t len = strlen(e->d_name);
-    if (e->d_name[0] == '.' || len < 5 || strcasecmp(e->d_name + len - 4, ".wav")) continue;
+    if (e->d_name[0] == '.' || !sample_name(e->d_name, len)) continue;
     if (n == cap) {
       char **more = realloc(files, (cap = cap ? 2 * cap : 16) * sizeof *files);
       if (!more) break;
@@ -72,7 +83,7 @@ const char *funk_sample_path(const char *dir, const char *name, int index) {
   }
   closedir(d);
   const char *result = "";
-  if (!n) last_error = "no WAV files in the sample folder";
+  if (!n) last_error = "no WAV or AIFF files in the sample folder";
   else {
     qsort(files, n, sizeof *files, by_name);
     long i = index % (long)n;
@@ -110,8 +121,91 @@ static float sample(const unsigned char *p, uint32_t format, uint32_t bytes) {
   }
 }
 
+static uint32_t u16be(const unsigned char *p) { return (uint32_t)p[0] << 8 | (uint32_t)p[1]; }
+static uint32_t u32be(const unsigned char *p) { return u16be(p) << 16 | u16be(p + 2); }
+
+/* An AIFF sample in -1 to 1: kind 0 big-endian integer, 1 little-endian
+   (AIFC's sowt), 2 big-endian float. A width under its bytes is left-justified. */
+static float aiff_sample(const unsigned char *p, int kind, uint32_t bytes) {
+  if (kind == 2) {
+    if (bytes == 4) {
+      uint32_t u = u32be(p);
+      float f;
+      memcpy(&f, &u, sizeof f);
+      return f;
+    }
+    uint64_t u = (uint64_t)u32be(p) << 32 | (uint64_t)u32be(p + 4);
+    double d;
+    memcpy(&d, &u, sizeof d);
+    return (float)d;
+  }
+  uint32_t v = 0;
+  for (uint32_t i = 0; i < bytes; i++) v |= (uint32_t)p[kind == 0 ? i : bytes - 1 - i] << (24 - 8 * i);
+  return bytes == 4 ? (float)((double)(int32_t)v / 2147483648.0) : (float)((int32_t)v >> (32 - 8 * bytes)) / (float)(1u << (8 * bytes - 1));
+}
+
+/* COMM's 80-bit extended sample rate; 0 if out of range */
+static double extended(const unsigned char *p) {
+  int e = (int)(u16be(p) & 0x7fff) - 16383 - 63;
+  uint64_t m = (uint64_t)u32be(p + 2) << 32 | u32be(p + 6);
+  if (!m || e > 0 || e < -1100) return 0;
+  double d = (double)m;
+  for (; e < 0; e++) d *= 0.5;
+  return d;
+}
+
+/* AIFF and AIFC (as libsndfile, which scsynth reads samples with): FORM, a
+   COMM chunk and an SSND chunk. Untrusted as decode's. */
+static const char *decode_aiff(const unsigned char *b, size_t n, int channel, funk_table *t) {
+  bool aifc = !memcmp(b + 8, "AIFC", 4);
+  if (!aifc && memcmp(b + 8, "AIFF", 4)) return "not an AIFF file";
+  const unsigned char *comm = NULL, *ssnd = NULL;
+  size_t comm_n = 0, ssnd_n = 0;
+  for (size_t at = 12; n - at >= 8;) {
+    size_t len = u32be(b + at + 4), body = at + 8, left = n - body;
+    if (!memcmp(b + at, "COMM", 4) && len <= left) {
+      comm = b + body;
+      comm_n = len;
+    } else if (!memcmp(b + at, "SSND", 4)) {
+      ssnd = b + body;
+      ssnd_n = len < left ? len : left;
+    }
+    if (len >= left) break;
+    at = body + len + (len & 1);
+    if (at > n) break;
+  }
+  if (!comm || comm_n < (aifc ? 22u : 18u)) return "no COMM chunk";
+  if (!ssnd || ssnd_n < 8) return "no SSND chunk";
+  uint32_t channels = u16be(comm), bits = u16be(comm + 6);
+  double rate = extended(comm + 8);
+  int kind = 0;
+  if (aifc) {
+    const unsigned char *c = comm + 18;
+    if (!memcmp(c, "sowt", 4)) kind = 1;
+    else if (!memcmp(c, "fl32", 4) || !memcmp(c, "FL32", 4) || !memcmp(c, "fl64", 4) || !memcmp(c, "FL64", 4)) kind = 2;
+    else if (memcmp(c, "NONE", 4) && memcmp(c, "twos", 4)) return "unsupported AIFC compression";
+    if (kind == 2) bits = c[2] == '3' ? 32 : 64;
+  }
+  uint32_t bytes = (bits + 7) / 8;
+  if (!channels || rate <= 0 || !bits) return "bad format";
+  if (kind == 2 ? bytes != 4 && bytes != 8 : bytes > 4) return "unsupported sample size";
+  size_t offset = u32be(ssnd);
+  if (offset > ssnd_n - 8) return "bad SSND offset";
+  const unsigned char *data = ssnd + 8 + offset;
+  size_t align = (size_t)channels * bytes, frames = (ssnd_n - 8 - offset) / align;
+  if (frames > INT32_MAX) return "too long";
+  int c = channel < (int)channels ? channel : (int)channels - 1;
+  t->data = malloc((frames ? frames : 1) * sizeof(float));
+  if (!t->data) return "out of memory";
+  for (size_t i = 0; i < frames; i++) t->data[i] = aiff_sample(data + i * align + (size_t)c * bytes, kind, bytes);
+  t->frames = (int64_t)frames;
+  t->rate = rate;
+  return NULL;
+}
+
 /* The file's bytes are untrusted: every offset is checked against n. */
 static const char *decode(const unsigned char *b, size_t n, int channel, funk_table *t) {
+  if (n >= 12 && !memcmp(b, "FORM", 4)) return decode_aiff(b, n, channel, t);
   if (n < 12 || memcmp(b, "RIFF", 4) || memcmp(b + 8, "WAVE", 4)) return "not a WAV file";
   const unsigned char *fmt = NULL, *data = NULL;
   size_t fmt_n = 0, data_n = 0;

@@ -84,10 +84,10 @@ int funk_graph_table_values(funk_graph *g, int node, const double *values, int64
 int funk_graph_table_builtin(funk_graph *g, int node, const char *name, int channel); /* table.h */
 const char *funk_table_error(void);
 
-/* The index-th WAV file of dir/name, sorted by name, the index wrapping as
-   SuperDirt's does: a Tidal sample such as "sn:3". "", with
-   funk_table_error, if name is not one folder's name or the folder has no
-   WAV file. A leading "~/" in dir is $HOME. The result lasts until the
+/* The index-th WAV or AIFF file of dir/name (.wav, .aif, .aiff or .aifc,
+   SuperDirt's), sorted by name, the index wrapping as SuperDirt's does: a
+   Tidal sample such as "sn:3". "", with funk_table_error, if name is not
+   one folder's name or the folder has no such file. A leading "~/" in dir is $HOME. The result lasts until the
    thread's next call. */
 const char *funk_sample_path(const char *dir, const char *name, int index);
 

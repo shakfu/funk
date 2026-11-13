@@ -9,6 +9,7 @@
 import graph as g
 import dsp as d
 import control (..)
+import pattern as pt
 
 foreign import ccall "stdlib.h getenv" getenv :: String ->> Ptr CChar
 
@@ -185,4 +186,29 @@ main = do
   -- synth's key, sustain from legato, fades and freq from n
   print (recordsOf 1000 1000 500 (d.prepare dt (controlsFromList [("s", VS "bd"), ("cutoff", VF 300.0)])))
   print (recordsOf 1000 1000 500 (d.prepare dt (controlsFromList [("s", VS "one"), ("n", VF 9.0), ("legato", VF 0.5)])))
+  -- a synth event's cycle is Tidal's: its whole's start, plus the ticks
+  -- the pattern was shifted by, unless it has its own; a sample's has none
+  print (cycles dt (s "one one bd") 0)
+  print (cycles dt (s "one one bd") (3 * pt.cycleTicks))
+  print (cycles dt (s "one" # pF "cycle" "7") 0)
   g.close p
+
+-- the cycle parameter of each event the records of a cycle of pat carry,
+-- written as funk-midi's slots write them for a pattern shifted ot ticks
+cycles :: d.Dirt -> pt.Pattern Controls -> Int ->> [Float]
+cycles dt pat ot = allocaBytes (24 * 256) (\buf -> do
+  n <- writeControlEventsAt ot (d.prepare dt) buf 256 (pt.windowOnsets [] pat 1000 0 1000) 1000 1000
+  paramsNamed "cycle" buf 0 (min n 256) [])
+
+-- the values of the parameter called name, in order: a name's chunks
+-- (tag 244) then its value (tag 245), a Float in the payload
+paramsNamed :: String -> Ptr Int -> Int -> Int -> [Char] ->> [Float]
+paramsNamed name buf i n acc = if i == n then [] else do
+  tag <- (peekByteOff buf (i * 24 + 8) :: Int)
+  if tag == 244 then paramsNamed name buf (i + 1) n (acc ++ unchunk (peekByteOff buf (i * 24 + 16) :: Int) 8)
+  else if tag == 245 then (if acc == unpack name then [(peekByteOff buf (i * 24 + 16) :: Float)] else []) ++ paramsNamed name buf (i + 1) n []
+  else paramsNamed name buf (i + 1) n []
+
+-- a chunk's characters, low byte first, without its zero padding
+unchunk :: Int -> Int -> [Char]
+unchunk c k = if k == 0 || c == 0 then [] else chr (mod c 256) : unchunk (div c 256) (k - 1)

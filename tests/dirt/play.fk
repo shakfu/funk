@@ -45,7 +45,7 @@ caseNumber k v ps = case lookup k ps of
 playEvent :: g.Player -> d.Dirt -> String -> Int -> (Float, [(String, Float)]) ->> Bool
 playEvent p dt s f (t, ps) = do
   ups <- 1000000
-  cs <- d.prepare dt (controlsFromList (("s", VS s) : map (\(k, v) -> if k == "unitc" then ("unit", VS "c") else if k == "vowel" then (k, VS (vowelName (round v))) else (k, VF v)) ps))
+  cs <- d.prepare dt (controlsFromList (("s", VS s) : map (\(k, v) -> if k == "unitc" then ("unit", VS "c") else if k == "units" then ("unit", VS "s") else if k == "vowel" then (k, VS (vowelName (round v))) else (k, VF v)) ps))
   g.event p (f + round (t * 44100.0)) ("s." ++ (if getControl "_synth" cs /= Nothing then s else sampleKey s 0)) (soundParams ups (round (toFloat ups / caseNumber "cps" 1.0 ps)) (round (toFloat ups * caseNumber "delta" 1.0 ps)) cs)
 
 -- a case on a player of its own, seeded, so its effects start fresh, as
@@ -54,7 +54,7 @@ playCase :: String -> String -> (String, String, Float, [(Float, [(String, Float
 playCase k dir (name, s, secs, es, core) = do
   p <- g.player [k] 44100.0 64
   g.seed p seed
-  dt <- d.loadSoundFiles dir ["mono", "stereo"] (if core then d.superDirtCore else d.superDirt)
+  dt <- d.loadSoundFiles dir ["mono", "stereo", "aiff"] (if core then d.superDirtCore else d.superDirt)
   d.playDirt p 256 dt
   ok <- all (\e -> e) (map (\e -> playEvent p dt s 0 e) es)
   putStrLn ("case " ++ name ++ (if ok then "" else " refused"))

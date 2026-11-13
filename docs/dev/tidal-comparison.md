@@ -149,9 +149,9 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 **S5. Done for events 2026-11-11: cubic interpolation.** `dsp_dirt_sample` ports `BufRd`'s, checked against scsynth (`lib/dirt-scsynth`); `d.kit` stays linear. The gap was: `dirt_sample` reads with `BufRd` at `interpolation: 4`, cubic (`core-synths.scd:47`). `d.kit` is linear ([music.md](../music.md#control-patterns)).
 
-**S6. Gap: `unit "s"`** plays as `unit "r"` ([music.md](../music.md#control-patterns)).
+**S6. Done 2026-11-13: `unit "s"`.** A sample's span lasts its length, `end` less `begin`, in seconds, as `DirtEvent.calcTimeSpan` computes it, in `d.kit` and `dirt`; speed is unchanged. `lib/dirt-scsynth` checks 3 cases, exact. The gap was: `unit "s"` played as `unit "r"`.
 
-**S7. Gap: file formats.** SuperDirt loads `wav`, `aif`, `aiff` and `aifc` (`DirtSoundLibrary.sc:14`). funk loads WAV only.
+**S7. Done 2026-11-13: file formats.** funk loads `wav`, `aif`, `aiff` and `aifc` files, as SuperDirt does (`DirtSoundLibrary.sc:14`): AIFF integers, and AIFC's `NONE`, `twos`, `sowt`, `fl32` and `fl64`. `lib/dirt-scsynth` plays a 24-bit AIFF exactly as scsynth does. The gap was: funk loaded WAV only.
 
 **S8. Gap: the UGens beneath.** Done 2026-11-12 for the core modules: `RLPF`, `RHPF`, `BPF`, `Latch`, `Impulse`, `SinOsc`, `LFPar`, `AllpassL`, `PitchShift`, `XFade2`, `Clip`, `LinExp` and `EnvGen`'s curves, in float32, within 2.2e-7 of scsynth. The global effects' and synths' remain. Exact parity means porting SuperCollider's C++ for the 50 distinct UGens these synths use, plus SuperDirt's 10 `Dirt*` classes. These include `RLPF`, `RHPF`, `HPF`, `BPF`, `Formlet`, `CombL`, `AllpassN`, `AllpassL`, `DelayC`, `PitchShift`, `Limiter`, `LeakDC`, `EnvGen`, `Pan2`, `Balance2` and `BufRd`. Control-rate inputs follow scsynth: one value per 64-sample block, interpolated as each UGen does. Two choices remain open:
 

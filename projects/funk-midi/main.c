@@ -75,7 +75,7 @@ static int64_t lookahead_us = 50000;
 /* SLOTS with --audio: each event through d.prepare dirt, so a sound of `dirt`
    plays as an event of its templates (docs/dev/dirt-sound.md); compiled
    again after dirt changes, so it names the new dirt */
-#define SLOTS_AUDIO "slots buf ctl nctl cs ot a b tb = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (p._shift (negate ot) (playStack ())) cs a b) of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeControlEventsBy (d.prepare dirt) (plusPtr nullPtr buf) 512 es cs 1000000"
+#define SLOTS_AUDIO "slots buf ctl nctl cs ot a b tb = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (p._shift (negate ot) (playStack ())) cs a b) of\n  es -> do\n    writeTempo (plusPtr nullPtr tb) cs es\n    writeControlEventsAt ot (d.prepare dirt) (plusPtr nullPtr buf) 512 es cs 1000000"
 /* `dirt`'s templates, from a pool of this many stages */
 #define PLAYDIRT "playdirt :: Int ->> Int\nplaydirt u = do { d.playDirt audioPlayer 256 dirt ; 0 }"
 /* for --dirt: the onsets with an `s`, for SuperDirt (writeDirtWith, lib/control.fk) */

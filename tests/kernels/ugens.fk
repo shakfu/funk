@@ -37,9 +37,9 @@ writeWav path channels xs = do
   fclose f
   ()
 
--- the next n frames, at most 64
+-- the next n frames
 frames :: g.Player -> Int ->> [Int]
-frames p n = allocaBytes 256 (\out -> do
+frames p n = allocaBytes (4 * max n 64) (\out -> do
   g.render p out n
   map (\i -> round (10000.0 * fromCFloat (peekByteOff out (4 * i) :: CFloat))) (enumFromTo 0 (n - 1)))
 
@@ -407,6 +407,9 @@ main = do
   print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0, -1.0, 1.0, 0.0] (-1) 14)
   print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 1.0, 1000.0] (-1) 10)
   print (dirtRun p wav [1.0, 0.0, 1.0, 1.0, 1.0e30, -1.0, 1.0, 4000.0] (-1) 4)
+  -- for unit "s", the span lasts its length in seconds: 0.01 of the file
+  -- plays 0.01 s, 80 frames at 8 kHz, where unit "r" would drop it
+  print (length (filter (\x -> x /= 0) (dirtRun p wav [1.0, 0.0, 0.01, 1.0, 1.0e30, -1.0, 1.0, -1.0] (-1) 200)))
   cremove wav
   -- named arguments: the same samples as positional, and the rest from defaults
   print (fresh p 4 (dsp.adsr .{ attack = 0.001, decay = 0.001, sustain = 0.5, release = 0.001 } 1) == fresh p 4 (dsp.adsr 0.001 0.001 0.5 0.001 1))

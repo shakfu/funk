@@ -1,4 +1,4 @@
-/* projects/funkgraph/table.c and lib/kernels.fk's readers. The WAV reader takes
+/* projects/funkgraph/table.c and lib/kernels.fk's readers. The WAV and AIFF reader takes
    every format and refuses malformed files without reading outside them;
    tables are shared and follow a replaced file; the sampler and wavetable
    read them; and an audio thread renders while this thread replaces the file
@@ -123,6 +123,70 @@ static void malformed(void) {
   char *slash = strrchr(dir, '/');
   if (slash) *slash = 0;
   printf("a directory: %s\n", funk_table_file(slash ? dir : ".", 0) ? "loaded" : funk_table_error());
+}
+
+static void be16(FILE *f, unsigned v) { fputc((int)(v >> 8 & 255), f), fputc((int)(v & 255), f); }
+static void be32(FILE *f, unsigned v) { be16(f, v >> 16), be16(f, v & 0xffff); }
+
+/* An AIFF, or an AIFC of compression type, of channels, bits and rate (a
+   whole number under 65536, as an 80-bit extended), then an SSND chunk of n
+   data bytes after offset ones */
+static FILE *aiff(const char *type, unsigned channels, unsigned bits, unsigned rate, unsigned n, unsigned offset) {
+  FILE *f = fopen(path, "wb");
+  if (!f) exit(1);
+  unsigned comm = type ? 24 : 18;
+  fwrite("FORM", 1, 4, f), be32(f, 4 + 8 + comm + 16 + offset + n), fwrite(type ? "AIFC" : "AIFF", 1, 4, f);
+  fwrite("COMM", 1, 4, f), be32(f, comm), be16(f, channels), be32(f, n / (channels * ((bits + 7) / 8))), be16(f, bits);
+  int e = 0;
+  while ((rate >> e) > 1) e++;
+  be16(f, 16383 + (unsigned)e), be32(f, rate << (31 - e)), be32(f, 0);
+  if (type) fwrite(type, 1, 4, f), fputc(0, f), fputc(0, f); /* an empty name, padded */
+  fwrite("SSND", 1, 4, f), be32(f, 8 + offset + n), be32(f, offset), be32(f, 0);
+  for (unsigned i = 0; i < offset; i++) fputc(0, f);
+  return f;
+}
+
+/* AIFF and AIFC, as SuperDirt loads them */
+static void aiffs(void) {
+  FILE *f = aiff(NULL, 1, 16, 44100, 4, 0);
+  be16(f, 16384), be16(f, 0xC000), fclose(f);
+  show("AIFF s16", 0);
+  f = aiff(NULL, 1, 8, 8000, 2, 0);
+  fputc(64, f), fputc(0xC0, f), fclose(f);
+  show("AIFF s8, signed", 0);
+  f = aiff(NULL, 1, 24, 48000, 3, 0);
+  fputc(0xC0, f), fputc(0, f), fputc(0, f), fclose(f);
+  show("AIFF s24", 0);
+  f = aiff(NULL, 1, 12, 8000, 2, 0); /* 12 bits, left-justified in 2 bytes */
+  be16(f, 0x4000), fclose(f);
+  show("AIFF 12 bits", 0);
+  f = aiff(NULL, 2, 16, 8000, 8, 4);
+  be16(f, 8192), be16(f, 16384), be16(f, 24576), be16(f, 32767), fclose(f);
+  show("AIFF stereo after an offset, left", 0);
+  show("AIFF stereo after an offset, right", 1);
+  f = aiff("NONE", 1, 32, 8000, 4, 0);
+  be32(f, 0x40000000), fclose(f);
+  show("AIFC NONE s32", 0);
+  f = aiff("sowt", 1, 16, 8000, 4, 0);
+  put16(f, 16384), put16(f, 0xC000), fclose(f);
+  show("AIFC sowt", 0);
+  float x = 0.25f;
+  unsigned u;
+  memcpy(&u, &x, 4);
+  f = aiff("fl32", 1, 32, 8000, 4, 0);
+  be32(f, u), fclose(f);
+  show("AIFC fl32", 0);
+  double y = 0.125;
+  unsigned long long v;
+  memcpy(&v, &y, 8);
+  f = aiff("fl64", 1, 64, 8000, 8, 0);
+  be32(f, (unsigned)(v >> 32)), be32(f, (unsigned)v), fclose(f);
+  show("AIFC fl64", 0);
+  f = aiff("ulaw", 1, 16, 8000, 2, 0);
+  be16(f, 0), fclose(f);
+  show("AIFC ulaw", 0);
+  bytes("AIFF without chunks", "FORM....AIFF", 12);
+  bytes("FORM of another kind", "FORM....8SVX", 12);
 }
 
 /* a file of frames copies of value */
@@ -292,7 +356,7 @@ static void swaps(void) {
   printf("400 replaced files during playback: %d wrong samples\n", atomic_load(&bad));
 }
 
-/* funk_sample_path: dir/name's WAV files, sorted, the index wrapping; a
+/* funk_sample_path: dir/name's WAV and AIFF files, sorted, the index wrapping; a
    name is one folder, never a path out of dir */
 static void touch(const char *p) {
   FILE *f = fopen(p, "w");
@@ -305,10 +369,10 @@ static void sample_paths(void) {
   snprintf(bd, sizeof bd, "%s/bd", dir);
   snprintf(empty, sizeof empty, "%s/empty", dir);
   mkdir(dir, 0700), mkdir(bd, 0700), mkdir(empty, 0700);
-  const char *files[] = {"b.wav", "a.WAV", "c.txt", ".d.wav"};
-  for (int i = 0; i < 4; i++) snprintf(f, sizeof f, "%s/%s", bd, files[i]), touch(f);
+  const char *files[] = {"b.wav", "a.WAV", "c.txt", ".d.wav", "c.aif", "d.AIFF", "e.aifc"};
+  for (int i = 0; i < 7; i++) snprintf(f, sizeof f, "%s/%s", bd, files[i]), touch(f);
   printf("sample paths:");
-  for (int i = -1; i <= 2; i++) {
+  for (int i = -1; i <= 5; i++) {
     const char *p = funk_sample_path(dir, "bd", i);
     printf(" %d %s", i, *p ? strrchr(p, '/') + 1 : "-");
   }
@@ -337,7 +401,7 @@ static void sample_paths(void) {
   if (t) funk_table_release(t);
   if (home) setenv("HOME", saved, 1);
   else unsetenv("HOME");
-  for (int i = 0; i < 4; i++) snprintf(f, sizeof f, "%s/%s", bd, files[i]), unlink(f);
+  for (int i = 0; i < 7; i++) snprintf(f, sizeof f, "%s/%s", bd, files[i]), unlink(f);
   rmdir(bd), rmdir(empty), rmdir(dir);
 }
 
@@ -353,6 +417,7 @@ int main(int argc, char **argv) {
   snprintf(path, sizeof path, "%s.%d.wav", argv[1], (int)getpid());
   formats();
   malformed();
+  aiffs();
   sharing();
   kernels();
   swaps();

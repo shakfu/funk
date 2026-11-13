@@ -52,11 +52,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   d1 $ s "bd*4 sn" # squiz "2" # djf "0.3" # freeze "<0 1>"
   ```
 
+- Samples in AIFF: `d.kit`, `d.loadSoundFiles`, `d.sample` and a Tidal sample's folder take `.aif`, `.aiff` and `.aifc` files beside `.wav`, as SuperDirt does (`DirtSoundLibrary.sc`), sorted together by name. AIFF's integers of 8 to 32 bits and AIFC's `NONE`, `twos`, `sowt`, `fl32` and `fl64` decode as libsndfile, which scsynth reads samples with, decodes them; other AIFC compressions are refused. `lib/dirt-scsynth` plays a 24-bit AIFF exactly as scsynth does.
+
+- `unit "s"`: a sample plays its span for the span's length, `end` less `begin`, in seconds, as SuperDirt's `DirtEvent.calcTimeSpan` does, in `d.kit` and `dirt`; it had played as `unit "r"`. `lib/dirt-scsynth` checks it with and without `sustain` and `loop`, exactly.
+
 - `foreign export ccall "exact cname"` compiles a kernel and the functions it reaches without fused multiply-adds, which `emit-c --kernels` otherwise lets clang form. lib/kernels.fk's scsynth ports are exact: clang had fused across their explicit float roundings, and `lib/dirt-scsynth`'s exact matches rose from 23 of 89 to 69. funk's own kernels keep contraction, which makes `dsp_lowpass1` 1.4 times faster (docs/dev/dsp.md, Decisions).
 
 ### Changed
 
-- A synth event's records carry what `DirtEvent` sends a synth: `pan` from -1 to 1, `n`, `speed` times `cps` for `unit "c"`, and `accelerate` only if given.
+- A synth event's records carry what `DirtEvent` sends a synth: `pan` from -1 to 1, `n`, `speed` times `cps` for `unit "c"`, and `accelerate` only if given. They also carry `cycle`, the start of the event's whole in cycles, as Tidal adds it; an event's own `cycle` wins, as in Tidal's `Map.union`. `cyclo` reads it. `writeControlEventsAt` takes the ticks a host shifted the pattern by, which funk-midi's `--audio` slots do.
 
 - `dirt` events play at SuperDirt's level, `amp` 0.4 times `(min gain 2 + overgain)^4`, computed in floats as `dirt_gate`'s SynthDef does: 8 dB below `d.kit`'s level 1. The monitor's limiter and softclip and its silence threshold act on absolute levels, so only that level matches SuperDirt.
 

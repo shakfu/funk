@@ -79,8 +79,8 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] Plan step 5: orbits' global effects with `DirtPause` (S2), scsynth's `RGen`, `dirt` at SuperDirt's level. Done 2026-11-12.
 
-- [ ] Plan step 6: synths (S3). Done: the UGen library (`lib/scsynth.fk`), `default-synths.scd`'s 5 portable synths. Done 2026-11-12 too: all 32 of `default-synths-extra.scd`'s. Done 2026-11-13: `default-effects-extra.scd`'s 19 effects. Left: a synth's `cycle` from the event.
-- [ ] Plan step 7: AIFF (S7), `unit "s"` (S6).
+- [x] Plan step 6: synths (S3). Done: the UGen library (`lib/scsynth.fk`), `default-synths.scd`'s 5 portable synths. Done 2026-11-12 too: all 32 of `default-synths-extra.scd`'s. Done 2026-11-13: `default-effects-extra.scd`'s 19 effects, and a synth's `cycle` from the event.
+- [x] Plan step 7: AIFF (S7), `unit "s"` (S6). Done 2026-11-13.
 
 - [ ] `out_to` and `map_from`, SuperDirt's routing modules, and `dirt_rms`.
 

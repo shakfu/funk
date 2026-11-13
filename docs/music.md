@@ -234,7 +234,7 @@ A string literal is mini-notation wherever a pattern is expected, as in Tidal: `
 `p.miniS` parses the same notation into a `Pattern String`, for names such as Tidal's samples: `p.miniS "bd*2 [hh sn:3] ~ cp?"`. A name starts with a letter or digit and goes on with letters, digits and `: . - _`; `bd .. sn` is `bd sn`, as in Tidal. `pat` plays a `Pattern Int`, so names become notes, in one of two ways:
 
 - `m.drums` plays General MIDI drums on channel 10, for a drum instrument in the host: `pat = m.drums (p.miniS "bd*2 [hh sn:3]")`. `bd` is 36, `sn` 38, `hh` 42, `cp` 39, `oh` 46; an index picks a variant, so `bd:1` is 35. `m.gmDrums` lists the names. A name not in it is dropped.
-- `d.kit` plays WAV files in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `scripts/dirt-samples.py` fetches Dirt-Samples to `~/.local/share/funk/Dirt-Samples`. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
+- `d.kit` plays WAV and AIFF files (`.wav`, `.aif`, `.aiff`, `.aifc`, as SuperDirt) in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `scripts/dirt-samples.py` fetches Dirt-Samples to `~/.local/share/funk/Dirt-Samples`. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
 
 ```haskell
 kit = ["bd", "sn:3", "hh"]
@@ -242,7 +242,7 @@ sig = d.kit "~/.local/share/funk/Dirt-Samples" kit
 pat = m.kit kit (p.miniS "bd*2 [hh sn:3]")
 ```
 
-A name not in the kit is dropped. A folder with no WAV file fails `sig`, and the last graph plays on.
+A name not in the kit is dropped. A folder with no WAV or AIFF file fails `sig`, and the last graph plays on.
 
 `^name` reads a control set from outside, as `cF_` and its kin do for the pattern's type: `n "0 ^x"` plays control `x` as the second step. A factor cannot be `^name`, as in Tidal.
 
@@ -294,7 +294,7 @@ sig = d.kit "~/.local/share/funk/Dirt-Samples" ["bd", "bd:3", "sn"]
 pat = s "bd*2 [sn bd:3]" # speed "<1 2>" # gain "0.9"
 ```
 
-A name not in the kit is silent. Each name has 4 voices, so 4 of its events overlap; a fifth takes the oldest's voice. `d.kitWith n dir names` gives `n`, up to 16. Interpolation is linear, where SuperDirt's is cubic, and `unit "s"` plays as `unit "r"`.
+A name not in the kit is silent. Each name has 4 voices, so 4 of its events overlap; a fifth takes the oldest's voice. `d.kitWith n dir names` gives `n`, up to 16. Interpolation is linear, where SuperDirt's is cubic. `unit "s"` plays the span for its length in seconds, as SuperDirt does: `# unit "s" # end 0.25` lasts 0.25 s.
 
 ### Events, as SuperDirt plays them
 
@@ -315,7 +315,7 @@ sig = d.orbit 0
 - `d.superDirt` has SuperDirt's 12 core effect modules, checked against scsynth: `vowel`, `shape`, `hpf`, `bpf`, `crush`, `coarse`, `lpf`, `pshift`, `envelope`, `grenvelo`, `tremolo` and `phaser`, run in that order, each on the controls SuperDirt's tests. Start from it in place of `d.noDirt` for SuperDirt's sound. A control a module reads but the event lacks is 0, as in SuperDirt, so `# attack 0.01` alone also has `release` 0. `out_to` and `map_from` are not ported.
 - After them `d.superDirt` runs `default-effects-extra.scd`'s 19 modules, also checked against scsynth: `waveloss`, `squiz`, `fshift` (with `fshiftnote` and `fshiftphase`), `triode`, `krush` (`kcutoff`), `octer` (`octersub`, `octersubsub`), `ring` (`ringf`, `ringdf`), `distort`, `spectral-delay` (`tsdelay`, `xsdelay`), `freeze`, `comb`, `smear`, `scram`, `binshift`, `hbrick`, `lbrick`, `real` and `imag` (`spectral-conformer`), `enhance`, and `djf`. The FFT ones are within 2e-5 of scsynth, the others within 1.1e-8.
 - `d.superDirt` also gives each of 16 orbits SuperDirt's global effects, checked against scsynth: `delay` (sc3-plugins' `SwitchDelay`), `room` and `size` (the reverb), `leslie`, and the monitor, which limits each orbit at 1 and so plays it 20 ms late. Each pauses when silent and wakes on an event that sets one of its controls, as SuperDirt's. `d.superDirtCore` has the delay SuperDirt uses without sc3-plugins, a `CombL`. They take about 34 MB a player at 44.1 kHz. `g.seed player n` seeds the reverb's and `pshift`'s random numbers, as scsynth's `RandSeed`; a player is seeded from the time.
-- `d.superDirt` and `d.superDirtCore` also play SuperDirt's synths `imp`, `psin`, `gabor`, `dirac` and `cyclo` (`default-synths.scd`), checked against scsynth: `s "imp"`. `d.superDirt` plays all 32 of `default-synths-extra.scd`'s: `superpiano`, `supermandolin`, `supergong`, `superhex`, `superfm`, `superchip`, `superkick`, `super808`, `superhat`, `supersnare`, `superclap`, `supersiren`, `supersquare`, `supersaw`, `superpwm`, `supercomparator`, `supernoise`, `superfork`, `superhammond`, `supervibe`, `superhoover`, `superzow`, `superstatic`, `supertron`, `superreese`, `soskick`, `soshats`, `sostoms`, `sossnare`, `supergrind`, `superprimes` and `superwavemechanics`. `superprimes` needs scsynth's `numWireBufs` above SuperDirt's 64 to load in SuperDirt. `superhammond`'s random phases are one fixed draw. Not ported: `in`, `in1` and `inr`, which read the audio input; `pmsin`, which reads the mouse; `dirt_from` and `superpanic`, which route; and `debug`, which prints. `cyclo` reads `cycle`, which an event has only if given.
+- `d.superDirt` and `d.superDirtCore` also play SuperDirt's synths `imp`, `psin`, `gabor`, `dirac` and `cyclo` (`default-synths.scd`), checked against scsynth: `s "imp"`. `d.superDirt` plays all 32 of `default-synths-extra.scd`'s: `superpiano`, `supermandolin`, `supergong`, `superhex`, `superfm`, `superchip`, `superkick`, `super808`, `superhat`, `supersnare`, `superclap`, `supersiren`, `supersquare`, `supersaw`, `superpwm`, `supercomparator`, `supernoise`, `superfork`, `superhammond`, `supervibe`, `superhoover`, `superzow`, `superstatic`, `supertron`, `superreese`, `soskick`, `soshats`, `sostoms`, `sossnare`, `supergrind`, `superprimes` and `superwavemechanics`. `superprimes` needs scsynth's `numWireBufs` above SuperDirt's 64 to load in SuperDirt. `superhammond`'s random phases are one fixed draw. Not ported: `in`, `in1` and `inr`, which read the audio input; `pmsin`, which reads the mouse; `dirt_from` and `superpanic`, which route; and `debug`, which prints. `cyclo` reads `cycle`, the cycle the event starts in, as Tidal sends it, unless the event gives its own.
 - `d.addModule name f test` adds a module, as SuperDirt's `addModule`. `f param x` replaces the chain `x`. `test` takes the event's controls; `d.has "cutoff"` is SuperDirt's `{ ~cutoff.notNil }`. A module of the same name is replaced in its place. `d.removeModule`, `d.orderModules` and `d.addFilterModule` follow SuperDirt's.
 - An event's parameter `room` on orbit 2 also sets `sig`'s control `o2.room`, from the event's frame, for global effects of one's own in `sig`.
 - The pool has 256 stages: a sound or a module of an event. Stages of large templates have fewer, so that the pool takes about 128 MB, as SuperDirt sets scsynth's memory: 42 for `pshift` at 44.1 kHz, 7 for `superprimes`. When a stage's pool is full, the newest event is dropped.
@@ -444,7 +444,7 @@ sig = voices (\gate freq -> gate * g.Node "my_fold" [] [d.saw freq] * 0.2)
 
 Evaluate the kernel again after an edit: `sig` picks it up, and the nodes that use it restart, unless its code is unchanged. The newest kernel of a name wins, so `dsp_saw` can replace `d.saw`'s. A kernel that fails to compile leaves the old one playing. A kernel's paragraph has no blank lines and stands alone: it sees `ugen`, the prelude and what it imports, not your other definitions. It must not allocate, and it needs a C compiler on this machine (`$CC`, or `cc`); without one, only the built-in kernels play. The C compiler may fuse a multiply and an add, which is faster and rounds once; `"exact my_fold"` keeps every rounding as written.
 
-`d.sample path gate speed` plays a WAV file once at each rising gate, in two channels. `speed` 1 is its own pitch, so `freq * d.dc (1.0 / 261.63)` plays middle C at that pitch. `d.wavetable values freq` repeats one cycle of values, which `d.cycleOf n f` makes, and `d.wavetableFile path freq` reads them from a file:
+`d.sample path gate speed` plays a WAV or AIFF file once at each rising gate, in two channels. `speed` 1 is its own pitch, so `freq * d.dc (1.0 / 261.63)` plays middle C at that pitch. `d.wavetable values freq` repeats one cycle of values, which `d.cycleOf n f` makes, and `d.wavetableFile path freq` reads them from a file:
 
 ```haskell
 sig = voices (\gate freq -> d.sample "/abs/path/piano.wav" gate (freq * d.dc (1.0 / 261.63)))
