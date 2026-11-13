@@ -5,6 +5,7 @@
 ## Method
 
 - Each patch is one file: Tidal's line as `pat`, under `import pattern (..)` and `control`'s names but `clip`. This assumes L5, an unqualified `pattern`, is done.
+
 - `funk check`, then `funk run`, printing as `tests/tidal/patches.fk` does. `tests/tidal/match.py` matches the events against Tidal's.
 
 ## Blockers
@@ -22,7 +23,9 @@ None of the patches needs T1's finer ticks: rounding stays at most 30 ticks, as 
 ## Results
 
 - Unchanged, with Tidal's names in scope: 5 of 22 type-check (p0, p2, p10, p16, p17).
+
 - With L3 and `toRational` shimmed: 20 of 22 run. Their counts of exact and rounded matches equal `tests/tidal/patches.expected`'s, so no new difference appears.
+
 - p11 and p14 fail on T2 alone.
 
 ## After L5 and L3

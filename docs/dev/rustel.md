@@ -5,8 +5,11 @@ Status: research, 2026-11-11. It compares funk with [rustel](https://github.com/
 ## Where they stand
 
 - **Language.** rustel runs Strudel's JavaScript in QuickJS. funk runs Tidal's Haskell syntax in its own interpreter and compiler.
+
 - **Size.** One squashed commit, about 716,000 lines of Rust in 21 crates. The largest are the studio (254k), the runtime (135k) and the audio engine (77k). Maturity cannot be judged from the history.
+
 - **Licence.** AGPL-3.0-or-later. funk is MIT. Ideas transfer; code does not.
+
 - **Sound reference.** rustel compares its renders with Chrome's WebAudio (`crates/audio/tests/chrome_reference.rs`). funk's 0.13 reference is scsynth. rustel's DSP constants and kernels are therefore no reference for SuperDirt parity.
 
 | | rustel | funk |
@@ -49,9 +52,13 @@ rustel compares only peak and RMS. That is too weak for funk's exact parity. Kee
 `crates/scheduler/src/lib.rs:1-20` states five clauses:
 
 - every event carries the generation of the pattern that made it, and an old generation is never delivered;
+
 - each onset id is delivered once;
+
 - stop has its own path, so evaluation cannot delay it;
+
 - reuse of an old schedule expires after a set time;
+
 - the clock is injected, and offline rendering uses the same virtual clock.
 
 funk-midi's slots ([stream.md](stream.md)) and the plugin hold some of these without a written contract. Writing it gives each clause a test.
@@ -77,11 +84,15 @@ rustel follows Link's play and stop states, joins a running session, and release
 ### 9. Smaller items
 
 - **Voice steals.** rustel counts the onsets it drops past 512 voices (`scalar.rs:254-261`). `d.kit` steals within its 4 voices a name, where SuperDirt starts a synth per event. A count of steals shows when that difference is audible.
+
 - **Session tapes.** rustel's studio logs each installed edit with its time, and replays the log (`docs/sessions.md`). This would make a live-set acceptance run repeatable.
+
 - **Onset placement.** rustel keeps a sub-sample lead per onset (`backend.rs:1137`), for the browser. scsynth's `OffsetOut` places an onset on a whole frame, so parity wants whole frames. funk's rounding is unchecked.
 
 ## Not adopted
 
 - rustel's DSP constants and kernels: they target WebAudio.
+
 - The QuickJS layer, transpiler and terminal studio: funk has its own language and hosts.
+
 - Peak and RMS as a parity metric.

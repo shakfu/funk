@@ -20,7 +20,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `d.superDirt`: SuperDirt's 12 core effect modules, in its order: `vowel`, `shape`, `hpf`, `bpf`, `crush`, `coarse`, `lpf`, `pshift`, `envelope`, `grenvelo`, `tremolo` and `phaser`. Each runs its SynthDef's UGen graph, ported from SuperCollider 3.13.0: `RLPF`, `RHPF`, `BPF`, `Latch`, `Impulse`, `SinOsc`, `LFPar`, `AllpassL`, `PitchShift`, `XFade2` and `EnvGen`'s curves. `lib/dirt-scsynth` adds 18 cases, run through SuperDirt's own module functions; all 34 match within 2.2e-7. Three behaviours of SuperDirt's that funk copies:
   - An argument a module names but the event lacks is 0, not the SynthDef's default: sclang sends nil as 0. `# attack 0.01` alone has release 0.
+
   - scsynth constructs a synth at its first calc, so a filter's constructor filters the chain's first frame once more.
+
   - On arm64, scsynth's audio-rate `/` is nova-simd's reciprocal estimate with one Newton step, good to about 16 bits. `shape` divides that way.
 
   Templates now share pools by size class, templates whose sizes round up to one power of two in one pool. A class has 256 slots, or as many as fit in 8 MB, scsynth's default real-time memory; then the classes with the fewest slots get more, one at a time, while all pools fit in 128 MB, the `memSize` that `SuperDirt.start` sets. A `pshift` stage, 196 KB at 44.1 kHz, gets 42; `superprimes`, 9.8 MB, gets 7. The budget covers all classes, as scsynth's one `memSize` does; 128 MB a class took 443 MB a player for `d.superDirt`. One pool sized by the largest template took 50 MB.
@@ -104,7 +106,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Tidal's `drawLine`, `drawLineSz`, `draw` and `stepcount`, and `Char` mini-notation, a letter or digit a step. `drawLine "a*2 [b c]"` prints the cycles as text, as in Tidal.
 
-  ```
+  ```text
   [15 cycles]
   |aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc|aabc
   ```
@@ -248,6 +250,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - In the REPL and hosts, redefining a name could keep the old definition, or reach code defined before it, depending on the copies the compiler had made:
   - After `f x = x + 1`, `f 2`, `f x = x + 10`, `f 2` gave 3. The copy `f@Int` was found by name, and the name outlived the definition. A copy of a function applied to `(+ root)`, as in `map (+ root) xs`, and element reuse's copies had the same fault.
+
   - After `g y = f y`, a new `f` changed `g 2` when `g` was overloaded, but not when it was monomorphic: a copy made later named the new `f`. Code now keeps the definitions it was written against, as in GHCi and so in Tidal; re-evaluate it to use a new one.
 
 - A mini-notation step longer than a cycle, such as `[lt*2]/5` in `"[sid/4]*3 [lt*2]/5 mt*3"`, had a different whole from Tidal's, so a join over it, as in `spread'`, gained or lost onsets. funk built an equal-weight sequence with `fastcat`, where Tidal's parser uses `timeCat`. funk's `timecat` also mapped a whole from the query's cycle, where Tidal's `_fastGap` maps it from its own. `rev "60*1.5 [61 62]*<2.5 3>"` has 130 onsets in 20 cycles, as in Tidal, not 140.

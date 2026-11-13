@@ -7,7 +7,9 @@
 The collector was correct. The check read a word that the program never used as a value.
 
 1. `fill_closure`, inlined into `eval`, stores free variables through a post-incremented pointer (`str x12, [x11], #8`). After the loop, x11 points one past the closure, at the next object in its chunk.
+
 2. `eval` then declares `V args[n]`. Clang calls `___chkstk_darwin` first, which saves x10 and x11 at `[sp, #-16]`: the top of the block the VLA then takes.
+
 3. That word sits in an unset slot or in the VLA's padding. The check scans it as a root and finds the next object, dead since the last cycle and so unmarked.
 
 The words never reach marking's snapshot, so they cause no retention outside the check.
@@ -15,7 +17,9 @@ The words never reach marking's snapshot, so they cause no retention outside the
 ## Evidence
 
 - With every unmarked object's payload poisoned at the end of each cycle, before any sweep, the whole suite ran unchanged under `FUNK_GCSTRESS=1`, the check off. A freed object in use would have crashed.
+
 - At the start of the failing cycle, no stack word, register, root, heap word or other writable memory pointed to the object, except a stale mark-stack entry.
+
 - An lldb watchpoint on the reported slot stopped in `___chkstk_darwin`, with x11 equal to the object's address. The object below it was a 4-word interpreted closure.
 
 ## Fix

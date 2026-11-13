@@ -5,9 +5,13 @@
 ## Method
 
 - 264 examples, each joined into one line: UI.hs 147, Core.hs 44, Control.hs 40, Params.hs 18, Pattern.hs 9, Transition.hs 4, Boot.hs 3, Scales.hs 1.
+
 - Tidal side: each example through `tests/tidal/Dirt.hs`'s `out` in ghci, as `d1` plays it, with `Data.Ratio` in scope. That is 800 windows of 10 ms at 0.5 cps, encoded by Tidal's `toOSC`.
+
 - funk side: `funk-midi --no-sleep --cycle 2000 --dirt`, as `tests/tidal/dirt.sh` runs, with the example as its only input.
+
 - An example matches exactly when the two sides send the same `/dirt/play` messages, bit for bit. Otherwise it matches by rounding when every message pairs with one within 36 ticks and 1e-4 in each value.
+
 - ctest `lib/tidal-docs` (`tests/tidal/docs.sh`) reruns this. `tests/tidal/docs.cases` holds the 248 examples Tidal runs, and `tests/tidal/docs.expected` holds each one's result.
 
 ## Results
@@ -25,12 +29,19 @@ So 227 of the 248 that Tidal runs run unchanged in funk, and 226 send what Tidal
 
 - **Tidal rejects 16.** 9 need definitions the doc only describes (`pats`, `fx`, `myscale`, `sine1`), or `step'`, which Tidal doesn't export. The others:
   - `slow (4%3)` and `spread slow [2,4%3]`: `Time` is not `Ratio Integer`.
+
   - 3 have `%` in mini-notation for a `Pattern Time`.
+
   - `'bite'` has quotes left over from Haddock markup.
+
   - an `up` example has an unbalanced `]`.
+
   - `accelerateTake` raises `toDatum: unhandled value` when played.
+
 - **Rounded 35.** Where traced, each divides a cycle finer than 1/16: `chop 32`, `*32`, `striate 128`, or inside a function, as `weave 16` does. 720720 ticks hold 2^4 but not 2^5. funk-midi plays onsets, so 44 us is inaudible. T1's finer ticks remain unneeded.
+
 - **`# cps`, 6.** funk-midi applies an event's `cps` to the tempo, as `Stream/Process.hs:151` does. `Dirt.hs` holds 0.5 cps. Measured in cycles, the two sides match by rounding, except the `delta` of the onsets at cycle 0. funk-midi times those at the old tempo, as Tidal does: `processCps` reads `on`, `off` and the tempo from the frame's session state and sets the new tempo in another (`Stream/Process.hs:136-163`). The two differ only in that span: Tidal's frame is 50 ms (`clockFrameTimespan`), funk-midi's window 10 ms. So `# cps` stays kept (C2) for `Dirt.hs`'s fixed tempo, not for funk-midi.
+
 - **`stripe`, 1.** Tidal's `substruct'` returns events outside the query, so its 800 windows send 3220 messages for 48 onsets. funk sends each of the 48 once.
 
 ## funk rejects 21
@@ -59,11 +70,17 @@ The census confirms L6: 1 example uses `|>`, and 108 use `#`.
 2026-11-11: F4's 12 functions and its string as a `ControlPattern`, C3's `grain'`, `midinote`, `drum` and `drumN`, and a polymorphic `chromaticiseBy`. 199 examples are exact and 7 rejected:
 
 - `<>` on patterns;
+
 - `show` gives a `String`, not a `[Char]`;
+
 - `Data.Fixed.mod'`;
+
 - `|>` (L6);
+
 - `Map.singleton` and `VN`;
+
 - `quantise` on notes (L9);
+
 - `scale` (F1).
 
 ## After L9 and F1

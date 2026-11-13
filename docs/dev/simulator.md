@@ -17,7 +17,9 @@ Read once per instance, at `init`. Unset `FUNK_MIDI_CLAP_SIM` turns the simulato
 | `FUNK_MIDI_CLAP_SIM_SEED` | an unsigned integer | the clock's; logged |
 
 - `rotate` starts instance N at step N. `random` never picks a step twice in a row; instance N uses seed + N.
+
 - Every instance reads the same script and appends to the same log. Lines carry `#N`, the instance's number in the process.
+
 - The simulator turns Live on. A project saved with Live off loads in clip mode. The log's step lines then say `clip`.
 
 ## Script
@@ -36,8 +38,11 @@ pat = p.atom nosuch
 ```
 
 - A `--- name` line starts a step. A `---word` line is a comment.
+
 - Blank lines separate paragraphs. Each is evaluated alone, as Ctrl+Return evaluates it. A paragraph of only comments is skipped.
+
 - The script is read again before each step, so it can be edited during a run.
+
 - A step waits for its evaluations. An expression of type `Pattern Int` waits one cycle, 2 s at 120 BPM.
 
 ## Log
@@ -65,13 +70,17 @@ A block is over budget when `process()` takes longer than the block lasts: `fram
 ## Limits
 
 - The timings are this plugin's `process()` only. The host's deadline also covers other plugins and its own mixing. REAPER's anticipative FX processing runs plugins ahead of the device (REAPER's documentation; not checked here), so an over-budget block may not be audible. Count the device's underruns in REAPER as well.
+
 - The simulator does not press Stop, move the transport or change the tempo. Do those by hand.
+
 - An evaluation that never ends stops the simulator. The log shows `busy`.
 
 ## In REAPER
 
 1. `make clap`.
+
 2. In REAPER's preferences, under Plug-ins > CLAP, add `build/clap` to the paths and rescan. `funkdsp.so` must stay beside `funk-midi.clap`. A symlink to the `.clap` alone loses the kernels: the plugin looks beside the path it was loaded from.
+
 3. Start REAPER with the variables set:
 
    ```sh
@@ -82,6 +91,7 @@ A block is over budget when `process()` takes longer than the block lasts: `fram
    On macOS, run `/Applications/REAPER.app/Contents/MacOS/REAPER` in place of `reaper`. REAPER started from Finder or the Dock does not see the variables.
 
 4. Insert `funk-midi` on one or more tracks. Steps start at each instance's first block.
+
 5. Read the log: `grep -E ' (slow|busy|error) |failed' projects/funk-clap/sim-set.fk.log`. The `error` step fails on purpose.
 
 On macOS, REAPER stops playback when it loses focus or the display sleeps. A pattern step then waits until playback resumes, and the log shows `busy`. Keep REAPER in front, and run `caffeinate -d` for the session.

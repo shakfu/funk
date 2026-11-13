@@ -7,12 +7,15 @@ Rule: funk matches Tidal and SuperDirt. A difference stays only for a stated rea
 References, checked from source, not documentation:
 
 - tidal 1.10.3 and tidal-core 1.10.2, from Hackage (`~/.cabal/packages/hackage.haskell.org/`). Exports were checked with `ghci -package tidal` against `Sound.Tidal.Context`.
+
 - SuperDirt 1.7.3, commit `7e245e8` (2022-01-04), as installed in `~/Library/Application Support/SuperCollider/downloaded-quarks/SuperDirt`. It is not checked whether this is the release Tidal 1.10.3 expects.
 
 Status:
 
 - **Gap**: no reason; to close.
+
 - **Kept**: a reason given; the difference stays.
+
 - **Review**: a reason is missing or weak; decide.
 
 ## Summary
@@ -34,6 +37,7 @@ Every library gap of 0.12 is done. Open are T3 and R6; the SuperDirt sound is 0.
 **L1. Done 2026-11-09: a string literal is a pattern.** `class FromString` in the prelude, as `FromFloat`: a literal at another type calls its `fromString`, and an unfixed one is a `String`. `instance Parseable a => FromString (Pattern a)` parses it as Tidal's `parseBP_E` does, for `Int`, `Float`, `String`, `Note` and `Bool`. `lib/tidal` checks 7 cases of literals against Tidal. Generalization follows GHC's, done 2026-11-09 ([design.md](design.md#monomorphism-restriction)):
 
 - In a file, `riff = "0 2"` takes its type from its uses, under GHC's monomorphism restriction. A REPL or host input generalizes it, as GHCi's prompt does, so `riff :: FromString a => a` plays as `n riff` and `s riff` in later inputs, and `pat = p.fast 2 "0 2"` plays in a host as a `Pattern Int`.
+
 - Unlike GHCi, a generalized value is computed once per type it is used at, not at every use, and once at its default types (`Int`, `Float`, `String`) as it is defined, so its errors show then.
 
 **L2. Done 2026-11-09: controls take patterns.** Each of the 257 controls takes Tidal's type: `Pattern Float` for Tidal's `Double`, `Pattern Int`, `Pattern String`, and `Pattern Note` for `n`, `note`, `up` and `number`. `Note` is Tidal's: a `Float` whose mini-notation reads note names first, with Tidal's `Show`. Tidal's signals and `irand`, `run` and `scan` are polymorphic, as Tidal's are, so `n (irand 8)` and `n (segment 4 (range 0 7 sine))` check. 9 cases in `lib/tidal` check them against Tidal. A signal's type needs `FromFloat` where Tidal's needs `Fractional` (L4), and `run` and `scan` need `Num` and `Ord` where Tidal's need `Enum` (L8).
@@ -43,6 +47,7 @@ Every library gap of 0.12 is done. Open are T3 and R6; the SuperDirt sound is 0.
 **L4. Done 2026-11-09: `Fractional`.** `class (Num a, FromFloat a) => Fractional a`, with `/` and `recip` and Haskell's defaults for each. `Pattern a`, `Note` and `Controls` are instances, as Tidal's `Pattern a`, `Note` and `ValueMap` are, so `(26/8) <~ p` ports as written; a float literal at `Controls` is a `speed`. `lib/tidal` checks 7 cases against Tidal. The C emitted for the 6 benchmarks that divide is unchanged but for constructor numbers. Differences, kept:
 
 - A float literal needs `FromFloat`, Haskell's needs `Fractional`. They differ only for a type with `FromFloat` and no `/`, such as `lib/dsp.fk`'s `Sig`, which no Tidal code has.
+
 - No `fromRational`: it waits for T3's `Rational`. `Floating` (`pi`, `sin` on patterns) is not done.
 
 **L5. Done 2026-11-10: the pattern library is unqualified in the hosts.** funk-midi and the plugin import `pattern` as `p` and with `(..)`, so Tidal's names work as written and `p.` names still do. No `pattern` name is the prelude's. One clashed with `control`: `pattern`'s internal `clip`, now `clipEvent`, so `clip` is Tidal's control. A name defined at the prompt shadows an imported one, as at GHCi's ([modules.md](modules.md)); funk-midi's `sig` needs that. `pattern` has no export list, so its 673 names, helpers included, are all in scope. [patch-census.md](patch-census.md) ran the 22 patches this way.
@@ -114,7 +119,9 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 **C3. Done 2026-11-11, but buses and `ringCount`: the rest of `Params.hs`.** `lib/control.fk` has the 194 `xTake`, 188 `xCount` and 189 `xCountTo` generated from Tidal's `Params.hs`, `pStateF`, `pStateList`, `pStateListF`, `pStateListS`, `pB`, `pR`, `pX`, `array`, `midinote`, `drum`, `drumN` and `grain'`. `Value` has Tidal's `VB`, `VR` (a `Float`), `VX`, `VList` and `VState`. funk-midi resolves each window's state values as Tidal's `doTick` does: sorted by part, in one map with the host's controls, kept for the next window. `tests/tidal/Dirt.hs` checks counters, lists, Bools and blobs against Tidal's own state passing. Missing:
 
 - `xbus` and `xrecv` (246 and 208): SuperDirt control buses, which need S2's;
+
 - `ringCount`: the prelude's `ringCount`, of a `Ring`, has the name. Its equivalent is `pStateF "ring" name (\m -> fromMaybe (-1.0) m + 1.0)`;
+
 - state in the plugin, which has no host state (R5): a state value there fails as Tidal's `toDatum` does.
 
 ## Runtime and workflow
@@ -156,6 +163,7 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 **S8. Gap: the UGens beneath.** Done 2026-11-12 for the core modules: `RLPF`, `RHPF`, `BPF`, `Latch`, `Impulse`, `SinOsc`, `LFPar`, `AllpassL`, `PitchShift`, `XFade2`, `Clip`, `LinExp` and `EnvGen`'s curves, in float32, within 2.2e-7 of scsynth. The global effects' and synths' remain. Exact parity means porting SuperCollider's C++ for the 50 distinct UGens these synths use, plus SuperDirt's 10 `Dirt*` classes. These include `RLPF`, `RHPF`, `HPF`, `BPF`, `Formlet`, `CombL`, `AllpassN`, `AllpassL`, `DelayC`, `PitchShift`, `Limiter`, `LeakDC`, `EnvGen`, `Pan2`, `Balance2` and `BufRd`. Control-rate inputs follow scsynth: one value per 64-sample block, interpolated as each UGen does. Two choices remain open:
 
 - Random UGens (`PitchShift`, `LFNoise1`) draw from scsynth's per-synth RNG. Port the RNG and its seeding for exact output, or match only the statistics.
+
 - scsynth computes in `float32`. Match it bit for bit in `float32`, or work in double with a stated error bound.
 
 **S9. Done 2026-11-09: an OSC target.** `funk-midi --dirt [HOST:]PORT` sends `/dirt/play` bundles as Tidal's `superdirtTarget` does ([dirt.md](dirt.md)). `lib/tidal-dirt` checks 122 messages of 12 patterns against Tidal's own `toOSC`, float bits included. S1 to S8 now matter only in the plugin and without SuperCollider. It shakes hands as Tidal does. An event's `cps` sets the tempo (C2).
@@ -165,11 +173,15 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 ## Method
 
 - Names: every top-level signature in tidal-core's `src/Sound/Tidal/*.hs`, `Params.hs` included, less those defined in `lib/*.fk`. Each remaining name was then checked with `ghci -package tidal` (`:t Sound.Tidal.Context.<name>`) for export. Parser internals of `ParseBP.hs` and the helpers of `Utils.hs` are left out.
+
 - Behaviour: from [combinators.md](combinators.md), [patch-port.md](patch-port.md), [delivery.md](delivery.md), [controls-in.md](controls-in.md) and [music.md](../music.md).
+
 - SuperDirt: `synths/*.scd`, `library/*.scd` and `classes/*.sc`, grepped for SynthDefs and UGens.
 
 Not yet checked:
 
 - the Tidal API beyond `tidal-core` and `Boot.hs`, such as `Sound.Tidal.Stream`'s target configuration and its OSC formats other than SuperDirt's;
+
 - SuperDirt's event-level parameters one by one, beyond those named above;
+
 - whether the installed SuperDirt 1.7.3 is the release that matches Tidal 1.10.3.

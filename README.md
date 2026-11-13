@@ -220,6 +220,7 @@ The prelude defines:
 | `Num` | `+`, `-`, `*`, `negate`, `abs`, `fromInt` | `Int`, `Float` |
 
 - `deriving (Eq, Ord, Show)` is required to compare or print a data type. Without it, `A == B` is a type error. `deriving Enum` gives a type of nullary constructors `succ`, `pred`, `toEnum`, `fromEnum` and ranges: `[Red .. Blue]`.
+
 - `[a .. b]` and `[a, b .. c]` are Haskell's `Enum` ranges, for `Int`, `Float`, `Char`, `Bool`, `Ordering`, `()` and derived types. A `Float` range ends at the last value up to `b + 1/2`, as Haskell's: `[1.0 .. 2.5]` is `[1.0, 2.0, 3.0]`. The infinite `[a ..]` is missing.
 
 - Integer literals have type `Num a => a`: `x + 1` and `2.5 * 2` both check, and `1` at a user `Num` type calls its `fromInt`.

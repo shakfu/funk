@@ -7,7 +7,9 @@
 One OSC bundle per onset whose controls name `s`, Tidal's `superdirtShape` (`Stream/Target.hs`). The bundle holds one `/dirt/play` message of name and value pairs, in name order, as Tidal's `Map.toList` gives them (`Stream/Process.hs`, `toOSC`):
 
 - the event's controls: a `Float` as an OSC `float32`, an `Int` as an `int32`, a `String` as a string;
+
 - `cps`, `cycle` (the onset's cycle) and `delta` (the event's length in seconds), unless the pattern sets them: Tidal's `Map.union` keeps the pattern's;
+
 - `_id_`, the slot's ID, which each slot adds ([stream.md](stream.md)).
 
 `lib/control.fk`'s `writeDirtWith` writes each event's times, cycle and controls to the host's buffer; `projects/funk-midi/dirt.c` encodes the bundle. The encoding stays in C because funk has no way to write a big-endian `float32`.
@@ -27,10 +29,13 @@ As Tidal's (`Stream/Target.hs`, `handshake`): `/dirt/handshake`, then 2 s of lis
 ## Not done
 
 - An event's `cps` does not change the tempo; that is R3.
+
 - `oLatency` and the target's address are not configurable beyond `--dirt`'s.
 
 ## Tests
 
 - `lib/tidal-dirt` (`tests/tidal/dirt.sh`): `tests/tidal/Dirt.hs` builds Tidal's own `/dirt/play` messages for 12 patterns through `toOSC`, over cycles 0 to 4 at 0.5 cps; funk-midi plays the same patterns on its virtual clock and prints the messages it encodes, decoded. All 122 messages match, float bits included. The time tags are not compared: Tidal's come from its Link clock.
+
 - `hosts/dirt` (`tests/hosts/dirt.txt`): time tags, `nudge`, `:cycle`, `:stop` and a pattern of the wrong type.
+
 - `hosts/dirt-handshake` (`tests/hosts/dirt_handshake.py`): a stand-in for SuperDirt that listens only after 2.5 s, replies, then sends `/dirt/hello`. funk-midi must wait, connect, report each once, and shake again.

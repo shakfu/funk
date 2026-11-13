@@ -15,5 +15,7 @@ Zig provides glibc, but not X11, OpenGL or ALSA, hence the sysroot. udev is off 
 ## What differs from a native build
 
 - `-Wl,--exclude-libs,ALL` is dropped: Zig rejects it. The version script still exports only `clap_entry`.
+
 - libfunk links `-lunwind`. `funk build` with `CC="zig cc -target ...-linux-gnu"` needs `-lunwind` too, for `rt.c`'s GC check.
+
 - libc++ is linked statically. The plugin needs `libX11.so.6`, `libGLX.so.0`, `libOpenGL.so.0` and glibc 2.34; it is 2.3 MB stripped.

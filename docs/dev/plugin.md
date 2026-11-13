@@ -250,7 +250,9 @@ Done, 2026-11-01: while the editor's code field is active, REAPER treats the edi
 Checked 2026-11-02, macOS 26 on an M1. Under the hardened runtime, `dlopen` applies library validation: a library must be Apple's or carry the host's Team ID, unless the host has `com.apple.security.cs.disable-library-validation`. The plugin and its kernels are both ad-hoc signed by the linker, so a host that loads the plugin loads its kernels. A kernel is a signed file mapped by `dlopen`, not memory written and then made executable, so it needs neither `allow-jit` nor `allow-unsigned-executable-memory`.
 
 - `test_clap_host`, re-signed ad hoc with `-o runtime` and no entitlements: refuses the plugin itself ("mapping process and mapped file (non-platform) have different Team IDs").
+
 - The same with `disable-library-validation` alone: every case of `tests/hosts/clap.txt` passes, and 5 kernels compile and load.
+
 - A hardened program's `dlopen` refuses relative paths. The kernel cache is under `$XDG_CACHE_HOME`, or `$HOME/.cache`; a relative `XDG_CACHE_HOME` would fail (TODO).
 
 Installed hosts with the hardened runtime and `disable-library-validation`, read with `codesign -d --entitlements`: REAPER, Ableton Live 12 Lite, Renoise, Max, Pd, VCV Rack 2, Element and plugdata. Bitwig is not installed here. A host without it cannot load an ad-hoc signed plugin at all, so the kernels add no new refusal. Not run in a DAW yet: that is the acceptance test.

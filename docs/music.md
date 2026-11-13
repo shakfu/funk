@@ -234,6 +234,7 @@ A string literal is mini-notation wherever a pattern is expected, as in Tidal: `
 `p.miniS` parses the same notation into a `Pattern String`, for names such as Tidal's samples: `p.miniS "bd*2 [hh sn:3] ~ cp?"`. A name starts with a letter or digit and goes on with letters, digits and `: . - _`; `bd .. sn` is `bd sn`, as in Tidal. `pat` plays a `Pattern Int`, so names become notes, in one of two ways:
 
 - `m.drums` plays General MIDI drums on channel 10, for a drum instrument in the host: `pat = m.drums (p.miniS "bd*2 [hh sn:3]")`. `bd` is 36, `sn` 38, `hh` 42, `cp` 39, `oh` 46; an index picks a variant, so `bd:1` is 35. `m.gmDrums` lists the names. A name not in it is dropped.
+
 - `d.kit` plays WAV and AIFF files (`.wav`, `.aif`, `.aiff`, `.aifc`, as SuperDirt) in the plugin, from a folder laid out as Tidal's Dirt-Samples, and `m.kit` sends the notes it plays. `scripts/dirt-samples.py` fetches Dirt-Samples to `~/.local/share/funk/Dirt-Samples`. `sn:3` is the 4th WAV file of `sn/`, sorted by name; the index wraps, as SuperDirt's does. The kit's names, in order, play on notes 0, 1, 2 and on:
 
 ```haskell
@@ -310,14 +311,23 @@ sig = d.orbit 0
 ```
 
 - `d.loadSoundFiles dir names` adds samples. They play as SuperDirt's `dirt_sample` does, checked against scsynth: cubic interpolation, and equal-power pan, so a centred sample is 3 dB down on each channel against `d.kit`'s. They play at SuperDirt's level: `amp` 0.4, times `(min gain 2 + overgain)^4`, 8 dB below `d.kit`'s.
+
 - `d.addSynth name f` adds a synth for `s "name"`. `param name default` reads the event's parameter: `freq` from `note`, else `n`, and `octave`, and every other number the event has. `sustain` is the event's, else the event times `legato`, less its fades.
+
 - SuperDirt's `dirt_gate` ends every event: its envelope over `sustain`, its level, and its cut group.
+
 - `d.superDirt` has SuperDirt's 12 core effect modules, checked against scsynth: `vowel`, `shape`, `hpf`, `bpf`, `crush`, `coarse`, `lpf`, `pshift`, `envelope`, `grenvelo`, `tremolo` and `phaser`, run in that order, each on the controls SuperDirt's tests. Start from it in place of `d.noDirt` for SuperDirt's sound. A control a module reads but the event lacks is 0, as in SuperDirt, so `# attack 0.01` alone also has `release` 0. `out_to` and `map_from` are not ported.
+
 - After them `d.superDirt` runs `default-effects-extra.scd`'s 19 modules, also checked against scsynth: `waveloss`, `squiz`, `fshift` (with `fshiftnote` and `fshiftphase`), `triode`, `krush` (`kcutoff`), `octer` (`octersub`, `octersubsub`), `ring` (`ringf`, `ringdf`), `distort`, `spectral-delay` (`tsdelay`, `xsdelay`), `freeze`, `comb`, `smear`, `scram`, `binshift`, `hbrick`, `lbrick`, `real` and `imag` (`spectral-conformer`), `enhance`, and `djf`. The FFT ones are within 2e-5 of scsynth, the others within 1.1e-8.
+
 - `d.superDirt` also gives each of 16 orbits SuperDirt's global effects, checked against scsynth: `delay` (sc3-plugins' `SwitchDelay`), `room` and `size` (the reverb), `leslie`, and the monitor, which limits each orbit at 1 and so plays it 20 ms late. Each pauses when silent and wakes on an event that sets one of its controls, as SuperDirt's. `d.superDirtCore` has the delay SuperDirt uses without sc3-plugins, a `CombL`. They take about 34 MB a player at 44.1 kHz. `g.seed player n` seeds the reverb's and `pshift`'s random numbers, as scsynth's `RandSeed`; a player is seeded from the time.
+
 - `d.superDirt` and `d.superDirtCore` also play SuperDirt's synths `imp`, `psin`, `gabor`, `dirac` and `cyclo` (`default-synths.scd`), checked against scsynth: `s "imp"`. `d.superDirt` plays all 32 of `default-synths-extra.scd`'s: `superpiano`, `supermandolin`, `supergong`, `superhex`, `superfm`, `superchip`, `superkick`, `super808`, `superhat`, `supersnare`, `superclap`, `supersiren`, `supersquare`, `supersaw`, `superpwm`, `supercomparator`, `supernoise`, `superfork`, `superhammond`, `supervibe`, `superhoover`, `superzow`, `superstatic`, `supertron`, `superreese`, `soskick`, `soshats`, `sostoms`, `sossnare`, `supergrind`, `superprimes` and `superwavemechanics`. `superprimes` needs scsynth's `numWireBufs` above SuperDirt's 64 to load in SuperDirt. `superhammond`'s random phases are one fixed draw. Not ported: `in`, `in1` and `inr`, which read the audio input; `pmsin`, which reads the mouse; `dirt_from` and `superpanic`, which route; and `debug`, which prints. `cyclo` reads `cycle`, the cycle the event starts in, as Tidal sends it, unless the event gives its own.
+
 - `d.addModule name f test` adds a module, as SuperDirt's `addModule`. `f param x` replaces the chain `x`. `test` takes the event's controls; `d.has "cutoff"` is SuperDirt's `{ ~cutoff.notNil }`. A module of the same name is replaced in its place. `d.removeModule`, `d.orderModules` and `d.addFilterModule` follow SuperDirt's.
+
 - An event's parameter `room` on orbit 2 also sets `sig`'s control `o2.room`, from the event's frame, for global effects of one's own in `sig`.
+
 - The pool has 256 stages: a sound or a module of an event. Stages of large templates have fewer, so that the pool takes about 128 MB, as SuperDirt sets scsynth's memory: 42 for `pshift` at 44.1 kHz, 7 for `superprimes`. When a stage's pool is full, the newest event is dropped.
 
 An event renders in blocks of 64 frames, from the start of the block that holds its time, with its output delayed to that time, as scsynth's `OffsetOut`. In the plugin, an event for a block already rendered starts at the next one; a host block of a multiple of 64 frames avoids that. Redefining `dirt` affects new events. Those already playing finish on the old one. The 4 sample voices of `d.kit` remain for `m.kit`'s notes and for sounds `dirt` lacks.
@@ -334,7 +344,9 @@ pat = p.segment 8 (p.range 48.0 72.0 (p.cF 0.0 "cc74")) -- a Pattern Float, mapp
 ```
 
 - `p.osc port`: Tidal's OSC `/ctrl name value` on 127.0.0.1, under its own name. Tidal's port is 6010.
+
 - `p.midiCC`: CC 74 as `"cc74"`, from any channel, and `"1:cc74"` from channel 1, 0 to 1. The plugin takes it from its MIDI input; `funk-midi` from `--in N` or `--in-virtual NAME`, and from `:cc CHANNEL NUM VALUE`.
+
 - `p.params`: the plugin's parameters `"p1"` to `"p16"`, 0 to 1, which a DAW can automate.
 
 In `funk-midi`, Tidal's `setF "x" "<0.25 0.5>"`, `setI`, `setS`, `setR` and `setB` set a value from code, as a pattern; `getState "x"` reads one ([dev/stream.md](dev/stream.md#state)).
