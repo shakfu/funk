@@ -46,6 +46,8 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] T3: `Rational` times.
 
+- [ ] F5's `showAll`: needs Tidal's `Show` of `Pattern`, `Arc` and `Value`, and events' contexts, which funk's lack ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md)). Open into 0.13 with T3, R6 and L7.
+
 - [x] L4: a `Fractional` class; `Pattern`, `Note` and `Controls` are instances. Done 2026-11-09.
 
 - [x] L5: `pattern` unqualified in the hosts. Done 2026-11-10.
@@ -86,7 +88,17 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] Review decision 13 of dirt-sound.md: `dirt` events at SuperDirt's level, 8 dB below `d.kit`.
 
-- [ ] Decide whether the played graph renders on scsynth's 64-frame grid (difference 5).
+- [ ] Decide whether the played graph renders on scsynth's 64-frame grid (difference 4).
+
+- [ ] Review decision 14 of dirt-sound.md: SuperDirt's synths and extra effects are SynthDef data built by one UGen library (`lib/scsynth.fk`), not a kernel per synth; one node per UGen.
+
+- [ ] Difference 12 of dirt-sound.md: `funk_player_event_audio` and `funk_voices_trigger` format names with `snprintf` on the audio thread. Plan step 1 asked for a no-allocation test of the event layer; see the C audio path item below.
+
+- [ ] A direct test that a `g.In` or `g.Bus` read is one node however often a graph reaches it (fixed 2026-11-13). Only `lib/dirt-scsynth`'s `waveloss` case shows it today, and it runs only with sclang.
+
+- [ ] `kernels/templates/thread` fails about once a full `make test` run under load, and passes alone; find why.
+
+- [ ] Decide whether the session's scsynth probe (diffs a SynthDef's UGen graph against funk's) and CPU bench become tools in `tests/dirt`; they were scratch scripts.
 
 ### Compiled DSP graph ([docs/dev/audio.md](docs/dev/audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time))
 
