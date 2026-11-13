@@ -80,6 +80,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - On arm64 Linux, `FUNK_GCSTRESS`'s check stopped at its first cycle: "cannot find alloc_slow's caller by unwinding". It finds `alloc_slow` by its assembler name, which GCC loaded through the GOT. The assembler had written the reference as `.text` plus the function's offset, and the GOT entry the linker made dropped the offset, so it named the start of `rt.c`'s code. The name is now hidden, so it is loaded relative to the code. CI now runs the suite on arm64 Linux.
 
+- `-DFUNK_SANITIZE=address` builds turn off ASan's use-after-return check. It moves a frame's locals to a heap "fake stack", which the collector's stack scan does not read. Under `FUNK_GCSTRESS`, the interpreter's recursion filled that stack, and each frame then searched it: on arm64 Linux, `stress/gcbarrier/interp` took 300 s, against 3 s with it off.
+
 - `funk emit-c --kernels` emitted calls to `fk_s_div`, `fk_s_mod`, `fk_s_shl`, `fk_s_shr` and their kin without their definitions, which are in `rt.c`, not the kernels' `rt.h`. The check accepts them in a kernel, `div` and `mod` by a nonzero literal, so such a kernel passed the check and failed to compile.
 
 - `d.kit`'s sample voice averaged an accelerating speed as `|speed| + |endSpeed| * 0.5`. sclang reads binary operators left to right, so SuperDirt's `speed.abs + endSpeed.abs * 0.5` is their mean, and a sample with `accelerate` ended early.

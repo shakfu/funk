@@ -79,11 +79,13 @@ target_link_libraries(dspbench PRIVATE funkgraph ${CMAKE_DL_LIBS} m)
 if(FUNK_SANITIZE)
   set(san_flags -fsanitize=${FUNK_SANITIZE} -fno-sanitize-recover=all)
   # ASan aligns a VLA to 32 bytes, and the padding is never written: FUNK_GCSTRESS's
-  # check read a stale pointer in eval's as a root
+  # check read a stale pointer in eval's as a root. Its use-after-return check moves
+  # locals to a heap "fake stack", which the collector's stack scan does not see; and
+  # the interpreter's recursion filled it, so each frame searched it: 115x slower.
   if(FUNK_SANITIZE MATCHES "address" AND CMAKE_C_COMPILER_ID MATCHES "Clang")
-    list(APPEND san_flags "SHELL:-mllvm -asan-instrument-dynamic-allocas=0")
+    list(APPEND san_flags "SHELL:-mllvm -asan-instrument-dynamic-allocas=0" -fsanitize-address-use-after-return=never)
   elseif(FUNK_SANITIZE MATCHES "address")
-    list(APPEND san_flags --param=asan-instrument-allocas=0)
+    list(APPEND san_flags --param=asan-instrument-allocas=0 --param=asan-use-after-return=0)
   endif()
   foreach(t libfunk funk reload funk-midi)
     target_compile_options(${t} PRIVATE ${san_flags})
