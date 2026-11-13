@@ -440,6 +440,8 @@ static TV cg_call(CG *c, Expr *e) {
     const char *a0 = conv(x[0], ar), *a1 = n > 1 ? conv(x[1], ar) : NULL;
     if (ar == R_V && sc->arg < 0) /* tagged words: a boxed Int compares by value */
       return tv(xsprintf("fk_b_%s(%s, %s)", sc->name, a0, a1), R_B);
+    if (ST->kmode && ST->klam[c->lam->id] && !strcmp(sc->name, "mulf")) /* an exact export's: see fk_xmul */
+      return tv(xsprintf("fk_xmul(%s, %s)", a0, a1), R_F);
     return tv(n == 1 ? xsprintf(sc->fmt, a0) : xsprintf(sc->fmt, a0, a1), sc->res);
   }
   ForeignDecl *ffi = g >= 0 ? CS->globals.a[g].ffi : NULL;
@@ -1490,7 +1492,13 @@ char *cgen_kernels(Chunk *chunks, int nchunks, const char **err) {
     sb_printf(&out, "__attribute__((visibility(\"default\"))) %s;\n", export_head(CS->ffi_exports.a[i]));
   /* contract across statements, which clang's default does not, but in an exact export's functions; docs/dev/dsp.md, Decisions */
   sb_puts(&out, "\n/* ---- generated kernels ---- */\n\n#ifdef __clang__\n#pragma clang diagnostic ignored \"-Wunknown-warning-option\"\n#pragma clang fp contract(fast)\n#endif\n"
-                "#pragma GCC diagnostic ignored \"-Wunused-variable\"\n#pragma GCC diagnostic ignored \"-Wunused-but-set-variable\"\n\n");
+                "#pragma GCC diagnostic ignored \"-Wunused-variable\"\n#pragma GCC diagnostic ignored \"-Wunused-but-set-variable\"\n\n"
+                /* GCC has no fp contract pragma, and its optimize attribute stops inlining into other kernels; a
+                   product hidden behind an asm cannot be fused into an add */
+                "#if defined(__GNUC__) && !defined(__clang__)\n"
+                "#if defined(__x86_64__)\n#define FK_OPAQUE \"+x\"\n#elif defined(__aarch64__)\n#define FK_OPAQUE \"+w\"\n#else\n#define FK_OPAQUE \"+m\"\n#endif\n"
+                "static inline double fk_xmul(double a, double b) { double r = a * b; __asm__(\"\" : FK_OPAQUE(r)); return r; }\n"
+                "#else\n#define fk_xmul(a, b) ((a) * (b))\n#endif\n\n");
   cg_functions(&out, &r);
   for (int i = 0; i < CS->ffi_exports.n; i++) export_body(&out, CS->ffi_exports.a[i]);
   ST->kmode = false;

@@ -286,6 +286,10 @@ struct FkRt {
   size_t getline_cap;
   V **verify_st;       /* verify_marks's stack */
   size_t verify_cap;
+  uint8_t *start_st;   /* FUNK_GCSTRESS: each object's ST_ state at the cycle's start, ST_PER_CHUNK per chunk */
+  size_t start_chunks, start_cap;
+  Large *start_large;  /* the large objects then, with their state as mark */
+  size_t start_nlarge, start_large_cap;
   V *statics;          /* static_obj's, by the session; nstatics in use */
   size_t nstatics, capstatics;
 #ifdef FK_SESSIONS
@@ -374,7 +378,7 @@ static size_t page_size;
    each cycle's end that every object reachable then is marked. Many short
    cycles start often, inside the windows where a missing barrier loses an
    object; tests/run/gcbarrier.fk hits them. */
-bool fk_gcstress;
+static bool fk_gcstress;
 
 /* FUNK_GCSTATS=1: each cycle's pauses, and a summary at exit (R0). */
 static bool gcstats;
@@ -820,6 +824,75 @@ static void sweep(void) {
   alloc_since_gc = black < gc_threshold / 2 ? black : gc_threshold / 2;
 }
 
+/* FUNK_GCSTRESS: each object's state when the cycle started, so the check
+   of marks can tell a stale stack word from a missed object. A conservative
+   stack scan reads unset slots, and GCC and clang leave stale pointers to
+   dead objects in them (docs/dev/261113-gcstress-stale-slots.md). */
+enum { ST_NEW, ST_DEAD, ST_LIVE }; /* free or unallocated; allocated, unreachable; reachable */
+#define ST_PER_CHUNK (CHUNK_SIZE / (2 * sizeof(V))) /* objects of 2 words, the least, at most */
+
+/* o's state at the cycle's start; NULL for an object allocated since */
+static uint8_t *start_state(V *o) {
+  uintptr_t w = (uintptr_t)o;
+  if (w >= RT->heap_lo && w < RT->heap_hi) {
+    size_t ci = (size_t)((char *)o - RT->heap_base) / CHUNK_SIZE;
+    if (ci >= RT->start_chunks) return NULL;
+    Chunk *c = chunk_at(ci);
+    return &RT->start_st[ci * ST_PER_CHUNK + (size_t)((char *)o - c->objs) / (c->words * sizeof(V))];
+  }
+  size_t lo = 0, hi = RT->start_nlarge;
+  while (lo < hi) {
+    size_t mid = (lo + hi) / 2;
+    if (RT->start_large[mid].p == o) return &RT->start_large[mid].mark;
+    if (RT->start_large[mid].p < o) lo = mid + 1;
+    else hi = mid;
+  }
+  return NULL;
+}
+
+static void reach_range(V *lo, V *hi, size_t *n) {
+  for (V *p = lo; p < hi; p++) {
+    uint8_t *m, *s;
+    size_t words;
+    V *o = FK_ISPTR((uintptr_t)*p) ? find_obj((uintptr_t)*p, &m, &words) : NULL;
+    if (!o || !(s = start_state(o)) || *s == ST_LIVE) continue;
+    *s = ST_LIVE;
+    int k = ((FkHdr *)o)->kind;
+    if (k == K_FLOAT || k == K_STR || k == K_INT64 || k == K_PTR) continue;
+    if (*n + 2 > RT->verify_cap) RT->verify_st = rt_realloc(RT->verify_st, (RT->verify_cap = RT->verify_cap ? 2 * RT->verify_cap : 4096) * sizeof *RT->verify_st);
+    RT->verify_st[(*n)++] = o;
+    RT->verify_st[(*n)++] = (V *)(uintptr_t)words;
+  }
+}
+
+/* Every object's state, from the roots marking starts with: the stack's
+   snapshot, its read-only pages still unwritten, and the root tables. */
+static NO_ASAN void record_start(void) {
+  size_t need = RT->nchunks * ST_PER_CHUNK;
+  if (need > RT->start_cap) RT->start_st = rt_realloc(RT->start_st, (RT->start_cap = need));
+  memset(RT->start_st, ST_NEW, need);
+  for (size_t ci = 0; ci < RT->nchunks; ci++) {
+    Chunk *c = chunk_at(ci);
+    for (size_t i = 0; i < c->nobj; i++) {
+      V *o = (V *)(c->objs + i * c->words * sizeof(V));
+      if (((FkHdr *)o)->kind != K_FREE && !(o >= bump[c->words] && o < bump_end[c->words])) RT->start_st[ci * ST_PER_CHUNK + i] = ST_DEAD;
+    }
+  }
+  RT->start_chunks = RT->nchunks;
+  if (RT->nlarge > RT->start_large_cap) RT->start_large = rt_realloc(RT->start_large, (RT->start_large_cap = RT->nlarge) * sizeof(Large));
+  for (size_t i = 0; i < RT->nlarge; i++) RT->start_large[i] = (Large){RT->larges[i].p, RT->larges[i].words, ST_DEAD};
+  RT->start_nlarge = RT->nlarge;
+  size_t n = 0;
+  reach_range(RT->stack_copy, RT->stack_copy + RT->stack_words, &n);
+  for (char *pg = RT->snap_next; pg < RT->snap_hi; pg += page_size) reach_range((V *)pg, (V *)(pg + page_size), &n);
+  for (size_t i = 0; i < RT->nroots; i++) reach_range(*RT->roots[i].base, *RT->roots[i].base + *RT->roots[i].count, &n);
+  while (n) {
+    size_t words = (size_t)(uintptr_t)RT->verify_st[--n];
+    V *o = RT->verify_st[--n];
+    reach_range(o + 1, o + words, &n);
+  }
+}
+
 /* The cycle's first pause: the snapshot of the stack and the roots. Not
    instrumented: GCC's ASan moves regs to its fake stack, outside the snapshot. */
 static NO_ASAN void gc_start(void) {
@@ -833,6 +906,7 @@ static NO_ASAN void gc_start(void) {
   RT->cycle_alloc0 = alloc_since_gc;
   snapshot_stack();
   for (size_t i = 0; i < RT->nroots; i++) scan_range(*RT->roots[i].base, *RT->roots[i].base + *RT->roots[i].count);
+  if (fk_gcstress) record_start();
   if (gcstats) {
     RT->cycle_start = now_ms() - t0;
     RT->cycle_steps = 0;
@@ -842,7 +916,9 @@ static NO_ASAN void gc_start(void) {
 }
 
 /* FUNK_GCSTRESS: every object reachable now must be marked. The check
-   marks what it visits 2, which the sweep reads as marked. */
+   marks what it visits 2, which the sweep reads as marked. A stack word to
+   an object dead at the cycle's start is stale: the program cannot hold
+   one, so the word is skipped, as only the stack has unset slots. */
 
 static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   uint8_t *m;
@@ -850,7 +926,12 @@ static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
   V *o = FK_ISPTR(w) ? find_obj(w, &m, &words) : NULL;
   if (!o || *m == 2) return;
   if (!*m) {
+    bool in_stack = !RT->verify_reg && !RT->verify_from && (char *)RT->verify_slot >= (char *)RT->fk_stack_base - (1LL << 32) &&
+                    (char *)RT->verify_slot < RT->fk_stack_base;
+    uint8_t *s = start_state(o);
+    if (in_stack && s && *s == ST_DEAD) return;
     fprintf(stderr, "funk: gc check: reachable object %p (kind %d) is unmarked at the end of a cycle\n", (void *)o, ((FkHdr *)o)->kind);
+    fprintf(stderr, "  it was %s\n", !s || *s == ST_NEW ? "allocated during the cycle" : *s == ST_LIVE ? "reachable at the cycle's start" : "unreachable at the cycle's start");
     if (RT->verify_reg) {
       fprintf(stderr, "  in a register at the call of alloc_slow\n");
     } else if (RT->verify_from) {
@@ -859,7 +940,7 @@ static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
       find_obj((uintptr_t)RT->verify_from, &pm, &pw);
       fprintf(stderr, "  in field %ld of %p (kind %d, mark %d)\n", (long)(RT->verify_slot - RT->verify_from - 1), (void *)RT->verify_from,
               ((FkHdr *)RT->verify_from)->kind, *pm);
-    } else if ((char *)RT->verify_slot >= (char *)RT->fk_stack_base - (1LL << 32) && (char *)RT->verify_slot < RT->fk_stack_base) {
+    } else if (in_stack) {
       fprintf(stderr, "  in the stack at %p, %s the cycle's start at %p\n", (void *)RT->verify_slot,
               (char *)RT->verify_slot < RT->snapshot_sp ? "deeper than" : "in a frame from before", RT->snapshot_sp);
     } else {
@@ -885,7 +966,8 @@ static void verify_word(uintptr_t w, V ***stack, size_t *n, size_t *cap) {
 /* alloc_slow's code, by its assembler name: taking its address in C would add an endbr64 to every call */
 #define VERIFY_STR2(x) #x
 #define VERIFY_STR(x) VERIFY_STR2(x)
-extern const char alloc_slow_code[] __asm__(VERIFY_STR(__USER_LABEL_PREFIX__) "alloc_slow");
+/* hidden: through the GOT, aarch64's GNU ld dropped the section offset that names the static function */
+extern const char alloc_slow_code[] __asm__(VERIFY_STR(__USER_LABEL_PREFIX__) "alloc_slow") __attribute__((visibility("hidden")));
 #ifdef __x86_64__
 static const int callee_saved[] = {3, 6, 12, 13, 14, 15}; /* DWARF numbers: rbx, rbp, r12-r15 */
 #else
@@ -1291,8 +1373,7 @@ V fk_apply(V f, int n, V *args) {
       n -= ar;
     } else if (h->kind == K_PAP) {
       int k = (int)h->aux;
-      V buf[FK_EVEN(k + n)];
-      FK_STRESS_ZERO(buf);
+      V buf[k + n];
       memcpy(buf, &FK_W(f)[2], (size_t)k * sizeof(V));
       memcpy(buf + k, args, (size_t)n * sizeof(V));
       return fk_apply(FK_W(f)[1], k + n, buf);
@@ -2589,6 +2670,8 @@ void fk_stop(FkRt *r, pthread_t th) {
 #endif
   free(r->getline_line);
   free(r->verify_st);
+  free(r->start_st);
+  free(r->start_large);
   free(r->roots);
   for (size_t i = 0; i < r->nstatics; i++) free((void *)r->statics[i]);
   free(r->statics);

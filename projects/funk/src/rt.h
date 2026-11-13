@@ -133,14 +133,6 @@ extern struct FkCon *fk_cons;
 extern uint32_t fk_ncons;
 #endif
 
-/* FUNK_GCSTRESS. A VLA's padding and unset slots may hold scratch
-   registers ___chkstk_darwin saved, such as a one-past-the-end pointer,
-   which the check reads as a root; so a VLA has an even length, filling
-   its 16-byte block, and under stress starts zeroed. */
-extern bool fk_gcstress;
-#define FK_EVEN(n) (((n) + 1) & ~1)
-#define FK_STRESS_ZERO(a) do { if (fk_gcstress) memset((a), 0, sizeof(a)); } while (0)
-
 /* Incremental marking (realtime.md, R2): a write that overwrites a heap
    pointer shades the old value while a cycle is marking. */
 void fk_shade(V old);

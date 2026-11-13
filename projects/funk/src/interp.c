@@ -89,8 +89,7 @@ static bool match(Pat *p, V v, V *fr) {
 /* Select an alternative and return its body, to be evaluated by the
    caller in tail position. */
 static Expr *eval_case(Expr *e, V *fr, V self) {
-  V sv[FK_EVEN(e->ns + 1)];
-  FK_STRESS_ZERO(sv);
+  V sv[e->ns + 1];
   for (int i = 0; i < e->ns; i++) sv[i] = eval(e->scruts[i], fr, self, NULL);
   for (int a = 0; a < e->na; a++) {
     Alt *alt = e->alts[a];
@@ -130,8 +129,7 @@ static V eval(Expr *e, V *fr, V self, Tail *tc) {
     case E_CASE: e = eval_case(e, fr, self); continue;
     case E_APP: {
       int n = e->n;
-      V args[FK_EVEN(n)];
-      FK_STRESS_ZERO(args);
+      V args[n];
       if (e->fn->k == E_CON && fk_cons[e->fn->idx].arity == n) {
         for (int i = 0; i < n; i++) args[i] = eval(e->args[i], fr, self, NULL);
         return fk_mkcon((uint32_t)e->fn->idx, n, args);
@@ -162,8 +160,7 @@ static V run(Lambda *L, V self, V *args) {
   FK_STACK_CHECK();
   check_interrupt();
   int cap = L->nslots > 8 ? L->nslots : 8;
-  V fr[FK_EVEN(cap)];
-  FK_STRESS_ZERO(fr);
+  V fr[cap];
   if (L->n) memcpy(fr, args, (size_t)L->n * sizeof(V));
   Tail tc = {fr, cap, 0};
   for (;;) {

@@ -16,8 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 24.04: GCC 15.2 on 26.04 fails kernels/exact and hosts/slots*-gcstress
-        os: [ubuntu-24.04, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
         sanitize: ["", undefined, address, thread]
     steps:
       - uses: actions/checkout@v5
@@ -59,7 +58,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v5
 
@@ -135,7 +134,7 @@ jobs:
   plugin-zig-run:
     name: plugin cross-built with zig cc, run on Linux
     needs: plugin-zig
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
@@ -167,7 +166,7 @@ jobs:
   artifacts:
     name: builds in one artifact
     needs: [plugin, plugin-zig-run]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/upload-artifact/merge@v4
         with:

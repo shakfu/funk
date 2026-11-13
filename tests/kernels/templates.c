@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
     int64_t at = funk_player_frames(player);
     for (int e = 0; e < EVENTS_PER_SET; e++) {
       float values[2] = {(float)(e % 2), (float)(e % 3)};
-      if (funk_player_event(player, funk_player_frames(player) + 200 + e, "s.tone", 2, names, values)) sent++;
+      if (funk_player_event(player, at + 200 + e, "s.tone", 2, names, values)) sent++;
     }
     /* past 64 frames, so the next set's events, 200 on, start after these
        end, at most 263 on: 8 overlap, as the peak's bound counts. These
