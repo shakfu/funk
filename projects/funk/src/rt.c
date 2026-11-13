@@ -850,7 +850,7 @@ static uint8_t *start_state(V *o) {
   return NULL;
 }
 
-static void reach_range(V *lo, V *hi, size_t *n) {
+static NO_ASAN void reach_range(V *lo, V *hi, size_t *n) { /* stack pages too, as scan_range */
   for (V *p = lo; p < hi; p++) {
     uint8_t *m, *s;
     size_t words;
