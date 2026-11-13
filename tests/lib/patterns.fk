@@ -27,10 +27,11 @@ fs = p.fastcat [p.atom (+ 10), p.atom (+ 20)]
 xs = p.fastcat [p.atom 1, p.atom 2, p.atom 3]
 pp = p.fastcat [p.atom (p.fastcat (map p.atom (unpack "abc"))), p.atom (p.fastcat (map p.atom (unpack "xy")))]
 
--- onsets over 20 cycles, and whether blocks of 7919 ticks give the same
+-- onsets over 20 cycles, and whether blocks of 506809 ticks give the same:
+-- a prime near t / 91, so block edges miss step edges
 same :: Ord a => p.Pattern a -> (Int, Bool)
 same pat = case starts pat 0 (20 * t) of
-  w -> (length w, sort (blocked pat 7919 0 (20 * t)) == sort w)
+  w -> (length w, sort (blocked pat 506809 0 (20 * t)) == sort w)
 
 abc = p.fastcat (map p.atom (unpack "abc"))
 -- the values of the onsets in the first c cycles
@@ -58,7 +59,7 @@ main = do
   let es = starts poly 0 (1000 * t)
   print (length es, all (\(s, e, n) -> mod s (div t n) == 0 && e - s == div t n) es)
   let whole = starts mixed 0 (20 * t)
-  print (length whole, sort (blocked mixed 7919 0 (20 * t)) == sort whole)
+  print (length whole, sort (blocked mixed 506809 0 (20 * t)) == sort whole)
   let ss = p.sampleOnsets poly 12345 0 (20 * 12345)
   print (length ss, sblocked poly 64 0 (20 * 12345) == ss, take 4 ss)
   print (map (\x -> (p.eventSample x, p.eventValue x)) [p.encodeEvent 0 7, p.encodeEvent 123456789 65535])

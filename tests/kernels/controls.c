@@ -1,5 +1,6 @@
 /* projects/funkgraph/controls.c: Tidal's OSC /ctrl into a host's controls,
    over loopback as a sender would send it, and MIDI CC's names. */
+#define _DEFAULT_SOURCE /* usleep: C11 alone does not declare it */
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <stdio.h>

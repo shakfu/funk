@@ -26,7 +26,7 @@ blocked pat n a b = if a >= b then [] else starts pat a (min b (a + n)) ++ block
 
 same :: Ord a => p.Pattern a -> (Int, Bool)
 same pat = case starts pat 0 (20 * t) of
-  w -> (length w, sort (blocked pat 7919 0 (20 * t)) == sort w)
+  w -> (length w, sort (blocked pat 506809 0 (20 * t)) == sort w)
 
 -- the first event's messages, at 1000000 units a second for an event of
 -- 500000: (status, data1, data2, size, note length)

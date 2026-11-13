@@ -1,5 +1,5 @@
 """funk-midi --dirt's handshake against a stand-in for SuperDirt 1.7.3
-(docs/dev/dirt.md): it listens only after 2.5 s, so funk-midi waits, then
+(docs/dev/dirt.md): it listens only once funk-midi reports waiting, then
 replies to /dirt/handshake as SuperDirt does, then sends /dirt/hello, which
 must bring another handshake. Bundles must arrive, with no send errors.
 Usage: python3 dirt_handshake.py FUNK_MIDI"""
@@ -37,13 +37,19 @@ def main():
         script = f.name
     funk = subprocess.Popen([sys.argv[1], "--dirt", "127.0.0.1:%d" % port, "--script", script],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    time.sleep(2.5)
+    # listen once funk-midi has waited: start-up takes 10 s under TSAN
+    early = []
+    while not early or "Waiting for SuperDirt" not in early[-1]:
+        line = funk.stderr.readline()
+        if not line:
+            break
+        early.append(line)
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.bind(("127.0.0.1", port))
     s.settimeout(0.2)
     shakes, bundles, hello_at, shakes_after_hello = 0, 0, None, 0
     end = time.time() + 4
-    while time.time() < end:
+    while time.time() < end and not (shakes_after_hello and bundles):
         try:
             d, peer = s.recvfrom(65536)
         except socket.timeout:
@@ -60,6 +66,7 @@ def main():
                 hello_at = time.time()
                 s.sendto(message("/dirt/hello"), peer)
     out, err = funk.communicate(timeout=30)
+    err = "".join(early) + err
     waiting = err.count("Waiting for SuperDirt")
     connected = err.count("Connected to SuperDirt.")
     ok = (waiting == 1 and connected == 1 and err.index("Waiting") < err.index("Connected")
