@@ -1,0 +1,27 @@
+-- tests/hosts/sim-dirt.fk's sets for Tidal 1.10 and SuperDirt: the reference for
+-- docs/dev/dirt-acceptance.md, step 6, by ear. cps 0.5 is the plugin's cycle,
+-- one bar, at 120 BPM in 4/4. Evaluate one block at a time.
+
+setcps 0.5
+
+-- samples
+d1 $ stack [s "bd*8" # speed "1 2 1.5 0.5", s "[~ sn]*4" # room "0.4" # size "0.8" # orbit "1",
+  s "bd:1*16" # pan sine # delay "0.5" # delaytime "0.125" # delayfeedback "0.6" # orbit "2",
+  s "sn*8" # leslie "0.8" # lrate "6.7" # vowel "a e" # crush "4" # orbit "3"]
+
+-- synths
+d1 $ stack [s "superfm*4" # note "0 7 12 3", s "supersaw*8" # note "-12 0" # lpf "800" # orbit "1",
+  s "superprimes" # note "5" # sustain "1" # orbit "2", s "superwavemechanics" # note "-5" # sustain "1" # orbit "3",
+  s "superpiano*4" # note "12 16 19 24"]
+
+-- spectral
+d1 $ stack [s "bd*4" # freeze "1", s "sn*4" # comb "0.3" # orbit "1", s "bd:1*8" # smear "0.5" # orbit "2",
+  s "sn*4" # binshift "0.3" # orbit "3", s "bd*2" # hbrick "0.5" # room "0.5"]
+
+-- all
+d1 $ stack [s "bd*16" # room "0.3" # delay "0.4", s "supersaw*8" # note "0 3 7 10" # orbit "1" # room "0.6",
+  s "superprimes" # sustain "0.5" # orbit "2" # leslie "0.5", s "superfm*8" # note "0 12" # orbit "3" # delay "0.3",
+  s "sn*8" # comb "0.2" # pan rand, s "superwavemechanics" # sustain "0.5" # orbit "1"]
+
+-- silence
+hush

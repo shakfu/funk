@@ -18,6 +18,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `lib/dirt-patches`: Tidal's example patches (`tests/tidal/ports.fk`) through `d.superDirt`, with Dirt-Samples, against SuperDirt 1.7.3 rendered by scsynth. 3,095 events in 18 patches match bit for bit. It skips without sclang or Dirt-Samples (`$DIRT_SAMPLES`).
 
+- `hosts/clap/sim-dirt`: a dense `d.superDirt` set in the headless plugin host, with samples, synths, global effects and FFT modules on 4 orbits, has no block over budget. Its `noalloc` variant counts no allocation. The budget test is labelled `realtime`, not `clap`, so CI's shared machines skip it. The host's thread is now time-constrained, as Core Audio's IO thread is: without that, preemption alone took a block to 11 ms of its 10.7.
+
 - `kernels/noalloc`, `hosts/clap/noalloc` and `hosts/clap/sim/noalloc` check that funkgraph's audio-thread calls and the plugin's `process()` allocate, free and lock nothing. `tests/noalloc.c` counts those calls on one armed thread. It is inserted with `DYLD_INSERT_LIBRARIES` or `LD_PRELOAD`, so it also sees libc's and libc++'s own calls; an `__interpose` section in the test executable is ignored on macOS.
 
 - A kernel ends its event by setting `funk_context`'s new `done`, as SuperCollider's `doneAction: 14`. A template's node named `>NAME` sets the event's parameter NAME for the stages after it, so modules and `dirt_gate` read the sustain a sample's time span computes, as SuperDirt's read DirtEvent's.

@@ -32,7 +32,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] R1: slots `d1`..`d16` and `p "name"`, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md)).
 
-- [ ] R1 in the plugin: slots for funk-clap.
+- [ ] R1 in the plugin: slots for funk-clap. The 0.13 acceptance's REAPER set plays through `pat` until then ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md)).
 
 - [x] R2: the slots' commands, and the listener's OSC ones. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#commands)).
 
@@ -184,6 +184,8 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 - [ ] `eff_error` takes `$m.Class.Type.method` apart at its first and last `.`. A module's class is `prefix.C`, so `$m.geometry.C.T.m` reports class `geometry` and type `C.T`.
 
 ### Speed
+
+- [ ] Generated DSP kernels render 1.05 to 4.6x scsynth's CPU on the same events, samples as synths; `dirt_reverb` and `GVerb` take most of it ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md), step 4). Inference: state in an array of doubles, read and written through helpers each sample. Measure with `ORACLE_CPU=1 ORACLE_REPEAT=60` in `tests/dirt/oracle.py`.
 
 - [ ] 64-bit `Int` at `V` boundaries costs at most 0.7% (geometric mean, 6 benchmarks; `queens` 3%). Typed list heads would remove it; [docs/dev/typed-backend.md](docs/dev/typed-backend.md#integers).
 

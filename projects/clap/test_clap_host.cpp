@@ -2,6 +2,7 @@
 // playback at exact frames, stop, state, and the one-instance rule.
 // Usage: test_clap_host <plugin binary> <cases file> <udp port>
 //        test_clap_host <plugin binary> --sim <log>: simulator mode (CheckSim)
+//        test_clap_host <plugin binary> --sim-dirt <log> <seconds> budget|any: a dirt script (CheckSimDirt)
 // The plugin's UDP port variable must be set to <udp port>, which turns UDP on at init.
 //
 // The cases file holds the language's code for each check, as "[name]" lines followed by code:
@@ -34,6 +35,11 @@
 #include <windows.h>
 #else
 #include <arpa/inet.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_time.h>
+#include <mach/thread_policy.h>
+#endif
 #include <cerrno>
 #include <dlfcn.h>
 #include <netinet/in.h>
@@ -946,9 +952,82 @@ int CheckSim(const char* pluginPath, const char* logPath)
 	return gFailures ? 1 : 0;
 }
 
+// The calling thread as a device's audio thread: on macOS, time-constrained to a block, as
+// Core Audio's IO thread; elsewhere unchanged. A default thread is preempted under load,
+// and the plugin times process() by the clock.
+void AudioThread()
+{
+#ifdef __APPLE__
+	mach_timebase_info_data_t tb;
+	mach_timebase_info(&tb);
+	const double block = kBlock / kRate * 1e9 * tb.denom / tb.numer; // mach time units
+	thread_time_constraint_policy_data_t p = {(uint32_t)block, (uint32_t)(block / 2), (uint32_t)block, 1};
+	thread_policy_set(pthread_mach_thread_np(pthread_self()), THREAD_TIME_CONSTRAINT_POLICY, (thread_policy_t)&p,
+	                  THREAD_TIME_CONSTRAINT_POLICY_COUNT);
+#endif
+}
+
+// Simulator mode with tests/hosts/sim-dirt.fk, for seconds at a device's pace: every step runs,
+// none fails, and the output sounds; with budget, no block is over it (docs/dev/dirt-acceptance.md,
+// step 5). Shared CI machines miss it, so ctest runs that under its own label.
+int CheckSimDirt(const char* pluginPath, const char* logPath, double seconds, bool budget)
+{
+	remove(logPath);
+	const clap_plugin_entry_t* entry = LoadEntry(pluginPath);
+	if (!entry || !entry->init(pluginPath)) return 1;
+	auto* factory = (const clap_plugin_factory_t*)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+	const clap_plugin_t* plugin = factory->create_plugin(factory, &kHost, factory->get_plugin_descriptor(factory, 0)->id);
+	check(plugin && plugin->init(plugin), "plugin init");
+	CheckPorts(plugin);
+	check(plugin->activate(plugin, kRate, 32, kBlock), "activate");
+	Events ev;
+	const auto block = std::chrono::microseconds((long long)(kBlock * 1e6 / kRate));
+	AudioThread();
+	auto next = std::chrono::steady_clock::now();
+	for (int b = 0; b < (int)(seconds * kRate / kBlock); ++b) {
+		Process(plugin, ev, -1., false);
+		next += block;
+		std::this_thread::sleep_until(next);
+	}
+	plugin->deactivate(plugin);
+	plugin->destroy(plugin);
+	entry->deinit();
+
+	std::ifstream in(logPath);
+	std::string line, log;
+	int steps = 0, failed = 0, over = 0, reports = 0;
+	double longest = 0., blockUs = 0.;
+	while (std::getline(in, line)) {
+		log += line + "\n";
+		if (line.find(" step ") != std::string::npos && line.find(" of 5, ") != std::string::npos) ++steps;
+		if (line.find(" done ") != std::string::npos && line.find("failed") != std::string::npos) ++failed;
+		const size_t at = line.find(", over budget ");
+		if (at == std::string::npos) continue;
+		++reports;
+		over += atoi(line.c_str() + at + 14);
+		double us = 0., of = 0.;
+		const size_t l = line.find(", longest ");
+		if (l != std::string::npos && sscanf(line.c_str() + l + 10, "%lf us of %lf us", &us, &of) == 2)
+			longest = std::max(longest, us), blockUs = of;
+	}
+	float peak = 0.f;
+	for (float x : ev.audio) peak = std::max(peak, std::fabs(x));
+	check(log.find("step  preamble (2 paragraphs)") != std::string::npos, "the preamble runs:\n" + log);
+	check(log.find("is not playing") == std::string::npos, "dirt and pat play");
+	check(steps >= 5, "every step runs: " + std::to_string(steps));
+	check(failed == 0, "no step fails: " + std::to_string(failed));
+	check(peak > 0.01f, "the output sounds: peak " + std::to_string(peak));
+	if (budget) check(reports >= 5 && over == 0, "no block over budget: " + std::to_string(over) + " in " + std::to_string(reports) + " reports");
+	printf("longest block %.0f us of %.0f us\n", longest, blockUs);
+	if (gHits) check(gHits() == 0, "process() allocates, frees and locks nothing: " + std::to_string(gHits()) + " calls");
+	printf("%d failure(s)\n", gFailures);
+	return gFailures ? 1 : 0;
+}
+
 int main(int argc, char** argv)
 {
 	if (argc == 4 && !strcmp(argv[2], "--sim")) return CheckSim(argv[1], argv[3]);
+	if (argc == 6 && !strcmp(argv[2], "--sim-dirt")) return CheckSimDirt(argv[1], argv[3], atof(argv[4]), !strcmp(argv[5], "budget"));
 	if (argc < 4) {
 		fprintf(stderr, "usage: test_clap_host <plugin> <cases file> <udp port>\n");
 		return 2;

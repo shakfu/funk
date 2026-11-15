@@ -9,7 +9,8 @@
 // playSynths (DirtEvent.sc), with SuperDirt's modules, in an event made as
 // DirtOrbit and DirtSoundLibrary make it. A stand-in server writes what
 // they send into a Score, which scsynth renders with SuperDirt's
-// SynthDefs, its random generator seeded by RandSeed. A core case, and
+// SynthDefs, its random generator seeded by RandSeed. Writes the scsynth
+// command to OUTDIR/scsynth.txt: the program, then its options. A core case, and
 // those after it, have dirt_delay as SuperDirt makes it without sc3-plugins:
 // core-synths-global.scd, its plugin check false. Writes OUTDIR/NAME.wav,
 // float, 2 channels.
@@ -26,6 +27,11 @@ dirt = \SuperDirt.asClass.new(2, Server.default);
 seeder = SynthDef(\oracle_seed, { RandSeed.ir(1, \seed.ir(0)) });
 fork { try {
 	var c = Condition.new;
+	// memSize: 16 orbits' delay lines need some 30 MB, over scsynth's default 8 MB;
+	// numWireBufs: superprimes needs more than SuperDirt's startup gives, 64
+	var options = ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0).memSize_(8192 * 64).numWireBufs_(1024);
+	// the command, for oracle.py's timing ($ORACLE_CPU)
+	File.use(outDir +/+ "scsynth.txt", "w") { |f| f.write(Score.program ++ "\n" ++ options.asOptionsString ++ "\n") };
 	cases.do { |k|
 		var name = k[0], buffers = k[1], events = k[2], secs = k[3], synth = k[5];
 		var score = [], t = 0, nodes = 1000, server, orbits, defs;
@@ -89,10 +95,7 @@ fork { try {
 			++ [[0.0, [\g_new, top, 0, 0]], [0.0, [\s_new, \oracle_seed, -1, 0, 0, \seed, seed]]]
 			++ score ++ [[secs, [\c_set, 0, 0]]];
 		Score.recordNRT(score, outDir +/+ name ++ ".osc", outDir +/+ name ++ ".wav", nil, rate, "WAV", "float",
-			// memSize: 16 orbits' delay lines need some 30 MB, over scsynth's default 8 MB;
-			// numWireBufs: superprimes needs more than SuperDirt's startup gives, 64
-			ServerOptions.new.numOutputBusChannels_(2).numInputBusChannels_(0).memSize_(8192 * 64).numWireBufs_(1024),
-			"", secs, { c.unhang });
+			options, "", secs, { c.unhang });
 		c.hang;
 	};
 	0.exit;

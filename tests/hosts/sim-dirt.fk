@@ -1,0 +1,28 @@
+-- The simulator's script for tests/hosts/clap/sim-dirt (docs/dev/dirt-acceptance.md,
+-- step 5): dense sets through d.superDirt, each step replacing pat. The preamble:
+-- 4 orbits out, and the test samples. Run from the source directory.
+sig = d.orbits 4
+
+dirt = d.loadSoundFiles "tests/hosts/samples" ["bd", "bd:1", "sn"] d.superDirt
+
+--- samples
+pat = p.stack [s "bd*8" # speed "1 2 1.5 0.5", s "[~ sn]*4" # room "0.4" # size "0.8" # orbit "1",
+  s "bd:1*16" # pan p.sine # delay "0.5" # delaytime "0.125" # delayfeedback "0.6" # orbit "2",
+  s "sn*8" # leslie "0.8" # lrate "6.7" # vowel "a e" # crush "4" # orbit "3"]
+
+--- synths
+pat = p.stack [s "superfm*4" # note "0 7 12 3", s "supersaw*8" # note "-12 0" # lpf "800" # orbit "1",
+  s "superprimes" # note "5" # sustain "1" # orbit "2", s "superwavemechanics" # note "-5" # sustain "1" # orbit "3",
+  s "superpiano*4" # note "12 16 19 24"]
+
+--- spectral
+pat = p.stack [s "bd*4" # freeze "1", s "sn*4" # comb "0.3" # orbit "1", s "bd:1*8" # smear "0.5" # orbit "2",
+  s "sn*4" # binshift "0.3" # orbit "3", s "bd*2" # hbrick "0.5" # room "0.5"]
+
+--- all
+pat = p.stack [s "bd*16" # room "0.3" # delay "0.4", s "supersaw*8" # note "0 3 7 10" # orbit "1" # room "0.6",
+  s "superprimes" # sustain "0.5" # orbit "2" # leslie "0.5", s "superfm*8" # note "0 12" # orbit "3" # delay "0.3",
+  s "sn*8" # comb "0.2" # pan p.rand, s "superwavemechanics" # sustain "0.5" # orbit "1"]
+
+--- silence
+pat = p.silence

@@ -12,11 +12,14 @@ skip, if sclang lacks the SuperDirt quark.
 
 With $ORACLE_SET=patches, the cases are tests/tidal/ports.fk's patches
 instead, each event's sample from Dirt-Samples as SuperDirt picks it.
+With $ORACLE_CPU, prints each case's render CPU time in funk and in scsynth.
 
 Usage: python3 -I oracle.py SCLANG FUNK KERNELS OUTDIR -- FUNKARGS...
 """
 import math
 import os
+import resource
+import shlex
 import struct
 import subprocess
 import sys
@@ -177,12 +180,15 @@ CASES = [
 
 # each case as (name, sample, seconds, events, core); $ORACLE_CASES, names
 # separated by commas, runs only those; $ORACLE_SHARD, "I/N", every Nth from
-# the Ith, so that ctest runs the shards in parallel
+# the Ith, so that ctest runs the shards in parallel; $ORACLE_REPEAT, K, plays
+# each case's events K times, a case's seconds apart, for renders long enough to time
 SHARD, SHARDS = map(int, os.environ.get("ORACLE_SHARD", "0/1").split("/"))
+REPEAT = int(os.environ.get("ORACLE_REPEAT", "1"))
 
 
 def select(cases):
-    return [(c[0], c[1], c[2], c[3], len(c) > 4 and c[4]) for i, c in enumerate(cases)
+    return [(c[0], c[1], c[2] * REPEAT, [(t + k * c[2], e) for k in range(REPEAT) for t, e in events(c[3])], len(c) > 4 and c[4])
+            for i, c in enumerate(cases)
             if (not os.environ.get("ORACLE_CASES") or c[0] in os.environ["ORACLE_CASES"].split(",")) and i % SHARDS == SHARD]
 
 
@@ -378,6 +384,36 @@ def read_funk(text, outdir):
     return out
 
 
+def osc_bundles(path):
+    """An NRT score's bundles, each with its size."""
+    b, at = open(path, "rb").read(), 0
+    while at < len(b):
+        n = struct.unpack(">i", b[at:at + 4])[0]
+        yield b[at:at + 4 + n]
+        at += 4 + n
+
+
+def sc_cpu(outdir, name):
+    """scsynth's CPU seconds for a case's render: its score, less the same
+    score's time-0 bundles ending after a block, which time startup and setup.
+    Each is the least of 3 runs."""
+    program, options = open(os.path.join(outdir, "scsynth.txt")).read().splitlines()[:2]
+    score = os.path.join(outdir, name + ".osc")
+    bs = list(osc_bundles(score))
+    setup = os.path.join(outdir, name + ".setup.osc")
+    end = bs[-1][:12] + struct.pack(">Q", (64 << 32) // RATE) + bs[-1][20:]  # bundle size, "#bundle\0", time tag
+    with open(setup, "wb") as f:
+        f.write(b"".join(x for x in bs if x[12:20] == bytes(8)) + end)
+
+    def run(path):
+        r0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+        subprocess.run("%s -N %s _ %s %d WAV float%s" % (program, shlex.quote(path), shlex.quote(os.path.join(outdir, "cpu.wav")), RATE, options),
+                       shell=True, check=True, capture_output=True, timeout=300)
+        r1 = resource.getrusage(resource.RUSAGE_CHILDREN)
+        return r1.ru_utime + r1.ru_stime - r0.ru_utime - r0.ru_stime
+    return min(run(score) for _ in range(3)) - min(run(setup) for _ in range(3))
+
+
 def worst(sc, fk, shift):
     """The largest difference over both channels, funk's output delayed by
     shift frames, over the frames funk rendered: scsynth's run on to a block's end."""
@@ -448,6 +484,11 @@ def main():
         ok = err <= bound and wrong > bound
         failed += not ok
         print("%-14s %s  error %.3g, a frame late %.3g" % (name, "ok  " if ok else "FAIL", err, wrong))
+    # $ORACLE_CPU: each case's render CPU in both, printed, not gated: machines differ
+    if os.environ.get("ORACLE_CPU"):
+        for name, s, secs, cs, core in cases:
+            fk, sc = got[name][1] / 1e9, sc_cpu(outdir, name)
+            print("%-14s cpu funk %.3f s, scsynth %.3f s, ratio %s" % (name, fk, sc, "%.2f" % (fk / sc) if sc > 0 else "-"))
     sys.exit(1 if failed else 0)
 
 

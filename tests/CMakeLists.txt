@@ -155,6 +155,19 @@ if(TARGET funk_midi_clap)
     set_tests_properties(hosts/clap/sim/noalloc PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
       ENVIRONMENT "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG}.noalloc;FUNK_MIDI_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache;${INSERT}=$<TARGET_FILE:noalloc>")
   endif()
+  # a dense dirt set, headless (docs/dev/dirt-acceptance.md, step 5): no block over budget,
+  # labelled realtime, not clap, as CI's shared machines miss it; and no allocation
+  set(SIM_DIRT_ENV "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim-dirt.fk;FUNK_MIDI_CLAP_SIM_INTERVAL=3;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  add_test(NAME hosts/clap/sim-dirt COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim-dirt ${SIM_LOG}.dirt 20 budget
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  set_tests_properties(hosts/clap/sim-dirt PROPERTIES LABELS "hosts;realtime" TIMEOUT 60 RUN_SERIAL TRUE
+    ENVIRONMENT "${SIM_DIRT_ENV};FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG}.dirt")
+  if(TARGET noalloc)
+    add_test(NAME hosts/clap/sim-dirt/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim-dirt ${SIM_LOG}.dirt.noalloc 20 any
+      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    set_tests_properties(hosts/clap/sim-dirt/noalloc PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
+      ENVIRONMENT "${SIM_DIRT_ENV};FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG}.dirt.noalloc;${INSERT}=$<TARGET_FILE:noalloc>")
+  endif()
   # the editor's syntax colours: drawn where ImGui draws its text, headless
   add_test(NAME hosts/clap/colours COMMAND test_editor_colours)
   set_tests_properties(hosts/clap/colours PROPERTIES LABELS "hosts;clap")
