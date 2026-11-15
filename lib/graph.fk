@@ -47,6 +47,7 @@ foreign import ccall "graph.h funk_player_event_end" eventEnd :: Ptr () ->> CBoo
 foreign import ccall "graph.h funk_player_event_counts" eventCounts :: Ptr () -> Ptr CInt -> Ptr CLLong -> Ptr CLLong ->> ()
 foreign import ccall "graph.h funk_player_render_channels" playerRender :: Ptr () -> Ptr (Ptr CFloat) -> CInt -> CInt ->> ()
 foreign import ccall "graph.h funk_player_free" playerFree :: Ptr () ->> ()
+foreign import ccall "graph.h funk_player_render_wav" playerRenderWav :: Ptr () -> String -> CInt -> CLLong -> CInt -> Float -> CBool ->> CLLong
 foreign import ccall "dlfcn.h dlopen" dlopen :: String -> CInt ->> Ptr ()
 foreign import ccall "dlfcn.h dlsym" dlsym :: Ptr () -> String ->> Ptr ()
 foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
@@ -62,9 +63,12 @@ foreign import ccall "dlfcn.h RTLD_NOW" rtldNow :: CInt
 -- Wide k secs src st n ins: a node with n outputs (funk_graph_outputs in graph.h),
 -- a Delay if secs > 0, else a Reader if src is Just; a node that reads it reads them all.
 -- Builtin name c: channel c of a WAV built into funkgraph (table.h)
+-- Ref key s: s, which the graph reaches more than once, as a SynthDef's UGen
+-- feeds several; each walk visits a key once. A key names one subtree among
+-- a graph's Refs.
 data Source = File String Int | Sample String String Int Int | Values [Float] | Builtin String Int
 
-data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Shared String Float [[Float]] Sig [Sig] | Wide String Float (Maybe Source) [Float] Int [Sig] | Named String Sig | Control Float | Channels [Sig] | Bus Int Int | In Int
+data Sig = Silence | Node String [Float] [Sig] | Delay String Float [Float] [Sig] | Reader String Source [Float] [Sig] | Shared String Float [[Float]] Sig [Sig] | Wide String Float (Maybe Source) [Float] Int [Sig] | Named String Sig | Control Float | Channels [Sig] | Bus Int Int | In Int | Ref String Sig
 
 -- a C player, its kernel libraries, frames per second, and the most
 -- frames per kernel call
@@ -89,6 +93,7 @@ same (Control v) (Control v2) = v == v2
 same (Channels ss) (Channels ss2) = length ss == length ss2 && and (zipWith same ss ss2)
 same (Bus o c) (Bus o2 c2) = o == o2 && c == c2
 same (In c) (In c2) = c == c2
+same (Ref k s) (Ref k2 s2) = k == k2
 same _ _ = False
 
 sameSource :: Source -> Source -> Bool
@@ -106,17 +111,32 @@ sameMaybe _ _ = False
 -- s's channels; an error if a node's inputs have different numbers of
 -- channels, other than 1. Checked before a C graph is allocated.
 width :: Sig -> Int
-width (Channels ss) = sum (map width ss)
-width (Named n s) = width s
-width (Node k st ins) = case map width ins of
-  ws -> case maximum (1 : ws) of
-    w -> if any (\x -> x /= 1 && x /= w) ws then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else w
-width (Delay k m st ins) = width (Node k st ins)
-width (Reader k src st ins) = width (Node k st ins)
-width (Wide k m src st w ins) = width (Node k st ins)
-width (Shared k m sts x ins) = case width x : map width ins of
-  ws -> if (head ws /= 1 && head ws /= length sts) || any (\w -> w /= 1) (tail ws) then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else length sts
-width s = 1
+width s = fst (widthIn Empty s)
+
+-- s's channels, and the Refs' widths so far
+widthIn :: Trie -> Sig -> (Int, Trie)
+widthIn m (Channels ss) = case widthsIn m ss of
+  (ws, m2) -> (sum ws, m2)
+widthIn m (Named n s) = widthIn m s
+widthIn m (Ref k s) = case findBuilt (Ref k Silence) (hashRef k) m of
+  Just ws -> (head ws, m)
+  Nothing -> case widthIn m s of
+    (w, m2) -> (w, insertBuilt builtDepth (hashRef k) (Ref k Silence, [w]) m2)
+widthIn m (Node k st ins) = case widthsIn m ins of
+  (ws, m2) -> case maximum (1 : ws) of
+    w -> if any (\x -> x /= 1 && x /= w) ws then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else (w, m2)
+widthIn m (Delay k secs st ins) = widthIn m (Node k st ins)
+widthIn m (Reader k src st ins) = widthIn m (Node k st ins)
+widthIn m (Wide k secs src st w ins) = widthIn m (Node k st ins)
+widthIn m (Shared k secs sts x ins) = case widthsIn m (x : ins) of
+  (ws, m2) -> if (head ws /= 1 && head ws /= length sts) || any (\w -> w /= 1) (tail ws) then error ("graph: " ++ k ++ "'s inputs have " ++ show ws ++ " channels") else (length sts, m2)
+widthIn m s = (1, m)
+
+widthsIn :: Trie -> [Sig] -> ([Int], Trie)
+widthsIn m [] = ([], m)
+widthsIn m (s:ss) = case widthIn m s of
+  (w, m2) -> case widthsIn m2 ss of
+    (ws, m3) -> (w : ws, m3)
 
 -- libraries of kernels, such as `funk emit-c --kernels` output compiled
 player :: [String] -> Float -> Int ->> Player
@@ -148,34 +168,53 @@ pokeInputs p i (x:xs) = do
 -- s's errors, before a C graph is allocated: two different nodes of one
 -- name, then unknown kernels. names returns ns with s's names.
 names :: [(String, Sig)] -> Sig -> [(String, Sig)]
-names ns Silence = ns
-names ns (Named n s) = case lookup n ns of
-  Just s2 -> if same s s2 then ns else error ("graph: two different nodes named " ++ n)
-  Nothing -> names ((n, s) : ns) s
-names ns (Node k st ins) = foldl names ns ins
-names ns (Delay k m st ins) = names ns (Node k st ins)
-names ns (Reader k src st ins) = names ns (Node k st ins)
-names ns (Wide k m src st w ins) = names ns (Node k st ins)
-names ns (Shared k m sts x ins) = foldl names ns (x : ins)
-names ns (Control v) = ns
-names ns (Channels ss) = foldl names ns ss
-names ns (Bus o c) = ns
-names ns (In c) = ns
+names ns s = fst (namesIn (ns, Empty) s)
+
+-- the names so far, and the Refs visited
+namesIn :: ([(String, Sig)], Trie) -> Sig -> ([(String, Sig)], Trie)
+namesIn a Silence = a
+namesIn (ns, m) (Named n s) = case lookup n ns of
+  Just s2 -> if same s s2 then (ns, m) else error ("graph: two different nodes named " ++ n)
+  Nothing -> namesIn ((n, s) : ns, m) s
+namesIn (ns, m) (Ref k s) = case findBuilt (Ref k Silence) (hashRef k) m of
+  Just is -> (ns, m)
+  Nothing -> namesIn (ns, insertBuilt builtDepth (hashRef k) (Ref k Silence, []) m) s
+namesIn a (Node k st ins) = foldl namesIn a ins
+namesIn a (Delay k secs st ins) = namesIn a (Node k st ins)
+namesIn a (Reader k src st ins) = namesIn a (Node k st ins)
+namesIn a (Wide k secs src st w ins) = namesIn a (Node k st ins)
+namesIn a (Shared k secs sts x ins) = foldl namesIn a (x : ins)
+namesIn a (Control v) = a
+namesIn a (Channels ss) = foldl namesIn a ss
+namesIn a (Bus o c) = a
+namesIn a (In c) = a
 
 kernels :: [Ptr ()] -> Sig ->> ()
-kernels libs Silence = ()
-kernels libs (Named n s) = kernels libs s
-kernels libs (Control v) = ()
-kernels libs (Bus o c) = ()
-kernels libs (In c) = ()
-kernels libs (Channels ss) = mapM_ (kernels libs) ss
-kernels libs (Delay k m st ins) = kernels libs (Node k st ins)
-kernels libs (Reader k src st ins) = kernels libs (Node k st ins)
-kernels libs (Wide k m src st w ins) = kernels libs (Node k st ins)
-kernels libs (Shared k m sts x ins) = kernels libs (Node k [] (x : ins))
-kernels libs (Node k st ins) = do
+kernels libs s = do
+  m <- kernelsIn libs Empty s
+  ()
+
+-- s's kernels found, after the Refs visited in m; those with s's
+kernelsIn :: [Ptr ()] -> Trie -> Sig ->> Trie
+kernelsIn libs m (Named n s) = kernelsIn libs m s
+kernelsIn libs m (Ref k s) = case findBuilt (Ref k Silence) (hashRef k) m of
+  Just is -> m
+  Nothing -> kernelsIn libs (insertBuilt builtDepth (hashRef k) (Ref k Silence, []) m) s
+kernelsIn libs m (Channels ss) = kernelsAll libs m ss
+kernelsIn libs m (Delay k secs st ins) = kernelsIn libs m (Node k st ins)
+kernelsIn libs m (Reader k src st ins) = kernelsIn libs m (Node k st ins)
+kernelsIn libs m (Wide k secs src st w ins) = kernelsIn libs m (Node k st ins)
+kernelsIn libs m (Shared k secs sts x ins) = kernelsIn libs m (Node k [] (x : ins))
+kernelsIn libs m (Node k st ins) = do
   kernel libs k
-  mapM_ (kernels libs) ins
+  kernelsAll libs m ins
+kernelsIn libs m s = m
+
+kernelsAll :: [Ptr ()] -> Trie -> [Sig] ->> Trie
+kernelsAll libs m [] = m
+kernelsAll libs m (s:ss) = do
+  m2 <- kernelsIn libs m s
+  kernelsAll libs m2 ss
 
 -- the nodes added so far: by name, and by kernel, state and inputs. The string is
 -- the name the next node takes: a named node keeps its own state, so it never merges.
@@ -209,6 +248,13 @@ add g libs (Seen named built own) (Named n s) = case lookup n named of
     (is, Seen named2 built2 own2) <- add g libs (Seen named built n) s
     nameAll g (if length is == 1 then [n] else map (\k -> n ++ "." ++ show k) (enumFromTo 1 (length is))) is
     (is, Seen ((n, is) : named2) built2 "")
+-- a Ref is built once: the nodes its second visit would find, as once finds
+-- them; within a named node, which owns its nodes, it is built as s
+add g libs ns (Ref k s) = if seenOwn ns /= "" then add g libs ns s else case findBuilt (Ref k Silence) (hashRef k) (seenBuilt ns) of
+  Just is -> (is, ns)
+  Nothing -> do
+    (is, Seen a b o) <- add g libs ns s
+    (is, Seen a (insertBuilt builtDepth (hashRef k) (Ref k Silence, is) b) o)
 add g libs ns (Control v) = do
   i <- graphControl g (toCFloat v)
   if i < 0 then error "graph: out of memory" else ([fromIntegral i], ns)
@@ -284,6 +330,9 @@ insertBuilt d h e t = if d == 0 then (case t of
   else case t of
     Fork l r -> if h `mod` 2 == 0 then Fork (insertBuilt (d - 1) (h `div` 2) e l) r else Fork l (insertBuilt (d - 1) (h `div` 2) e r)
     _ -> insertBuilt d h e (Fork Empty Empty)
+
+hashRef :: String -> Int
+hashRef k = foldl mixHash 13 (map ord (unpack k))
 
 mixHash :: Int -> Int -> Int
 mixHash h x = (h * 31 + x) `mod` 2147483647
@@ -459,6 +508,12 @@ renderChannels :: Player -> [Ptr CFloat] -> Int ->> ()
 renderChannels (Player p libs rate maxBlock) outs n = allocaBytes (8 * length outs) (\a -> do
   pokeAll a 0 outs
   playerRender p a (fromIntegral (length outs)) (fromIntegral n))
+
+-- for offline tests: n frames of both channels, in the player's blocks, into
+-- a float WAV file at path, or after the frames renderWav wrote there if
+-- append; the CPU nanoseconds the renders took, or -1 if the file was not written
+renderWav :: Player -> String -> Int -> Bool ->> Int
+renderWav (Player p libs rate maxBlock) path n append = fromIntegral (playerRenderWav p path 2 (fromIntegral n) (fromIntegral maxBlock) rate (if append then 1 else 0))
 
 pokeAll :: Ptr (Ptr CFloat) -> Int -> [Ptr CFloat] ->> ()
 pokeAll a i [] = ()

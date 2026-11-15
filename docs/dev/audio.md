@@ -245,7 +245,7 @@ What it needs:
 
    - **One output.** A filter's three responses are three exports sharing one loop. Stereo needs no more: see channels, item 4. Several outputs per kernel wait for a kernel whose channels share state, such as a stereo reverb.
 
-4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring. The builder is done, 2026-10-29: `lib/graph.fk`, test `kernels/build`, interpreted and compiled. A `Sig` is a tree of nodes; `play` writes it into a new C graph, inputs first, and swaps it in.
+4. **A graph builder** in funk, and voices: a note-on adds rows, or enables rows from a pool, through the event ring. The builder is done, 2026-10-29: `lib/graph.fk`, test `kernels/build`, interpreted and compiled. A `Sig` is a tree of nodes; `play` writes it into a new C graph, inputs first, and swaps it in. A `g.Ref` marks a subtree the tree reaches more than once, as a SynthDef's UGens do; walks visit it once (2026-11-15).
 
    **Named nodes** (`named "lfo" s`): one node however often the tree uses it; two different nodes of one name are an error. A named node keeps its state across a swap if its kernel and initial state are unchanged, so an edit elsewhere in the graph does not restart its oscillators. The audio thread copies the state at the new graph's first block, from the graph it rendered last, matched by name: the host's thread cannot read a state the audio thread is writing, and the graph played before may never have been rendered. A replaced graph is therefore freed one block later than before; the stress test reports a use-after-free under AddressSanitizer, 5 runs of 5, with the earlier rule.
 

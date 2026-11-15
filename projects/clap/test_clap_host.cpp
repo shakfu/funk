@@ -182,12 +182,26 @@ struct Events {
 	uint32_t last = 0;
 };
 
+// tests/noalloc.c's counter when inserted (hosts/clap/noalloc): process() must not
+// allocate, free or lock; the host's own callbacks are not counted
+#ifndef _WIN32
+void (*gArm)(int) = (void (*)(int))dlsym(RTLD_DEFAULT, "noalloc_arm");
+int (*gHits)(void) = (int (*)(void))dlsym(RTLD_DEFAULT, "noalloc_hits");
+#else
+void (*gArm)(int) = nullptr;
+int (*gHits)(void) = nullptr;
+#endif
+
 const clap_output_events_t* MakeOut(Events& events)
 {
 	static clap_output_events_t out;
 	out.ctx = &events;
 	out.try_push = [](const clap_output_events_t* o, const clap_event_header_t* h) {
 		auto* ev = static_cast<Events*>(o->ctx);
+		struct Unarmed {
+			Unarmed() { if (gArm) gArm(0); }
+			~Unarmed() { if (gArm) gArm(1); }
+		} unarmed;
 		if (h->type != CLAP_EVENT_MIDI || h->space_id != CLAP_CORE_EVENT_SPACE_ID) return false;
 		const auto* midi = reinterpret_cast<const clap_event_midi_t*>(h);
 		if (h->time < ev->last || h->time >= kBlock) ev->sorted = false;
@@ -254,7 +268,9 @@ void Process(const clap_plugin_t* plugin, Events& events, double beat, bool play
 		process.audio_outputs_count = 1;
 	}
 	events.last = 0;
+	if (gArm) gArm(1);
 	plugin->process(plugin, &process);
+	if (gArm) gArm(0);
 	events.audio.insert(events.audio.end(), channels.begin(), channels.begin() + (gAudioChannels ? kBlock : 0));
 	events.blockStart += kBlock;
 }
@@ -925,6 +941,7 @@ int CheckSim(const char* pluginPath, const char* logPath)
 	int on = 0;
 	for (const Event& e : ev.list) on += e.data[0] == 0x90 && e.data[1] == 60;
 	check(on >= 4, "the notes step plays: " + std::to_string(on) + " note-ons");
+	if (gHits) check(gHits() == 0, "process() allocates, frees and locks nothing: " + std::to_string(gHits()) + " calls");
 	printf("%d failure(s)\n", gFailures);
 	return gFailures ? 1 : 0;
 }
@@ -994,6 +1011,7 @@ int main(int argc, char** argv)
 	}
 
 	entry->deinit();
+	if (gHits) check(gHits() == 0, "process() allocates, frees and locks nothing: " + std::to_string(gHits()) + " calls");
 	printf("%d failure(s)\n", gFailures);
 	return gFailures ? 1 : 0;
 }

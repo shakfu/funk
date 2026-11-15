@@ -11,6 +11,12 @@ function(funk_test name labels)
   set_tests_properties(${name} PROPERTIES ENVIRONMENT "FUNK=$<TARGET_FILE:funk>" LABELS "${labels}" TIMEOUT 300)
 endfunction()
 
+# counts allocation, freeing and locking on an armed thread, when inserted (kernels/noalloc)
+if(NOT WIN32)
+  add_library(noalloc SHARED noalloc.c)
+  target_link_libraries(noalloc PRIVATE ${CMAKE_DL_LIBS})
+endif()
+
 file(GLOB runs RELATIVE ${PROJECT_SOURCE_DIR} CONFIGURE_DEPENDS
      ${PROJECT_SOURCE_DIR}/tests/run/*.fk ${PROJECT_SOURCE_DIR}/examples/*.fk)
 foreach(f ${runs})
@@ -127,11 +133,28 @@ if(TARGET funk_midi_clap)
   # lookahead, which a loaded machine misses: under ctest -j 10, a note 3 ms late
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  # ... with tests/noalloc.c inserted, which counts allocation and locking in process()
+  if(TARGET noalloc)
+    if(APPLE)
+      set(INSERT DYLD_INSERT_LIBRARIES)
+    else()
+      set(INSERT LD_PRELOAD)
+    endif()
+    add_test(NAME hosts/clap/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap>
+      ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt 57293)
+    set_tests_properties(hosts/clap/noalloc PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
+      ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57293;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache;${INSERT}=$<TARGET_FILE:noalloc>")
+  endif()
   # simulator mode: a script's steps in turn, logged (projects/clap/simulator.hpp)
   set(SIM_LOG ${CMAKE_CURRENT_BINARY_DIR}/sim.log)
   add_test(NAME hosts/clap/sim COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim ${SIM_LOG})
   set_tests_properties(hosts/clap/sim PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG};FUNK_MIDI_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  if(TARGET noalloc)
+    add_test(NAME hosts/clap/sim/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim ${SIM_LOG}.noalloc)
+    set_tests_properties(hosts/clap/sim/noalloc PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
+      ENVIRONMENT "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG}.noalloc;FUNK_MIDI_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache;${INSERT}=$<TARGET_FILE:noalloc>")
+  endif()
   # the editor's syntax colours: drawn where ImGui draws its text, headless
   add_test(NAME hosts/clap/colours COMMAND test_editor_colours)
   set_tests_properties(hosts/clap/colours PROPERTIES LABELS "hosts;clap")
@@ -367,6 +390,11 @@ funk_test(kernels/tables "ffi;kernels" ${TABLES})
 set(TEMPLATES kernels lib/kernels.fk tests/kernels/templates.c projects/funkgraph/graph.c projects/funkgraph/events.c projects/funkgraph/voices.c projects/funkgraph/table.c ${MDAPIANO_C} -Iprojects/funkgraph -lpthread -lm)
 funk_test(kernels/templates "ffi;kernels" ${TEMPLATES})
 funk_test(kernels/zita "ffi;kernels" kernels lib/kernels.fk tests/kernels/zita.c projects/funkgraph/graph.c projects/funkgraph/events.c projects/funkgraph/voices.c projects/funkgraph/table.c ${MDAPIANO_C} -Iprojects/funkgraph -Itests/kernels -lpthread -lm)
+# ... allocating, freeing and locking nothing on the audio thread (tests/noalloc.c, inserted)
+if(TARGET noalloc)
+  funk_test(kernels/noalloc "ffi;kernels" kernels lib/kernels.fk tests/kernels/noalloc.c projects/funkgraph/graph.c projects/funkgraph/events.c projects/funkgraph/voices.c projects/funkgraph/table.c ${MDAPIANO_C} -Iprojects/funkgraph -lpthread -lm)
+  set_tests_properties(kernels/noalloc PROPERTIES ENVIRONMENT "FUNK=$<TARGET_FILE:funk>;NOALLOC_LIB=$<TARGET_FILE:noalloc>")
+endif()
 # ... built from funk by lib/graph.fk
 set(FUNKGRAPH -M lib -I projects/funkgraph -L $<TARGET_FILE_DIR:funkgraph> -lfunkgraph)
 funk_test(kernels/build "ffi;kernels;lib" kernels tests/kernels/chain.fk tests/kernels/build.fk ${FUNKGRAPH})
@@ -418,9 +446,16 @@ endif()
 # (tests/dirt/oracle.py); skipped without the SuperDirt quark
 find_program(SCLANG sclang HINTS /Applications/SuperCollider.app/Contents/MacOS)
 if(SCLANG AND PYTHON3)
-  add_test(NAME lib/dirt-scsynth COMMAND ${PYTHON3} -I tests/dirt/oracle.py ${SCLANG} $<TARGET_FILE:funk> $<TARGET_FILE:funkdsp>
-    ${CMAKE_CURRENT_BINARY_DIR}/dirt -- ${FUNKGRAPH} WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-  set_tests_properties(lib/dirt-scsynth PROPERTIES LABELS lib TIMEOUT 600 SKIP_RETURN_CODE 77)
+  # in 4 shards: the 123 cases took 468 s in one, interpreted, and passed 600 s under -j
+  foreach(i 0 1 2 3)
+    add_test(NAME lib/dirt-scsynth/${i} COMMAND ${PYTHON3} -I tests/dirt/oracle.py ${SCLANG} $<TARGET_FILE:funk> $<TARGET_FILE:funkdsp>
+      ${CMAKE_CURRENT_BINARY_DIR}/dirt/${i} -- ${FUNKGRAPH} WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    set_tests_properties(lib/dirt-scsynth/${i} PROPERTIES LABELS lib TIMEOUT 600 SKIP_RETURN_CODE 77 ENVIRONMENT ORACLE_SHARD=${i}/4)
+  endforeach()
+  # tests/tidal/ports.fk's patches, with Dirt-Samples, against SuperDirt (docs/dev/dirt-acceptance.md)
+  add_test(NAME lib/dirt-patches COMMAND ${PYTHON3} -I tests/dirt/oracle.py ${SCLANG} $<TARGET_FILE:funk> $<TARGET_FILE:funkdsp>
+    ${CMAKE_CURRENT_BINARY_DIR}/dirt-patches -- ${FUNKGRAPH} WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  set_tests_properties(lib/dirt-patches PROPERTIES LABELS lib TIMEOUT 300 SKIP_RETURN_CODE 77 ENVIRONMENT ORACLE_SET=patches)
   # lib/synthdefs.fk is what tests/dirt/synthdefs.scd writes from SuperDirt's SynthDefs
   add_test(NAME lib/synthdefs COMMAND sh -c "out=\"${CMAKE_CURRENT_BINARY_DIR}/synthdefs.fk\"; \"${SCLANG}\" tests/dirt/synthdefs.scd \"$out\" $(sed -n 's/^--   sclang tests.dirt.synthdefs.scd lib.synthdefs.fk //p' lib/synthdefs.fk) >/dev/null 2>&1; r=$?; [ $r = 2 ] && exit 77; [ $r = 0 ] || exit $r; diff lib/synthdefs.fk \"$out\""
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})

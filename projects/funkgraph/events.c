@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "graph_internal.h"
+#include "name.h"
 
 enum {
   B = FUNK_EVENT_BLOCK,
@@ -414,7 +415,8 @@ static bool fill(Rec *r, int64_t frame, const char *source, int n, const char *c
   r->n = n;
   for (int i = 0; i < n; i++) {
     char o[128];
-    snprintf(o, sizeof o, "o%d.%s", orbit, names[i]);
+    Text m = name_in(o, sizeof o);
+    name_add(&m, "o", 1), name_int(&m, orbit), name_add(&m, ".", 1), name_str(&m, names[i]), name_done(&m);
     r->p[i] = (Param){funk_hash(names[i]), funk_hash(o), values[i]};
   }
   return true;

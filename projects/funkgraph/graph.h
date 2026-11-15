@@ -177,6 +177,13 @@ void funk_player_render_channels(funk_player *p, float *const *out, int channels
 /* funk_player_render_channels with one channel: the graph's first output. */
 void funk_player_render(funk_player *p, float *out, int n);
 
+/* For offline tests, as the audio thread: n frames of channels channels,
+   rendered in calls of block frames, into a 32-bit float WAV file at path
+   with rate in its header, on a little-endian host; appended to the file
+   this function wrote if append. The thread CPU time the renders took, in
+   nanoseconds, or -1 if the file was not written. */
+int64_t funk_player_render_wav(funk_player *p, const char *path, int channels, int64_t n, int block, double rate, bool append);
+
 /* Once the audio thread has stopped calling funk_player_render. */
 void funk_player_free(funk_player *p);
 

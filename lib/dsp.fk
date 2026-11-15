@@ -345,7 +345,7 @@ extraEffects = [("waveloss", "waveloss2", ["waveloss"], [("drop", "waveloss")]),
 -- ReplaceOut); a control the event lacks is 0, as sclang sends nil
 addEffectDefs :: [(String, String, [String], [(String, String)])] -> Dirt -> Dirt
 addEffectDefs fx d = foldl (\x (name, def, keys, renames) -> case lookup def sd.synthDefs of
-  Just sdef -> if sc.supported sdef then addModule name (\q chainSig -> sc.build sdef (\c v -> case lookup c renames of
+  Just sdef -> if sc.supported sdef then addModule name (\q chainSig -> sc.build name sdef (\c v -> case lookup c renames of
       Just k -> q k 0.0
       Nothing -> q c (if c == "freq" then 261.6255653005986 else 0.0))) (\cs -> any (\k -> has k cs) keys) x
     else x
@@ -354,7 +354,7 @@ addEffectDefs fx d = foldl (\x (name, def, keys, renames) -> case lookup def sd.
 -- SuperDirt's synths that lib/kernels.fk has every UGen of, by name
 -- (lib/synthdefs.fk)
 addSynthDefs :: [String] -> Dirt -> Dirt
-addSynthDefs names d = foldl (\x (name, def) -> if elem name names && sc.supported def then addSynth name (\param -> sc.build def param) x else x) d sd.synthDefs
+addSynthDefs names d = foldl (\x (name, def) -> if elem name names && sc.supported def then addSynth name (\param -> sc.build name def param) x else x) d sd.synthDefs
 
 -- default-synths.scd's, which SuperDirt loads without sc3-plugins
 defaultSynths :: [String]

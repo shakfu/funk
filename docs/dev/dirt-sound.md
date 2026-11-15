@@ -311,7 +311,7 @@ Done 2026-11-11, as option C:
 
 - **Exports:** a template's node named `>NAME` sets parameter NAME of the stages after it, each block. The span exports `sustain`, `fadeTime`, `fadeInTime`, `speed` and `endSpeed`, so modules and the gate read DirtEvent's values. The alternative, the span on funk's thread as sclang computes it, needs each sample's length there.
 
-- **Tests:** `kernels/events` (funk, interpreted and compiled), `kernels/templates` (C, plain and under AddressSanitizer and ThreadSanitizer), `hosts/events` (funk-midi) and a case in `hosts/clap`. `lib/dirt-scsynth` (`tests/dirt/oracle.py`) renders 48 cases in scsynth with SuperDirt 1.7.3's SynthDefs, through DirtEvent's own `calcTimeSpan` and `playSynths`, SuperDirt's module functions and 16 orbits of its own `GlobalDirtEffect`s, into a Score, seeded by `RandSeed`. 18 cases are modules and 14 global effects, among them a pause and resume, two orbits, and `pshift` with `psdisp` beside the reverb. funk matches every frame within 1.8e-7, against 0.017 or more for its output a frame late. Its scsynth times are a quarter frame past each event's frame: an OSC time tag is whole 2^-32 s, and scsynth truncates the offset.
+- **Tests:** `kernels/events` (funk, interpreted and compiled), `kernels/templates` (C, plain and under AddressSanitizer and ThreadSanitizer), `kernels/noalloc`, `hosts/clap/noalloc` and `hosts/clap/sim/noalloc` (no allocation, freeing or locking on the audio thread; `tests/noalloc.c`), `hosts/events` (funk-midi) and a case in `hosts/clap`. `lib/dirt-scsynth` (`tests/dirt/oracle.py`) renders 48 cases in scsynth with SuperDirt 1.7.3's SynthDefs, through DirtEvent's own `calcTimeSpan` and `playSynths`, SuperDirt's module functions and 16 orbits of its own `GlobalDirtEffect`s, into a Score, seeded by `RandSeed`. 18 cases are modules and 14 global effects, among them a pause and resume, two orbits, and `pshift` with `psdisp` beside the reverb. funk matches every frame within 1.8e-7, against 0.017 or more for its output a frame late. Its scsynth times are a quarter frame past each event's frame: an OSC time tag is whole 2^-32 s, and scsynth truncates the offset.
 
 Where it differs from SuperDirt, or from the plan:
 
@@ -337,9 +337,11 @@ Where it differs from SuperDirt, or from the plan:
 
 11. **A played graph has no constructor call:** a `dsp_u_` kernel there constructs itself at its first call, from its inputs' first frame of that call.
 
-12. **`funk_player_event_audio` formats names with `snprintf`** on the audio thread, as `funk_voices_trigger` does. No test yet shows the audio path allocates nothing ([TODO.md](../../TODO.md), "From rustel").
+12. **Resolved 2026-11-15: names on the audio thread.** `funk_player_event_audio` and `funk_voices_trigger` built names with `snprintf`. Its `%d` and `%s` allocated nothing on macOS, but libc does not promise that: `%g` locks and allocates in dtoa on a thread's first call. They now use `name.h`. `kernels/noalloc` and `hosts/clap/noalloc` count allocation, freeing and locking on the audio thread, and find none.
 
 13. **The FFT effects are within 2e-5 of scsynth, not 1e-6.** scsynth's macOS build transforms with vDSP, in float; `dsp_u_Spectral` transforms in double, to float buffers. 8 of the 10 FFT cases are within 5e-7. `spectral-conformer` is within 1.5e-6, as close as funk's double and float transforms are to each other. `spectral-enhance` differs by 9.7e-6, at one bin that scsynth's rounding moves across a step of `SC_Complex.h`'s polar table. Calling vDSP on macOS would need a C FFT the kernels can reach; Linux builds, which use FFTW, could not match either way.
+
+14. **Fixed size classes, not one heap.** The pool's 128 MB is split among size classes when templates are set (decision 8), so a class's slots cap its concurrent events whatever the others use. scsynth allocates every synth from one real-time heap.
 
 ## Plan
 
@@ -361,7 +363,7 @@ Steps 1 to 5 are done, and of step 6 the API, the UGen library and `default-synt
 
 ## Open
 
-- Whether the played graph should render on scsynth's 64-frame grid too (difference 4).
+- Decision 6's form that loads every folder of a path, and the index wrap it needs (see decision 6).
 
 ## Decisions
 
@@ -381,6 +383,10 @@ Taken in the implementation, 2026-11-11, for the user to review:
 
 6. Samples load when `dirt` is defined, from the names `d.loadSoundFiles` gives, as `d.kit` loads them. SuperDirt loads every folder of a path.
 
+Reviewed by the user 2026-11-15: 4 and 5 kept; 6 kept, with a form to come that loads every folder of a path. On 5, measured with `d.superDirt`, the pool fills its 128 MB at 256 slots a class. The binding limit is the 128 MB: `superprimes`, `superwavemechanics`, `supergrind` and `spectral-delay` get 6 slots, the 9 spectral modules and `superfm` share 24, the rest 256. 1024 would have cut the first four to 5. scsynth shares one 128 MB heap among all events (`AllocPool`), so SuperDirt can play 13 `superprimes` when nothing else plays; funk's classes cannot (difference 14).
+
+The every-folder form needs two choices. The listing is IO, and `dirt` is pure: a `Folders` entry could be expanded by `playDirt`. An index past a folder's files wraps in SuperDirt (`buffers.wrapAt`), so `s "bd" # n 13` plays `bd:1` of 4 files; `prepare` looks up `bd:13` exactly, so that event is silent today, with names listed or not.
+
 7. Option C is implemented (decision 1).
 
 Taken 2026-11-12, by the user:
@@ -398,5 +404,7 @@ Taken 2026-11-12, by the user:
 Taken in the implementation, 2026-11-12, for the user to review:
 
 13. `dirt` events play at SuperDirt's level, 8 dB below `d.kit`'s, so the monitor's nonlinear stages match (see Implementation, Level).
+
+Accepted by the user 2026-11-15, with difference 4: the played graph keeps the host's blocks. 14 is reopened if step 4's CPU per block for a dense set misses its budget; a pass that fuses a SynthDef's graph into one kernel, from the same data, is the fallback.
 
 14. SuperDirt's synths are its SynthDefs' UGen graphs as data, built by one library of UGen kernels (`lib/scsynth.fk`), not a kernel per synth as the modules and global effects are. 50-odd UGens serve the 50-odd synths and effects, the graph is SynthDef's own, and `superfm`'s random presets come with it. The cost: one node per UGen, and a control-rate UGen fills its 64 frames.

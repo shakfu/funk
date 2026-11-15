@@ -1,0 +1,32 @@
+-- patches.fk -- tests/tidal/ports.fk's patches as oracle.py's cases
+-- (ORACLE_SET=patches): each patch's onsets in its first 4 cycles at
+-- Tidal's default cps, one line each: "event NAME TIME DELTA CYCLE" and its
+-- controls, "k=fX", "k=iN" or "k=sTEXT", tab-separated. TIME and DELTA are
+-- seconds, CYCLE the whole's start in cycles, as Tidal sends them.
+import pattern as p
+import control (Controls, Value (..), controlPairs)
+import ports (patches)
+
+cps :: Float
+cps = 0.5625
+
+cycles :: Int
+cycles = 4
+
+secs :: Int -> Float
+secs ticks = toFloat ticks / toFloat p.cycleTicks / cps
+
+value :: Value -> String
+value v = case v of
+  VF x -> "f" ++ show x
+  VI i -> "i" ++ show i
+  VS s -> "s" ++ s
+  _ -> error "patches.fk: a control of another type"
+
+line :: String -> p.Event Controls -> String
+line name e = case p.wholeOrPart e of
+  w -> foldl (\acc (k, v) -> acc ++ "\t" ++ k ++ "=" ++ value v)
+         ("event " ++ name ++ " " ++ show (secs w.start) ++ " " ++ show (secs (w.stop - w.start)) ++ " " ++ show (toFloat w.start / toFloat p.cycleTicks))
+         (controlPairs e.value)
+
+main = mapM_ (\(name, k, pat) -> mapM_ (\e -> putStrLn (line name e)) (p.onsets pat (p.Span 0 (min k cycles * p.cycleTicks)))) patches

@@ -10,6 +10,9 @@ funk's output a frame late, must fail it,
 so the bound separates a right render from a wrong one. Exits 77, ctest's
 skip, if sclang lacks the SuperDirt quark.
 
+With $ORACLE_SET=patches, the cases are tests/tidal/ports.fk's patches
+instead, each event's sample from Dirt-Samples as SuperDirt picks it.
+
 Usage: python3 -I oracle.py SCLANG FUNK KERNELS OUTDIR -- FUNKARGS...
 """
 import math
@@ -173,9 +176,108 @@ CASES = [
 ]
 
 # each case as (name, sample, seconds, events, core); $ORACLE_CASES, names
-# separated by commas, runs only those
-CASES = [(c[0], c[1], c[2], c[3], len(c) > 4 and c[4]) for c in CASES
-         if not os.environ.get("ORACLE_CASES") or c[0] in os.environ["ORACLE_CASES"].split(",")]
+# separated by commas, runs only those; $ORACLE_SHARD, "I/N", every Nth from
+# the Ith, so that ctest runs the shards in parallel
+SHARD, SHARDS = map(int, os.environ.get("ORACLE_SHARD", "0/1").split("/"))
+
+
+def select(cases):
+    return [(c[0], c[1], c[2], c[3], len(c) > 4 and c[4]) for i, c in enumerate(cases)
+            if (not os.environ.get("ORACLE_CASES") or c[0] in os.environ["ORACLE_CASES"].split(",")) and i % SHARDS == SHARD]
+
+
+# $ORACLE_SET=patches: tests/tidal/ports.fk's patches (tests/dirt/patches.fk),
+# with Dirt-Samples from $DIRT_SAMPLES or SuperCollider's downloaded quarks.
+# A case's sample "*" takes each event's s and n.
+PATCH_TAIL = 1.0  # seconds past the last cycle, for the tails to ring
+DIRT_SAMPLES = [os.path.expanduser(p) for p in ("~/Library/Application Support/SuperCollider/downloaded-quarks/Dirt-Samples",
+                                                "~/.local/share/SuperCollider/downloaded-quarks/Dirt-Samples")]
+
+
+def dirt_samples():
+    for d in [os.environ.get("DIRT_SAMPLES", "")] + DIRT_SAMPLES:
+        if d and os.path.isdir(d):
+            return d
+    return None
+
+
+def patch_cases(funk, funk_args, dirt):
+    """The patches' events as cases; events of a sound with no folder are
+    dropped, as SuperDirt drops a sound it does not find."""
+    r = subprocess.run([funk, "run", "tests/dirt/patches.fk"] + funk_args + ["-M", "tests/tidal"], capture_output=True, text=True, timeout=600)
+    if r.returncode:
+        sys.exit("patches.fk failed:\n" + r.stdout[-2000:] + r.stderr[-2000:])
+    by, dropped = {}, {}
+    for line in r.stdout.splitlines():
+        head, *pairs = line.split("\t")
+        _, name, t, delta, cycle = head.split(" ")
+        cs = {"cps": 0.5625, "delta": float(delta)}
+        for kv in pairs:
+            k, v = kv.split("=", 1)
+            cs[k] = v[1:] if v[0] == "s" else float(v[1:])
+        if not sound_files(dirt, cs["s"]):
+            dropped[cs["s"]] = dropped.get(cs["s"], 0) + 1
+            continue
+        by.setdefault(name, []).append((float(t), cs))
+    for s, k in sorted(dropped.items()):
+        print("dropped %d events of %s: no such sample folder" % (k, s))
+    return [("patch-" + n, "*", max(t for t, c in es) + PATCH_TAIL, sorted(es, key=lambda e: e[0])) for n, es in by.items()]
+
+
+def sound_files(dirt, folder):
+    """A folder's sound files as DirtSoundLibrary.loadSoundFileFolder loads them: sorted, by extension."""
+    d = os.path.join(dirt, folder)
+    if not os.path.isdir(d):
+        return []
+    return [os.path.join(d, f) for f in sorted(os.listdir(d)) if not f.startswith(".")
+            and os.path.splitext(f)[1][1:].lower() in ("wav", "aif", "aiff", "aifc")]
+
+
+def sound_info(path):
+    """A WAV or AIFF file's frames, rate and channels."""
+    b = open(path, "rb").read()
+    if b[:4] == b"RIFF":
+        at, chans, rate, align, size = 12, 0, 0, 1, 0
+        while at + 8 <= len(b):
+            tag, n = b[at:at + 4], struct.unpack("<I", b[at + 4:at + 8])[0]
+            if tag == b"fmt ":
+                chans, rate, _, align = struct.unpack("<HIIH", b[at + 10:at + 22])
+            elif tag == b"data":
+                size = min(n, len(b) - at - 8)
+            at += 8 + n + (n & 1)
+        return size // align, rate, chans
+    at = 12
+    while at + 8 <= len(b):
+        tag, n = b[at:at + 4], struct.unpack(">I", b[at + 4:at + 8])[0]
+        if tag == b"COMM":
+            chans, frames = struct.unpack(">hI", b[at + 8:at + 14])
+            e, m = struct.unpack(">HQ", b[at + 16:at + 26])
+            return frames, round(m * 2.0 ** ((e & 0x7FFF) - 16383 - 63)), chans
+        at += 8 + n + (n & 1)
+    sys.exit("no sound in " + path)
+
+
+def layout(case, samples, dirt):
+    """A case's buffers for render.scd, each event's buffer, and for play.fk
+    the samples' folder, the sample names it loads and each event's sound."""
+    name, s, secs, cs, core = case
+    es = events(cs)
+    if s != "*":
+        own = s if s in SAMPLES else "mono"
+        return ([(os.path.join(samples, own, sample_file(own)),) + SAMPLES[own]], [0] * len(es), samples,
+                list(SAMPLES), [""] * len(es))
+    buffers, at, picks, names = [], {}, [], []
+    for t, c in es:
+        files = sound_files(dirt, c["s"])
+        path = files[int(c.get("n", 0.0)) % len(files)]  # getEvent: wrapAt(index.asInteger)
+        if path not in at:
+            at[path] = len(buffers)
+            buffers.append((path,) + sound_info(path))
+        picks.append(at[path])
+        key = "%s:%d" % (c["s"], int(c.get("n", 0.0)))
+        if key not in names:
+            names.append(key)
+    return buffers, picks, dirt, names, [c["s"] for t, c in es]
 
 # a vowel is sent to funk as its index in VOWELS; play.fk maps it back
 VOWELS = "aeiou"
@@ -259,22 +361,20 @@ def sc_event(controls):
 
 
 def funk_cases(controls):
-    """A case's controls as funk's: unit "c" is play.fk's unitc, "s" its units, a vowel its index."""
-    return "[" + ", ".join("(%s, %r)" % (f'"{k}"', float(VOWELS.index(v) if isinstance(v, str) else v)) for k, v in controls.items()) + "]"
+    """A case's controls as funk's: unit "c" is play.fk's unitc, "s" its units, a vowel its index;
+    an event's s is its own field."""
+    return "[" + ", ".join("(%s, %r)" % (f'"{k}"', float(VOWELS.index(v) if isinstance(v, str) else v)) for k, v in controls.items() if k != "s") + "]"
 
 
-def read_funk(text):
-    out, name = {}, None
+def read_funk(text, outdir):
+    """play.fk's renders, by case name, and each one's CPU nanoseconds."""
+    out = {}
     for line in text.splitlines():
         if line.startswith("case "):
-            name = line[5:]
-            if name.endswith(" refused"):
-                sys.exit("funk refused case " + name)
-            out[name] = ([], [])
-        elif name and line.startswith("(["):
-            left, right = line[2:-2].split("],[")
-            for c, part in enumerate((left, right)):
-                out[name][c].extend(float(x.strip("()")) for x in part.split(",") if x)
+            name, cpu = line[5:].rsplit(" ", 1)
+            if not cpu.isdigit():
+                sys.exit("funk %s case %s" % (cpu, name))
+            out[name] = (read_float_wav(os.path.join(outdir, name + ".funk.wav")), int(cpu))
     return out
 
 
@@ -300,39 +400,50 @@ def main():
     for name, (frames, rate, chans) in SAMPLES.items():
         os.makedirs(os.path.join(samples, name), exist_ok=True)
         (write_aiff if name in AIFF else write_wav)(os.path.join(samples, name, sample_file(name)), frames, rate, chans)
+    dirt = None
+    if os.environ.get("ORACLE_SET") == "patches":
+        dirt = dirt_samples()
+        if not dirt:
+            print("skipped: no Dirt-Samples ($DIRT_SAMPLES)")
+            sys.exit(77)
+        cases = select(patch_cases(funk, funk_args, dirt))
+    else:
+        cases = select(CASES)
+    layouts = {c[0]: layout(c, os.path.abspath(samples), dirt) for c in cases}
     with open(os.path.join(outdir, "cases.scd"), "w") as f:
         f.write("[%d, [\n" % SEED)
-        for name, s, secs, cs, core in CASES:
-            frames, rate, chans = SAMPLES.get(s, SAMPLES["mono"])
-            f.write('  ["%s", "%s", %d, %d, %d, %s, %r, %s, "%s"],\n' % (name, os.path.abspath(os.path.join(samples, s if s in SAMPLES else "mono", sample_file(s if s in SAMPLES else "mono"))),
-                                                             frames, rate, chans,
-                "[" + ", ".join("[%r, %s]" % (sc_time(LEAD + t), sc_event(c)) for t, c in events(cs)) + "]", LEAD + secs + TAIL,
-                "true" if core else "false", "" if s in SAMPLES else s))
+        for name, s, secs, cs, core in cases:
+            buffers, picks, d, names, sounds = layouts[name]
+            f.write('  ["%s", [%s], [%s], %r, %s, "%s"],\n' % (name,
+                ", ".join('["%s", %d, %d, %d]' % (os.path.abspath(p), fr, ra, ch) for p, fr, ra, ch in buffers),
+                ", ".join("[%r, %d, %s]" % (sc_time(LEAD + t), b, sc_event(c)) for (t, c), b in zip(events(cs), picks)), LEAD + secs + TAIL,
+                "true" if core else "false", "" if s in SAMPLES or s == "*" else s))
         f.write("]]\n")
     with open(os.path.join(outdir, "cases.fk"), "w") as f:
         f.write("module cases where\n\nseed :: Int\nseed = %d\n\n" % SEED)
-        f.write("cases :: [(String, String, Float, [(Float, [(String, Float)])], Bool)]\ncases = [\n")
-        f.write(",\n".join('  ("%s", "%s", %r, [%s], %s)' % (n, s, LEAD + secs + TAIL,
-                            ", ".join("(%r, %s)" % (LEAD + float(t), funk_cases(c)) for t, c in events(cs)), "True" if core else "False")
-                            for n, s, secs, cs, core in CASES))
+        f.write("cases :: [(String, String, Float, [(Float, String, [(String, Float)])], Bool, String, [String])]\ncases = [\n")
+        f.write(",\n".join('  ("%s", "%s", %r, [%s], %s, "%s", [%s])' % (n, s, LEAD + secs + TAIL,
+                            ", ".join('(%r, "%s", %s)' % (LEAD + float(t), snd, funk_cases(c)) for (t, c), snd in zip(events(cs), layouts[n][4])),
+                            "True" if core else "False", layouts[n][2], ", ".join('"%s"' % k for k in layouts[n][3]))
+                            for n, s, secs, cs, core in cases))
         f.write("]\n")
     r = subprocess.run([sclang, os.path.abspath("tests/dirt/render.scd"), os.path.abspath(os.path.join(outdir, "cases.scd")),
                         os.path.abspath(outdir)], capture_output=True, text=True, timeout=300)
     if r.returncode == 2:
         print("skipped: sclang has no SuperDirt quark")
         sys.exit(77)
-    missing = [n for n, s, secs, cs, core in CASES if not os.path.exists(os.path.join(outdir, n + ".wav"))]
+    missing = [n for n, s, secs, cs, core in cases if not os.path.exists(os.path.join(outdir, n + ".wav"))]
     if missing:
         sys.exit("sclang rendered no %s:\n%s%s" % (", ".join(missing), r.stdout[-3000:], r.stderr[-3000:]))
-    env = dict(os.environ, KERNELS=kernels, SAMPLES=samples)
+    env = dict(os.environ, KERNELS=kernels, OUT=os.path.abspath(outdir))
     r = subprocess.run([funk, "run", "-M", outdir] + funk_args + ["tests/dirt/play.fk"], capture_output=True, text=True, env=env, timeout=600)
     if r.returncode:
         sys.exit("funk failed:\n" + r.stdout[-2000:] + r.stderr[-2000:])
-    got = read_funk(r.stdout)
+    got = read_funk(r.stdout, outdir)
     failed = 0
-    for name, s, secs, cs, core in CASES:
+    for name, s, secs, cs, core in cases:
         sc = read_float_wav(os.path.join(outdir, name + ".wav"))
-        err, wrong = worst(sc, got[name], 0), worst(sc, got[name], 1)
+        err, wrong = worst(sc, got[name][0], 0), worst(sc, got[name][0], 1)
         bound = FFT_TOLERANCE if name in FFT_CASES else TOLERANCE
         ok = err <= bound and wrong > bound
         failed += not ok

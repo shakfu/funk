@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 enum { EVENTS = 4096 }; /* a power of two */
 enum { MAX_CHUNK = 4096 }; /* frames per render step: the event layer's bus holds twice this */
@@ -500,6 +501,58 @@ void funk_player_render_channels(funk_player *p, float *const *out, int channels
 }
 
 void funk_player_render(funk_player *p, float *out, int n) { funk_player_render_channels(p, &out, 1, n); }
+
+static void le(unsigned char *b, uint32_t x, int n) {
+  for (int i = 0; i < n; i++) b[i] = (unsigned char)(x >> 8 * i);
+}
+
+static uint32_t get_le(const unsigned char *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24; }
+
+int64_t funk_player_render_wav(funk_player *p, const char *path, int channels, int64_t n, int block, double rate, bool append) {
+  if (channels < 1 || channels > 64 || n < 0 || block < 1) return -1;
+  FILE *f = fopen(path, append ? "r+b" : "wb");
+  float *buf = malloc((size_t)channels * block * sizeof *buf), *mix = malloc((size_t)channels * block * sizeof *mix);
+  unsigned char h[44];
+  uint32_t had = 0; /* the data's bytes already in the file */
+  bool ok = f && buf && mix;
+  if (ok && append) { /* one this function wrote, with these channels */
+    ok = fread(h, 1, sizeof h, f) == sizeof h && !memcmp(h, "RIFF", 4) && get_le(h + 20) == (3u | (uint32_t)channels << 16);
+    had = ok ? get_le(h + 40) : 0;
+    ok &= fseek(f, (long)(sizeof h + had), SEEK_SET) == 0;
+  } else if (ok) {
+    memcpy(h, "RIFF....WAVEfmt ....................data....", sizeof h);
+    le(h + 16, 16, 4), le(h + 20, 3, 2), le(h + 22, (uint32_t)channels, 2); /* 3: IEEE float */
+    le(h + 24, (uint32_t)rate, 4), le(h + 28, (uint32_t)rate * 4 * (uint32_t)channels, 4), le(h + 32, 4 * (uint32_t)channels, 2);
+    le(h + 34, 32, 2);
+  }
+  ok &= (uint64_t)had + (uint64_t)n * channels * 4 <= UINT32_MAX - 36;
+  if (!ok) {
+    if (f) fclose(f);
+    free(buf), free(mix);
+    return -1;
+  }
+  uint32_t bytes = had + (uint32_t)(n * channels * 4);
+  le(h + 4, 36 + bytes, 4), le(h + 40, bytes, 4);
+  ok = fseek(f, 0, SEEK_SET) == 0 && fwrite(h, 1, sizeof h, f) == sizeof h && fseek(f, (long)(sizeof h + had), SEEK_SET) == 0;
+  float *outs[64];
+  for (int c = 0; c < channels; c++) outs[c] = buf + (size_t)c * block;
+  int64_t cpu = 0;
+  for (int64_t done = 0; ok && done < n;) {
+    int m = n - done < block ? (int)(n - done) : block;
+    struct timespec a, b;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &a);
+    funk_player_render_channels(p, outs, channels, m);
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &b);
+    cpu += (int64_t)(b.tv_sec - a.tv_sec) * 1000000000 + (b.tv_nsec - a.tv_nsec);
+    for (int i = 0; i < m; i++)
+      for (int c = 0; c < channels; c++) mix[i * channels + c] = outs[c][i];
+    ok = fwrite(mix, sizeof *mix, (size_t)m * channels, f) == (size_t)m * channels; /* the host's byte order: little-endian */
+    done += m;
+  }
+  ok &= fclose(f) == 0;
+  free(buf), free(mix);
+  return ok ? cpu : -1;
+}
 
 void funk_player_free(funk_player *p) {
   if (!p) return;

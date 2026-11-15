@@ -1,7 +1,8 @@
 // render.scd -- SuperDirt's events rendered by scsynth in non-real time,
 // for tests/dirt/oracle.py. Run: sclang render.scd CASES OUTDIR. CASES
-// evaluates to [seed, [[name, wav, frames, rate, channels, [[time, event],
-// ...], seconds, core, synth], ...]], synth "" for a sample. Each case
+// evaluates to [seed, [[name, [[wav, frames, rate, channels], ...],
+// [[time, buffer, event], ...], seconds, core, synth], ...]], synth "" for a
+// sample; an event plays its buffer, by index. Each case
 // starts 16 orbits as DirtOrbit.initNodeTree does, each with SuperDirt's
 // own GlobalDirtEffects; then each event, of the sample or the synth, runs
 // DirtEvent's own orderTimeSpan, calcTimeSpan, finaliseParameters and
@@ -26,9 +27,9 @@ seeder = SynthDef(\oracle_seed, { RandSeed.ir(1, \seed.ir(0)) });
 fork { try {
 	var c = Condition.new;
 	cases.do { |k|
-		var name = k[0], wav = k[1], frames = k[2], fileRate = k[3], chans = k[4], events = k[5], secs = k[6], synth = k[8];
+		var name = k[0], buffers = k[1], events = k[2], secs = k[3], synth = k[5];
 		var score = [], t = 0, nodes = 1000, server, orbits, defs;
-		if(k[7] and: { core.not }) {
+		if(k[4] and: { core.not }) {
 			var path = \SuperDirt.asClass.filenameSymbol.asString.dirname.dirname +/+ "synths/core-synths-global.scd";
 			(dirt: dirt).use { File.readAllString(path).replace("\\SwitchDelay.asClass.notNil", "false").interpret };
 			core = true
@@ -57,20 +58,21 @@ fork { try {
 		events.do { |te|
 			// DirtOrbit.makeDefaultParentEvent's values (DirtOrbit.sc), then
 			// DirtSoundLibrary.makeEventForBuffer's, then the case's
-			var orbit = orbits[te[1][\orbit] ? 0];
+			var orbit = orbits[te[2][\orbit] ? 0], b = te[1], frames = buffers[b][1], fileRate = buffers[b][2], chans = buffers[b][3];
 			var parent = (cps: 1.0, offset: 0.0, begin: 0.0, end: 1.0, speed: 1.0, pan: 0.5, gain: 1.0, overgain: 0.0,
 				cut: 0.0, unit: \r, n: \none, octave: 5, midinote: #{ ~note ? ~n + (~octave * 12) },
 				freq: #{ ~midinote.value.midicps }, dur: 1.0, delta: #{ ~dur.value }, latency: 0.0, lag: 0.0,
 				length: 1.0, loop: 1.0, dry: 0.0, lock: 0, amp: 0.4, fadeTime: 0.001, dirt: dirt,
 				out: orbit.synthBus.index, numChannels: 2, server: server);
-			// DirtSoundLibrary's event for the buffer, or getEvent's for a SynthDef
+			// DirtSoundLibrary's event for the buffer (makeEventForBuffer), its hash
+			// one per buffer as identityHash is, or getEvent's for a SynthDef
 			var proto = if(synth.isEmpty) {
-				(buffer: 0, unitDuration: { frames / fileRate * 60.midicps / ~freq.value }, hash: 1, note: 0,
+				(buffer: b, unitDuration: { frames / fileRate * 60.midicps / ~freq.value }, hash: b + 1, note: 0,
 					instrument: format("dirt_sample_%_2", chans).asSymbol)
 			} { (instrument: synth.asSymbol, hash: 1) };
-			var ev = te[1].copy.parent_(parent).proto_(proto), e = \DirtEvent.asClass.new(orbit, dirt.modules, ev);
+			var ev = te[2].copy.parent_(parent).proto_(proto), e = \DirtEvent.asClass.new(orbit, dirt.modules, ev);
 			// DirtEvent.splitName: a sound without ":NUMBER" has n 0
-			if(synth.notEmpty and: { te[1][\n].isNil }) { ev[\n] = 0.0 };
+			if(synth.notEmpty and: { te[2][\n].isNil }) { ev[\n] = 0.0 };
 			t = te[0];
 			e.slotPut(\server, server);
 			ev.use {
@@ -82,7 +84,7 @@ fork { try {
 			}
 		};
 		defs = score.select { |m| [\s_new, 9].includes(m[1][0]) }.collect { |m| m[1][1].asSymbol }.asSet.asArray.sort;
-		score = [[0.0, [\b_allocRead, 0, wav]], [0.0, [\d_recv, seeder.asBytes]]]
+		score = buffers.collect { |x, i| [0.0, [\b_allocRead, i, x[0]]] } ++ [[0.0, [\d_recv, seeder.asBytes]]]
 			++ defs.collect { |d| [0.0, [\d_recv, SynthDescLib.global[d].def.asBytes]] }
 			++ [[0.0, [\g_new, top, 0, 0]], [0.0, [\s_new, \oracle_seed, -1, 0, 0, \seed, seed]]]
 			++ score ++ [[secs, [\c_set, 0, 0]]];

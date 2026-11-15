@@ -23,7 +23,8 @@
 #                                   libraries its link line names, into a shared library with
 #                                   no undefined symbols and no exported fk_ name;
 #                                   HOST.c, built with ARGS and $HOST_CFLAGS (a sanitizer) and
-#                                   given its path, prints HOST.expected; a HOST.fk runs
+#                                   given its path, prints HOST.expected, with
+#                                   $NOALLOC_LIB inserted if set; a HOST.fk runs
 #                                   with ARGS, interpreted and compiled, with $KERNELS the path
 #   check.sh error FILE [FLAGS]     funk run FILE fails, and its output contains the text
 #                                   after "-- expect: " on FILE's first line
@@ -154,7 +155,11 @@ kernels)
   ${CC:-cc} -O2 -g ${HOST_CFLAGS:-} -Wall -Wextra -o "$tmp/host" "$host" "$@" $dl >"$tmp/cc" 2>&1 || fail "$host" "$tmp/cc"
   norand= # as tsan-compiled: TSan rejects some Linux kernels' address layout
   if command -v setarch >/dev/null 2>&1; then norand="setarch $(uname -m) -R"; fi
-  TSAN_OPTIONS="halt_on_error=1 exitcode=66" $norand "$tmp/host" "$tmp/k.so" >"$tmp/out" 2>&1
+  insert= # $NOALLOC_LIB, set here: macOS drops DYLD_ variables on starting sh
+  if [ -n "${NOALLOC_LIB:-}" ]; then
+    if [ "$(uname)" = Darwin ]; then insert="env DYLD_INSERT_LIBRARIES=$NOALLOC_LIB"; else insert="env LD_PRELOAD=$NOALLOC_LIB"; fi
+  fi
+  TSAN_OPTIONS="halt_on_error=1 exitcode=66" $insert $norand "$tmp/host" "$tmp/k.so" >"$tmp/out" 2>&1
   same "${host%.c}.expected" "$tmp/out" ;;
 error)
   f=$1

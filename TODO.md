@@ -72,7 +72,11 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] The event layer, option C: templates, a pool, chains per event, orbits, `dirt` in both hosts. Done 2026-11-11.
 
-- [ ] Review decisions 4-6 of dirt-sound.md, taken in the implementation: a module's test is any predicate; 256 stages a set; samples named in `d.loadSoundFiles`.
+- [x] Review decisions 4-6 of dirt-sound.md. Done 2026-11-15: all kept; 6 gains an every-folder form.
+
+- [ ] Decision 6's form that loads every folder of a path, as SuperDirt's `loadSoundFiles`, and the index wrap (`s "bd" # n 13` on 4 files plays `bd:1`), which funk lacks even for named samples. Two design choices first: dirt-sound.md, decision 6.
+
+- [ ] Difference 14 of dirt-sound.md: one real-time heap for the pool, as scsynth's `AllocPool`, instead of fixed size classes (TLSF, or a port of `AllocPool`). A design note first; it supersedes decision 8.
 
 - [x] Plan step 2: `dirt_sample` and `dirt_gate` as SuperDirt's, cubic `BufRd` (S5) and `DirtPan` (S4), checked against scsynth by `lib/dirt-scsynth`. Done 2026-11-11.
 
@@ -88,17 +92,19 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [ ] `out_to` and `map_from`, SuperDirt's routing modules, and `dirt_rms`.
 
-- [ ] Review decision 13 of dirt-sound.md: `dirt` events at SuperDirt's level, 8 dB below `d.kit`.
+- [x] Review decision 13 of dirt-sound.md. Accepted 2026-11-15.
 
-- [ ] Decide whether the played graph renders on scsynth's 64-frame grid (difference 4).
+- [x] Decide whether the played graph renders on scsynth's 64-frame grid (difference 4). Decided 2026-11-15: it keeps the host's blocks.
 
-- [ ] Review decision 14 of dirt-sound.md: SuperDirt's synths and extra effects are SynthDef data built by one UGen library (`lib/scsynth.fk`), not a kernel per synth; one node per UGen.
+- [x] Review decision 14 of dirt-sound.md. Accepted 2026-11-15; reopened if step 4's CPU per block misses its budget.
 
-- [ ] Difference 12 of dirt-sound.md: `funk_player_event_audio` and `funk_voices_trigger` format names with `snprintf` on the audio thread. Plan step 1 asked for a no-allocation test of the event layer; see the C audio path item below.
+- [x] Difference 12 of dirt-sound.md: names on the audio thread no longer use `snprintf`; `kernels/noalloc` and `hosts/clap/noalloc` find no allocation, freeing or locking there. Done 2026-11-15.
 
 - [ ] A direct test that a `g.In` or `g.Bus` read is one node however often a graph reaches it (fixed 2026-11-13). Only `lib/dirt-scsynth`'s `waveloss` case shows it today, and it runs only with sclang.
 
-- [ ] `kernels/templates/thread` fails about once a full `make test` run under load, and passes alone; find why.
+- [ ] `kernels/templates/thread` fails about once a full `make test` run under load, and passes alone; find why. Not reproduced 2026-11-15: 0 failures in 80 runs, 8 at once beside 8 spinning processes, and 30 more serially beside 10. A late event is not the cause: delaying its send 5 ms still passes, since it starts at once and ends before the next set's. Keep the output (`build/Testing/Temporary/LastTest.log`) when it recurs.
+
+- [x] `playDirt` of `d.superDirt` took about 2.4 s in the interpreter: its walks followed every path of the SynthDefs' shared subtrees. 0.15 s with `g.Ref`, 2026-11-15.
 
 - [ ] Decide whether the session's scsynth probe (diffs a SynthDef's UGen graph against funk's) and CPU bench become tools in `tests/dirt`; they were scratch scripts.
 
@@ -114,7 +120,7 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 
 - [ ] 0.13 design note: weigh a fixed-order voice record against per-event subgraphs. rustel's voice is a fixed-size record with every effect as an optional field, rendered in one order, plus at most 3 `.FX()` stages (`crates/audio/src/backend.rs:370`). SuperDirt also runs its modules in one order (`DirtEvent.sc:192`, `SuperDirt.sc:174`). Decide first whether parity covers user `addModule` calls and custom SynthDefs; a fixed record cannot.
 
-- [ ] A test that the C audio path does not allocate, free or lock: `funkgraph`'s runner, `voices.c` and the plugin's `process()`. The checker proves exports allocation-free; the C around them is unchecked. rustel arms a failing allocator during the callback (`crates/audio/tests/no_alloc_callback.rs`); in C, interpose `malloc`, `free` and `pthread_mutex_lock`.
+- [x] A test that the C audio path does not allocate, free or lock: `funkgraph`'s runner, `voices.c` and the plugin's `process()` (`tests/noalloc.c`). Done 2026-11-15; Linux runs it in CI only. `funk-midi --audio`'s Core Audio callback is not covered.
 
 - [ ] Negative controls in the scsynth reference renders: each case also renders a wrong variant that must fail the comparison, so the metric is shown to separate them (`crates/audio/tests/chrome_reference.rs`). Compare samples against a stated error bound, not rustel's peak and RMS.
 

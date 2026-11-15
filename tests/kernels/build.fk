@@ -12,6 +12,12 @@ showBlock out i n = if i == n then () else do
   print (fromCFloat x)
   showBlock out (i + 1) n
 
+-- the lfo multiplied by itself n times over: a graph of n + 1 nodes
+doubled :: Int -> g.Sig
+doubled 0 = g.Ref "lfo" (g.Node "k_sine" [0.0, 1000.0] [])
+doubled n = case doubled (n - 1) of
+  x -> g.Ref ("doubled" ++ show n) (g.Node "k_mul" [] [x, x])
+
 -- host.c's chain; its oscillators and filter named if named
 chain :: Bool -> g.Sig
 chain named =
@@ -52,6 +58,10 @@ main = do
   lfo <- g.named "lfo" (g.Node "k_sine" [0.0, 1000.0] [])
   g.play p (g.Node "k_mul" [] [lfo, lfo])
   block p out "lfo squared"
+  -- a Ref is walked once: 30 levels, each the last one twice, are 2^30
+  -- paths, which a walk of every path would not finish
+  g.play p (doubled 30)
+  block p out "lfo to the 2^30"
   g.play p g.Silence
   g.render p out 8
   showBlock out 0 1

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "graph.h"
+#include "name.h"
 
 enum { MAX_VOICES = 64, GROUPS = 17 }; /* group 0 is shared, group C is channel C */
 
@@ -127,7 +128,9 @@ bool funk_voices_until(funk_voices *vs, int64_t f) {
 /* prefix.name, if the graph has that control, to value from frame */
 static bool send_named(funk_voices *vs, int64_t frame, const char *prefix, size_t n, const char *name, float value) {
   char c[96];
-  if (snprintf(c, sizeof c, "%.*s.%s", (int)n, prefix, name) >= (int)sizeof c || !funk_player_has(vs->p, c)) return true;
+  Text m = name_in(c, sizeof c);
+  name_add(&m, prefix, n), name_add(&m, ".", 1), name_str(&m, name);
+  if (!name_done(&m) || !funk_player_has(vs->p, c)) return true;
   return send(vs, frame, c, value);
 }
 
@@ -189,11 +192,12 @@ static float named(int n, const char *const *names, const float *values, const c
 
 /* prefix's entry, made if new; NULL when the table is full */
 static Sample *sample_for(funk_voices *vs, const char *prefix) {
-  if (strlen(prefix) >= SAMPLE_KEY) return NULL;
+  size_t len = strlen(prefix);
+  if (len >= SAMPLE_KEY) return NULL;
   for (int i = 0; i < SAMPLE_KEYS; i++) {
     Sample *s = &vs->samples[i];
     if (!s->key[0]) {
-      snprintf(s->key, sizeof s->key, "%s", prefix);
+      memcpy(s->key, prefix, len + 1);
       return s;
     }
     if (!strcmp(s->key, prefix)) return s;
@@ -205,7 +209,11 @@ static Sample *sample_for(funk_voices *vs, const char *prefix) {
 static int voices_of(funk_voices *vs, const char *prefix) {
   char c[96];
   int v = 0;
-  while (v < SAMPLE_VOICES && snprintf(c, sizeof c, "%s.%d.gate", prefix, v + 1) < (int)sizeof c && funk_player_has(vs->p, c)) v++;
+  for (; v < SAMPLE_VOICES; v++) {
+    Text m = name_in(c, sizeof c);
+    name_str(&m, prefix), name_add(&m, ".", 1), name_int(&m, v + 1), name_add(&m, ".gate", 5);
+    if (!name_done(&m) || !funk_player_has(vs->p, c)) break;
+  }
   return v;
 }
 
@@ -217,11 +225,13 @@ bool funk_voices_trigger(funk_voices *vs, int64_t frame, const char *prefix, int
   Sample *s = sample_for(vs, prefix);
   int count = s ? voices_of(vs, prefix) : 0;
   char voice[96];
-  if (!count) snprintf(voice, sizeof voice, "%s", prefix); /* a graph without voices */
-  else {
+  Text m = name_in(voice, sizeof voice);
+  name_str(&m, prefix); /* alone: a graph without voices */
+  if (count) {
     if (s->next >= count) s->next = 0;
-    snprintf(voice, sizeof voice, "%s.%d", prefix, s->next + 1);
+    name_add(&m, ".", 1), name_int(&m, s->next + 1);
   }
+  name_done(&m);
   /* A cut group, as SuperDirt's: a voice of the same orbit last played with
      this cut's size stops, of any sample for a positive cut, of this one for
      a negative. */
@@ -234,7 +244,8 @@ bool funk_voices_trigger(funk_voices *vs, int64_t frame, const char *prefix, int
         Sample *o = &vs->samples[i];
         if (o->cut[v] == 0 || o->cut[v] != fabsf(cut) || o->orbit[v] != orbit || (cut < 0 && o != s) || nstops == 64) continue;
         if (o == s && v == s->next && count) continue; /* the voice this event takes */
-        snprintf(stops[nstops], sizeof stops[0], "%s.%d", o->key, v + 1);
+        Text k = name_in(stops[nstops], sizeof stops[0]);
+        name_str(&k, o->key), name_add(&k, ".", 1), name_int(&k, v + 1), name_done(&k);
         ok &= send_named(vs, frame, stops[nstops], strlen(stops[nstops]), "stop", 1);
         nstops++;
       }

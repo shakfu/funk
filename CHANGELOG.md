@@ -14,6 +14,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   d1 $ s "bd*8 sn:3" # cutoff "300"
   ```
 
+- `funk_player_render_wav` (`g.renderWav`): for offline tests, a player's frames rendered into a float WAV file, or appended to one, with the renders' CPU time. `lib/dirt-scsynth` reads funk's renders from these files, not from printed text.
+
+- `lib/dirt-patches`: Tidal's example patches (`tests/tidal/ports.fk`) through `d.superDirt`, with Dirt-Samples, against SuperDirt 1.7.3 rendered by scsynth. 3,095 events in 18 patches match bit for bit. It skips without sclang or Dirt-Samples (`$DIRT_SAMPLES`).
+
+- `kernels/noalloc`, `hosts/clap/noalloc` and `hosts/clap/sim/noalloc` check that funkgraph's audio-thread calls and the plugin's `process()` allocate, free and lock nothing. `tests/noalloc.c` counts those calls on one armed thread. It is inserted with `DYLD_INSERT_LIBRARIES` or `LD_PRELOAD`, so it also sees libc's and libc++'s own calls; an `__interpose` section in the test executable is ignored on macOS.
+
 - A kernel ends its event by setting `funk_context`'s new `done`, as SuperCollider's `doneAction: 14`. A template's node named `>NAME` sets the event's parameter NAME for the stages after it, so modules and `dirt_gate` read the sustain a sample's time span computes, as SuperDirt's read DirtEvent's.
 
 - A sample event plays SuperDirt's `dirt_sample` and `dirt_gate`, ported from SuperCollider 3.13.0's UGens in float arithmetic: cubic `BufRd`, `Line.kr`, `LFSaw`, `Pan2` and `Balance2`, `EnvGen`'s `\sin` segments and `DirtGateCutGroup`. A sample's modules run before its envelope, as SuperDirt's. `lib/dirt-scsynth` renders 16 cases with SuperDirt's own SynthDefs and `DirtEvent` code in scsynth, and funk matches every frame within 1.8e-7; a frame's shift misses by 0.018 or more. It runs where `sclang` and the SuperDirt quark are installed. Pan is equal-power, so a centred sample is 3 dB down on each channel against `d.kit`'s.
@@ -62,6 +68,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Names built on the audio thread, a voice's, a cut group's and an orbit's `oN.NAME`, no longer use `snprintf`. Its `%d` and `%s` allocate nothing on macOS today, but libc does not promise it; `%g` locks and allocates on a thread's first call.
+
 - A synth event's records carry what `DirtEvent` sends a synth: `pan` from -1 to 1, `n`, `speed` times `cps` for `unit "c"`, and `accelerate` only if given. They also carry `cycle`, the start of the event's whole in cycles, as Tidal adds it; an event's own `cycle` wins, as in Tidal's `Map.union`. `cyclo` reads it. `writeControlEventsAt` takes the ticks a host shifted the pattern by, which funk-midi's `--audio` slots do.
 
 - `dirt` events play at SuperDirt's level, `amp` 0.4 times `(min gain 2 + overgain)^4`, computed in floats as `dirt_gate`'s SynthDef does: 8 dB below `d.kit`'s level 1. The monitor's limiter and softclip and its silence threshold act on absolute levels, so only that level matches SuperDirt.
@@ -71,6 +79,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Kernels read scsynth's sine and cosecant tables from `funk_context`'s new `tables`, which `funk_graph_new` fills once, instead of calling `sin` per lookup; a context without them computes the points. A control-rate or scalar UGen writes frame 0 of its block, the only frame its readers read. `BinaryOpUGen`'s `+`, `-` and `*` of an audio input and an audio or unchanged one run their own loops. A `GVerb` is one node that computes both channels, where each channel was a node running the whole reverb: `graph.h`'s new `funk_graph_outputs` gives a node several outputs. At 16 voices, `superhammond` fell from 28.7% to 11.7% of real time and `supergong` from 27.6% to 13.1%; one `superprimes` from 9.9% to 4.8%. Output is unchanged.
 
 ### Fixed
+
+- Defining `dirt` with `d.superDirt` took about 2.4 s in the interpreter; it takes 0.15 s. A SynthDef's UGen feeds several others, so its `Sig` is a graph with shared subtrees. `graph.fk`'s walks, its checks and `add`, followed every path: 270,462 nodes for `d.superDirt`'s 3,325 UGens, 84,291 for `superwavemechanics` alone. `g.Ref KEY s` marks a shared subtree, and each walk visits a key once; `lib/scsynth.fk` wraps each UGen's outputs. The graphs built are unchanged. Rebuilding only templates that changed was the alternative: finding them compares the same trees, at the same cost.
+
+- `lib/dirt-scsynth` timed out under `make test`: its 123 cases took 468 s alone, against a 600 s limit, mostly in the interpreter. It runs as 4 shards, `lib/dirt-scsynth/0` to `/3`, which ctest runs in parallel.
 
 - `kernels/templates/thread` failed about once in 16 runs. Each template set waited 3 audio calls, as few as 35 frames, so the next set's tones could overlap the last set's and pass the peak bound of 8 overlapping tones. It now waits at least 64 frames, and schedules a set's events from the frame the set started at: each event read the clock again, so a stall while scheduling put the set's last events after that wait.
 
