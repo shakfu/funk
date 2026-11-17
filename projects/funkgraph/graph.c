@@ -3,6 +3,7 @@
    the epoch was e may still be in the block running then, which ends by
    e + 1, and the next block copies named states from it, which ends by
    e + 2. So it is freed once the epoch exceeds e + 1. */
+#define _DEFAULT_SOURCE /* clock_gettime under -std=c11 on glibc */
 #include "graph_internal.h"
 #include <math.h>
 #include <pthread.h>
