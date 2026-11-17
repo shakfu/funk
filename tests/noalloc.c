@@ -36,6 +36,12 @@ static void hit(const char *what) {
   atomic_store(&on, 1);
 }
 
+/* children, such as a kernel's cc, are not under test; with SIP off, the insert kills an arm64e cc */
+__attribute__((constructor)) static void uninherit(void) {
+  unsetenv("DYLD_INSERT_LIBRARIES");
+  unsetenv("LD_PRELOAD");
+}
+
 #ifdef __APPLE__
 static void *n_malloc(size_t n) { hit("malloc"); return malloc(n); }
 static void *n_calloc(size_t a, size_t b) { hit("calloc"); return calloc(a, b); }
