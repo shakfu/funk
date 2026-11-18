@@ -185,7 +185,7 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 
 ### Speed
 
-- [ ] Generated DSP kernels render 1.05 to 4.6x scsynth's CPU on the same events, samples as synths; `dirt_reverb` and `GVerb` take most of it ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md), step 4). Inference: state in an array of doubles, read and written through helpers each sample. Measure with `ORACLE_CPU=1 ORACLE_REPEAT=60` in `tests/dirt/oracle.py`.
+- [ ] Generated DSP kernels render 1.05 to 4.6x scsynth's CPU on the same events, samples as synths; `dirt_reverb` and `GVerb` take most of it ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md), step 4). On Linux, `dirt_reverb` was 4.2x a C port of itself, and is 0.75x since `cInt` stopped calling libm and the reverb runs one stage at a time (2026-11-18, [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md)). Next: step 4 again on the Mac, with `ORACLE_CPU=1 ORACLE_REPEAT=60` in `tests/dirt/oracle.py`, and `lib/dirt-patches`; then `GVerb` and the other kernels that keep delay lines in slots.
 
 - [ ] 64-bit `Int` at `V` boundaries costs at most 0.7% (geometric mean, 6 benchmarks; `queens` 3%). Typed list heads would remove it; [docs/dev/typed-backend.md](docs/dev/typed-backend.md#integers).
 

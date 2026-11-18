@@ -687,7 +687,7 @@ f32 x = fromCFloat (toCFloat x)
 -- C's (int) cast: toward zero, clamped to 32 bits; 0 for NaN
 cInt :: Float -> Int
 cInt x = if not (x == x) then 0 else if x >= 2147483647.0 then 2147483647 else if x <= -2147483648.0 then -2147483648
-  else fromIntegral (clrint (if x >= 0.0 then cfloor x else 0.0 - cfloor (0.0 - x)))
+  else truncateSat x
 
 -- point i of scsynth's sine table, 8192 points a cycle (Samp.cpp): from
 -- tables tb, or computed where a context has none
@@ -1778,28 +1778,31 @@ lineStart st k off most dt decay rate = do
 pow2Above :: Int -> Int -> Int
 pow2Above n p = if p >= n then p else pow2Above n (2 * p)
 
--- AllpassN_helper (DelayUGens.cpp): its frame; clang fuses its two multiplies
-allpassN :: Ptr () -> Ptr CFloat -> Int -> Float ->> Float
-allpassN st mem k x = do
-  off <- cInt (slot st k)
-  len <- cInt (slot st (k + 1))
-  pos <- cInt (slot st (k + 4))
-  fb <- slot st (k + 3)
-  v <- at mem (off + wrapIndex (pos - cInt (slot st (k + 2))) len)
-  dwr <- f32 (v * fb + x)
-  put mem (off + pos) dwr
-  setSlot st (k + 4) (toFloat (wrapIndex (pos + 1) len))
-  f32 (v - fb * dwr)
+-- AllpassN_helper (DelayUGens.cpp) over n frames of buf from bo, in place,
+-- through the line at slot k of st; clang fuses its two multiplies. The
+-- line's fields are parameters, so they stay in registers through the block.
+allpassLine :: Ptr () -> Ptr CFloat -> Int -> Ptr CFloat -> Int -> Int ->> ()
+allpassLine st mem k buf bo n = allpassBlock st k mem (cInt (slot st k)) (cInt (slot st (k + 1))) (cInt (slot st (k + 2)))
+  (slot st (k + 3)) buf bo (cInt (slot st (k + 4))) 0 n
 
--- DelayN_helper: writes, then reads
-delayN :: Ptr () -> Ptr CFloat -> Int -> Float ->> Float
-delayN st mem k x = do
-  off <- cInt (slot st k)
-  len <- cInt (slot st (k + 1))
-  pos <- cInt (slot st (k + 4))
-  put mem (off + pos) x
-  setSlot st (k + 4) (toFloat (wrapIndex (pos + 1) len))
-  at mem (off + wrapIndex (pos - cInt (slot st (k + 2))) len)
+allpassBlock :: Ptr () -> Int -> Ptr CFloat -> Int -> Int -> Int -> Float -> Ptr CFloat -> Int -> Int -> Int -> Int ->> ()
+allpassBlock st k mem off len ds fb buf bo pos i n = if i == n then setSlot st (k + 4) (toFloat pos) else do
+  v <- at mem (off + wrapIndex (pos - ds) len)
+  dwr <- f32 (v * fb + at buf (bo + i))
+  put mem (off + pos) dwr
+  put buf (bo + i) (f32 (v - fb * dwr))
+  allpassBlock st k mem off len ds fb buf bo (wrapIndex (pos + 1) len) (i + 1) n
+
+-- DelayN_helper over n frames of buf from bo, in place: writes, then reads
+delayLine :: Ptr () -> Ptr CFloat -> Int -> Ptr CFloat -> Int -> Int ->> ()
+delayLine st mem k buf bo n = delayBlock st k mem (cInt (slot st k)) (cInt (slot st (k + 1))) (cInt (slot st (k + 2))) buf bo
+  (cInt (slot st (k + 4))) 0 n
+
+delayBlock :: Ptr () -> Int -> Ptr CFloat -> Int -> Int -> Int -> Ptr CFloat -> Int -> Int -> Int -> Int ->> ()
+delayBlock st k mem off len ds buf bo pos i n = if i == n then setSlot st (k + 4) (toFloat pos) else do
+  put mem (off + pos) (at buf (bo + i))
+  put buf (bo + i) (at mem (off + wrapIndex (pos - ds) len))
+  delayBlock st k mem off len ds buf bo (wrapIndex (pos + 1) len) (i + 1) n
 
 -- dirt_reverb (core-synths-global.scd), one channel: the dry bus's sum
 -- times a lagged room through four AllpassNs; a loop of LocalIn times the
@@ -1856,30 +1859,54 @@ reverbK st ins out n cx = do
   setSlot st 21 env
   block <- readField cx Context.block
   fed <- block - slot st 61 == 1.0 || block - slot st 61 == 0.0
-  reverbLoop st mem (cInt (slot st 62)) fed (input ins 0) (input ins 1) (input ins 2) (at (input ins 16) 0) rate cx out 0 (fromIntegral n)
+  lp <- cInt (slot st 62)
+  m <- fromIntegral n
+  -- one stage at a time over the block, as scsynth runs its UGens: LocalIn
+  -- reads the block before's frames, so no stage needs a later one's frame.
+  -- out holds the input allpasses' sum, mem from lp the loop's; each frame
+  -- is a float.
+  reverbIn st (input ins 0) (input ins 1) out 0 m
+  allpassLine st mem 22 out 0 m
+  allpassLine st mem 27 out 0 m
+  allpassLine st mem 32 out 0 m
+  allpassLine st mem 37 out 0 m
+  reverbPole st mem lp fed (slot st 57) 0 m
+  allpassLine st mem 42 mem lp m
+  delayLine st mem 47 mem lp m
+  allpassLine st mem 52 mem lp m
+  reverbOut st mem lp out (input ins 2) (at (input ins 16) 0) rate cx (slot st 58) (slot st 59) (slot st 60) 0 m
   setSlot st 57 (zap (slot st 57))
   setSlot st 59 (zap (slot st 59))
   setSlot st 61 block
 
-reverbLoop :: Ptr () -> Ptr CFloat -> Int -> Bool -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Ptr Context -> Ptr CFloat -> Int -> Int ->> ()
-reverbLoop st mem loop fed l r eff trig rate cx out i n = if i == n then () else do
-  x <- f32 (f32 (at l i + at r i) * rampAt st 66 i)
-  a <- allpassN st mem 37 (allpassN st mem 32 (allpassN st mem 27 (allpassN st mem 22 x)))
-  li <- if fed then at mem (loop + i) else 0.0
+reverbIn :: Ptr () -> Ptr CFloat -> Ptr CFloat -> Ptr CFloat -> Int -> Int ->> ()
+reverbIn st l r out i n = if i == n then () else do
+  put out i (f32 (f32 (at l i + at r i) * rampAt st 66 i))
+  reverbIn st l r out (i + 1) n
+
+-- LocalIn times the depth, then OnePole_next_k, b1 0.5, in doubles
+reverbPole :: Ptr () -> Ptr CFloat -> Int -> Bool -> Float -> Int -> Int ->> ()
+reverbPole st mem lp fed op i n = if i == n then setSlot st 57 op else do
+  li <- if fed then at mem (lp + i) else 0.0
   y0 <- f32 (li * rampAt st 71 i)
-  -- OnePole_next_k, b1 0.5, in doubles
-  op <- y0 + 0.5 * (slot st 57 - y0)
-  setSlot st 57 op
-  s <- f32 (allpassN st mem 52 (delayN st mem 47 (allpassN st mem 42 (f32 op))) + a)
-  -- LeakDC_next_i_4, b1 0.995
-  leak <- s - slot st 58 + slot st 60 * slot st 59
-  setSlot st 59 leak
-  setSlot st 58 s
-  put mem (loop + i) (f32 leak)
-  v <- f32 (f32 leak * rampAt st 76 i)
-  silent st 65 (f32 (abs v + trig1 st 63 trig rate)) 4.0 cx
-  put out i (f32 (at eff i + f32 (v * rampAt st 81 i)))
-  reverbLoop st mem loop fed l r eff trig rate cx out (i + 1) n
+  p <- y0 + 0.5 * (op - y0)
+  put mem (lp + i) (f32 p)
+  reverbPole st mem lp fed p (i + 1) n
+
+-- the loop's sum with the input allpasses', LeakDC_next_i_4 (b1 0.995) back
+-- through LocalOut, then the wet signal added to the effect bus
+reverbOut :: Ptr () -> Ptr CFloat -> Int -> Ptr CFloat -> Ptr CFloat -> Float -> Float -> Ptr Context -> Float -> Float -> Float -> Int -> Int ->> ()
+reverbOut st mem lp out eff trig rate cx x1 y1 b1 i n = if i == n then do
+    setSlot st 58 x1
+    setSlot st 59 y1
+  else do
+    s <- f32 (at mem (lp + i) + at out i)
+    leak <- s - x1 + b1 * y1
+    put mem (lp + i) (f32 leak)
+    v <- f32 (f32 leak * rampAt st 76 i)
+    silent st 65 (f32 (abs v + trig1 st 63 trig rate)) 4.0 cx
+    put out i (f32 (at eff i + f32 (v * rampAt st 81 i)))
+    reverbOut st mem lp out eff trig rate cx s leak b1 (i + 1) n
 
 -- dirt_leslie's ReplaceOut of the dry bus: dry times 1 - leslie, ramped.
 -- Inputs: dry, leslie.

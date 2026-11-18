@@ -70,6 +70,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Kernels' `cInt` truncates with one conversion, not `lrint (floor x)`. Under GCC, both were libm calls in the sample loop, and they pushed the loop's state out of registers. `dirt_reverb` also runs one stage at a time over the block, each delay line's fields in registers, where it read them from the slot array every sample. On Linux x86-64 it fell from 4.2x to 0.75x the time of a C port of itself, about 5.6x faster. Output is unchanged ([docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md)).
+
 - Names built on the audio thread, a voice's, a cut group's and an orbit's `oN.NAME`, no longer use `snprintf`. Its `%d` and `%s` allocate nothing on macOS today, but libc does not promise it; `%g` locks and allocates on a thread's first call.
 
 - A synth event's records carry what `DirtEvent` sends a synth: `pan` from -1 to 1, `n`, `speed` times `cps` for `unit "c"`, and `accelerate` only if given. They also carry `cycle`, the start of the event's whole in cycles, as Tidal adds it; an event's own `cycle` wins, as in Tidal's `Map.union`. `cyclo` reads it. `writeControlEventsAt` takes the ticks a host shifted the pattern by, which funk-midi's `--audio` slots do.
