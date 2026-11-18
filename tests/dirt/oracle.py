@@ -8,7 +8,7 @@ after the effects' first block has paused them. A case passes within
 TOLERANCE, or FFT_TOLERANCE for the FFT effects; a negative control,
 funk's output a frame late, must fail it,
 so the bound separates a right render from a wrong one. Exits 77, ctest's
-skip, if sclang lacks the SuperDirt quark.
+skip, if sclang lacks the SuperDirt quark, or scsynth a UGen's plugin.
 
 With $ORACLE_SET=patches, the cases are tests/tidal/ports.fk's patches
 instead, each event's sample from Dirt-Samples as SuperDirt picks it.
@@ -18,6 +18,7 @@ Usage: python3 -I oracle.py SCLANG FUNK KERNELS OUTDIR -- FUNKARGS...
 """
 import math
 import os
+import re
 import resource
 import shlex
 import struct
@@ -467,6 +468,12 @@ def main():
                         os.path.abspath(outdir)], capture_output=True, text=True, timeout=300)
     if r.returncode == 2:
         print("skipped: sclang has no SuperDirt quark")
+        sys.exit(77)
+    # sclang has a UGen's class but scsynth lacks its plugin, as with sc3-plugins'
+    # classes alone: SuperDirt builds SynthDefs scsynth refuses, so no reference
+    ugens = sorted(set(re.findall(r"UGen '([^']+)' not installed", r.stdout)))
+    if ugens:
+        print("skipped: scsynth lacks the plugins of %s, which sclang has" % ", ".join(ugens))
         sys.exit(77)
     missing = [n for n, s, secs, cs, core in cases if not os.path.exists(os.path.join(outdir, n + ".wav"))]
     if missing:

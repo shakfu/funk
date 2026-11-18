@@ -12,6 +12,16 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## High
 
+### Test environment
+
+- [x] The scsynth oracles failed falsely when sc3-plugins' classes were installed without its server plugins: SuperDirt built a `dirt_delay` that scsynth refused. They now skip, naming the UGens. Done 2026-11-18 ([docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md#open)).
+
+- [ ] Against a develop SuperDirt (`v1.7.4-18`), `render.scd` fails in sclang (`_IdentDict_Put`) and `lib/synthdefs` differs: 15 synths' `speedFreq` defaults. The tests need v1.7.3, whose `.quark` file a develop checkout shares, so a version check cannot tell them apart.
+
+- [ ] Without sc3-plugins at all, SuperDirt uses CombL for `dirt_delay`, but the oracles' non-core cases render funk's `SwitchDelay`, so they would fail. Not reproduced: only checked with the classes hidden.
+
+- [ ] On Linux, with matching plugins, `shape` (2.4e-6), `imp` (7e-4) and `impAccelerate` (2.4e-3) miss the oracle's bound. Find whether libm or scsynth's build differs from the Mac's.
+
 ### Tidal parity, roadmap 0.12 ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md))
 
 - [x] L1: `FromString`, so a string literal is a pattern. Done 2026-11-09.
@@ -185,7 +195,15 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 
 ### Speed
 
-- [ ] Generated DSP kernels render 1.05 to 4.6x scsynth's CPU on the same events, samples as synths; `dirt_reverb` and `GVerb` take most of it ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md), step 4). On Linux, `dirt_reverb` was 4.2x a C port of itself, and is 0.75x since `cInt` stopped calling libm and the reverb runs one stage at a time (2026-11-18, [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md)). Next: step 4 again on the Mac, with `ORACLE_CPU=1 ORACLE_REPEAT=60` in `tests/dirt/oracle.py`, and `lib/dirt-patches`; then `GVerb` and the other kernels that keep delay lines in slots.
+- [ ] Generated DSP kernels render 1.05 to 4.6x scsynth's CPU on the same events, samples as synths; `dirt_reverb` and `GVerb` take most of it ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md), step 4). On Linux, `dirt_reverb` was 4.2x a C port of itself, and is 0.75x since `cInt` stopped calling libm and the reverb runs one stage at a time (2026-11-18, [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md)). On Linux, the 18 patches render 1.62x faster and the synth cases 1.7 to 2.2x. Linux's ratios to scsynth are overstated: its scsynth ran no `dirt_delay`. Next: step 4 again on the Mac, with `ORACLE_CPU=1 ORACLE_REPEAT=60` in `tests/dirt/oracle.py`; then `GVerb`, and `dirt_leslie` at 3.1 us a call, by the note's profile. Time each change: moving `dirt_switch_delay`'s crossfade into parameters made it 36% slower, and was reverted.
+  - [ ] On the Mac: `ORACLE_CPU=1 ORACLE_REPEAT=60` against scsynth, for step 4's figures after the 2026-11-18 changes. Linux cannot give them: its scsynth lacks sc3-plugins' server plugins.
+  - [ ] Profile `GVerb` (`gvDiff` keeps its lines in slots), then time any change to it.
+  - [ ] `dirt_leslie`, 3.1 us a call: its filters, oscillators and delay position are in slots.
+  - [ ] `dirt_switch_delay`: run a loop without the crossfade while slot 25 is 0, and the current loop only during a crossfade. Untried.
+  - [ ] Time `funk_events_read`'s and `effects`' changes; only their instructions were measured (90% and 77% fewer).
+  - [ ] A differential harness for kernels: one kernel from two `funkdsp` builds on the same inputs, output, slots, memory and `done` compared bit for bit, and timed. One was written in the 2026-11-18 session's scratch directory and is not in the repo. Its inputs are in [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md).
+
+- [x] `funk_events_read` took 18% of a patch render's instructions, testing each orbit's `used` flag once a frame. It now tests it once a block: 2% (2026-11-18, [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md#end-to-end-on-linux)).
 
 - [ ] 64-bit `Int` at `V` boundaries costs at most 0.7% (geometric mean, 6 benchmarks; `queens` 3%). Typed list heads would remove it; [docs/dev/typed-backend.md](docs/dev/typed-backend.md#integers).
 

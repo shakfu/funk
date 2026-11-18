@@ -71,6 +71,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Kernels' `cInt` truncates with one conversion, not `lrint (floor x)`. Under GCC, both were libm calls in the sample loop, and they pushed the loop's state out of registers. `dirt_reverb` also runs one stage at a time over the block, each delay line's fields in registers, where it read them from the slot array every sample. On Linux x86-64 it fell from 4.2x to 0.75x the time of a C port of itself, about 5.6x faster. Output is unchanged ([docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md)).
+- Reading an orbit's bus tests its `used` flag once a 64-frame block, not once a frame. With 16 orbits mixed into each output channel, the per-frame test took 18% of a patch render's instructions; it now takes 2%. Output is unchanged.
+- Each block's effects pass scans a list of the effect templates, not every template, and skips an orbit with no running effect and nothing played. It walked about 75 templates for each of 16 orbits per block, and copied 2 KB for idle orbits: 17% of a patch render's instructions, now 5%. Output is unchanged.
+- `dirt_monitor` runs its Limiter a buffer segment at a time, its position, level, slope and peak in registers, where it read and wrote them in the slot array every sample. It takes 27% less time per call. Output is unchanged.
+- The effect kernels' `Trig1` of `resumed` is computed once a call, since its trigger is constant over the call and can fire only at frame 0. Their `DetectSilence` counters live in the loops, written to their slots once a call. Per call, `dirt_switch_delay` takes 29% less time, `dirt_monitor` 12% and `dirt_reverb` 6%. Output is unchanged.
 
 - Names built on the audio thread, a voice's, a cut group's and an orbit's `oN.NAME`, no longer use `snprintf`. Its `%d` and `%s` allocate nothing on macOS today, but libc does not promise it; `%g` locks and allocates on a thread's first call.
 
@@ -85,6 +89,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - Defining `dirt` with `d.superDirt` took about 2.4 s in the interpreter; it takes 0.15 s. A SynthDef's UGen feeds several others, so its `Sig` is a graph with shared subtrees. `graph.fk`'s walks, its checks and `add`, followed every path: 270,462 nodes for `d.superDirt`'s 3,325 UGens, 84,291 for `superwavemechanics` alone. `g.Ref KEY s` marks a shared subtree, and each walk visits a key once; `lib/scsynth.fk` wraps each UGen's outputs. The graphs built are unchanged. Rebuilding only templates that changed was the alternative: finding them compares the same trees, at the same cost.
+
+- `lib/dirt-scsynth` and `lib/dirt-patches` skip, naming the UGens, when scsynth lacks a plugin whose class sclang has. With sc3-plugins' classes alone, SuperDirt built its `SwitchDelay` `dirt_delay`, which scsynth refused, so 112 of 123 cases and every patch failed against a reference without the delay.
 
 - `lib/dirt-scsynth` timed out under `make test`: its 123 cases took 468 s alone, against a 600 s limit, mostly in the interpreter. It runs as 4 shards, `lib/dirt-scsynth/0` to `/3`, which ctest runs in parallel.
 

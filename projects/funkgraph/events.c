@@ -102,6 +102,7 @@ typedef struct {
 struct funk_templates {
   Template *t;
   int n, cap;
+  int *fx, nfx; /* the effects' indices in t: the audio thread scans them each block */
   int slots; /* a class's most */
   Class c[CLASSES];
   funk_templates *parent; /* the set it replaced, whose effects it may keep */
@@ -207,6 +208,7 @@ static void set_free(funk_templates *t) {
     funk_graph_free(t->t[i].g);
   }
   free(t->t);
+  free(t->fx);
   for (int i = 0; i < CLASSES; i++) {
     free(t->c[i].pool);
     free(t->c[i].free);
@@ -269,7 +271,9 @@ int funk_templates_add(funk_templates *t, const char *name, funk_graph *g) {
   if (ok && t->n == t->cap) {
     int cap = t->cap ? 2 * t->cap : 8;
     Template *a = realloc(t->t, (size_t)cap * sizeof *a);
-    if (a) t->t = a, t->cap = cap;
+    if (a) t->t = a;
+    int *f = a ? realloc(t->fx, (size_t)cap * sizeof *f) : NULL;
+    if (f) t->fx = f, t->cap = cap;
     else ok = false;
   }
   if (!ok) {
@@ -310,6 +314,7 @@ int funk_templates_add(funk_templates *t, const char *name, funk_graph *g) {
   }
   for (int i = 0; i < g->n; i++)
     if (g->nodes[i].table) funk_table_state(&g->nodes[i]);
+  if (x.fx) t->fx[t->nfx++] = t->n;
   t->t[t->n++] = x;
   return 0;
 }
@@ -535,9 +540,8 @@ static void set_control(Stage *s, uint64_t key, float value) {
 static void set_effects(funk_events *e, const Rec *r) {
   funk_templates *t = e->fxset;
   if (!t) return;
-  for (int i = 0; i < t->n; i++) {
-    Template *x = &t->t[i];
-    if (!x->fx) continue;
+  for (int i = 0; i < t->nfx; i++) {
+    Template *x = &t->t[t->fx[i]];
     Fx *f = &x->inst[r->orbit];
     bool some = x->fx == 2;
     for (int k = 0; k < x->np; k++) {
@@ -703,15 +707,19 @@ static void effects(funk_events *e, int o, size_t at) {
   funk_templates *t = e->fxset;
   if (!t) return;
   bool monitor = false, ran = false, sounds = e->used[o][at / B];
+  if (!sounds) { /* an idle orbit: its bus stays as it is */
+    int i = 0;
+    while (i < t->nfx && !t->t[t->fx[i]].inst[o].run) i++;
+    if (i == t->nfx) return;
+  }
   for (int c = 0; c < FUNK_CHANNELS; c++) {
     memcpy(e->chain[c], &e->bus[o][c][at], sizeof e->chain[c]);
     memset(e->eff[c], 0, sizeof e->eff[c]);
   }
   float mon[FUNK_CHANNELS][B];
   memset(mon, 0, sizeof mon);
-  for (int i = 0; i < t->n; i++) {
-    Template *x = &t->t[i];
-    if (!x->fx) continue;
+  for (int i = 0; i < t->nfx; i++) {
+    Template *x = &t->t[t->fx[i]];
     monitor |= x->nouts == 2;
     Fx *f = &x->inst[o];
     if (!f->run) continue;
@@ -836,10 +844,13 @@ void funk_events_render_to(funk_events *e, int64_t to) {
 
 void funk_events_read(const funk_events *e, int orbit, int channel, int64_t start, int m, float *out, int add) {
   const float *bus = e->bus[orbit][channel];
-  for (int j = 0; j < m; j++) {
+  for (int j = 0; j < m;) { /* a block at a time: used is per block, and a block never wraps the ring */
     size_t at = (size_t)(start + j) & (RING - 1);
-    if (add && !e->used[orbit][at / B]) continue; /* nothing played: out keeps its bits, -0 included */
-    out[j] = add ? out[j] + bus[at] : bus[at];
+    int run = B - (int)(at % B) < m - j ? B - (int)(at % B) : m - j;
+    if (!add) memcpy(out + j, bus + at, (size_t)run * sizeof *out);
+    else if (e->used[orbit][at / B]) /* else nothing played: out keeps its bits, -0 included */
+      for (int k = 0; k < run; k++) out[j + k] += bus[at + k];
+    j += run;
   }
 }
 
