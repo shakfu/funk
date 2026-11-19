@@ -2,13 +2,14 @@
 --
 -- d1 $ jux (spread' (density) ((*4) . (1-) <$> (slow 8 $ rattri1))) $ sound "bd drum*2 drum/2 [bass3/2,bd]" |+| speed (slow 8 $ (+1) <$> tri1)
 
-import pattern as p
+import pattern (atom, density, mapP, slow, spread', tri)
 import control (..)
-import dsp as d
+import dsp
 
 -- where scripts/dirt-samples.py puts Dirt-Samples
-dirt = "~/.local/share/funk/Dirt-Samples"
+dirtSamples = "~/.local/share/funk/Dirt-Samples"
 
-sig = d.kit dirt ["bass3", "bd", "drum"]
+dirt = dsp.loadSoundFiles dirtSamples ["bass3", "bd", "drum"] dsp.superDirt
+sig = dsp.orbit 0
 
-pat = jux (p.spread' (p.density . p.atom) (p.mapP ((* 4.0) . (1.0 -)) (p.slow 8 $ p.tri))) $ sound "bd drum*2 drum/2 [bass3/2,bd]" # speed (p.slow 8 $ p.mapP (+ 1.0) p.tri)
+pat = jux (spread' (density . atom) (mapP ((* 4.0) . (1.0 -)) (slow 8 $ tri))) $ sound "bd drum*2 drum/2 [bass3/2,bd]" # speed (slow 8 $ mapP (+ 1.0) tri)

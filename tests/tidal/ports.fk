@@ -1,36 +1,35 @@
 -- tests/tidal/Patches.hs's patches, ported to funk: the differences in the
 -- port are in docs/dev/patch-port.md. tests/tidal/patches.fk prints them,
 -- tests/tidal/bench.fk times their queries, and examples/tidal plays them.
-import pattern as p
-import pattern ((~>), (<~))
+import pattern (..)
 import control (..)
 
 -- each patch, with the cycles it is queried for
-patches :: [(String, Int, p.Pattern Controls)]
+patches :: [(String, Int, Pattern Controls)]
 patches =
-  [("p0", 8, p.brak $ let x = p.miniS "bd [sn [[sn bd] sn]]/3" in interlace (sound $ p.slow 3 $ x) (sound $ p.every 3 (p.append ("[bd]*6")) x)
+  [("p0", 8, brak $ let x = miniS "bd [sn [[sn bd] sn]]/3" in interlace (sound $ slow 3 $ x) (sound $ every 3 (append ("[bd]*6")) x)
       # speed "4")
-  , ("p1", 8, weave 4.0 (speed $ p.mapP (1.0 +) p.sine) [p.density 4 $ p.every 5 ((0.25 <~) . p.rev) $ striate 16 $ sound "[bd sn/2]/2", sound "bd [~ hc]*3"]
+  , ("p1", 8, weave 4.0 (speed $ mapP (1.0 +) sine) [density 4 $ every 5 ((0.25 <~) . rev) $ striate 16 $ sound "[bd sn/2]/2", sound "bd [~ hc]*3"]
       # speed "3")
-  , ("p2", 8, (p.stutter 2 (1.0 / 32.0) $ p.whenmod 8 6 (p.rev) $ p.density 4 $ striate 4 $ sound $ p.samples ("[bd [sn]*3]/4") (p.slow 13 $ p.run 12))
+  , ("p2", 8, (stutter 2 (1.0 / 32.0) $ whenmod 8 6 (rev) $ density 4 $ striate 4 $ sound $ samples ("[bd [sn]*3]/4") (slow 13 $ run 12))
       # speed "2")
-  , ("p3", 8, p.whenmod 4 2 p.rev $ p.spread' (striate . p.atom) ("[8 3 4, 5]") $ sound "[[nn/6 nn/4, [nn/5 nn/2 nn/3]/2]/3, kurt/1]")
-  , ("p4", 8, sound (p.samples ("bd*3 [bd sn]/3 [bd*12 bd*6]/3 cp") ("[0 2 4]/3")) # end (p.slow 5 $ p.sine) # speed (p.mapP (+ 1.0) p.tri))
-  , ("p5", 8, p.slow 2 $ p.stack [spin 6 $ p.spread' (p.slow . p.atom) ("3 4 5 2") $ sound "[bd*5 ht*5, [sid/4]*3 [lt*2]/5 mt*3, [sid/3]*3]"] # speed "2")
-  , ("p6", 8, p.every 2 p.rev $ p.spread' (striate' 6 . p.atom) (p.mapP ((+ 0.1) . (* 0.2)) $ p.slow 32 p.sine) $ sound "[diphone2/6 diphone2]/4")
-  , ("p6.1", 2, p.density 16 $ p.spread' (striate' 32 . p.atom) (p.mapP ((+ 0.04) . (* 0.08)) $ p.slow 128 p.sine) $ sound (p.samples ("amencutup") (p.slow 12 $ p.run 16)))
-  , ("p6.2", 8, p.density 2 $ jux (p.rev . p.every 2 ((26/8) <~)) $ p.spread' (striate' 8 . p.atom) (p.mapP ((+ 0.04) . (* 0.04)) $ p.slow 4 p.sine) $ sound "breaks157")
-  , ("p7", 8, p.slow 2 $ p.spread' (striate . p.atom) ("[4 2 3 8]/3") $ p.whenmod 4 2 (jux (p.rev)) $ sound "[[bd mt*3 bd [sn*8 bd] [lt*4 bd] [~ sn*4] [ht/5]*6 ht*2]]")
-  , ("p7.1", 8, p.slow 2 $ p.spread' (striate . p.atom) ("[4 2 8 1]/3") $ jux p.palindrome $ sound "[jvbass*4 [jvbass/5]*8 ~ [jvbass/9]*6, drum*2 sn/2 [drum/2]*6 rave/3]")
-  , ("p8", 8, p.slow 8 $ p.every 4 (p.rev) $ jux (# speed "[2,3]") $ p.spread' (striate . p.atom) ("[4 3 2, 6]") $ sound (p.samples ("stab*4 sn") $ p.run 8))
-  , ("p9", 8, p.every 2 (p.density 2) $ jux (p.spread' (striate . p.atom) ("[1 16 4 8]/3")) $ sound (p.samples ("[drum bd*12]") ("[1 2 3 0]")) # speed "[2 1.5 1]/4")
-  , ("p10", 8, p.density 2 $ jux (p.iter 32) $ sound "bass3/2 bass3/0" # (speed $ p.every 2 p.rev $ "[8 3 4]/3"))
-  , ("p11", 8, p.superimpose ((# vowel "a") . p.iter 4) $ jux p.rev $ sound (p.samples ("[amencutup*8 bass3*2,[jvbass*8]/3]") $ p.slow (3/5) $ p.run 12))
-  , ("p12", 8, (jux (p.spread' ((<~) . p.atom) (p.slow 16 p.sine)) $ sound "bd*2 pluck/2 sn/2 [pluck/0 pluck/1]") # speed "1 2 3 2")
-  , ("p12.1", 8, (jux (p.spread' ((<~) . p.atom) (p.slow 2 p.sine)) $ striate 2 $ sound (p.samples ("odx*2") (p.slow 3 $ p.run 4))))
-  , ("p13", 8, let sinerat1 = p.sine in p.stack [smash 4 (map p.atom [1 .. 16]) $ (jux (p.spread' ((<~) . p.atom) (p.slow 64 $ sinerat1)) $ sound $ p.samples ("[bd bd*4, jvbass*8]") (p.slow 4 $ p.run 8)), sound "future/1"])
-  , ("p14", 8, jux (p.spread' (p.density . p.atom) (p.mapP ((* 4.0) . (1.0 -)) (p.slow 8 $ p.tri))) $ sound "bd drum*2 drum/2 [bass3/2,bd]" # speed (p.slow 8 $ p.mapP (+ 1.0) p.tri))
-  , ("p15", 8, (p.spread' (striate' 4 . p.atom) (p.mapP (+ 0.2) $ p.slow 8 p.sine)) $ jux p.rev $ sound (p.samples ("[latibro*6,bd]/2") ("0 7 4")) # speed "[1 2 1.5]/4")
-  , ("p16", 8, p.slow 2 $ weave 16.0 (pan p.sine) $ map sound ["[[odx*4[odx*2odx*8],[hh*4,~odx/12]*4],[blue/1]/2~~[~[odx/13]*2]]", 0.0625 ~> p.samples ("jvbass*16") ("2 2[3 4]1")])
-  , ("p17", 8, sound (p.samples ("{casio ~ bd*3, bd*2 rm*3, numbers lt [mt sn, lt*3 voodoo] sn bass3*2}") ("{7 2, 3 1 5}")) # end p.rand)
+  , ("p3", 8, whenmod 4 2 rev $ spread' (striate . atom) ("[8 3 4, 5]") $ sound "[[nn/6 nn/4, [nn/5 nn/2 nn/3]/2]/3, kurt/1]")
+  , ("p4", 8, sound (samples ("bd*3 [bd sn]/3 [bd*12 bd*6]/3 cp") ("[0 2 4]/3")) # end (slow 5 $ sine) # speed (mapP (+ 1.0) tri))
+  , ("p5", 8, slow 2 $ stack [spin 6 $ spread' (slow . atom) ("3 4 5 2") $ sound "[bd*5 ht*5, [sid/4]*3 [lt*2]/5 mt*3, [sid/3]*3]"] # speed "2")
+  , ("p6", 8, every 2 rev $ spread' (striate' 6 . atom) (mapP ((+ 0.1) . (* 0.2)) $ slow 32 sine) $ sound "[diphone2/6 diphone2]/4")
+  , ("p6.1", 2, density 16 $ spread' (striate' 32 . atom) (mapP ((+ 0.04) . (* 0.08)) $ slow 128 sine) $ sound (samples ("amencutup") (slow 12 $ run 16)))
+  , ("p6.2", 8, density 2 $ jux (rev . every 2 ((26/8) <~)) $ spread' (striate' 8 . atom) (mapP ((+ 0.04) . (* 0.04)) $ slow 4 sine) $ sound "breaks157")
+  , ("p7", 8, slow 2 $ spread' (striate . atom) ("[4 2 3 8]/3") $ whenmod 4 2 (jux (rev)) $ sound "[[bd mt*3 bd [sn*8 bd] [lt*4 bd] [~ sn*4] [ht/5]*6 ht*2]]")
+  , ("p7.1", 8, slow 2 $ spread' (striate . atom) ("[4 2 8 1]/3") $ jux palindrome $ sound "[jvbass*4 [jvbass/5]*8 ~ [jvbass/9]*6, drum*2 sn/2 [drum/2]*6 rave/3]")
+  , ("p8", 8, slow 8 $ every 4 (rev) $ jux (# speed "[2,3]") $ spread' (striate . atom) ("[4 3 2, 6]") $ sound (samples ("stab*4 sn") $ run 8))
+  , ("p9", 8, every 2 (density 2) $ jux (spread' (striate . atom) ("[1 16 4 8]/3")) $ sound (samples ("[drum bd*12]") ("[1 2 3 0]")) # speed "[2 1.5 1]/4")
+  , ("p10", 8, density 2 $ jux (iter 32) $ sound "bass3/2 bass3/0" # (speed $ every 2 rev $ "[8 3 4]/3"))
+  , ("p11", 8, superimpose ((# vowel "a") . iter 4) $ jux rev $ sound (samples ("[amencutup*8 bass3*2,[jvbass*8]/3]") $ slow (3/5) $ run 12))
+  , ("p12", 8, (jux (spread' ((<~) . atom) (slow 16 sine)) $ sound "bd*2 pluck/2 sn/2 [pluck/0 pluck/1]") # speed "1 2 3 2")
+  , ("p12.1", 8, (jux (spread' ((<~) . atom) (slow 2 sine)) $ striate 2 $ sound (samples ("odx*2") (slow 3 $ run 4))))
+  , ("p13", 8, let sinerat1 = sine in stack [smash 4 (map atom [1 .. 16]) $ (jux (spread' ((<~) . atom) (slow 64 $ sinerat1)) $ sound $ samples ("[bd bd*4, jvbass*8]") (slow 4 $ run 8)), sound "future/1"])
+  , ("p14", 8, jux (spread' (density . atom) (mapP ((* 4.0) . (1.0 -)) (slow 8 $ tri))) $ sound "bd drum*2 drum/2 [bass3/2,bd]" # speed (slow 8 $ mapP (+ 1.0) tri))
+  , ("p15", 8, (spread' (striate' 4 . atom) (mapP (+ 0.2) $ slow 8 sine)) $ jux rev $ sound (samples ("[latibro*6,bd]/2") ("0 7 4")) # speed "[1 2 1.5]/4")
+  , ("p16", 8, slow 2 $ weave 16.0 (pan sine) $ map sound ["[[odx*4[odx*2odx*8],[hh*4,~odx/12]*4],[blue/1]/2~~[~[odx/13]*2]]", 0.0625 ~> samples ("jvbass*16") ("2 2[3 4]1")])
+  , ("p17", 8, sound (samples ("{casio ~ bd*3, bd*2 rm*3, numbers lt [mt sn, lt*3 voodoo] sn bass3*2}") ("{7 2, 3 1 5}")) # end rand)
   ]

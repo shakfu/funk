@@ -2,13 +2,14 @@
 --
 -- d1 $ sound (samples "bd*3 [bd sn]*1/3 [bd*12 bd*6]/3 cp" "[0 2 4]/3") |+| end (slow 5 $ sinewave1) |+| speed ((+1) <$> triwave1)
 
-import pattern as p
+import pattern (mapP, samples, sine, slow, tri)
 import control (..)
-import dsp as d
+import dsp
 
 -- where scripts/dirt-samples.py puts Dirt-Samples
-dirt = "~/.local/share/funk/Dirt-Samples"
+dirtSamples = "~/.local/share/funk/Dirt-Samples"
 
-sig = d.kit dirt ["bd", "bd:2", "bd:4", "cp", "cp:2", "cp:4", "sn:2"]
+dirt = dsp.loadSoundFiles dirtSamples ["bd", "bd:2", "bd:4", "cp", "cp:2", "cp:4", "sn:2"] dsp.superDirt
+sig = dsp.orbit 0
 
-pat = sound (p.samples ("bd*3 [bd sn]/3 [bd*12 bd*6]/3 cp") ("[0 2 4]/3")) # end (p.slow 5 $ p.sine) # speed (p.mapP (+ 1.0) p.tri)
+pat = sound (samples ("bd*3 [bd sn]/3 [bd*12 bd*6]/3 cp") ("[0 2 4]/3")) # end (slow 5 $ sine) # speed (mapP (+ 1.0) tri)

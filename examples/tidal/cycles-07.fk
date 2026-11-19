@@ -2,13 +2,14 @@
 --
 -- d1 $ slow 2$spread' striate "[4 2 3 8]/3" $ whenmod 4 2 (jux (rev)) $ sound "[[bd mt*3 bd [sn*8 bd] [lt*4 bd] [~ sn*4] ht/5*6 ht*2]]"
 
-import pattern as p
+import pattern (atom, rev, slow, spread', whenmod)
 import control (..)
-import dsp as d
+import dsp
 
 -- where scripts/dirt-samples.py puts Dirt-Samples
-dirt = "~/.local/share/funk/Dirt-Samples"
+dirtSamples = "~/.local/share/funk/Dirt-Samples"
 
-sig = d.kit dirt ["bd", "ht", "lt", "mt", "sn"]
+dirt = dsp.loadSoundFiles dirtSamples ["bd", "ht", "lt", "mt", "sn"] dsp.superDirt
+sig = dsp.orbit 0
 
-pat = p.slow 2 $ p.spread' (striate . p.atom) ("[4 2 3 8]/3") $ p.whenmod 4 2 (jux (p.rev)) $ sound "[[bd mt*3 bd [sn*8 bd] [lt*4 bd] [~ sn*4] [ht/5]*6 ht*2]]"
+pat = slow 2 $ spread' (striate . atom) ("[4 2 3 8]/3") $ whenmod 4 2 (jux (rev)) $ sound "[[bd mt*3 bd [sn*8 bd] [lt*4 bd] [~ sn*4] [ht/5]*6 ht*2]]"

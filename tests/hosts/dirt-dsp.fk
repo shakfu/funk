@@ -1,0 +1,8 @@
+-- funk-midi tests/hosts/dirt-dsp.fk --dirt 57120 --no-sleep (tests/CMakeLists.txt):
+-- a file that imports dsp loads without --audio, and SuperDirt plays its pat
+import control (..)
+import dsp
+
+dirt = dsp.loadSoundFiles "tests/hosts/samples" ["bd"] dsp.superDirt
+sig = dsp.orbit 0
+pat = s "bd"

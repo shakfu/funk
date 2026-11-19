@@ -63,6 +63,11 @@ add_test(NAME hosts/dirt
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/dirt.txt 2>&1 | diff tests/hosts/dirt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/dirt PROPERTIES LABELS hosts TIMEOUT 300)
+# ... a file that imports dsp, without --audio (tests/hosts/dirt-dsp.fk)
+add_test(NAME hosts/dirt-dsp
+  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" tests/hosts/dirt-dsp.fk --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/dirt-dsp.txt 2>&1 | diff tests/hosts/dirt-dsp.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/dirt-dsp PROPERTIES LABELS hosts TIMEOUT 300)
 # ... Tidal's slots, d1 and p "name" (lib/stream.fk), to SuperDirt and to MIDI
 add_test(NAME hosts/slots
   COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/slots.txt 2>&1 | diff tests/hosts/slots.expected -"

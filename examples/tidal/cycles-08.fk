@@ -2,13 +2,14 @@
 --
 -- d1 $ slow 8 $ every 4 (rev) $ jux (|+| speed "[2,3]") $ spread' striate "[4 3 2, 6]" $ sound (samples "stab*4 sn" $ run 8)
 
-import pattern as p
+import pattern (atom, every, rev, run, samples, slow, spread')
 import control (..)
-import dsp as d
+import dsp
 
 -- where scripts/dirt-samples.py puts Dirt-Samples
-dirt = "~/.local/share/funk/Dirt-Samples"
+dirtSamples = "~/.local/share/funk/Dirt-Samples"
 
-sig = d.kit dirt ["sn:4", "sn:5", "sn:6", "sn:7", "stab", "stab:1", "stab:2", "stab:3"]
+dirt = dsp.loadSoundFiles dirtSamples ["sn:4", "sn:5", "sn:6", "sn:7", "stab", "stab:1", "stab:2", "stab:3"] dsp.superDirt
+sig = dsp.orbit 0
 
-pat = p.slow 8 $ p.every 4 (p.rev) $ jux (# speed "[2,3]") $ p.spread' (striate . p.atom) ("[4 3 2, 6]") $ sound (p.samples ("stab*4 sn") $ p.run 8)
+pat = slow 8 $ every 4 (rev) $ jux (# speed "[2,3]") $ spread' (striate . atom) ("[4 3 2, 6]") $ sound (samples ("stab*4 sn") $ run 8)

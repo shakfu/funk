@@ -2,13 +2,14 @@
 --
 -- d1 $ slow 2 $ spread' striate "[4 2 8 1]/3" $ jux palindrome $ sound "[jvbass*4 jvbass/5*8 ~ jvbass/9*6, drum*2 sn/2 drum/2*6 rave/3]"
 
-import pattern as p
+import pattern (atom, palindrome, slow, spread')
 import control (..)
-import dsp as d
+import dsp
 
 -- where scripts/dirt-samples.py puts Dirt-Samples
-dirt = "~/.local/share/funk/Dirt-Samples"
+dirtSamples = "~/.local/share/funk/Dirt-Samples"
 
-sig = d.kit dirt ["drum", "jvbass", "rave", "sn"]
+dirt = dsp.loadSoundFiles dirtSamples ["drum", "jvbass", "rave", "sn"] dsp.superDirt
+sig = dsp.orbit 0
 
-pat = p.slow 2 $ p.spread' (striate . p.atom) ("[4 2 8 1]/3") $ jux p.palindrome $ sound "[jvbass*4 [jvbass/5]*8 ~ [jvbass/9]*6, drum*2 sn/2 [drum/2]*6 rave/3]"
+pat = slow 2 $ spread' (striate . atom) ("[4 2 8 1]/3") $ jux palindrome $ sound "[jvbass*4 [jvbass/5]*8 ~ [jvbass/9]*6, drum*2 sn/2 [drum/2]*6 rave/3]"

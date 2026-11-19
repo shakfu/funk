@@ -4,14 +4,14 @@
 --
 -- jux's right channel is silent, as in Tidal 1.10.2 (docs/dev/patch-port.md).
 
-import pattern as p
-import pattern ((<~))
+import pattern (atom, sine, slow, spread', (<~))
 import control (..)
-import dsp as d
+import dsp
 
 -- where scripts/dirt-samples.py puts Dirt-Samples
-dirt = "~/.local/share/funk/Dirt-Samples"
+dirtSamples = "~/.local/share/funk/Dirt-Samples"
 
-sig = d.kit dirt ["bd", "pluck", "sn"]
+dirt = dsp.loadSoundFiles dirtSamples ["bd", "pluck", "sn"] dsp.superDirt
+sig = dsp.orbit 0
 
-pat = (jux (p.spread' ((<~) . p.atom) (p.slow 16 p.sine)) $ sound "bd*2 pluck/2 sn/2 [pluck/0 pluck/1]") # speed "1 2 3 2"
+pat = (jux (spread' ((<~) . atom) (slow 16 sine)) $ sound "bd*2 pluck/2 sn/2 [pluck/0 pluck/1]") # speed "1 2 3 2"

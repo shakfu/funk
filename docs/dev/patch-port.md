@@ -37,7 +37,7 @@ The patches use Tidal's names from before 1.0. `tests/tidal/Patches.hs` has them
 
 - **String literals are patterns**, as with Tidal's `OverloadedStrings`, since 2026-11-09, and controls take patterns, so `sound (samples "bd*2" (run 8))` and `end (slow 5 sine)` port as written. Until then the port used `p.miniS`, `p.mini` and `pF "end"`, and defined `sound` of a pattern as `soundP`. One literal keeps `p.miniS`: `p0`'s `let x = ...`, which nothing else fixes to a pattern ([tidal-comparison.md](tidal-comparison.md) L1).
 
-- **`pure` is `p.atom`**, and `<$>` and `fmap` are `p.mapP`. Sections and `.` port as written: `(# vowel "a") . p.iter 4`.
+- **`pure` is `atom`**, and `<$>` and `fmap` are `mapP`. Sections and `.` port as written: `(# vowel "a") . iter 4`.
 
 - **Speed factors were `Int`s** until T2, 2026-11-10. `slow (3/5)` was `p._fastR 5 3` (`p11`), and `spread' (density . pure)` over a continuous `Float` was `p.density . p.atom . round` (`p14`). Both now port as written, with the same matches. That channel matches only because it has no onsets in either (below).
 

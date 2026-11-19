@@ -4,13 +4,14 @@
 --
 -- Dirt-Samples has no nn, so its events are silent.
 
-import pattern as p
+import pattern (atom, rev, spread', whenmod)
 import control (..)
-import dsp as d
+import dsp
 
 -- where scripts/dirt-samples.py puts Dirt-Samples
-dirt = "~/.local/share/funk/Dirt-Samples"
+dirtSamples = "~/.local/share/funk/Dirt-Samples"
 
-sig = d.kit dirt ["kurt"]
+dirt = dsp.loadSoundFiles dirtSamples ["kurt"] dsp.superDirt
+sig = dsp.orbit 0
 
-pat = p.whenmod 4 2 p.rev $ p.spread' (striate . p.atom) ("[8 3 4, 5]") $ sound "[[nn/6 nn/4, [nn/5 nn/2 nn/3]/2]/3, kurt/1]"
+pat = whenmod 4 2 rev $ spread' (striate . atom) ("[8 3 4, 5]") $ sound "[[nn/6 nn/4, [nn/5 nn/2 nn/3]/2]/3, kurt/1]"

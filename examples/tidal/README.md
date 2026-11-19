@@ -23,8 +23,12 @@ That is macOS's path; on Linux it is `~/.local/share/SuperCollider/downloaded-qu
 funk-midi examples/tidal/cycles-05.fk --audio
 ```
 
-- **Level.** The patches sum many samples at full level. Peaks reach 2 to 9.5 times full scale (`cycles-11`), as they would in SuperDirt. Turn the output down, or add `# gain "0.8"` to `pat`.
+`--dirt 57120` in place of `--audio` sends the events to a running SuperDirt instead.
+
+`funk-midi` plays in real time only when built with libremidi: `cmake -S . -B build -DFUNK_LIBREMIDI=ON && cmake --build build`.
+
+- **Sound.** Each file plays through `dirt` with `dsp.superDirt`, as SuperDirt does, at its level, with its limiter on each orbit ([docs/music.md](../../docs/music.md#events-as-superdirt-plays-them)). `dsp.kit` would clip: it plays 8 dB louder, without a limiter, and `cycles-05` peaked at 4.6 times full scale through it.
 - **Tempo.** The hosts play 0.5 cycles per second; Tidal's default is 0.5625. `funk-midi --cycle 1778` plays at Tidal's.
-- **Missing samples.** A name not in the kit is silent. `cycles-03`'s `nn` is not in Dirt-Samples.
+- **Missing samples.** A name not in Dirt-Samples is silent. `cycles-03`'s `nn` is not in Dirt-Samples.
 
 `tests/tidal/ports.fk` holds the same patterns for the tests. `lib/tidal-examples` checks that the two match.

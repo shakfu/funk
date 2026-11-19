@@ -1054,7 +1054,7 @@ static void *handshake(void *arg) {
 static int run(funk *f, void *arg) {
   Opts *o = arg;
   session = f;
-  if (audio) { GRAPH_FUNCTIONS(PROVIDE) }
+  GRAPH_FUNCTIONS(PROVIDE) /* also without --audio, so a file can import dsp */
   funk_module_dir(f, o->lib);
   STREAM_FUNCTIONS(PROVIDE_F)
   funk_glue(f, funk_glue_table, funk_glue_count);
@@ -1215,7 +1215,7 @@ int main(int argc, char **argv) {
 #endif
   signal(SIGINT, on_interrupt);
   static const char *const cc_args[] = {"-I", FUNK_GRAPH_INCLUDE}; /* graph.h, for graph.fk's imports */
-  funk *f = funk_new(&(funk_config){.cc_args = audio ? cc_args : NULL, .ncc_args = audio ? 2 : 0});
+  funk *f = funk_new(&(funk_config){.cc_args = cc_args, .ncc_args = 2});
   if (!f) return 1;
   int status = funk_run(f, run, &o);
   funk_free(f);
