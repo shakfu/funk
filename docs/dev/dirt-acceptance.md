@@ -38,7 +38,7 @@ Roadmap 0.13 ([roadmap.md](roadmap.md#013----superdirt-sound-in-the-plugin)) has
 
    Measured on this Mac, 20 s a run. The host's thread first had the default policy. Then the longest block was 9.1 to 11.7 ms, over budget in 4 of 8 runs, with load average 3. Preemption caused most of that. With the time-constraint policy, as Core Audio's IO thread has, the longest was 3.3 to 9.9 ms in 8 runs, none over. The synths step peaks highest. noalloc counted 0 in each run.
 
-6. **REAPER.** The user plays `sim-dirt.fk` in REAPER on macOS and listens against SuperDirt. `tests/hosts/sim-dirt.tidal` has the same sets for Tidal 1.10, at cps 0.5, one bar at 120 BPM. In funk and in Tidal, each set has the same onsets over 4 cycles: 144, 72, 88 and 168. The run:
+6. **REAPER.** Done 2026-11-19, with SuperCollider 3.13.0. `sim-dirt.fk` showed two faults. Neither was in the sound. Its `samples` set peaks at +6 dBFS, buzzes from `crush "4"`, and has no shared grid, in funk and in SuperDirt alike (the oracle matches it within 2.4e-7). The editor's Stop left `dirt`'s events playing (CHANGELOG). So the user listened to `tests/hosts/listen-dirt.fk` instead, against `listen-dirt.tidal`. It has 4 parts, one added per step, on one 8th grid in A minor, and peaks at -7.5 dBFS. The user heard no difference from SuperDirt. Its log had 12 steps, none slow, busy or failed, and 0 blocks over budget, the longest 1.6 ms. The planned run, kept for `sim-dirt.fk`: the user plays `sim-dirt.fk` in REAPER on macOS and listens against SuperDirt. `tests/hosts/sim-dirt.tidal` has the same sets for Tidal 1.10, at cps 0.5, one bar at 120 BPM. In funk and in Tidal, each set has the same onsets over 4 cycles: 144, 72, 88 and 168. The run:
 
    1. A copy of the script with Dirt-Samples, as SuperDirt plays:
 
@@ -63,4 +63,4 @@ Roadmap 0.13 ([roadmap.md](roadmap.md#013----superdirt-sound-in-the-plugin)) has
 
 - The sound bound: decided 2026-11-15, 1e-6, the oracle's bound. Measured error is 0; exact equality would also fail on rounding a platform may change.
 - Criterion 3: decided 2026-11-15. The ratio is 1.05 to 4.6 (step 4), and decision 14 does not cause it. 14 stands, and step 5's budget alone judges cost, as the decision record (dirt-sound.md) words it. Faster generated kernels follow 0.13 (TODO).
-- Whether step 6 is part of 0.13's acceptance, or follows the release as the Linux run does.
+- Whether step 6 is part of 0.13's acceptance: decided 2026-11-19, it is (done, above). The Linux run follows the release.

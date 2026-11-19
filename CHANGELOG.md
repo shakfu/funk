@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-19
+
 ### Changed
 
 - Kernels' `cInt` truncates with one conversion, not `lrint (floor x)`. Under GCC, both were libm calls in the sample loop, and they pushed the loop's state out of registers. `dirt_reverb` also runs one stage at a time over the block, each delay line's fields in registers, where it read them from the slot array every sample. On Linux x86-64 it fell from 4.2x to 0.75x the time of a C port of itself, about 5.6x faster. Output is unchanged ([docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md)).
@@ -13,6 +15,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The effect kernels' `Trig1` of `resumed` is computed once a call, since its trigger is constant over the call and can fire only at frame 0. Their `DetectSilence` counters live in the loops, written to their slots once a call. Per call, `dirt_switch_delay` takes 29% less time, `dirt_monitor` 12% and `dirt_reverb` 6%. Output is unchanged.
 
 ### Fixed
+
+- The plugin editor's Stop ends `dirt`'s events. It replaced `sig` with silence, but a player whose graph reads no orbit mixes them straight to the output, so queued events and effect tails played on; without a `sig`, Stop did nothing. `funk_player_hush` drops queued events, ends playing ones, and makes each orbit's effect new, one a block: all at once would clear 38 MB in one block for `d.superDirt`.
 
 - `lib/dirt-scsynth` and `lib/dirt-patches` skip, naming the UGens, when scsynth lacks a plugin whose class sclang has. With sc3-plugins' classes alone, SuperDirt built its `SwitchDelay` `dirt_delay`, which scsynth refused, so 112 of 123 cases and every patch failed against a reference without the delay.
 

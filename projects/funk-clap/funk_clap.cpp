@@ -518,7 +518,10 @@ public:
 
 	void stopSound(std::string& out) override
 	{
-		if (!audio_.ready || !audio_.haveSig) return;
+		if (!audio_.ready) return;
+		// dirt's events and tails too: without sig they play as the orbits are
+		if (audio_.player) funk_player_hush(audio_.player);
+		if (!audio_.haveSig) return;
 		audio_.haveSig = false;
 		long arg = 0, r = 0;
 		session_.call([&] {

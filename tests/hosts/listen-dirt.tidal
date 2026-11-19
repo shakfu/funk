@@ -1,0 +1,30 @@
+-- listen-dirt.fk's steps for Tidal 1.10 and SuperDirt (SC 3.13.0): the reference
+-- for docs/dev/dirt-acceptance.md, step 6, by ear. Evaluate one block at a time.
+
+setcps 0.5
+
+-- drums
+d1 $ stack [s "bd*4" # gain "0.9", s "[~ sn]*2" # gain "0.8" # room "0.2" # size "0.4" # orbit "1",
+  s "hh*8" # gain "0.7 0.55"]
+
+-- bass
+d1 $ stack [s "bd*4" # gain "0.9", s "[~ sn]*2" # gain "0.8" # room "0.2" # size "0.4" # orbit "1",
+  s "hh*8" # gain "0.7 0.55",
+  s "supersaw*8" # note "<a1 f1 c2 g1>" # lpf "500" # sustain "0.2" # gain "0.75"]
+
+-- chords
+d1 $ stack [s "bd*4" # gain "0.9", s "[~ sn]*2" # gain "0.8" # room "0.2" # size "0.4" # orbit "1",
+  s "hh*8" # gain "0.7 0.55",
+  s "supersaw*8" # note "<a1 f1 c2 g1>" # lpf "500" # sustain "0.2" # gain "0.75",
+  s "superpiano" # note "<[a4,c5,e5] [f4,a4,c5] [c5,e5,g5] [g4,b4,d5]>" # sustain "1.8" # gain "0.7" # room "0.4" # size "0.7" # orbit "2"]
+
+-- arp
+d1 $ stack [s "bd*4" # gain "0.9", s "[~ sn]*2" # gain "0.8" # room "0.2" # size "0.4" # orbit "1",
+  s "hh*8" # gain "0.7 0.55",
+  s "supersaw*8" # note "<a1 f1 c2 g1>" # lpf "500" # sustain "0.2" # gain "0.75",
+  s "superpiano" # note "<[a4,c5,e5] [f4,a4,c5] [c5,e5,g5] [g4,b4,d5]>" # sustain "1.8" # gain "0.7" # room "0.4" # size "0.7" # orbit "2",
+  s "superfm*8" # note "<[a5 c6 e6 c6]*2 [f5 a5 c6 a5]*2 [c6 e6 g6 e6]*2 [g5 b5 d6 b5]*2>" # sustain "0.15" # gain "0.65"
+    # delay "0.3" # delaytime "0.375" # delayfeedback "0.4" # orbit "3"]
+
+-- silence
+hush

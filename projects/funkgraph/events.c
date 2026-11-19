@@ -85,6 +85,7 @@ typedef struct Fx {
   Stage st;
   float *outs[2 * FUNK_CHANNELS];
   int run;
+  int stale; /* hushed: to be made again */
   int have[FXPARAMS]; /* the last parameters an event set, as GlobalDirtEffect's state */
   float val[FXPARAMS];
   funk_context cx;
@@ -156,6 +157,8 @@ struct funk_events {
   } part;
   _Atomic int live;
   _Atomic uint64_t dropped, late;
+  _Atomic int hush; /* funk_player_hush, for the audio thread */
+  int renew;        /* the audio thread's: an effect is stale */
 };
 
 static size_t al(size_t n) { return (n + 15) & ~(size_t)15; }
@@ -193,6 +196,7 @@ funk_events *funk_events_new(void) {
   atomic_init(&e->seed, 0);
   rgen_init(e->rgen, (uint32_t)time(NULL) ^ (uint32_t)clock());
   atomic_init(&e->late, 0);
+  atomic_init(&e->hush, 0);
   e->k_orbit = funk_hash("orbit");
   e->k_cut = funk_hash("cut");
   e->k_stop = funk_hash("stop");
@@ -320,6 +324,7 @@ int funk_templates_add(funk_templates *t, const char *name, funk_graph *g) {
 }
 
 static void make(funk_events *e, const Template *t, unsigned char *m, Stage *s);
+static void fx_make(funk_events *e, const Template *x, Fx *f);
 
 int funk_player_templates(funk_player *p, funk_templates *t) {
   funk_events *e = funk_player_events_of(p);
@@ -348,10 +353,7 @@ int funk_player_templates(funk_player *p, funk_templates *t) {
           set_free(t);
           return -1;
         }
-        make(e, x, f->mem, &f->st);
-        for (int c = 0; c < x->nouts; c++) f->outs[c] = f->st.nodes[x->g->outs[c]].out;
-        f->run = 1; /* its first block, as a synth's first calc, before PauseSelf pauses it */
-        f->cx = (funk_context){x->g->cx.rate, 0, 0, e->rgen, 0, 0, x->g->cx.tables};
+        fx_make(e, x, f);
       }
     }
     size_t used = 0;
@@ -519,6 +521,18 @@ static void make(funk_events *e, const Template *t, unsigned char *m, Stage *s) 
   s->begun = s->freed = 0;
 }
 
+/* x's effect on an orbit, as new: it runs its first block, as a synth's
+   first calc, before PauseSelf pauses it */
+static void fx_make(funk_events *e, const Template *x, Fx *f) {
+  make(e, x, f->mem, &f->st);
+  for (int c = 0; c < x->nouts; c++) f->outs[c] = f->st.nodes[x->g->outs[c]].out;
+  f->run = 1;
+  f->stale = 0;
+  memset(f->have, 0, sizeof f->have);
+  memset(f->val, 0, sizeof f->val);
+  f->cx = (funk_context){x->g->cx.rate, 0, 0, e->rgen, 0, 0, x->g->cx.tables};
+}
+
 static void set_param(Ev *v, uint64_t key, float value) {
   for (int i = 0; i < v->nst; i++)
     for (int j = 0; j < v->st[i].n; j++) {
@@ -543,6 +557,7 @@ static void set_effects(funk_events *e, const Rec *r) {
   for (int i = 0; i < t->nfx; i++) {
     Template *x = &t->t[t->fx[i]];
     Fx *f = &x->inst[r->orbit];
+    if (f->stale) fx_make(e, x, f);
     bool some = x->fx == 2;
     for (int k = 0; k < x->np; k++) {
       int have = 0;
@@ -830,13 +845,47 @@ static void block(funk_events *e, int64_t b) {
   e->blocks++;
 }
 
+/* funk_player_hush's work: each effect is paused until made again, as one
+   new, in renew; all at once would clear 38 MB for d.superDirt in a block */
+static void hush(funk_events *e) {
+  atomic_store_explicit(&e->tail, atomic_load_explicit(&e->head, memory_order_acquire), memory_order_release);
+  e->atail = e->ahead;
+  for (int i = 0; i < e->nev; i++) end(e, &e->ev[i]);
+  e->nev = 0;
+  memset(e->bus, 0, sizeof e->bus);
+  memset(e->used, 0, sizeof e->used);
+  funk_templates *t = e->fxset;
+  for (int i = 0; t && i < t->nfx; i++)
+    for (int o = 0; o < FUNK_ORBITS; o++) {
+      t->t[t->fx[i]].inst[o].run = 0;
+      t->t[t->fx[i]].inst[o].stale = 1;
+    }
+  e->renew = 1;
+}
+
+/* one stale effect made again; false once none is */
+static bool renew(funk_events *e) {
+  funk_templates *t = e->fxset;
+  for (int i = 0; t && i < t->nfx; i++)
+    for (int o = 0; o < FUNK_ORBITS; o++)
+      if (t->t[t->fx[i]].inst[o].stale) {
+        fx_make(e, &t->t[t->fx[i]], &t->t[t->fx[i]].inst[o]);
+        return true;
+      }
+  return false;
+}
+
+void funk_player_hush(funk_player *p) { atomic_store(&funk_player_events_of(p)->hush, 1); }
+
 void funk_events_render_to(funk_events *e, int64_t to) {
   /* in every render, so a set is adopted before its parent can be reclaimed */
   funk_templates *t = atomic_load_explicit(&e->current, memory_order_acquire);
   if (t != e->fxset) adopt(e, t);
   uint64_t seed = atomic_exchange_explicit(&e->seed, 0, memory_order_relaxed);
   if (seed) rgen_init(e->rgen, (uint32_t)seed);
+  if (atomic_exchange_explicit(&e->hush, 0, memory_order_acquire)) hush(e);
   while (e->end < to) {
+    if (e->renew) e->renew = renew(e);
     block(e, e->end);
     e->end += B;
   }

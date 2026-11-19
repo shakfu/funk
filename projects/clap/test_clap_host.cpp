@@ -676,6 +676,20 @@ void CheckParams(const clap_plugin_t* plugin, std::map<std::string, std::string>
 		for (const Event& e : ev.list) noteOn |= (e.data[0] & 0xF0) == 0x90;
 		check(ev.others.empty() && !noteOn && ev.audio.size() > 10 && std::fabs(ev.audio[10] - 0.2f) < 1e-6f,
 		      "a synth's event plays from its template, through dirt_gate: " + std::to_string(ev.audio.empty() ? -1.f : ev.audio[10]));
+		// The editor's Stop ends dirt's events: silencing sig alone left the orbits playing as they are
+		struct EditorStop { void (*stop)(const clap_plugin_t*); };
+		auto* stop = (const EditorStop*)plugin->get_extension(plugin, "funk.editor-stop");
+		if (stop && cases.count("events_long")) {
+			Eval(cases["events_long"]);
+			check(FirstWhere(Play(plugin, 0., 4).audio, 0, true) >= 0, "a 60 s event sounds");
+			stop->stop(plugin);
+			bool silent = false;
+			for (int i = 0; i < 200 && !silent; i++) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(10));
+				silent = FirstWhere(Play(plugin, 1., 16).audio, 0, true) < 0;
+			}
+			check(silent, "the editor's Stop ends dirt's events");
+		}
 	}
 	Eval(cases["audio"]); // the sig the later checks expect
 }

@@ -259,6 +259,11 @@ bool funk_player_event_end(funk_player *p);
 bool funk_player_event_audio(funk_player *p, int64_t frame, const char *source, int n, const char *const *names,
                              const float *values);
 
+/* Host's thread: a panic, from the next render. Queued events are dropped,
+   playing ones end, the orbits' buses clear, and each orbit's effect
+   starts again as new, its tail gone. Graphs and templates are kept. */
+void funk_player_hush(funk_player *p);
+
 /* Any thread: events playing, and those dropped because the pool or the
    list of events was full, or their source was missing, and those that
    came after their block had rendered, which start at the next. */

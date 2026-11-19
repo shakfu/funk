@@ -7,5 +7,7 @@ k 0.5: 1.5
 no k after k, so 0: 1
 an identical set keeps it: 1
 a changed one is new, k 3: 4
+hush: playing 1, then 0, peak 0
+hush makes the effect new, k 3: 4
 sent 3200, playing 0, dropped 0
 peak above 1, at most 6: 1

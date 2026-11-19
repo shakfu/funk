@@ -16,6 +16,10 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] The scsynth oracles failed falsely when sc3-plugins' classes were installed without its server plugins: SuperDirt built a `dirt_delay` that scsynth refused. They now skip, naming the UGens. Done 2026-11-18 ([docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md#open)).
 
+- [ ] SuperCollider 3.14.1: the oracles fail against its scsynth, at 0.12.0 too: `plain` errs by 0.116, its onset a frame later and its render 33 frames longer; `p0` by 0.376. funk ports 3.13.0, which passes. Find the scsynth or UGen change, from the 3.13-to-3.14 changelog, then bisect on `plain`. sc3-plugins must match the scsynth version.
+
+- [ ] Without sclang, the oracles are not registered, so `make test` passes without them: CMake's hint missed an install elsewhere for two days. Consider failing when `SCLANG` is set but does not run.
+
 - [ ] Against a develop SuperDirt (`v1.7.4-18`), `render.scd` fails in sclang (`_IdentDict_Put`) and `lib/synthdefs` differs: 15 synths' `speedFreq` defaults. The tests need v1.7.3, whose `.quark` file a develop checkout shares, so a version check cannot tell them apart.
 
 - [ ] Without sc3-plugins at all, SuperDirt uses CombL for `dirt_delay`, but the oracles' non-core cases render funk's `SwitchDelay`, so they would fail. Not reproduced: only checked with the classes hidden.

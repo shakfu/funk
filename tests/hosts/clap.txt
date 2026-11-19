@@ -28,6 +28,8 @@ sig = d.orbits 1
 dirt = d.addSynth "one" (\param -> d.dc 0.5) d.noDirt
 [events]
 s "one ~ ~ ~"
+[events_long]
+s "one" # sustain "60"
 [slow_note]
 -- [note], evaluated for about 0.4 s: eight times the plugin's lookahead
 p.fastcat [p.atom (let go i acc = if i == 0 then acc else go (i - 1) (acc + 0 * i) in go 5000000 60), p.silence, p.silence, p.silence]

@@ -157,6 +157,25 @@ int main(int argc, char **argv) {
   printf("an identical set keeps it: %g\n", boost_peak(-1));
   if (funk_player_templates(player, boosted(3))) return 1;
   printf("a changed one is new, k 3: %g\n", boost_peak(-1));
+
+  /* funk_player_hush: a long tone ends, a queued one never plays, and the
+     effect is new, so k is 3 again, though the last events set it to 0 */
+  boost_peak(0.5f);
+  const char *sn[1] = {"sustain"};
+  float sv[1] = {100}, hushed = 0;
+  int before, after;
+  funk_player_event(player, funk_player_frames(player), "s.tone", 1, sn, sv);
+  funk_player_event(player, funk_player_frames(player) + 640, "s.tone", 0, NULL, NULL);
+  for (int b = 0; b < 2; b++) funk_player_render_channels(player, lr, 2, 64);
+  funk_player_event_counts(player, &before, NULL, NULL);
+  funk_player_hush(player);
+  for (int b = 0; b < 20; b++) {
+    funk_player_render_channels(player, lr, 2, 64);
+    for (int i = 0; i < 64; i++) hushed = fmaxf(hushed, fmaxf(fabsf(l[i]), fabsf(r[i])));
+  }
+  funk_player_event_counts(player, &after, NULL, NULL);
+  printf("hush: playing %d, then %d, peak %g\n", before, after, hushed);
+  printf("hush makes the effect new, k 3: %g\n", boost_peak(-1));
   funk_player_templates(player, NULL);
   funk_player_reclaim(player);
 
