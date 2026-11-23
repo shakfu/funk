@@ -69,6 +69,7 @@ dkms.conf
 # funk build outputs
 /build/
 /funk
+/docs/media/*.pdf
 
 # macOS Finder metadata
 .DS_Store
