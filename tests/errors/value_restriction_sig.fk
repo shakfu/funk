@@ -1,0 +1,6 @@
+-- expect: `a` acts when evaluated, so its signature cannot be polymorphic
+main = do
+  let a :: Array b
+      a = primNewArray 4 8
+  writeArray a 1 (2.5 :: Float)
+  print (readArray a 1 :: Int)

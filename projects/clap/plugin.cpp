@@ -95,6 +95,7 @@ struct Timeline {
 	std::atomic<uint32_t> gen{0};            // bumped by stop
 	std::atomic<bool> cancel{false};         // stop the running code
 	std::atomic<bool> silence{false};        // and, from the editor, the sound
+	std::atomic<bool> unsave{false};         // a stop from the audio thread: the evaluator clears saved
 	std::atomic<bool> live{false};
 	std::atomic<bool> offline{false};
 	std::atomic<double> barBeats{4.};
@@ -149,7 +150,7 @@ public:
 	{
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
-			jobs_.push_back({std::move(code), std::move(reply)});
+			jobs_.push_back({std::move(code), std::move(reply), tl_.gen});
 			// Offline rendering waits for a queued job as for a running one.
 			tl_.frontier = std::min(tl_.frontier.load(), tl_.horizon.load());
 		}
@@ -175,7 +176,7 @@ private:
 	struct Job {
 		std::string code;
 		Reply reply;
-		uint32_t gen = 0; // stop generation when dequeued
+		uint32_t gen = 0; // stop generation when queued
 	};
 
 	void loop(std::promise<bool>& started)
@@ -204,11 +205,11 @@ private:
 				if (!jobs_.empty()) {
 					job = std::move(jobs_.front());
 					jobs_.pop_front();
-					job.gen = tl_.gen;
 					haveJob = true;
 				}
 			}
 			delete tl_.retiredClip.exchange(nullptr);
+			if (tl_.unsave.exchange(false)) tl_.setSaved(Clip());
 			if (tl_.cancel.exchange(false)) lang_->stopVoices();
 			if (tl_.silence.exchange(false)) {
 				std::string out;
@@ -216,7 +217,7 @@ private:
 				if (!out.empty()) log_(out);
 			}
 			if (haveJob && job.gen != tl_.gen) {
-				// A stop came after this job was dequeued
+				// A stop came after this job was queued
 				if (job.reply) job.reply->set_value("error: stopped\n");
 			} else if (haveJob) {
 				run(job);
@@ -361,7 +362,7 @@ public:
 		};
 		plugin_.start_processing = [](const clap_plugin_t*) { return true; };
 		plugin_.stop_processing = [](const clap_plugin_t*) {};
-		plugin_.reset = [](const clap_plugin_t* p) { self(p)->stop(); };
+		plugin_.reset = [](const clap_plugin_t* p) { self(p)->stopFromAudio(); };
 		plugin_.process = [](const clap_plugin_t* p, const clap_process_t* process) {
 			const auto started = std::chrono::steady_clock::now();
 			const clap_process_status status = self(p)->process(process);
@@ -449,6 +450,15 @@ private:
 			evaluator_->dropQueued();
 			evaluator_->notify();
 		}
+	}
+
+	// CLAP calls reset on the audio thread: atomics only. The evaluator, awake
+	// within 50 ms, drops the jobs queued before it and clears the saved clip.
+	void stopFromAudio()
+	{
+		tl_.cancel = true;
+		tl_.gen++;
+		tl_.unsave = true;
 	}
 
 	void stopFromEditor()

@@ -1,0 +1,6 @@
+<function> :: Array (Ptr a)
+<repl>:1:41: error: variable not in scope: `nosuchname`
+it :: Array (Ptr a)
+writeArray it 0 (nullPtr :: Ptr Int) :: ()
+it :: Array (Ptr a)
+True

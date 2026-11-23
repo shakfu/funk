@@ -1,0 +1,6 @@
+-- specialize.c's file: apply's function argument is specialized into a copy.
+apply f xs = case xs of
+  [] -> []
+  (y:ys) -> f y : apply f ys
+
+main = print (apply (\x -> x * 3) [1, 2, 3])

@@ -1,0 +1,25 @@
+-- teardown.c's program: starts tests/ffi/fkt.h's sender, which queues
+-- callbacks from its own thread, and returns without waiting for it.
+foreign struct "fkt.h fkt_config" Config
+  { version :: CInt
+  , context "on_message.context" :: Ptr ()
+  , callback "on_message.callback" :: FunPtr (Ptr () -> CLLong -> CStringLen -> ())
+  , count :: CInt
+  , length :: CInt
+  }
+foreign import ccall "fkt.h FKT_V1" v1 :: CInt
+foreign import ccall "fkt.h fkt_start" start :: Ptr () ->> CInt
+foreign import ccall "queue" messageCb :: FunPtr (Ptr () -> CLLong -> CStringLen -> ())
+
+ignore :: CLLong -> String ->> ()
+ignore _ _ = ()
+
+main = do
+  sp <- newStablePtr ignore
+  cfg <- mallocBytes Config.size
+  writeField cfg Config.version v1
+  writeField cfg Config.context (castStablePtrToPtr sp)
+  writeField cfg Config.callback messageCb
+  writeField cfg Config.count 20000000
+  writeField cfg Config.length 0
+  print (start (castPtr cfg))

@@ -635,6 +635,7 @@ static Expr *parse_paren(P *p) {
     int n = 1;
     while (accept(p, T_COMMA)) n++;
     expect(p, T_RPAREN, NULL);
+    if (n > FK_MAXTUPLE) cerror(lp->line, lp->col, "tuples have at most %d elements", FK_MAXTUPLE);
     return mkcon(tuple_name(n), lp->line, lp->col);
   }
   Expr *e = parse_op(p, 0);
@@ -1172,6 +1173,7 @@ static void parse_generated(const char *src, Decls *out, int line, int col) {
     if (accept(&q, T_SEMI)) continue;
     parse_decl(&q, out, true);
   }
+  xfree(t);
 }
 
 static void derive(DataDecl *d, Decls *out) {
@@ -1848,6 +1850,7 @@ Module *parse_module(const char *src, size_t len) {
 
 void parse_finish(Module *m) {
   P p = *(P *)m->pending;
+  xfree(m->pending);
   m->pending = NULL;
   prescan_fixities(p);
   join_qualified(&p, m);
@@ -1886,6 +1889,7 @@ void parse_finish(Module *m) {
   m->ncl = cs.n;
   m->insts = is.a;
   m->ni = is.n;
+  xfree(p.t); /* the AST copies what it needs from the tokens */
 }
 
 Expr *parse_expr_text(const char *src, size_t len, Import *ims, int nims) {
@@ -1907,9 +1911,17 @@ Sig *parse_sig_text(const char *src) {
 
 /* REPL: input is a declaration if it starts with `data` or has `=` at
    bracket depth 0 before any expression keyword. */
+static bool decl_tokens(Token *t, int n);
+
 bool is_decl_text(const char *src, size_t len) {
   int n;
   Token *t = lex(src, len, &n);
+  bool decl = decl_tokens(t, n);
+  xfree(t);
+  return decl;
+}
+
+static bool decl_tokens(Token *t, int n) {
   if (t[0].k == T_DATA || t[0].k == T_CLASS || t[0].k == T_INSTANCE || t[0].k == T_INFIXL || t[0].k == T_INFIXR || t[0].k == T_INFIX || (n > 1 && foreign_start(t)) || sig_start(&(P){t, n, 0, false}))
     return true;
   int depth = 0;

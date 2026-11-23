@@ -4,6 +4,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- A `let` or `where` value whose evaluation can act no longer generalizes, as in ML's value restriction. `let a = newArray 2 nullPtr` gave `a :: Array (Ptr a)`, so one array could be written at `Ptr Int` and read at `Ptr Float`, or written at `Float` and read at `Int`. Such a binding with a polymorphic signature is an error.
+
+### Fixed
+
+- A tuple section or instance head with more than 7 elements is a compile error. Both overflowed a 16-byte stack buffer, and the process aborted.
+
+- The runtime restores the previous `SIGSEGV` and `SIGBUS` handlers only if its own is still installed. A handler installed after funk's, such as a second plugin's libfunk or a crash reporter, was removed when funk's last session ended. A later session also installed funk's over it, so each chained to the other.
+
+- The plugin's `reset`, which CLAP calls on the audio thread, only sets atomics. It took a mutex, freed the saved clip and fulfilled the queued evaluations' promises there. Evaluations are now stamped with the stop generation when queued, so the evaluator drops those queued before a reset.
+
+- `funk_free` waits for other threads that use the session: a queued callback between claim and publish, and the fault handler. It freed the session while a MIDI library's thread could still write to its ring. A `StablePtr` also carries its session's generation: one from an ended session reached the next session to take its id, and crashed on its ring before it existed ([docs/dev/embedding.md](docs/dev/embedding.md), step 8).
+
+- Specialization on function arguments allows 4000 copies per input, not per session. In a live set it stopped after about 1100 inputs that each made a copy, such as `p.fmap (\x -> x + i)`, and every later input ran unspecialized. Reaching the bound is now a line in `--opt-report`.
+
+- A failed input leaves no trace in the types of earlier ones. A failed `writeArray it 0 (nullPtr :: Ptr Int) >> oops` fixed `it`'s element type for good, as did `:t` of such an expression; changes to type variables made before an input are now undone. A failed input also left its checked foreign exports behind, naming global indexes that later definitions took.
+
+- An input leaves 28 KB of compiler memory, not about 92 KB. The reuse analysis's environments and the token arrays stayed until the session ended ([docs/dev/261123-compiler-memory.md](docs/dev/261123-compiler-memory.md)).
+
+- The compiler's calls to `waitpid` retry on `EINTR` and check the result. One interrupted call read an uninitialized status. Its `stat` and `waitpid` calls also release the stack snapshot first: they write into the frame, which the kernel cannot do while the page is read-only.
+
 ## [0.13.0] - 2026-11-19
 
 ### Changed

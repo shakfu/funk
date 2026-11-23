@@ -241,6 +241,7 @@ static const char *cache_dir(void) {
 
 /* Deletes cache entries unused for 30 days; a hit refreshes its mtime. */
 static void prune(const char *dir) {
+  fk_ffi_enter(); /* stat writes into this frame (realtime.md, the stack snapshot) */
   DIR *d = opendir(dir);
   if (!d) return;
   time_t old = time(NULL) - 30 * 24 * 3600;
@@ -255,6 +256,7 @@ static void prune(const char *dir) {
 /* A cached library is stale if a header its glue read is newer: the
    compiler lists them with -MD in so.d. */
 static bool headers_newer(const char *so) {
+  fk_ffi_enter();
   struct stat ss, hs;
   if (stat(so, &ss) != 0) return true;
   size_t len;
@@ -270,6 +272,7 @@ static bool headers_newer(const char *so) {
 /* The libraries named, as found in the -L directories: their size and
    time, so a rebuilt library rebuilds the glue that links it. */
 static uint64_t hash_libraries(uint64_t h) {
+  fk_ffi_enter();
   static const char *const ext[] = {".a", ".dylib", ".so"};
   for (int i = 0; i < CS->ffi_cc_args.n; i++) {
     if (strncmp(CS->ffi_cc_args.a[i], "-L", 2) != 0) continue;

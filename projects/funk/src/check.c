@@ -57,11 +57,15 @@ typedef struct { Type *g, *v; int line, col; } SchemeUse;
    struct, whose field types the glue checks, or one the glue defines. */
 typedef struct { const char *name, *ctype, *cdef; Strs headers; } CStruct; /* headers: its own and its nested structs' */
 
+typedef struct { Type *t, *link; int level; uint64_t cls; } TyTrail; /* a variable as it was */
+
 /* check.c's state, one per session (embedding.md, phase 2) */
 typedef struct {
   Map gmap, cmap, tmap, clsmap;
   int level;
   int tvid;
+  int tvid0; /* variables made before this input; changes to them are trailed */
+  VEC(TyTrail) trail;
   VEC(Type *) cvars; /* variables that gained classes, for defaulting */
   uint64_t num_bit;
   uint64_t float_bit; /* the FromFloat class, once the prelude declares it */
@@ -162,6 +166,26 @@ static Type *newvar(void) {
   return t;
 }
 
+/* Before a variable changes: one made before this input is restored if the
+   input fails, or after `:t` (ty_undo). */
+static void trail(Type *t) {
+  if (t->id < ST->tvid0) VPUSH(ST->trail, ((TyTrail){t, t->link, t->level, t->cls}));
+}
+
+static void ty_begin(void) {
+  ST->tvid0 = ST->tvid;
+  ST->trail.n = 0;
+}
+
+static void ty_undo(void) {
+  while (ST->trail.n) {
+    TyTrail *u = &ST->trail.a[--ST->trail.n];
+    u->t->link = u->link;
+    u->t->level = u->level;
+    u->t->cls = u->cls;
+  }
+}
+
 static Type *numvar(int line, int col) {
   Type *t = newvar();
   t->cls = ST->num_bit;
@@ -227,7 +251,10 @@ InstDef *find_inst(int cls, const char *tycon) {
 
 Type *repr(Type *t) {
   while (t->k == TY_VAR && t->link) {
-    if (t->link->k == TY_VAR && t->link->link) t->link = t->link->link;
+    if (t->link->k == TY_VAR && t->link->link) {
+      trail(t);
+      t->link = t->link->link;
+    }
     t = t->link;
   }
   return t;
@@ -350,13 +377,16 @@ static void occurs_adjust(Type *v, Type *t) {
     if (t->skolem) {
       if (t->level > v->level) escape_error();
     } else if (t->level > v->level) {
+      trail(t);
       t->level = v->level;
     }
     return;
   }
   for (int i = 0; i < t->n; i++) occurs_adjust(v, t->args[i]);
-  if (t->eff && repr(t->eff)->k == TY_VAR && repr(t->eff)->level > v->level && !repr(t->eff)->skolem)
+  if (t->eff && repr(t->eff)->k == TY_VAR && repr(t->eff)->level > v->level && !repr(t->eff)->skolem) {
+    trail(repr(t->eff));
     repr(t->eff)->level = v->level;
+  }
 }
 
 static void entail(Type *t, uint64_t m);
@@ -373,6 +403,7 @@ static void add_classes(Type *v, uint64_t m, int line, int col) {
     cerror(ST->uline, ST->ucol, "no instance `%s %s` for a rigid type variable; add `%s %s` to the signature",
            CS->classes.a[c].name, s, CS->classes.a[c].name, s);
   }
+  trail(v);
   v->cls |= m;
   if (!v->line) {
     v->line = line;
@@ -414,13 +445,16 @@ static void bind_var(Type *v, Type *t) {
     if (t->skolem) {
       if (t->level > v->level) escape_error();
     } else if (v->level < t->level) {
+      trail(t);
       t->level = v->level;
     }
+    trail(v);
     v->link = t;
     return;
   }
   if (v->cls) entail(t, v->cls);
   occurs_adjust(v, t);
+  trail(v);
   v->link = t;
 }
 
@@ -442,13 +476,17 @@ static void unify_eff(Type *a, Type *b) {
   if (a == b) return;
   if (b->k == TY_VAR && !b->skolem) { Type *t = a; a = b; b = t; }
   if (a->k == TY_VAR && !a->skolem) {
-    if (b->k == TY_VAR && !b->skolem && b->level > a->level) b->level = a->level;
+    if (b->k == TY_VAR && !b->skolem && b->level > a->level) {
+      trail(b);
+      b->level = a->level;
+    }
+    trail(a);
     a->link = b;
     return;
   }
   /* A body that needs a signature's `->` pure makes it pure (typed-effects.md). */
-  if (a == ST->eff_pure && b->refine) { b->link = a; return; }
-  if (b == ST->eff_pure && a->refine) { a->link = b; return; }
+  if (a == ST->eff_pure && b->refine) { trail(b); b->link = a; return; }
+  if (b == ST->eff_pure && a->refine) { trail(a); a->link = b; return; }
   if ((a == ST->eff_eff && b->skolem) || (b == ST->eff_eff && a->skolem))
     eff_error("an effectful function (`->>`) where its signature has `->`");
   if (a == ST->eff_eff || b == ST->eff_eff) eff_error("an effectful function (`->>`) where a pure one (`->`) is required");
@@ -615,11 +653,36 @@ static Type *inst_var(Type *scheme, Expr *e) {
 static void gen(Type *t, bool mr) {
   t = repr(t);
   if (t->k == TY_VAR) {
-    if (!t->skolem && t->level != GENERIC && t->level > ST->level) t->level = mr && t->cls ? ST->level : GENERIC;
+    if (!t->skolem && t->level != GENERIC && t->level > ST->level) {
+      trail(t);
+      t->level = mr && t->cls ? ST->level : GENERIC;
+    }
     return;
   }
   for (int i = 0; i < t->n; i++) gen(t->args[i], mr);
   if (t->eff) gen(t->eff, false);
+}
+
+static bool has_generic(Type *t) {
+  t = repr(t);
+  if (t->k == TY_VAR) return t->level == GENERIC;
+  for (int i = 0; i < t->n; i++)
+    if (has_generic(t->args[i])) return true;
+  return t->eff && has_generic(t->eff);
+}
+
+/* Keep t's variables in the enclosing scope, ungeneralized. */
+static void no_gen(Type *t) {
+  t = repr(t);
+  if (t->k == TY_VAR) {
+    if (!t->skolem && t->level != GENERIC && t->level > ST->level) {
+      trail(t);
+      t->level = ST->level;
+    }
+    return;
+  }
+  for (int i = 0; i < t->n; i++) no_gen(t->args[i]);
+  if (t->eff) no_gen(t->eff);
 }
 
 /* --------------------------------------------------------- type syntax */
@@ -1417,6 +1480,7 @@ static void default_floats(void) {
     ST->ucol = r->col;
     Type *ft = tcon0(r->cls & ST->float_bit ? ST->s_float : ST->s_string); /* and string literals, String */
     entail(ft, r->cls);
+    trail(r);
     r->link = ft;
   }
 }
@@ -1466,6 +1530,7 @@ static void resolve_fields(bool final) {
       ST->ucol = r->col;
       Type *it = tcon0(r->cls & ST->float_bit ? ST->s_float : ST->s_int);
       entail(it, r->cls);
+      trail(r);
       r->link = it;
     }
   }
@@ -1925,6 +1990,7 @@ static void refine_schemes(Group *g) {
       for (int k = 0; k < b->nskolem; k++) {
         Type *key = b->skolem[2 * k];
         if (repr(key) != ST->eff_pure && repr(b->skolem[2 * k + 1]) == ST->eff_pure) {
+          trail(key);
           key->link = ST->eff_pure;
           again = true;
         }
@@ -1959,6 +2025,7 @@ static void infer_group(Group *g, Env **env, bool top) {
     else *env = env_push(*env, b->name, mono[i]);
   }
   Type **evals = xcalloc((size_t)g->n + 1, sizeof *evals); /* each binding's evaluation effect */
+  bool *acts = xcalloc((size_t)g->n + 1, sizeof *acts);     /* a value whose evaluation may act */
   const char *saved_bind = ST->cur_bind;
   Type *outer = ST->cur_eff;
   for (int i = 0; i < g->n; i++) {
@@ -1993,9 +2060,11 @@ static void infer_group(Group *g, Env **env, bool top) {
     /* main's evaluation is the program, and $it is an expression typed at the REPL */
     if (top && value && repr(evals[i]) == ST->eff_eff && strcmp(b->name, "main") != 0 && b->name[0] != '$')
       eff_error("a top-level value acts when evaluated; make it a function, or run it from `main`");
+    acts[i] = value && repr(evals[i]) == ST->eff_eff;
     if (!top && outer) { /* a local binding runs within the enclosing code */
       Type *e = repr(evals[i]);
       bool tied = e->k == TY_VAR && e->level < ST->level; /* to something outside the binding */
+      acts[i] |= value && tied;
       if (value && acts_by(e, &ST->param_stack)) effectful_binding(b, ST->cur_bind);
       else if (value && tied) {
         LocalEff l = {b, e, {0}, ST->cur_bind};
@@ -2016,8 +2085,14 @@ static void infer_group(Group *g, Env **env, bool top) {
   /* Local bindings without a signature never generalize constrained
      variables: they take them from their uses, so specializing the
      enclosing function specializes them too. */
+  /* A value that may act, such as a new Array, stays monomorphic: generalized,
+     one array could be written at Float and read at Int (value restriction). */
   for (int i = 0; i < g->n; i++)
-    if (!sch[i]) gen(mono[i], !top || (g->b[i]->e->k != E_LAM && !CS->interactive));
+    if (sch[i] && acts[i] && has_generic(sch[i]))
+      cerror(g->b[i]->line, g->b[i]->col,
+             "`%s` acts when evaluated, so its signature cannot be polymorphic; give its type in full", g->b[i]->name);
+    else if (!sch[i] && acts[i]) no_gen(mono[i]);
+    else if (!sch[i]) gen(mono[i], !top || (g->b[i]->e->k != E_LAM && !CS->interactive));
   /* Only variables generic now belong to this binding; an enclosing
      binding's generalization later must not add to them. */
   for (int i = 0; i < g->n; i++) g->b[i]->npreds = preds_of(mono[i], &g->b[i]->preds);
@@ -2028,6 +2103,7 @@ static void infer_group(Group *g, Env **env, bool top) {
   }
   xfree(mono);
   xfree(sch);
+  xfree(acts);
 }
 
 /* A float literal's variable left open at the end of the chunk becomes
@@ -2042,6 +2118,7 @@ static void default_classes(void) {
     if (r->cls & ST->num_bit) {
       Type *it = tcon0(ST->s_int);
       entail(it, r->cls);
+      trail(r);
       r->link = it;
       continue;
     }
@@ -2439,6 +2516,7 @@ static const char *head_tycon(InstDecl *in, Strs *vars) {
   case TE_LIST: tc = ST->s_list; break;
   case TE_TUPLE: {
     if (!h->n) { tc = ST->s_unit; break; }
+    if (h->n > FK_MAXTUPLE) cerror(h->line, h->col, "tuples have at most %d elements", FK_MAXTUPLE);
     char buf[16] = "(";
     for (int i = 1; i < h->n; i++) strcat(buf, ",");
     strcat(buf, ")");
@@ -2896,20 +2974,25 @@ bool compile_chunk(Module *m, Chunk *out) {
   int mark = undo_mark(), ng0 = CS->globals.n, nc0 = CS->condefs.n, nt0 = CS->tydefs.n, ncl0 = CS->classes.n, ni0 = CS->insts.n, ns0 = ST->cstructs.n;
   uint64_t nb0 = ST->num_bit, nf0 = ST->float_bit, ns0b = ST->string_bit;
   int nk0 = CS->num_class, nfk0 = CS->float_class, nsk0 = CS->string_class;
+  int nx0 = CS->ffi_exports.n, nl0 = CS->all_lambdas.n;
   CS->chunk_globals = ng0;
   ST->cvars.n = 0;
   ST->level = 0;
+  ty_begin();
   if (setjmp(jb)) {
     compile_budget(false);
     elab_abort();
     CS->cerr_jmp = saved;
     undo_to(mark);
+    ty_undo();
     CS->globals.n = ng0;
     CS->condefs.n = nc0;
     CS->tydefs.n = nt0;
     CS->classes.n = ncl0;
     CS->insts.n = ni0;
     ST->cstructs.n = ns0;
+    CS->ffi_exports.n = nx0; /* an export checked before a later one failed */
+    CS->all_lambdas.n = nl0;
     ST->num_bit = nb0;
     ST->float_bit = nf0;
     ST->string_bit = ns0b;
@@ -3005,6 +3088,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   for (int i = 0; i < m->nb; i++) VPUSH(cand, m->binds[i]);
   for (int i = 0; i < CS->specialized.n; i++) VPUSH(cand, CS->specialized.a[i]);
   lift_locals(cand.a, fuse_lists(cand.a, cand.n)); /* the fused loops */
+  ho_begin();
   ho_specialize(m->binds, m->nb);
   ho_specialize(CS->specialized.a, CS->specialized.n); /* clones and lifted functions */
   reuse_cells(m->binds, m->nb, CS->specialized.a, CS->specialized.n);
@@ -3103,8 +3187,10 @@ const char *infer_type_text(Expr *e) {
   Sig *named = e->k == E_VAR ? named_sig(e->name, NULL) : NULL;
   if (named) return named_sig_str(named); /* names and defaults are not in the type */
   jmp_buf jb, *saved = CS->cerr_jmp;
+  ty_begin();
   if (setjmp(jb)) {
     CS->cerr_jmp = saved;
+    ty_undo();
     ST->cvars.n = 0;
     ST->pending.n = 0;
     ST->level = 0;
@@ -3121,7 +3207,9 @@ const char *infer_type_text(Expr *e) {
   gen(t, false); /* as GHCi's :t: literals keep their classes */
   ST->cvars.n = 0;
   CS->cerr_jmp = saved;
-  return type_str(t);
+  const char *text = type_str(t);
+  ty_undo(); /* a query: earlier inputs' types stay as they were */
+  return text;
 }
 
 

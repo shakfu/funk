@@ -232,7 +232,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory overflow session sessions compile_limit kernels)
+foreach(n signals output interrupt memory overflow session sessions compile_limit kernels teardown specialize rollback)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -243,8 +243,16 @@ endforeach()
 add_test(NAME embed/signals COMMAND embed_signals)
 add_test(NAME embed/signals/stress COMMAND embed_signals)
 set_tests_properties(embed/signals embed/signals/stress PROPERTIES LABELS embed TIMEOUT 300
-  PASS_REGULAR_EXPRESSION "host handler: 3 faults, page 3\nafter funk_free: host handler")
+  PASS_REGULAR_EXPRESSION "host handler: 3 faults, page 3\nafter funk_free: host handler\nlate, after funk_free: late handler\nlate, after a second session: late handler, 2 late faults, 5 faults\n")
 set_tests_properties(embed/signals/stress PROPERTIES ENVIRONMENT FUNK_GCSTRESS=1)
+add_test(NAME embed/rollback COMMAND embed_rollback tests/embed/rollback_a.fk tests/embed/rollback_b.fk WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/rollback PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "ok_three: yes, ok_one: no\n$")
+add_test(NAME embed/specialize COMMAND embed_specialize tests/embed/specialize.fk WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/specialize PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^specialized after 3000 inputs\n$")
+add_test(NAME embed/teardown COMMAND embed_teardown tests/embed/teardown.fk -Itests/ffi -L$<TARGET_FILE_DIR:fkt> -lfkt
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/teardown PROPERTIES LABELS "embed;ffi" TIMEOUT 120
+  ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache" PASS_REGULAR_EXPRESSION "^0\nfreed while sending\nnext session: 2\n$")
 # stdout only: anything funk_output should have collected would show here
 add_test(NAME embed/output
   COMMAND sh -c "\"$<TARGET_FILE:embed_output>\" 2>/dev/null | diff tests/embed/output.expected -"

@@ -167,6 +167,7 @@ typedef struct FkEvent {
   _Atomic size_t seq;
   void (*run)(struct FkEvent *); /* NULL: dropped, its bytes could not be copied */
   void *ctx;
+  void *rt; /* the session, which claim keeps alive until publish */
   _Alignas(16) unsigned char data[FK_EVENT_DATA];
 } FkEvent;
 FkEvent *fk_event_claim(void *stable);     /* any thread: a slot, or NULL if the ring is full (counted) */

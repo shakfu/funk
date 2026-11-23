@@ -1,0 +1,6 @@
+newArray 2 nullPtr
+writeArray it 0 (nullPtr :: Ptr Int) >> nosuchname
+:t it
+:t writeArray it 0 (nullPtr :: Ptr Int)
+:t it
+writeArray it 0 (nullPtr :: Ptr Float) >> print (readArray it 0 == (nullPtr :: Ptr Float))

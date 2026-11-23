@@ -278,6 +278,7 @@ struct FkRt {
 #endif
   uint32_t capcons; /* fk_cons's */
   int id;              /* in the registry, from 1; stable pointers carry it */
+  unsigned gen;        /* the id's generation, 15 bits; stable pointers carry it too */
   char *slot;          /* the stack's FK_SLOT of address space */
   char *heap_map;      /* the heap's reservation, as mapped, and its size */
   size_t heap_map_size;
@@ -327,12 +328,31 @@ enum { MAX_SESSIONS = 256 };
 static FkRt *_Atomic sessions[MAX_SESSIONS];
 static pthread_mutex_t registry_lock = PTHREAD_MUTEX_INITIALIZER;
 static int nlive; /* the handlers are installed while it is not 0 */
+/* Uses of a session from other threads: an event from claim to publish, per
+   registry slot, and on_fault's scans. fk_stop clears the slot, then waits
+   for both to reach 0 before it frees the session. Seq-cst on both sides: a
+   user that counts itself then loads the slot, against a stop that clears
+   the slot then loads the count, cannot both miss. */
+static _Atomic int inflight[MAX_SESSIONS], faulting;
+static bool ending[MAX_SESSIONS]; /* under registry_lock: cleared, not yet free for a new session */
 
-/* A stable pointer's session: its id is in the pointer's high bits. */
+/* A stable pointer's session: its index in the low bits, then the
+   session's id in 9 bits, then the id's generation in 15. A pointer of an
+   ended session finds no session, though a new one has its id. */
 #define STABLE_SHIFT 40
+#define GEN_SHIFT 49
+static unsigned gens[MAX_SESSIONS]; /* under registry_lock: each id's sessions so far */
+
+static unsigned stable_id(void *stable) { return (unsigned)((uintptr_t)stable >> STABLE_SHIFT & 0x1ff); }
+
+/* r is alive: the caller is r's thread, or counted in inflight. */
+static FkRt *session_check(FkRt *r, void *stable) {
+  return r && r->gen == (unsigned)((uintptr_t)stable >> GEN_SHIFT) ? r : NULL;
+}
+
 static FkRt *session_of(void *stable) {
-  uintptr_t id = (uintptr_t)stable >> STABLE_SHIFT;
-  return id >= 1 && id <= MAX_SESSIONS ? atomic_load(&sessions[id - 1]) : NULL;
+  unsigned id = stable_id(stable);
+  return id >= 1 && id <= MAX_SESSIONS ? session_check(atomic_load(&sessions[id - 1]), stable) : NULL;
 }
 
 /* Before a longjmp out of funk code. AddressSanitizer clears the frames a
@@ -1989,7 +2009,7 @@ V fk_p_newstable(V self, V *a) {
   }
   RT->stables[i] = a[0];
   RT->stable_live[i] = true;
-  return fk_ptr((void *)((uintptr_t)RT->id << STABLE_SHIFT | (i + 1)));
+  return fk_ptr((void *)((uintptr_t)RT->gen << GEN_SHIFT | (uintptr_t)RT->id << STABLE_SHIFT | (i + 1)));
 }
 
 static size_t stable_index(void *p) {
@@ -2070,17 +2090,27 @@ static void ring_init(void) {
 }
 
 FkEvent *fk_event_claim(void *stable) { /* any thread: the ring of the stable pointer's session */
-  FkRt *r = session_of(stable);
-  if (!r) return NULL; /* its session has ended */
+  unsigned id = stable_id(stable);
+  if (id < 1 || id > MAX_SESSIONS) return NULL;
+  atomic_fetch_add(&inflight[id - 1], 1);
+  FkRt *r = session_check(atomic_load(&sessions[id - 1]), stable);
+  if (!r) { /* its session has ended */
+    atomic_fetch_sub(&inflight[id - 1], 1);
+    return NULL;
+  }
   size_t pos = atomic_load_explicit(&r->ring_head, memory_order_relaxed);
   for (;;) {
     FkEvent *e = &r->ring[pos % RING_SLOTS];
     size_t seq = atomic_load_explicit(&e->seq, memory_order_acquire);
     intptr_t dif = (intptr_t)seq - (intptr_t)pos;
     if (dif == 0) {
-      if (atomic_compare_exchange_weak_explicit(&r->ring_head, &pos, pos + 1, memory_order_relaxed, memory_order_relaxed)) return e;
+      if (atomic_compare_exchange_weak_explicit(&r->ring_head, &pos, pos + 1, memory_order_relaxed, memory_order_relaxed)) {
+        e->rt = r;
+        return e;
+      }
     } else if (dif < 0) { /* the slot is a lap behind: the ring is full */
       atomic_fetch_add_explicit(&r->ring_dropped, 1, memory_order_relaxed);
+      atomic_fetch_sub(&inflight[id - 1], 1);
       return NULL;
     } else {
       pos = atomic_load_explicit(&r->ring_head, memory_order_relaxed);
@@ -2089,8 +2119,10 @@ FkEvent *fk_event_claim(void *stable) { /* any thread: the ring of the stable po
 }
 
 void fk_event_publish(FkEvent *e) { /* any thread */
+  FkRt *r = e->rt; /* read before the slot is published: funk's thread may reuse it at once */
   atomic_store_explicit(&e->seq, atomic_load_explicit(&e->seq, memory_order_relaxed) + 1, memory_order_release);
-  SEM_POST(session_of(e->ctx)); /* the trampoline set ctx */
+  SEM_POST(r);
+  atomic_fetch_sub(&inflight[r->id - 1], 1);
 }
 
 void fk_event_release(FkEvent *e) { /* the slot is free once its arguments are read */
@@ -2470,17 +2502,27 @@ static void pass_on(int sig, siginfo_t *si, void *ctx) {
 /* On the signal stack, so not RT: the session whose stack's slot holds the
    address, where its snapshot and guard lie. Another thread's write to a
    snapshot page has one too. */
+static bool fault(siginfo_t *si, void *ctx);
+
 static void on_fault(int sig, siginfo_t *si, void *ctx) {
+  atomic_fetch_add(&faulting, 1);
+  if (!fault(si, ctx)) {
+    atomic_fetch_sub(&faulting, 1); /* first: a host's handler may longjmp */
+    pass_on(sig, si, ctx);
+    return;
+  }
+  atomic_fetch_sub(&faulting, 1);
+}
+
+/* Handles a fault in a session's stack slot; false if it is not funk's. */
+static bool fault(siginfo_t *si, void *ctx) {
   char *a = si->si_addr, *lo;
   FkRt *r = NULL;
   for (int k = 0; k < MAX_SESSIONS && !r; k++) {
     FkRt *x = atomic_load(&sessions[k]);
     if (x && a >= x->slot && a < x->slot + FK_SLOT) r = x;
   }
-  if (!r) {
-    pass_on(sig, si, ctx);
-    return;
-  }
+  if (!r) return false;
   lo = __atomic_load_n(&SNAP_LO(r), __ATOMIC_RELAXED); /* the fault may be another thread's */
   if (lo && a >= lo && a < r->snap_hi) { /* a write to the stack's snapshot: keep the page, then let the write happen */
     char *pg = (char *)((uintptr_t)a & ~(uintptr_t)(page_size - 1));
@@ -2490,13 +2532,13 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
       r->snap_copied[i] = 1;
     }
     mprotect(pg, page_size, PROT_READ | PROT_WRITE);
-    return;
+    return true;
   }
   if (a >= r->guard_lo && a < r->guard_hi) {
 #ifdef FAULT_PC
     if (overflow_recoverable(r, ctx)) {
       overflow_redirect(r, ctx);
-      return;
+      return true;
     }
 #endif
     static const char msg[] = "runtime error: stack overflow\n";
@@ -2508,7 +2550,7 @@ static void on_fault(int sig, siginfo_t *si, void *ctx) {
     if (write(2, msg, sizeof msg - 1) < 0) {}
     _exit(1);
   }
-  pass_on(sig, si, ctx);
+  return false;
 }
 
 static void *task_main(void *p) {
@@ -2545,20 +2587,38 @@ static void *task_main(void *p) {
 
 /* Under registry_lock: funk's handlers while any session lives. One
    installed after funk's must pass funk's faults on (embedding.md). */
-static void handlers_on(void) {
-  if (nlive++) return;
+static bool on_segv, on_bus; /* on_fault is in the signal's chain */
+
+static void handler_on(int sig, struct sigaction *prev, bool *on) {
+  if (*on) return; /* still chained from a handler installed after funk's */
   struct sigaction sa = {0};
   sa.sa_sigaction = on_fault;
   sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
   sigemptyset(&sa.sa_mask);
-  sigaction(SIGSEGV, &sa, &prev_segv);
-  sigaction(SIGBUS, &sa, &prev_bus);
+  sigaction(sig, &sa, prev);
+  *on = true;
+}
+
+/* Restores the previous handler only if funk's is current. A handler
+   installed after funk's chains to it, and restoring would remove that one. */
+static void handler_off(int sig, struct sigaction *prev, bool *on) {
+  struct sigaction cur;
+  sigaction(sig, NULL, &cur);
+  if (!(cur.sa_flags & SA_SIGINFO) || cur.sa_sigaction != on_fault) return;
+  sigaction(sig, prev, NULL);
+  *on = false;
+}
+
+static void handlers_on(void) {
+  if (nlive++) return;
+  handler_on(SIGSEGV, &prev_segv, &on_segv);
+  handler_on(SIGBUS, &prev_bus, &on_bus);
 }
 
 static void handlers_off(void) { /* a plugin may be unloaded next: no handler may point into it */
   if (--nlive) return;
-  sigaction(SIGSEGV, &prev_segv, NULL);
-  sigaction(SIGBUS, &prev_bus, NULL);
+  handler_off(SIGSEGV, &prev_segv, &on_segv);
+  handler_off(SIGBUS, &prev_bus, &on_bus);
 }
 
 /* Deep non-tail recursion (map, foldr) is normal in this language, so
@@ -2620,7 +2680,7 @@ FkRt *fk_start(void (*fn)(void *), void *arg, pthread_t *th, size_t heap, size_t
   r->task.arg = arg;
   pthread_mutex_lock(&registry_lock);
   int k = 0;
-  while (k < MAX_SESSIONS && atomic_load(&sessions[k])) k++;
+  while (k < MAX_SESSIONS && (atomic_load(&sessions[k]) || ending[k])) k++;
   if (k == MAX_SESSIONS) {
     pthread_mutex_unlock(&registry_lock);
     fprintf(stderr, "funk: more than %d sessions\n", MAX_SESSIONS);
@@ -2628,6 +2688,7 @@ FkRt *fk_start(void (*fn)(void *), void *arg, pthread_t *th, size_t heap, size_t
     return NULL;
   }
   r->id = k + 1;
+  r->gen = gens[k]++ & 0x7fff;
   atomic_store(&sessions[k], r);
   handlers_on();
   pthread_mutex_unlock(&registry_lock);
@@ -2648,8 +2709,14 @@ FkRt *fk_start(void (*fn)(void *), void *arg, pthread_t *th, size_t heap, size_t
 
 void fk_stop(FkRt *r, pthread_t th) {
   pthread_join(th, NULL);
+  int k = r->id - 1;
   pthread_mutex_lock(&registry_lock);
-  atomic_store(&sessions[r->id - 1], NULL);
+  atomic_store(&sessions[k], NULL);
+  ending[k] = true; /* the id waits, so a stale StablePtr cannot reach a new session meanwhile */
+  pthread_mutex_unlock(&registry_lock);
+  while (atomic_load(&inflight[k]) || atomic_load(&faulting)) sched_yield(); /* an event's copy, or a page's */
+  pthread_mutex_lock(&registry_lock);
+  ending[k] = false;
   handlers_off();
   pthread_mutex_unlock(&registry_lock);
 #ifdef FK_SESSIONS /* the runtime's memory; the compiler's went as the session's thread ended */

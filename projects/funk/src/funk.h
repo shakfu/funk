@@ -444,6 +444,7 @@ void elab_bind(Bind *b);
 void elab_default_value(Bind *b);
 Bind *dict_bind(InstDef *in);
 Expr *copy_expr(Expr *e);
+void ho_begin(void); /* a chunk's copies are bounded, not the session's */
 void ho_specialize(Bind **bs, int n); /* copies made go to `specialized` */
 void lift_locals(Bind **bs, int n);   /* lifted functions go to `specialized` */
 void reuse_cells(Bind **bs, int n, Bind **cs, int nc); /* copies go to `specialized` */

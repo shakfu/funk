@@ -1,0 +1,8 @@
+-- rollback.c's first file: `two` allocates, so the second export fails.
+foreign export ccall "ok_one" one :: CInt ->> CInt
+one :: CInt ->> CInt
+one x = x + 1
+
+foreign export ccall "bad_two" two :: CInt ->> CInt
+two :: CInt ->> CInt
+two x = fromIntegral (length [x, x])

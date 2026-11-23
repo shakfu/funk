@@ -1,0 +1,4 @@
+-- rollback.c's second file, compiled in the same session after the first failed.
+foreign export ccall "ok_three" three :: CInt ->> CInt
+three :: CInt ->> CInt
+three x = x * 3

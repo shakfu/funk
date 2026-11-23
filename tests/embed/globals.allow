@@ -1,3 +1,5 @@
+ending
+faulting
 fk_false
 fk_fatal_ctx
 fk_fatal_hook
@@ -6,9 +8,13 @@ fk_nil
 fk_true
 fk_unit
 gcstats
+gens
+inflight
 nlive
 nullary_n
 nullary_table
+on_bus
+on_segv
 once
 page_size
 pn

@@ -1,0 +1,6 @@
+-- expect: tuples have at most 7 elements
+class C a where
+  m :: a -> Int
+instance C (a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,q,r,s,t) where
+  m _ = 1
+main = 1

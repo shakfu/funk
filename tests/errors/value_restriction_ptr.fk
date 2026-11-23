@@ -1,0 +1,6 @@
+-- expect: expected `Ptr Int`, found `Ptr Float`
+main = do
+  let a = newArray 2 nullPtr
+  s <- mallocBytes 8
+  writeArray a 0 (s :: Ptr Int)
+  print (readArray a 0 == (nullPtr :: Ptr Float))

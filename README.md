@@ -233,6 +233,8 @@ The prelude defines:
 
 - A binding that is not a function (`n = 1`) gets its number type from its uses, or defaults to `Int`. A local function without a signature takes the types of its constrained variables from its uses, unlike Haskell; give it a signature to use it at two number types.
 
+- A local value whose evaluation can act has one type: `let a = newArray 2 nullPtr` holds one pointer type, as with ML's value restriction.
+
 - The REPL prints a result with its `Show` instance. Without one, it prints the value's structure, or `<function> :: type`.
 
 ## Semantics

@@ -1,0 +1,2 @@
+-- expect: tuples have at most 7 elements
+main = print (length [(,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,)])

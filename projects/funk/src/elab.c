@@ -38,7 +38,8 @@ typedef struct {
   TS *tsub; /* type variables of the function being specialized */
   bool default_value; /* elab_default_value: this chunk's value may be cloned */
   int ntsub;
-  int nho; /* copies made, bounded so argument growth terminates */
+  int nho; /* this chunk's copies, bounded so argument growth terminates */
+  bool ho_capped; /* the bound was reached in this chunk, and reported */
   Fv *key_fv;
   Nm *keep_locals; /* the copy's leading parameters, during replace */
   VEC(Bind *) ho_work;
@@ -50,9 +51,12 @@ typedef struct {
   bool vers_new; /* the fixpoint met a version it had not seen */
   bool vers_done; /* the fixpoint is over: an unseen version is unowned */
   VEC(Bind *) own_work;
+  VEC(void *) own_blocks; /* reuse_cells' Own nodes, freed when it ends */
+  int own_left;           /* nodes free in the last block */
 } ElabState;
 static const ElabState elab_init = {0};
 #define ST ((ElabState *)fk_here()->cc[CC_ELAB])
+#define HO_MAX_COPIES 4000 /* per chunk */
 
 void *elab_state_new(void) {
   ElabState *s = malloc(sizeof *s);
@@ -1056,7 +1060,12 @@ static void ho_call(Expr *e, Nm *locals) {
   if (f->k != E_VAR || (!f->global_ref && in(locals, f->name))) return;
   int g = global_lookup(f->name);
   Bind *fb = g >= 0 ? CS->globals.a[g].bind : NULL;
-  if (!fb || fb->e->k != E_LAM || !fb->e->lam->ptypes || ST->nho >= 4000) return;
+  if (!fb || fb->e->k != E_LAM || !fb->e->lam->ptypes) return;
+  if (ST->nho >= HO_MAX_COPIES) {
+    if (!ST->ho_capped) opt_note(e->line, "not specialized: %s and later calls; the input made %d copies", f->name, HO_MAX_COPIES);
+    ST->ho_capped = true;
+    return;
+  }
   Lambda *L = fb->e->lam;
   int m = e->n < L->n ? e->n : L->n;
   bool *use = xcalloc((size_t)m + 1, sizeof *use);
@@ -1291,6 +1300,8 @@ static void ho_expr(Expr *e, Nm *s) {
   }
 }
 
+static void own_free(void);
+
 void elab_abort(void) {
   ST->tsub = NULL;
   ST->ntsub = 0;
@@ -1299,6 +1310,12 @@ void elab_abort(void) {
   ST->ho_work.n = 0;
   ST->lifted.n = 0;
   ST->own_work.n = 0;
+  own_free();
+}
+
+void ho_begin(void) {
+  ST->nho = 0;
+  ST->ho_capped = false;
 }
 
 void ho_specialize(Bind **bs, int n) {
@@ -1745,10 +1762,24 @@ enum { M_NONE, M_SPINE, M_UNIQUE };
 
 typedef struct Own { const char *name; int mode; struct Own *next; } Own;
 
+enum { OWN_BLOCK = 1024 };
+
+/* reuse_cells makes Own environments in fixpoint loops, about 30 KB an input;
+   none outlives it, so they come from blocks freed at its end. */
 static Own *own_push(Own *o, const char *name, int mode) {
-  Own *n = NEW(Own);
+  if (!ST->own_left) {
+    VPUSH(ST->own_blocks, xmalloc(OWN_BLOCK * sizeof(Own)));
+    ST->own_left = OWN_BLOCK;
+  }
+  Own *n = (Own *)ST->own_blocks.a[ST->own_blocks.n - 1] + OWN_BLOCK - ST->own_left--;
   *n = (Own){name, mode, o};
   return n;
+}
+
+static void own_free(void) {
+  for (int i = 0; i < ST->own_blocks.n; i++) xfree(ST->own_blocks.a[i]);
+  ST->own_blocks.n = 0;
+  ST->own_left = 0;
 }
 
 static int own_get(Own *o, const char *x) { /* -1: not a local */
@@ -2250,4 +2281,7 @@ void reuse_cells(Bind **bs, int n, Bind **cs, int nc) {
     Bind *c = ST->own_work.a[--ST->own_work.n];
     own_rw(c->e->lam->body, params_env(c->own_of, c->own_key));
   }
+  own_free();
+  xfree(all.a);
+  xfree(fns.a);
 }

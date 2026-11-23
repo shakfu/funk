@@ -3,7 +3,9 @@
    protects and unprotects on a fault, from funk's thread and the host's.
    funk's own faults, the stack snapshot's (realtime.md), still work: run
    under FUNK_GCSTRESS=1, an evaluation collects throughout. After
-   funk_free, the host's handler is installed again. */
+   funk_free, the host's handler is installed again. A handler installed
+   after funk's, which chains to it, stays installed after funk_free, and a
+   later session does not install funk's over it. */
 #define _DEFAULT_SOURCE
 #include <pthread.h>
 #include <signal.h>
@@ -26,6 +28,14 @@ static void host_fault(int sig, siginfo_t *si, void *ctx) {
     return;
   }
   signal(sig, SIG_DFL);
+}
+
+static struct sigaction late_prev; /* funk's, which the late handler chains to */
+static volatile sig_atomic_t late_hits;
+
+static void late_fault(int sig, siginfo_t *si, void *ctx) {
+  late_hits++;
+  late_prev.sa_sigaction(sig, si, ctx);
 }
 
 static void touch(void) {
@@ -54,6 +64,34 @@ static int run(funk *f, void *arg) {
   return 0;
 }
 
+static int run_late(funk *f, void *arg) {
+  (void)f;
+  if (arg) {
+    struct sigaction sa = {0};
+    sa.sa_sigaction = late_fault;
+    sa.sa_flags = SA_SIGINFO;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, &late_prev);
+    sigaction(SIGBUS, &sa, NULL);
+  }
+  touch();
+  return 0;
+}
+
+static const char *current(void) {
+  struct sigaction now;
+  sigaction(SIGSEGV, NULL, &now);
+  return now.sa_sigaction == host_fault ? "host handler" : now.sa_sigaction == late_fault ? "late handler" : "another handler";
+}
+
+static int late_session(void *install) {
+  funk *f = funk_new(NULL);
+  if (!f) return 1;
+  int status = funk_run(f, run_late, install);
+  funk_free(f);
+  return status;
+}
+
 int main(void) {
   page_size = (size_t)sysconf(_SC_PAGESIZE);
   page = mmap(NULL, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -67,8 +105,10 @@ int main(void) {
   if (!f) return 1;
   int status = funk_run(f, run, NULL);
   funk_free(f);
-  struct sigaction now;
-  sigaction(SIGSEGV, NULL, &now);
-  printf("after funk_free: %s\n", now.sa_sigaction == host_fault ? "host handler" : "another handler");
-  return status;
+  printf("after funk_free: %s\n", current());
+  if (status || late_session(&late_prev)) return 1;
+  printf("late, after funk_free: %s\n", current());
+  if (late_session(NULL)) return 1;
+  printf("late, after a second session: %s, %d late faults, %d faults\n", current(), (int)late_hits, (int)hits);
+  return 0;
 }

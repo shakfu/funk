@@ -768,6 +768,14 @@ void CheckState(const clap_plugin_t* plugin, std::map<std::string, std::string>&
 	std::string again;
 	check(SaveState(plugin, again) && again == saved, "state round trip");
 	check(!LoadState(plugin, saved.substr(0, saved.size() - 3)), "truncated state is rejected");
+	// reset runs on the audio thread, so the evaluator clears the saved clip when it next wakes
+	plugin->reset(plugin);
+	std::string stopped;
+	const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (SaveState(plugin, stopped) && stopped.size() >= saved.size() && std::chrono::steady_clock::now() < give_up)
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	check(stopped.size() < saved.size(), "a host's reset clears the saved clip");
+	check(LoadState(plugin, saved), "state load after a reset");
 }
 
 void CheckLive(const clap_plugin_t* plugin, std::map<std::string, std::string>& cases)

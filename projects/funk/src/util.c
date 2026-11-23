@@ -1,4 +1,5 @@
 #define _DEFAULT_SOURCE
+#include <errno.h>
 #include <fcntl.h>
 #include <spawn.h>
 #include <stdarg.h>
@@ -310,6 +311,7 @@ Argv cc_argv(void) {
 int spawn_wait(Argv *a) { return spawn_wait_err(a, NULL); }
 
 int spawn_wait_err(Argv *a, const char *err) {
+  fk_ffi_enter(); /* posix_spawnp and waitpid write into this frame */
   VPUSH(*a, NULL);
   pid_t pid;
   posix_spawn_file_actions_t acts;
@@ -319,6 +321,7 @@ int spawn_wait_err(Argv *a, const char *err) {
   posix_spawn_file_actions_destroy(&acts);
   if (failed) return -1;
   int status;
-  waitpid(pid, &status, 0);
-  return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  pid_t r;
+  while ((r = waitpid(pid, &status, 0)) < 0 && errno == EINTR) {}
+  return r == pid && WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }

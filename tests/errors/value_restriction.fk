@@ -1,0 +1,6 @@
+-- expect: type mismatch: expected `Int`, found `Float`
+-- a let of a new Array does not generalize, so it has one element type
+main = do
+  let arr = primNewArray 4 8
+  writeArray arr 1 (2.5 :: Float)
+  print (readArray arr 1 :: Int)
