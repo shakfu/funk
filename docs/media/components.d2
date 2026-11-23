@@ -1,0 +1,97 @@
+# components.d2 -- funk's parts and how they relate, 2026-11-23
+# (docs/dev/261123-status.md). Render with `make diagrams`.
+vars: {
+  d2-config: {
+    layout-engine: tala
+  }
+}
+direction: down
+
+classes: {
+  link: {style: {stroke-width: 2; stroke: "#222222"; font-color: "#222222"}}
+  build: {style: {stroke-dash: 5; stroke: "#7a5c00"; font-color: "#7a5c00"}}
+  run: {style: {stroke-dash: 2; stroke: "#1f5fa8"; font-color: "#1f5fa8"}}
+  ext: {style: {fill: "#eeeeee"; stroke: "#888888"; font-color: "#444444"}}
+}
+
+language: "Language (the product)" {
+  style.fill: "#eaf3ea"
+  libs: "lib/*.fk\npattern, control, stream, midi,\ngraph, dsp, scsynth, synthdefs, ugen" {shape: page}
+  kernels_fk: "lib/kernels.fk" {shape: page}
+  libfunk: "libfunk\ncompiler + runtime\nstatic library, libfunk.h (22 functions)"
+  cli: "funk (cli/main.c)\nrun, repl, emit-c, build"
+  cli -> libfunk: links {class: link}
+}
+
+audio: "Audio (standalone C, no libfunk)" {
+  style.fill: "#eaf0f8"
+  funkgraph: "funkgraph\ngraph.h: graphs, templates,\nevents, voices, tables"
+  funkdsp: "funkdsp.so\ngenerated kernels" {shape: stored_data}
+}
+
+hosts: "Hosts (demonstrations)" {
+  style.fill: "#f8f0e6"
+  midi: "funk-midi (executable)" {
+    main: "main.c\nREPL, windows, MIDI, --audio"
+    stream: "stream.c\nslots d1..d16, transitions, tempo"
+    dirt: "dirt.c\n/dirt/play over OSC"
+    glue: "glue.c\nlinked foreign imports"
+    main -> stream: calls {class: link}
+    main -> dirt: calls {class: link}
+  }
+  clap: "funk-midi.clap (plugin)" {
+    shell: "projects/clap\nshell: editor, simulator,\nUDP evaluator, timeline"
+    bind: "projects/funk-clap\nfunk_clap.cpp: windows over pat"
+    embedded: "embedded lib/*.fk + graph.h\n(no stream.fk: no slots)" {shape: page}
+    glue: "glue.c\nlinked foreign imports"
+    shell -> bind: calls {class: link}
+  }
+}
+
+ext: "External" {
+  style.fill: "#f7f7f7"
+  cc: "C compiler (CC)" {class: ext}
+  libremidi: "libremidi" {class: ext}
+  superdirt: "SuperDirt / scsynth" {class: ext}
+  daw: "CLAP host (DAW)" {class: ext}
+  coreaudio: "Core Audio" {class: ext}
+}
+
+# linked
+hosts.midi.main -> language.libfunk: links {class: link}
+hosts.midi.main -> audio.funkgraph: links {class: link}
+hosts.clap.bind -> language.libfunk: links {class: link}
+hosts.clap.bind -> audio.funkgraph: links {class: link}
+hosts.midi.main -> ext.libremidi: links {class: link}
+hosts.clap.shell -> ext.libremidi: links (midi_open) {class: link}
+
+# build time
+language.cli -> audio.funkdsp: "emit-c --kernels" {class: build}
+language.kernels_fk -> audio.funkdsp: source {class: build}
+language.cli -> hosts.midi.glue: "emit-c --glue" {class: build}
+language.cli -> hosts.clap.glue: "emit-c --glue" {class: build}
+language.libs -> hosts.clap.embedded: "copied in" {class: build}
+
+# run time
+language.libfunk -> language.libs: "loads (-M lib)" {class: run}
+language.libs -> audio.funkgraph: "34 foreign imports\n(lib/graph.fk)" {class: run}
+hosts.midi.main -> audio.funkdsp: "dlopen" {class: run}
+hosts.clap.bind -> audio.funkdsp: "dlopen" {class: run}
+language.libs -> audio.funkdsp: "dlopen (g.player)" {class: run}
+language.libfunk -> ext.cc: "foreign imports, kernels\nnot in linked glue" {class: run}
+hosts.midi.dirt -> ext.superdirt: "OSC" {class: run}
+hosts.midi.main -> ext.coreaudio: "--audio" {class: run}
+ext.daw -> hosts.clap.shell: "process(), state" {class: run}
+
+legend: "Edges" {
+  near: bottom-right
+  a: "" {shape: circle; width: 8; height: 8}
+  b: "" {shape: circle; width: 8; height: 8}
+  c: "" {shape: circle; width: 8; height: 8}
+  d: "" {shape: circle; width: 8; height: 8}
+  e: "" {shape: circle; width: 8; height: 8}
+  f: "" {shape: circle; width: 8; height: 8}
+  a -> b: "linked" {class: link}
+  c -> d: "build time" {class: build}
+  e -> f: "run time" {class: run}
+}

@@ -160,7 +160,9 @@ Each passes `make test`.
 8. Teardown. Done, 2026-11-23. `fk_stop` freed a session while another thread could still hold it: a queued callback between claim and publish, or `on_fault` scanning the registry. A stale `StablePtr` also reached a later session with the same id; `embed/teardown` crashed on that session's ring before it existed. Now:
 
    - `inflight`, one count per registry slot, covers an event from claim to publish; `faulting` covers `on_fault`. Both live outside the session, so they are never freed.
+
    - `fk_stop` clears the slot, then waits for both counts to reach 0 before it frees. The slot's id stays reserved (`ending`) meanwhile.
+
    - A `StablePtr` carries its id's generation in bits 49 to 63, so an ended session's pointer finds no session. The generation wraps after 32768 sessions in one slot.
 
    An epoch scheme or hazard pointers would avoid the wait. The wait covers only an event's argument copy, so a count is enough. A reference count inside the session would need the session alive to be counted.

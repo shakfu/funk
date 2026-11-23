@@ -1,6 +1,6 @@
 # Roadmap
 
-A provisional plan, ordered by value per unit of work. The concrete items for the next release are in [TODO.md](../../TODO.md). Version numbers are targets, not commitments.
+A provisional plan, ordered by value per unit of work. The concrete items for the next release are in [TODO.md](../../TODO.md). Version numbers are targets, not commitments. Status against this plan, 2026-11-23: [261123-status.md](261123-status.md).
 
 ## 0.1 -- done
 
@@ -172,7 +172,7 @@ Tidal code runs in funk as written, and plays on SuperDirt. Each item names its 
 
 In order:
 
-1. **String literals as patterns (L1, L2, C1):** a `FromString` class, as `FromFloat`, with a `String` default; controls and patterned arguments take patterns. This closes `sound` of a pattern, `pan sine`, `fast "<2 4>"` and `"<0 0.25>" <~ p`.
+1. **String literals as patterns (L1, L2, C1):** done 2026-11-09. A `FromString` class, as `FromFloat`, with a `String` default; controls and patterned arguments take patterns. This closes `sound` of a pattern, `pan sine`, `fast "<2 4>"` and `"<0 0.25>" <~ p`.
 
 2. **A SuperDirt target (S9):** `/dirt/play` over OSC, as Tidal's `superdirtTarget`, from `funk-midi`. Done 2026-11-09 ([dirt.md](dirt.md)).
 
@@ -180,7 +180,7 @@ In order:
 
 4. **Time (T1-T3):** 46126080 ticks per cycle; fractional patterned speed factors. T1 done 2026-11-11, T2 2026-11-10.
 
-5. **Library (F1-F8, L3-L5, L8, M1-M3, C3):** `Fractional`, `RealFrac`, `Bool` mini-notation, scales and `Simple.hs` (done), an `Enum` class, `Time.hs`, the exported `Pattern.hs` functions, `drawLine`, steps, `^name`, `Params.hs`' generated families, monomorphic `<$>`, `<*>`, `<*`, `*>` and `<<*`, and an unqualified `pattern` import.
+5. **Library (F1-F8, L3-L5, L8, M1-M3, C3):** `Fractional`, `RealFrac`, `Bool` mini-notation, scales and `Simple.hs` (done), an `Enum` class, `Time.hs`, the exported `Pattern.hs` functions, `drawLine`, steps, `^name`, `Params.hs`' generated families, monomorphic `<$>`, `<*>`, `<*`, `*>` and `<<*`, and an unqualified `pattern` import. Done 2026-11-11, but C3's buses and `ringCount`.
 
 6. **Review items (L7, F10, F11):** decide each. F10 and F11 done 2026-11-11.
 
@@ -188,11 +188,13 @@ In order:
 
 ## 0.13 -- SuperDirt sound in the plugin
 
-`d.kit` and the voices sound as SuperDirt does, for hosts without SuperCollider (S1-S8, S10 in [tidal-comparison.md](tidal-comparison.md)): per-event effects, orbits with their global effects, the synths, the pan law, cubic interpolation and AIFF. Ports of SuperCollider's UGens from its C++, checked against scsynth's non-real-time renders. Needs a design note first: per-event chains in a fixed graph, and node state other than `Float`s ([audio.md](audio.md) item 4). Design: [dirt-sound.md](dirt-sound.md). Its event layer, option C, is done 2026-11-11, with S10; the module, synth and UGen ports remain. Open: scsynth's RNG for random UGens, and `float32` against a stated error bound.
+`d.kit` and the voices sound as SuperDirt does, for hosts without SuperCollider (S1-S8, S10 in [tidal-comparison.md](tidal-comparison.md)): per-event effects, orbits with their global effects, the synths, the pan law, cubic interpolation and AIFF. Ports of SuperCollider's UGens from its C++, checked against scsynth's non-real-time renders. Needs a design note first: per-event chains in a fixed graph, and node state other than `Float`s ([audio.md](audio.md) item 4). Design: [dirt-sound.md](dirt-sound.md). Its event layer, option C, is done 2026-11-11, with S10; the module, synth and UGen ports 2026-11-12 and 2026-11-13. Released in 0.13.0, 2026-11-19.
 
-Acceptance test, planned 2026-11-15 ([dirt-acceptance.md](dirt-acceptance.md)): the 22 patches of [patch-port.md](patch-port.md) through `d.superDirt` match SuperDirt's scsynth render within a stated bound; a dense `dirt` set in the headless plugin host has no block over budget and no allocation; funk's render CPU against scsynth's on the same events.
+~~Acceptance test, planned 2026-11-15 ([dirt-acceptance.md](dirt-acceptance.md)): the 22 patches of [patch-port.md](patch-port.md) through `d.superDirt` match SuperDirt's scsynth render within a stated bound; a dense `dirt` set in the headless plugin host has no block over budget and no allocation; funk's render CPU against scsynth's on the same events.~~ Passed 2026-11-19: 3,095 events in 18 patches match scsynth with error 0; the dense set has no block over budget and no allocation, on a quiet machine; funk's CPU is 1.05x to 4.6x scsynth's, accepted; and a REAPER set by ear. Open: T3, R6, L7, `showAll`, R1 in the plugin, and the Linux run.
 
 ## 0.14+ -- possible language growth
+
+No milestone is set. The product is the language, compiler, runtime and libfunk; the plugin and funk-midi demonstrate them ([261123-status.md](261123-status.md#gaps-in-the-plan)).
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 

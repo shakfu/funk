@@ -109,7 +109,11 @@ What remains in these kernels is their own state in slots: the switch delay's cr
   The check: hide the sc3-plugins classes from sclang (`excludePaths`), and render every case with the CombL delay (the oracle's `core` mode). Then 79 of the 82 cases scsynth can render pass. `shape` misses the 1e-6 bound at 2.4e-6, `imp` at 7e-4 and `impAccelerate` at 2.4e-3. Likely floating-point differences between the platforms; not checked.
 
   Fixes outside the repo: install sc3-plugins' server plugins, or remove its classes. A fix in the repo would be a check in `render.scd` that SuperDirt's UGens load in scsynth, before it renders. The oracles now pass on a machine where they cannot run.
+
 - **The Mac.** On arm64, `floor` is one instruction (`frintm`), and Apple clang's default is `-fno-math-errno` (inference, not checked). If both hold, cost 1 did not apply to step 4's Mac figures, and the stages are the change that counts there. Measure with `ORACLE_CPU=1 ORACLE_REPEAT=60`.
+
 - **Other kernels with lines in slots.** `dirt_leslie`, `dirt_monitor`, the delays and `GVerb` (`gvDiff`) keep lines in the slot array too. `dirt_monitor` takes 13% of `p0`'s instructions, `dirt_switch_delay` 8%.
+
 - **A compiler fix for cost 2.** The compiler could hoist slot reads out of a self-recursive loop. That is harder, since nothing tells it that `mem` and `st` do not overlap.
+
 - **`-fno-math-errno` for `funkdsp`.** It would remove the remaining `lrint` calls in other kernels. Not adopted: their kernels' share of render time is not measured.

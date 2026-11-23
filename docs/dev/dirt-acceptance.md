@@ -56,11 +56,15 @@ Roadmap 0.13 ([roadmap.md](roadmap.md#013----superdirt-sound-in-the-plugin)) has
 ## Known limits
 
 - Offline renders have no late events. Late arrival (dirt-sound.md difference 3) is covered by step 5 alone.
+
 - Both engines see the same event list, so step 3 checks sound, not scheduling. 0.11's acceptance checked scheduling: OSC time tags, in a capture.
+
 - dirt_monitor's limiter delays both renders by 881 frames; the comparison includes its tail.
 
 ## Open, for the user
 
 - The sound bound: decided 2026-11-15, 1e-6, the oracle's bound. Measured error is 0; exact equality would also fail on rounding a platform may change.
+
 - Criterion 3: decided 2026-11-15. The ratio is 1.05 to 4.6 (step 4), and decision 14 does not cause it. 14 stands, and step 5's budget alone judges cost, as the decision record (dirt-sound.md) words it. Faster generated kernels follow 0.13 (TODO).
+
 - Whether step 6 is part of 0.13's acceptance: decided 2026-11-19, it is (done, above). The Linux run follows the release.

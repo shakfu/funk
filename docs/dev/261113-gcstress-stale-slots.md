@@ -17,7 +17,9 @@ The slot was above the snapshot's stack pointer, so the dead-stack clearing at t
 ## Evidence
 
 - In an Ubuntu 24.04 amd64 container (GCC 13.3, as CI), `slots_midi` failed 5 runs of 5 with CI's addresses.
+
 - With every unmarked object's payload set to `0x10` before the sweep, the check off, both scripts ran unchanged: 536,018 and 913,747 objects poisoned.
+
 - The frame and slot came from `_Unwind_Backtrace` and a dump of the words around the slot at the failure, against `objdump` of the binary. `_Unwind_GetCFA` paired with a frame's IP gave its lower bound, not its CFA; the return address on the stack settled which frame held the slot.
 
 ## Fix
@@ -48,6 +50,7 @@ container exec funk-x86 sh -c 'cmake -S /w -B /b -G Ninja -DCMAKE_BUILD_TYPE=Rel
 Build from a copy: run from the bind mount, `kernels/ugens` segfaults, on HEAD too; the cause is not known. In this container, CI's 24.04 passes but these fail:
 
 - the `tsan` and `/thread` tests: ThreadSanitizer cannot map its shadow memory under Rosetta;
+
 - `embed/kernels`: its missing compiler's message differs.
 
 gdb cannot trace under Rosetta (`PTRACE_GETREGS` fails); a native arm64 container (`--arch arm64`, no `--rosetta`) runs it. The 26.04 image's `tar` fails under Rosetta ("Function not implemented"); `cp -r` works.

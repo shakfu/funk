@@ -14,6 +14,8 @@
 #                                  MIDI to the first port, its audio's peak each second
 #   make tree-sitter               generate projects/tree-sitter-funk's parser and
 #                                  parse every .fk file with it (tree-sitter CLI)
+#   make diagrams                  render docs/media/*.d2 to .svg and .pdf (d2; each
+#                                  file sets its layout engine, tala)
 #   make clean                     remove build/ and ./funk
 
 CMAKE ?= cmake
@@ -21,6 +23,8 @@ BUILD_TYPE ?= RelWithDebInfo
 SANITIZE ?=
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 ARGS ?=
+D2 ?= d2
+DIAGRAMS := $(wildcard docs/media/*.d2)
 BUILD := build
 GENERATOR := $(if $(shell command -v ninja 2>/dev/null),Ninja,Unix Makefiles)
 
@@ -59,6 +63,14 @@ clap-dev: clap
 tree-sitter:
 	$(MAKE) -C projects/tree-sitter-funk check
 
+diagrams: $(DIAGRAMS:.d2=.svg) $(DIAGRAMS:.d2=.pdf)
+
+docs/media/%.svg: docs/media/%.d2
+	$(D2) $< $@
+
+docs/media/%.pdf: docs/media/%.d2
+	$(D2) $< $@
+
 install: funk
 	install -d $(HOME)/.local/bin
 	install -m 755 $(BUILD)/funk $(HOME)/.local/bin/funk
@@ -66,4 +78,4 @@ install: funk
 clean:
 	rm -rf build funk
 
-.PHONY: all funk test bench bench-report clap clap-dev tree-sitter install clean
+.PHONY: all funk test bench bench-report clap clap-dev tree-sitter diagrams install clean

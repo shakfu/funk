@@ -2,7 +2,7 @@
 
 Always organize according to sections descending priority (Critical, High, Medium, Low). They can include subsections as required for organization.
 
-The plugin with compiled DSP is done as of 0.9.0: patterns run live in the interpreter, and a graph of compiled unit generators, built and rewired at run time, renders on the audio thread ([docs/dev/audio.md](docs/dev/audio.md), option D). The next milestone is roadmap 0.12, Tidal parity of code and runtime, then 0.13, SuperDirt's sound in the plugin ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md)). Direction: [docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md).
+The plugin with compiled DSP is done as of 0.9.0: patterns run live in the interpreter, and a graph of compiled unit generators, built and rewired at run time, renders on the audio thread ([docs/dev/audio.md](docs/dev/audio.md), option D). Roadmap 0.12, Tidal parity of code and runtime, and 0.13, SuperDirt's sound in the plugin, are done, in releases 0.11.0 to 0.13.0. No next milestone is set ([docs/dev/261123-status.md](docs/dev/261123-status.md)). Direction: [docs/dev/261027-lang-review.md](docs/dev/261027-lang-review.md).
 
 Generated C speed reached its target: geometric mean 1.18x C on the core suite, 1.16x on the Benchmarks Game (2026-10-27). Keep it: check each change with `bench.py ab` ([docs/dev/performance-first.md](docs/dev/performance-first.md)). Generated code speed comes before compilation speed. Compilation speed matters for compiling unit generators while playing, in desktop live coding.
 
@@ -68,7 +68,9 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] L3: `fmap`, `<$>`, `pure`, `<*>`, `<*`, `*>`, `<<*` and `>>=` on patterns. Done 2026-11-10.
 
-- [ ] C3's buses wait for S2; `ringCount` for a name. L8 is an `Enum` class.
+- [ ] C3's buses wait for S2; `ringCount` for a name.
+
+- [x] L8: an `Enum` class. Done 2026-11-11.
 
 - [ ] L7: decide the review item.
 
@@ -201,10 +203,15 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 
 - [ ] Generated DSP kernels render 1.05 to 4.6x scsynth's CPU on the same events, samples as synths; `dirt_reverb` and `GVerb` take most of it ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md), step 4). On Linux, `dirt_reverb` was 4.2x a C port of itself, and is 0.75x since `cInt` stopped calling libm and the reverb runs one stage at a time (2026-11-18, [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md)). On Linux, the 18 patches render 1.62x faster and the synth cases 1.7 to 2.2x. Linux's ratios to scsynth are overstated: its scsynth ran no `dirt_delay`. Next: step 4 again on the Mac, with `ORACLE_CPU=1 ORACLE_REPEAT=60` in `tests/dirt/oracle.py`; then `GVerb`, and `dirt_leslie` at 3.1 us a call, by the note's profile. Time each change: moving `dirt_switch_delay`'s crossfade into parameters made it 36% slower, and was reverted.
   - [ ] On the Mac: `ORACLE_CPU=1 ORACLE_REPEAT=60` against scsynth, for step 4's figures after the 2026-11-18 changes. Linux cannot give them: its scsynth lacks sc3-plugins' server plugins.
+
   - [ ] Profile `GVerb` (`gvDiff` keeps its lines in slots), then time any change to it.
+
   - [ ] `dirt_leslie`, 3.1 us a call: its filters, oscillators and delay position are in slots.
+
   - [ ] `dirt_switch_delay`: run a loop without the crossfade while slot 25 is 0, and the current loop only during a crossfade. Untried.
+
   - [ ] Time `funk_events_read`'s and `effects`' changes; only their instructions were measured (90% and 77% fewer).
+
   - [ ] A differential harness for kernels: one kernel from two `funkdsp` builds on the same inputs, output, slots, memory and `done` compared bit for bit, and timed. One was written in the 2026-11-18 session's scratch directory and is not in the repo. Its inputs are in [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md).
 
 - [x] `funk_events_read` took 18% of a patch render's instructions, testing each orbit's `used` flag once a frame. It now tests it once a block: 2% (2026-11-18, [docs/dev/261118-reverb-kernel-cost.md](docs/dev/261118-reverb-kernel-cost.md#end-to-end-on-linux)).
