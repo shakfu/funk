@@ -14,6 +14,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The plugin restores UDP from a saved project only when `FUNK_LIVE_CLAP_UDP_PORT` is set. A project file could turn on the evaluator, which takes code from any local process on 127.0.0.1. The variable already turns UDP on at init, so honouring the saved flag then exposes nothing more. Otherwise the editor turns UDP on, each session.
+
 - A tuple section or instance head with more than 7 elements is a compile error. Both overflowed a 16-byte stack buffer, and the process aborted.
 
 - The runtime restores the previous `SIGSEGV` and `SIGBUS` handlers only if its own is still installed. A handler installed after funk's, such as a second plugin's libfunk or a crash reporter, was removed when funk's last session ended. A later session also installed funk's over it, so each chained to the other.

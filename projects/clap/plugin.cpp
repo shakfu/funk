@@ -400,9 +400,8 @@ private:
 			fprintf(stderr, "%s: the interpreter failed to start\n", kLanguage.name);
 			return false;
 		}
-		bool portFromEnv = false;
-		udpPort_ = ConfiguredUdpPort(&portFromEnv);
-		setUdp(portFromEnv);
+		udpPort_ = ConfiguredUdpPort(&udpFromEnv_);
+		setUdp(udpFromEnv_);
 		startSimulator();
 		return true;
 	}
@@ -686,7 +685,8 @@ private:
 	}
 
 	// State: version byte, flags byte, u64 text length, editor text, clip (timeline.hpp).
-	// "No wrap" is a flag so a zero flags byte means the defaults.
+	// "No wrap" is a flag so a zero flags byte means the defaults. The UDP flag is
+	// restored only when the port's variable is set, as that turns UDP on at init anyway.
 	enum : char { kStateUdp = 1, kStateNoWrap = 2, kStateLive = 4 };
 	static const char kStateVersion = 1;
 
@@ -738,7 +738,8 @@ private:
 			editor_->setWrap(wrap_);
 			editor_->setLive(tl_.live);
 		}
-		setUdp(flags & kStateUdp);
+		// Without it, a project file could open an evaluator to every local process.
+		if (udpFromEnv_) setUdp(flags & kStateUdp);
 		tl_.setSaved(clip);
 		delete tl_.nextClip.exchange(clip.events.empty() ? nullptr : new Clip(std::move(clip)));
 		return true;
@@ -788,6 +789,7 @@ private:
 	std::string editorText_ = kLanguage.defaultCode;
 	uint16_t udpPort_ = 0;
 	bool udpOn_ = false;
+	bool udpFromEnv_ = false; // the port's variable is set: UDP was turned on at init
 	bool wrap_ = true;
 	unsigned width_ = kEditorWidth, height_ = kEditorHeight;
 	double sampleRate_ = 0.;

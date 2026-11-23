@@ -138,6 +138,11 @@ if(TARGET funk_live_clap)
   # lookahead, which a loaded machine misses: under ctest -j 10, a note 3 ms late
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_LIVE_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  # saved state does not turn UDP on without FUNK_LIVE_CLAP_UDP_PORT; 57170 is the plugin's
+  # default port (funk_clap.cpp, kLanguage), which the control instance binds
+  add_test(NAME hosts/clap/state-udp COMMAND test_clap_host $<TARGET_FILE:funk_live_clap> --state-udp 57170 FUNK_LIVE_CLAP_UDP_PORT)
+  set_tests_properties(hosts/clap/state-udp PROPERTIES LABELS "hosts;clap" TIMEOUT 60 SKIP_RETURN_CODE 77
+    ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
   # ... with tests/noalloc.c inserted, which counts allocation and locking in process()
   if(TARGET noalloc)
     if(APPLE)

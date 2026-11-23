@@ -227,7 +227,7 @@ Done, 2026-10-30, once `libfunk` ran sessions side by side ([embedding.md](embed
 
 - funk's library files are written to the cache directory once per process: two instances would have raced on one temporary name, which carries only the pid.
 
-- One UDP port serves one instance; a second one's bind fails, and the editor shows it. Test `hosts/clap` passes the port between two instances through their state's flag: a definition in one is not in scope in the other, and one note sounds through each one's own `sig`.
+- One UDP port serves one instance; a second one's bind fails, and the editor shows it. Saved state restores the UDP flag only when `FUNK_LIVE_CLAP_UDP_PORT` is set, which turns UDP on at init anyway; otherwise the editor turns it on, each session (`hosts/clap/state-udp`). Test `hosts/clap`, with the variable set, passes the port between two instances through their state's flag: a definition in one is not in scope in the other, and one note sounds through each one's own `sig`.
 
 ## Syntax colours
 

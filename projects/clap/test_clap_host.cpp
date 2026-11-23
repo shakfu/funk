@@ -3,6 +3,8 @@
 // Usage: test_clap_host <plugin binary> <cases file> <udp port>
 //        test_clap_host <plugin binary> --sim <log>: simulator mode (CheckSim)
 //        test_clap_host <plugin binary> --sim-dirt <log> <seconds> budget|any: a dirt script (CheckSimDirt)
+//        test_clap_host <plugin binary> --state-udp <default port> <variable>: saved state does not
+//        turn UDP on without the port's variable (CheckStateUdp); run without the variable set
 // The plugin's UDP port variable must be set to <udp port>, which turns UDP on at init.
 //
 // The cases file holds the language's code for each check, as "[name]" lines followed by code:
@@ -924,6 +926,60 @@ void CheckInstances(const clap_plugin_factory_t* factory, const char* id, const 
 	second->destroy(second);
 }
 
+// Whether this process can bind 127.0.0.1:port, so no plugin listens there.
+bool PortFree(int port)
+{
+	int fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
+	sockaddr_in a = {};
+	a.sin_family = AF_INET;
+	a.sin_port = htons((uint16_t)port);
+	a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+	const bool free = bind(fd, (const sockaddr*)&a, sizeof a) == 0;
+#ifdef _WIN32
+	closesocket(fd);
+#else
+	close(fd);
+#endif
+	return free;
+}
+
+// Saved state with the UDP flag does not open the port when the port's variable is unset:
+// a project file must not expose an evaluator to every local process. As a control, an
+// instance made with the variable set does hold the port. 77, a skip, if it is taken already.
+int CheckStateUdp(const char* pluginPath, int port, const char* variable)
+{
+	if (getenv(variable)) {
+		fprintf(stderr, "--state-udp: %s must be unset\n", variable);
+		return 2;
+	}
+	if (!PortFree(port)) {
+		printf("skipped: port %d is in use\n", port);
+		return 77;
+	}
+	const clap_plugin_entry_t* entry = LoadEntry(pluginPath);
+	if (!entry || !entry->init(pluginPath)) return 1;
+	auto* factory = (const clap_plugin_factory_t*)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
+	const char* id = factory->get_plugin_descriptor(factory, 0)->id;
+	const clap_plugin_t* plugin = factory->create_plugin(factory, &kHost, id);
+	check(plugin && plugin->init(plugin), "plugin init");
+	check(PortFree(port), "UDP is off at init without the variable");
+	check(LoadState(plugin, EmptyState(1)), "load state with the UDP flag");
+	check(PortFree(port), "the saved UDP flag does not open the port");
+	plugin->destroy(plugin);
+#ifdef _WIN32
+	_putenv_s(variable, std::to_string(port).c_str());
+#else
+	setenv(variable, std::to_string(port).c_str(), 1);
+#endif
+	const clap_plugin_t* control = factory->create_plugin(factory, &kHost, id);
+	check(control && control->init(control), "plugin init with the variable");
+	check(!PortFree(port), "with the variable, the plugin holds the port");
+	if (control) control->destroy(control);
+	entry->deinit();
+	printf("%d failure(s)\n", gFailures);
+	return gFailures ? 1 : 0;
+}
+
 // Simulator mode, with its variables set by the caller: steps run while the host plays in
 // real time, and the log records them.
 int CheckSim(const char* pluginPath, const char* logPath)
@@ -1049,6 +1105,7 @@ int CheckSimDirt(const char* pluginPath, const char* logPath, double seconds, bo
 int main(int argc, char** argv)
 {
 	if (argc == 4 && !strcmp(argv[2], "--sim")) return CheckSim(argv[1], argv[3]);
+	if (argc == 5 && !strcmp(argv[2], "--state-udp")) return CheckStateUdp(argv[1], atoi(argv[3]), argv[4]);
 	if (argc == 6 && !strcmp(argv[2], "--sim-dirt")) return CheckSimDirt(argv[1], argv[3], atof(argv[4]), !strcmp(argv[5], "budget"));
 	if (argc < 4) {
 		fprintf(stderr, "usage: test_clap_host <plugin> <cases file> <udp port>\n");
