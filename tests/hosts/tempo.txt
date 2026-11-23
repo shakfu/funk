@@ -1,4 +1,4 @@
--- funk-midi --no-sleep --dirt 57120 --script (tests/CMakeLists.txt): Tidal's
+-- funk-live --no-sleep --dirt 57120 --script (tests/CMakeLists.txt): Tidal's
 -- tempo commands (lib/stream.fk), from its default, 0.575 cycles a second.
 -- setcps is `once . cps`: the tempo changes at that event, as at any with a
 -- `cps`, clamped to Link's 999 bpm. setbpm, setCycle and resetCycles act

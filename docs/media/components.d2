@@ -31,7 +31,7 @@ audio: "Audio (standalone C, no libfunk)" {
 
 hosts: "Hosts (demonstrations)" {
   style.fill: "#f8f0e6"
-  midi: "funk-midi (executable)" {
+  midi: "funk-live (executable)" {
     main: "main.c\nREPL, windows, MIDI, --audio"
     stream: "stream.c\nslots d1..d16, transitions, tempo"
     dirt: "dirt.c\n/dirt/play over OSC"
@@ -39,7 +39,7 @@ hosts: "Hosts (demonstrations)" {
     main -> stream: calls {class: link}
     main -> dirt: calls {class: link}
   }
-  clap: "funk-midi.clap (plugin)" {
+  clap: "funk-live.clap (plugin)" {
     shell: "projects/clap\nshell: editor, simulator,\nUDP evaluator, timeline"
     bind: "projects/funk-clap\nfunk_clap.cpp: windows over pat"
     embedded: "embedded lib/*.fk + graph.h\n(no stream.fk: no slots)" {shape: page}

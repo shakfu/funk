@@ -1,4 +1,4 @@
-# funk-midi as a CLAP plugin: funk's patterns and graphs behind projects/clap.
+# funk-live as a CLAP plugin: funk's patterns and graphs behind projects/clap.
 # lib/'s modules and graph.h, for graph.fk's imports, are embedded; funkdsp.so
 # goes in the bundle.
 
@@ -18,14 +18,14 @@ endforeach()
 string(APPEND content "};\n")
 file(WRITE ${FUNK_LIB_H} "${content}")
 
-midi_langs_add_clap(funk_midi_clap
-    NAME funk-midi
-    CLASS_PREFIX MidiLangsFunkMidi
+midi_langs_add_clap(funk_live_clap
+    NAME funk-live
+    CLASS_PREFIX FunkLive
     SOURCES funk_clap.cpp
     LIBRARIES libfunk funkgraph midi_open ${CMAKE_DL_LIBS}
 )
-target_include_directories(funk_midi_clap PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-add_dependencies(funk_midi_clap funkdsp)
+target_include_directories(funk_live_clap PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+add_dependencies(funk_live_clap funkdsp)
 
 # Syntax colours in the editor (highlight.cpp): projects/tree-sitter-funk's parser, which
 # `make tree-sitter` generates, and the tree-sitter runtime. Without them the text is plain.
@@ -45,13 +45,13 @@ if(EXISTS ${TS_FUNK}/src/parser.c AND TREE_SITTER_INCLUDE AND TREE_SITTER_LIB)
     target_compile_features(funk_highlight PRIVATE cxx_std_17)
     target_compile_definitions(funk_highlight PUBLIC FUNK_HIGHLIGHT)
     target_link_libraries(funk_highlight PUBLIC ${TREE_SITTER_LIB})
-    target_link_libraries(funk_midi_clap PRIVATE funk_highlight)
+    target_link_libraries(funk_live_clap PRIVATE funk_highlight)
     add_executable(test_funk_highlight test_highlight.cpp)
     target_link_libraries(test_funk_highlight PRIVATE funk_highlight)
     target_compile_features(test_funk_highlight PRIVATE cxx_std_17)
-    message(STATUS "funk-midi.clap: syntax colours from projects/tree-sitter-funk")
+    message(STATUS "funk-live.clap: syntax colours from projects/tree-sitter-funk")
 else()
-    message(STATUS "funk-midi.clap: plain text: syntax colours need projects/tree-sitter-funk/src/parser.c (make tree-sitter) and the tree-sitter runtime")
+    message(STATUS "funk-live.clap: plain text: syntax colours need projects/tree-sitter-funk/src/parser.c (make tree-sitter) and the tree-sitter runtime")
 endif()
 
 # glue.fk's foreign imports, linked in (funk_glue): the plugin needs no C compiler
@@ -61,12 +61,12 @@ add_custom_command(OUTPUT ${GLUE_C}
     DEPENDS funk_tool ${CMAKE_CURRENT_SOURCE_DIR}/glue.fk ${funk_SOURCE_DIR}/lib/pattern.fk ${funk_SOURCE_DIR}/lib/midi.fk
         ${funk_SOURCE_DIR}/lib/graph.fk ${funk_SOURCE_DIR}/lib/dsp.fk ${funk_SOURCE_DIR}/lib/scsynth.fk ${funk_SOURCE_DIR}/lib/synthdefs.fk
         ${funk_SOURCE_DIR}/lib/control.fk)
-target_sources(funk_midi_clap PRIVATE ${GLUE_C})
+target_sources(funk_live_clap PRIVATE ${GLUE_C})
 if(APPLE)
-    set(KERNELS_DIR $<TARGET_BUNDLE_CONTENT_DIR:funk_midi_clap>/Resources)
+    set(KERNELS_DIR $<TARGET_BUNDLE_CONTENT_DIR:funk_live_clap>/Resources)
 else()
-    set(KERNELS_DIR $<TARGET_FILE_DIR:funk_midi_clap>)
+    set(KERNELS_DIR $<TARGET_FILE_DIR:funk_live_clap>)
 endif()
-add_custom_command(TARGET funk_midi_clap POST_BUILD
+add_custom_command(TARGET funk_live_clap POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory ${KERNELS_DIR}
     COMMAND ${CMAKE_COMMAND} -E copy ${FUNK_DSP_LIB} ${KERNELS_DIR}/funkdsp.so)

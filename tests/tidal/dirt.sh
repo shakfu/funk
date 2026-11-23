@@ -1,9 +1,9 @@
 #!/bin/sh
-# funk-midi --dirt against Tidal's superdirtTarget: tests/tidal/Dirt.hs builds
+# funk-live --dirt against Tidal's superdirtTarget: tests/tidal/Dirt.hs builds
 # Tidal's /dirt/play messages for each case of tests/tidal/dirt.cases through
-# Tidal's toOSC; funk-midi plays the same cases on its virtual clock and
+# Tidal's toOSC; funk-live plays the same cases on its virtual clock and
 # prints the messages it encodes. Their arguments must be the same.
-# Arguments: ghc, funk-midi, a scratch directory. Run from the repository root.
+# Arguments: ghc, funk-live, a scratch directory. Run from the repository root.
 ghc="$1" midi="$2" dir="$3"
 set -e
 mkdir -p "$dir"

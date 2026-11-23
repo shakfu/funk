@@ -82,15 +82,15 @@ jobs:
       # runtime and prelude, and finds lib/'s modules with -M
       - name: Pack the plugin and funk
         run: |
-          tar -czf funk-midi-clap-${{ runner.os }}.tar.gz -C build/clap .
+          tar -czf funk-live-clap-${{ runner.os }}.tar.gz -C build/clap .
           mkdir -p dist/funk/bin && cp build/funk dist/funk/bin/ && cp -R lib dist/funk/
           tar -czf funk-${{ runner.os }}.tar.gz -C dist funk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: funk-midi-clap-${{ runner.os }}
+          name: funk-live-clap-${{ runner.os }}
           path: |
-            funk-midi-clap-${{ runner.os }}.tar.gz
+            funk-live-clap-${{ runner.os }}.tar.gz
             funk-${{ runner.os }}.tar.gz
           if-no-files-found: error
 
@@ -121,13 +121,13 @@ jobs:
           export FUNK_SYSROOT="$RUNNER_TEMP/sysroot"
           cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=scripts/zig-linux.cmake \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFUNK_CLAP=ON -DLIBREMIDI_NO_UDEV=ON -DFUNK_HOST_TOOLS="$PWD/build"
-          cmake --build xbuild --target funk_midi_clap
-          tar -czf funk-midi-clap-Linux-zig.tar.gz -C xbuild/clap funk-midi.clap funkdsp.so
+          cmake --build xbuild --target funk_live_clap
+          tar -czf funk-live-clap-Linux-zig.tar.gz -C xbuild/clap funk-live.clap funkdsp.so
 
       - uses: actions/upload-artifact@v4
         with:
-          name: funk-midi-clap-zig
-          path: funk-midi-clap-Linux-zig.tar.gz
+          name: funk-live-clap-zig
+          path: funk-live-clap-Linux-zig.tar.gz
           if-no-files-found: error
 
   # ... and run on Linux in the headless host, against the cases hosts/clap runs
@@ -145,11 +145,11 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: funk-midi-clap-zig
+          name: funk-live-clap-zig
           path: zig-plugin
 
       - name: Unpack the plugin
-        run: tar -xzf zig-plugin/funk-midi-clap-Linux-zig.tar.gz -C zig-plugin
+        run: tar -xzf zig-plugin/funk-live-clap-Linux-zig.tar.gz -C zig-plugin
 
       - name: Build the host
         run: |
@@ -159,8 +159,8 @@ jobs:
       - name: Run the plugin
         # the plugin listens on this port, the host's argument only says where it sends, as ctest's hosts/clap
         env:
-          FUNK_MIDI_CLAP_UDP_PORT: "57291"
-        run: build/test_clap_host zig-plugin/funk-midi.clap tests/hosts/clap.txt 57291
+          FUNK_LIVE_CLAP_UDP_PORT: "57291"
+        run: build/test_clap_host zig-plugin/funk-live.clap tests/hosts/clap.txt 57291
 
   # every plugin, and funk, in one download, once each has passed its run
   artifacts:
@@ -171,5 +171,5 @@ jobs:
       - uses: actions/upload-artifact/merge@v4
         with:
           name: funk-builds
-          pattern: funk-midi-clap-*
+          pattern: funk-live-clap-*
           delete-merged: true

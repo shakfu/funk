@@ -1,33 +1,33 @@
-# funk-midi: plays a pattern to MIDI, live (main.c). Without libremidi it
+# funk-live: plays a pattern to MIDI, live (main.c). Without libremidi it
 # can only print, which the tests use; FUNK_LIBREMIDI builds the vendored
 # thirdparty/libremidi. With --audio it plays a graph of kernels too:
 # through the vendored thirdparty/miniaudio with FUNK_MINIAUDIO, else only
 # on the virtual clock.
-add_executable(funk-midi main.c dirt.c stream.c)
+add_executable(funk-live main.c dirt.c stream.c)
 # glue.fk's foreign imports, linked in (funk_glue): no C compiler for them
 set(MIDI_GLUE_C ${CMAKE_CURRENT_BINARY_DIR}/glue.c)
 add_custom_command(OUTPUT ${MIDI_GLUE_C}
   COMMAND funk_tool emit-c --glue ${CMAKE_CURRENT_SOURCE_DIR}/glue.fk -M ${funk_SOURCE_DIR}/lib -o ${MIDI_GLUE_C}
   DEPENDS funk_tool ${CMAKE_CURRENT_SOURCE_DIR}/glue.fk ${funk_SOURCE_DIR}/lib/stream.fk ${funk_SOURCE_DIR}/lib/pattern.fk
     ${funk_SOURCE_DIR}/lib/control.fk)
-target_sources(funk-midi PRIVATE ${MIDI_GLUE_C})
-target_include_directories(funk-midi PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_compile_options(funk-midi PRIVATE -Wall -Wextra)
-target_compile_definitions(funk-midi PRIVATE FUNK_LIB_DIR="${funk_SOURCE_DIR}/lib"
+target_sources(funk-live PRIVATE ${MIDI_GLUE_C})
+target_include_directories(funk-live PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(funk-live PRIVATE -Wall -Wextra)
+target_compile_definitions(funk-live PRIVATE FUNK_LIB_DIR="${funk_SOURCE_DIR}/lib"
   FUNK_DSP_LIB="${FUNK_DSP_LIB}" FUNK_GRAPH_INCLUDE="${funk_SOURCE_DIR}/projects/funkgraph")
-target_link_libraries(funk-midi PRIVATE libfunk funkgraph)
-add_dependencies(funk-midi funkdsp)
+target_link_libraries(funk-live PRIVATE libfunk funkgraph)
+add_dependencies(funk-live funkdsp)
 if(FUNK_MINIAUDIO)
   set(MINIAUDIO ${funk_SOURCE_DIR}/thirdparty/miniaudio)
-  target_sources(funk-midi PRIVATE ${MINIAUDIO}/miniaudio.c)
-  target_include_directories(funk-midi PRIVATE ${MINIAUDIO})
-  target_compile_definitions(funk-midi PRIVATE HAVE_MINIAUDIO)
+  target_sources(funk-live PRIVATE ${MINIAUDIO}/miniaudio.c)
+  target_include_directories(funk-live PRIVATE ${MINIAUDIO})
+  target_compile_definitions(funk-live PRIVATE HAVE_MINIAUDIO)
   set_source_files_properties(${MINIAUDIO}/miniaudio.c PROPERTIES COMPILE_OPTIONS -w)
   if(APPLE)
-    target_link_libraries(funk-midi PRIVATE "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
+    target_link_libraries(funk-live PRIVATE "-framework CoreFoundation" "-framework CoreAudio" "-framework AudioToolbox")
   endif()
 endif()
 if(FUNK_LIBREMIDI)
-  target_compile_definitions(funk-midi PRIVATE HAVE_LIBREMIDI)
-  target_link_libraries(funk-midi PRIVATE libremidi)
+  target_compile_definitions(funk-live PRIVATE HAVE_LIBREMIDI)
+  target_link_libraries(funk-live PRIVATE libremidi)
 endif()

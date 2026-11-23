@@ -35,7 +35,7 @@ A query builds a `State` at each combinator. 2001 cycles of `every 3 (fast 2) (o
 
 2. Done 2026-11-08. The hosts query with a table they own (`projects/funkgraph/controls.h`), which `step` reads through `p.readControls`: `_cps`, and `_t_pattern`, the cycle of the window `pat` changes at. The plugin's clips get 0, so a clip plays from its own cycle 0. Tests: `hosts/midi` (`trigger`, `qtrigger`, `sec`) and `hosts/clap` (`sec`).
 
-3. Done 2026-11-08. `controls`, a list of `p.osc port`, `p.midiCC` and `p.params`, chooses the sources; defining it again replaces them, and clears their values, but not `setF`'s ([stream.md](stream.md#state)). OSC is `projects/funkgraph/controls.c`, polled without blocking before each `step`, so it needs no thread. A CC from the plugin's MIDI input, or from `funk-midi --in` through libremidi, waits in a table of 16 * 128 for the next `step`; `funk-midi`'s `:cc` sets one by hand. The plugin's parameters are CLAP's `p1` to `p16`. Tests: `kernels/controls` (the OSC parser over loopback), `hosts/midi` (`:cc`) and `hosts/clap` (OSC, a CC and a parameter).
+3. Done 2026-11-08. `controls`, a list of `p.osc port`, `p.midiCC` and `p.params`, chooses the sources; defining it again replaces them, and clears their values, but not `setF`'s ([stream.md](stream.md#state)). OSC is `projects/funkgraph/controls.c`, polled without blocking before each `step`, so it needs no thread. A CC from the plugin's MIDI input, or from `funk-live --in` through libremidi, waits in a table of 16 * 128 for the next `step`; `funk-live`'s `:cc` sets one by hand. The plugin's parameters are CLAP's `p1` to `p16`. Tests: `kernels/controls` (the OSC parser over loopback), `hosts/midi` (`:cc`) and `hosts/clap` (OSC, a CC and a parameter).
 
 ## Limits
 
@@ -43,4 +43,4 @@ A query builds a `State` at each combinator. 2001 cycles of `every 3 (fast 2) (o
 
 - The plugin's state does not hold its parameters' values; a host's automation restores them.
 
-- `funk-midi`'s MIDI input needs a build with libremidi; checked by hand, CC 21 from one `funk-midi` to another's virtual input, as no CI job builds it.
+- `funk-live`'s MIDI input needs a build with libremidi; checked by hand, CC 21 from one `funk-live` to another's virtual input, as no CI job builds it.

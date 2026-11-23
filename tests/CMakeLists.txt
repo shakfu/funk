@@ -53,91 +53,91 @@ set_tests_properties(lib/graph_imports PROPERTIES LABELS lib)
 add_test(NAME lib/reload COMMAND reload ${PROJECT_SOURCE_DIR}/lib 4000)
 set_tests_properties(lib/reload PROPERTIES LABELS lib TIMEOUT 300)
 
-# funk-midi on a virtual clock, printing its messages (projects/funk-midi)
+# funk-live on a virtual clock, printing its messages (projects/funk-live)
 add_test(NAME hosts/midi
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --script tests/hosts/midi.txt 2>&1 | diff tests/hosts/midi.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/midi PROPERTIES LABELS hosts TIMEOUT 300)
 # ... with --dirt: SuperDirt's bundles, decoded (tests/hosts/dirt.txt)
 add_test(NAME hosts/dirt
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/dirt.txt 2>&1 | diff tests/hosts/dirt.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/dirt.txt 2>&1 | diff tests/hosts/dirt.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/dirt PROPERTIES LABELS hosts TIMEOUT 300)
 # ... a file that imports dsp, without --audio (tests/hosts/dirt-dsp.fk)
 add_test(NAME hosts/dirt-dsp
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" tests/hosts/dirt-dsp.fk --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/dirt-dsp.txt 2>&1 | diff tests/hosts/dirt-dsp.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" tests/hosts/dirt-dsp.fk --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/dirt-dsp.txt 2>&1 | diff tests/hosts/dirt-dsp.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/dirt-dsp PROPERTIES LABELS hosts TIMEOUT 300)
 # ... Tidal's slots, d1 and p "name" (lib/stream.fk), to SuperDirt and to MIDI
 add_test(NAME hosts/slots
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/slots.txt 2>&1 | diff tests/hosts/slots.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/slots.txt 2>&1 | diff tests/hosts/slots.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/slots PROPERTIES LABELS hosts TIMEOUT 300)
 add_test(NAME hosts/slots-midi
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --script tests/hosts/slots_midi.txt 2>&1 | diff tests/hosts/slots_midi.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --script tests/hosts/slots_midi.txt 2>&1 | diff tests/hosts/slots_midi.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/slots-midi PROPERTIES LABELS hosts TIMEOUT 300)
 add_test(NAME hosts/commands
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/commands.txt 2>&1 | diff tests/hosts/commands.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/commands.txt 2>&1 | diff tests/hosts/commands.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/commands PROPERTIES LABELS hosts TIMEOUT 300)
 add_test(NAME hosts/tempo
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --dirt 57120 --script tests/hosts/tempo.txt 2>&1 | diff tests/hosts/tempo.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --dirt 57120 --script tests/hosts/tempo.txt 2>&1 | diff tests/hosts/tempo.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/tempo PROPERTIES LABELS hosts TIMEOUT 300)
 add_test(NAME hosts/state
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/state.txt 2>&1 | diff tests/hosts/state.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/state.txt 2>&1 | diff tests/hosts/state.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/state PROPERTIES LABELS hosts TIMEOUT 300)
 add_test(NAME hosts/transitions
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/transitions.txt 2>&1 | diff tests/hosts/transitions.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/transitions.txt 2>&1 | diff tests/hosts/transitions.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/transitions PROPERTIES LABELS hosts TIMEOUT 300)
 # ... both under FUNK_GCSTRESS, whose check of marks read an interpreter
 # frame's unset slot as a root (docs/dev/261110-gcstress-chkstk.md)
 add_test(NAME hosts/slots-gcstress
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/slots.txt 2>&1 | diff tests/hosts/slots.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --dirt 57120 --script tests/hosts/slots.txt 2>&1 | diff tests/hosts/slots.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 add_test(NAME hosts/slots-midi-gcstress
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --no-sleep --cycle 2000 --script tests/hosts/slots_midi.txt 2>&1 | diff tests/hosts/slots_midi.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --no-sleep --cycle 2000 --script tests/hosts/slots_midi.txt 2>&1 | diff tests/hosts/slots_midi.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/slots-gcstress hosts/slots-midi-gcstress PROPERTIES LABELS "hosts;stress" TIMEOUT 300 ENVIRONMENT FUNK_GCSTRESS=1)
 # ... with --audio: a graph of lib/kernels.fk, rendered on the virtual clock
 add_test(NAME hosts/audio
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --cycle 2000 --script tests/hosts/audio.txt 2>&1 | diff tests/hosts/audio.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --audio --no-sleep --cycle 2000 --script tests/hosts/audio.txt 2>&1 | diff tests/hosts/audio.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/audio PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... pat's notes on voices of the graph
 add_test(NAME hosts/voices
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --cycle 2000 --script tests/hosts/voices.txt 2>&1 | diff tests/hosts/voices.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --audio --voices 2 --no-sleep --cycle 2000 --script tests/hosts/voices.txt 2>&1 | diff tests/hosts/voices.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/voices PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... control patterns as MIDI and on the voices (lib/control.fk)
 add_test(NAME hosts/controls
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --voices 2 --no-sleep --cycle 2000 --script tests/hosts/controls.txt 2>&1 | diff tests/hosts/controls.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --audio --voices 2 --no-sleep --cycle 2000 --script tests/hosts/controls.txt 2>&1 | diff tests/hosts/controls.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/controls PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... control patterns as events of dirt's templates (docs/dev/dirt-sound.md)
 add_test(NAME hosts/events
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --cycle 2000 --script tests/hosts/events.txt 2>&1 | diff tests/hosts/events.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --audio --no-sleep --cycle 2000 --script tests/hosts/events.txt 2>&1 | diff tests/hosts/events.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/events PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # ... d.kit's samples on m.kit's notes, by name, from tests/hosts/samples
 add_test(NAME hosts/kit
-  COMMAND sh -c "\"$<TARGET_FILE:funk-midi>\" --audio --no-sleep --cycle 2000 --script tests/hosts/kit.txt 2>&1 | diff tests/hosts/kit.expected -"
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --audio --no-sleep --cycle 2000 --script tests/hosts/kit.txt 2>&1 | diff tests/hosts/kit.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/kit PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # the CLAP plugin in a headless host: evaluation, clips, Stop, state, Live
 # (projects/clap/test_clap_host.cpp; cases in tests/hosts/clap.txt)
-if(TARGET funk_midi_clap)
+if(TARGET funk_live_clap)
   add_test(NAME hosts/clap_units COMMAND test_clap_units)
-  add_test(NAME hosts/clap COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap>
+  add_test(NAME hosts/clap COMMAND test_clap_host $<TARGET_FILE:funk_live_clap>
     ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt 57291)
   set_tests_properties(hosts/clap_units PROPERTIES LABELS "hosts;clap")
   # serial: its real-time checks need the evaluator thread to run within the 50 ms
   # lookahead, which a loaded machine misses: under ctest -j 10, a note 3 ms late
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
-    ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+    ENVIRONMENT "FUNK_LIVE_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
   # ... with tests/noalloc.c inserted, which counts allocation and locking in process()
   if(TARGET noalloc)
     if(APPLE)
@@ -145,33 +145,33 @@ if(TARGET funk_midi_clap)
     else()
       set(INSERT LD_PRELOAD)
     endif()
-    add_test(NAME hosts/clap/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap>
+    add_test(NAME hosts/clap/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_live_clap>
       ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt 57293)
     set_tests_properties(hosts/clap/noalloc PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
-      ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57293;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache;${INSERT}=$<TARGET_FILE:noalloc>")
+      ENVIRONMENT "FUNK_LIVE_CLAP_UDP_PORT=57293;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache;${INSERT}=$<TARGET_FILE:noalloc>")
   endif()
   # simulator mode: a script's steps in turn, logged (projects/clap/simulator.hpp)
   set(SIM_LOG ${CMAKE_CURRENT_BINARY_DIR}/sim.log)
-  add_test(NAME hosts/clap/sim COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim ${SIM_LOG})
+  add_test(NAME hosts/clap/sim COMMAND test_clap_host $<TARGET_FILE:funk_live_clap> --sim ${SIM_LOG})
   set_tests_properties(hosts/clap/sim PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
-    ENVIRONMENT "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG};FUNK_MIDI_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+    ENVIRONMENT "FUNK_LIVE_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_LIVE_CLAP_SIM_LOG=${SIM_LOG};FUNK_LIVE_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
   if(TARGET noalloc)
-    add_test(NAME hosts/clap/sim/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim ${SIM_LOG}.noalloc)
+    add_test(NAME hosts/clap/sim/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_live_clap> --sim ${SIM_LOG}.noalloc)
     set_tests_properties(hosts/clap/sim/noalloc PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
-      ENVIRONMENT "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG}.noalloc;FUNK_MIDI_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache;${INSERT}=$<TARGET_FILE:noalloc>")
+      ENVIRONMENT "FUNK_LIVE_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim.fk;FUNK_LIVE_CLAP_SIM_LOG=${SIM_LOG}.noalloc;FUNK_LIVE_CLAP_SIM_INTERVAL=0.5;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache;${INSERT}=$<TARGET_FILE:noalloc>")
   endif()
   # a dense dirt set, headless (docs/dev/dirt-acceptance.md, step 5): no block over budget,
   # labelled realtime, not clap, as CI's shared machines miss it; and no allocation
-  set(SIM_DIRT_ENV "FUNK_MIDI_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim-dirt.fk;FUNK_MIDI_CLAP_SIM_INTERVAL=3;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
-  add_test(NAME hosts/clap/sim-dirt COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim-dirt ${SIM_LOG}.dirt 20 budget
+  set(SIM_DIRT_ENV "FUNK_LIVE_CLAP_SIM=${CMAKE_CURRENT_SOURCE_DIR}/hosts/sim-dirt.fk;FUNK_LIVE_CLAP_SIM_INTERVAL=3;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+  add_test(NAME hosts/clap/sim-dirt COMMAND test_clap_host $<TARGET_FILE:funk_live_clap> --sim-dirt ${SIM_LOG}.dirt 20 budget
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
   set_tests_properties(hosts/clap/sim-dirt PROPERTIES LABELS "hosts;realtime" TIMEOUT 60 RUN_SERIAL TRUE
-    ENVIRONMENT "${SIM_DIRT_ENV};FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG}.dirt")
+    ENVIRONMENT "${SIM_DIRT_ENV};FUNK_LIVE_CLAP_SIM_LOG=${SIM_LOG}.dirt")
   if(TARGET noalloc)
-    add_test(NAME hosts/clap/sim-dirt/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_midi_clap> --sim-dirt ${SIM_LOG}.dirt.noalloc 20 any
+    add_test(NAME hosts/clap/sim-dirt/noalloc COMMAND test_clap_host $<TARGET_FILE:funk_live_clap> --sim-dirt ${SIM_LOG}.dirt.noalloc 20 any
       WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
     set_tests_properties(hosts/clap/sim-dirt/noalloc PROPERTIES LABELS "hosts;clap" TIMEOUT 60 RUN_SERIAL TRUE
-      ENVIRONMENT "${SIM_DIRT_ENV};FUNK_MIDI_CLAP_SIM_LOG=${SIM_LOG}.dirt.noalloc;${INSERT}=$<TARGET_FILE:noalloc>")
+      ENVIRONMENT "${SIM_DIRT_ENV};FUNK_LIVE_CLAP_SIM_LOG=${SIM_LOG}.dirt.noalloc;${INSERT}=$<TARGET_FILE:noalloc>")
   endif()
   # the editor's syntax colours: drawn where ImGui draws its text, headless
   add_test(NAME hosts/clap/colours COMMAND test_editor_colours)
@@ -185,9 +185,9 @@ if(TARGET funk_midi_clap)
   set(CACHE_DIR ${CMAKE_CURRENT_BINARY_DIR}/clap-cache)
   # the host's output is shown only if it fails
   add_test(NAME hosts/clap/nocc COMMAND sh -c "rm -rf \"$0\" && { \"$1\" \"$2\" \"$3\" 57292 >\"$0.log\" 2>&1 || { cat \"$0.log\"; exit 1; }; } && ls \"$0\"/funk/ffi 2>/dev/null | wc -l"
-    ${CACHE_DIR} $<TARGET_FILE:test_clap_host> $<TARGET_FILE:funk_midi_clap> ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt)
+    ${CACHE_DIR} $<TARGET_FILE:test_clap_host> $<TARGET_FILE:funk_live_clap> ${CMAKE_CURRENT_SOURCE_DIR}/hosts/clap.txt)
   set_tests_properties(hosts/clap/nocc PROPERTIES LABELS "hosts;clap" TIMEOUT 240 RUN_SERIAL TRUE
-    ENVIRONMENT "FUNK_MIDI_CLAP_UDP_PORT=57292;CC=/nonexistent/cc;XDG_CACHE_HOME=${CACHE_DIR}" PASS_REGULAR_EXPRESSION "^ *0\n$")
+    ENVIRONMENT "FUNK_LIVE_CLAP_UDP_PORT=57292;CC=/nonexistent/cc;XDG_CACHE_HOME=${CACHE_DIR}" PASS_REGULAR_EXPRESSION "^ *0\n$")
 endif()
 
 # libfunk.h from a host's C (docs/dev/embedding.md)
@@ -473,8 +473,8 @@ set_tests_properties(kernels/controls PROPERTIES LABELS kernels)
 find_program(PYTHON3 python3)
 if(PYTHON3)
   add_test(NAME lib/tidal-examples COMMAND ${PYTHON3} -I tests/tidal/examples.py WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
-  # funk-midi --dirt's handshake, against a stand-in for SuperDirt, in real time
-  add_test(NAME hosts/dirt-handshake COMMAND ${PYTHON3} -I tests/hosts/dirt_handshake.py $<TARGET_FILE:funk-midi> WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  # funk-live --dirt's handshake, against a stand-in for SuperDirt, in real time
+  add_test(NAME hosts/dirt-handshake COMMAND ${PYTHON3} -I tests/hosts/dirt_handshake.py $<TARGET_FILE:funk-live> WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
   set_tests_properties(hosts/dirt-handshake PROPERTIES LABELS hosts TIMEOUT 60)
   set_tests_properties(lib/tidal-examples PROPERTIES LABELS lib)
 else()
@@ -516,12 +516,12 @@ if(GHC AND GHC_PKG AND TIDAL_MISSING EQUAL 0)
   if(PYTHON3)
     add_test(NAME lib/tidal-patches COMMAND sh tests/tidal/patches.sh ${GHC} $<TARGET_FILE:funk> ${PYTHON3} ${CMAKE_CURRENT_BINARY_DIR}/tidal-patches WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
     set_tests_properties(lib/tidal-patches PROPERTIES LABELS lib TIMEOUT 600)
-    # Tidal's doc examples through funk-midi --dirt (tests/tidal/docs.sh)
-    add_test(NAME lib/tidal-docs COMMAND sh tests/tidal/docs.sh ${GHC} $<TARGET_FILE:funk-midi> ${PYTHON3} ${CMAKE_CURRENT_BINARY_DIR}/tidal-docs WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    # Tidal's doc examples through funk-live --dirt (tests/tidal/docs.sh)
+    add_test(NAME lib/tidal-docs COMMAND sh tests/tidal/docs.sh ${GHC} $<TARGET_FILE:funk-live> ${PYTHON3} ${CMAKE_CURRENT_BINARY_DIR}/tidal-docs WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
     set_tests_properties(lib/tidal-docs PROPERTIES LABELS lib TIMEOUT 600)
   endif()
-  # funk-midi --dirt's messages against Tidal's toOSC (tests/tidal/dirt.sh)
-  add_test(NAME lib/tidal-dirt COMMAND sh tests/tidal/dirt.sh ${GHC} $<TARGET_FILE:funk-midi> ${CMAKE_CURRENT_BINARY_DIR}/tidal-dirt WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+  # funk-live --dirt's messages against Tidal's toOSC (tests/tidal/dirt.sh)
+  add_test(NAME lib/tidal-dirt COMMAND sh tests/tidal/dirt.sh ${GHC} $<TARGET_FILE:funk-live> ${CMAKE_CURRENT_BINARY_DIR}/tidal-dirt WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
   set_tests_properties(lib/tidal-dirt PROPERTIES LABELS lib TIMEOUT 600)
 else()
   message(STATUS "No ghc with the tidal package: lib/tidal is skipped")

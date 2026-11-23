@@ -16,7 +16,7 @@ class Language {
 public:
 	virtual ~Language() = default;
 	// Before each eval: whether it runs live or as a clip, which must end. A language whose
-	// code never ends by design, such as funk-midi's patterns, bounds a clip itself.
+	// code never ends by design, such as funk-live's patterns, bounds a clip itself.
 	virtual void setLive(bool live) { (void)live; }
 	// Runs code, appending to out what it prints, its result, and any error.
 	virtual void eval(const std::string& code, std::string& out) = 0;

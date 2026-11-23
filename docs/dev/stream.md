@@ -1,6 +1,6 @@
 # Pattern slots
 
-Tidal's slots and their commands, R1 and R2 in [tidal-comparison.md](tidal-comparison.md): `d1 $ s "bd*2"` and `p "name" $ ...` replace what one slot plays, the host plays every slot at once, and `hush`, `mute`, `solo`, `once` and the rest act on them. `lib/stream.fk` follows Tidal 1.10.3's `Stream/UI.hs`, `Stream/Process.hs` (`updatePattern`, `playStack`, `setPreviousPatternOrSilence`), `Stream/Listen.hs` and `Boot.hs`. funk-midi has them; the plugin does not yet.
+Tidal's slots and their commands, R1 and R2 in [tidal-comparison.md](tidal-comparison.md): `d1 $ s "bd*2"` and `p "name" $ ...` replace what one slot plays, the host plays every slot at once, and `hush`, `mute`, `solo`, `once` and the rest act on them. `lib/stream.fk` follows Tidal 1.10.3's `Stream/UI.hs`, `Stream/Process.hs` (`updatePattern`, `playStack`, `setPreviousPatternOrSilence`), `Stream/Listen.hs` and `Boot.hs`. funk-live has them; the plugin does not yet.
 
 ## Semantics
 
@@ -76,7 +76,7 @@ As Boot.hs's and `Transition.hs`'s: `xfade`, `xfadeIn`, `histpan`, `wait`, `wait
 
 ## Host side
 
-The slots are a C table of `StablePtr`s to `PlayState`s, by ID (`projects/funk-midi/stream.c`), with the patterns played once and `streamAll`'s function. Commands replace a slot's `StablePtr` and free the old one. Each window, `slots`, compiled once at start-up, reads the table through `playStack`. The imports are linked in as glue (`projects/funk-midi/glue.fk`), so no C compiler runs.
+The slots are a C table of `StablePtr`s to `PlayState`s, by ID (`projects/funk-live/stream.c`), with the patterns played once and `streamAll`'s function. Commands replace a slot's `StablePtr` and free the old one. Each window, `slots`, compiled once at start-up, reads the table through `playStack`. The imports are linked in as glue (`projects/funk-live/glue.fk`), so no C compiler runs.
 
 `setF`'s patterns are `StablePtr`s too: stream.c keeps them by name, and the host's controls hold them as their own kind, so an OSC `/ctrl` replaces one in place.
 
@@ -86,7 +86,7 @@ A value named `p` beside `import pattern as p` needed a change to module scope (
 
 ## Tests
 
-- `lib/tidal-dirt`, case `slots`: 5 slots through Tidal's own `playStack`, against funk-midi's; all 40 messages match.
+- `lib/tidal-dirt`, case `slots`: 5 slots through Tidal's own `playStack`, against funk-live's; all 40 messages match.
 
 - `hosts/slots`: order, orbits, replacing, `_d2`, `d10_`, `p 13`, `p "3"`, a pattern that fails at once, one that fails later, and `trigger` from its slot's time.
 
@@ -104,7 +104,7 @@ A value named `p` beside `import pattern as p` needed a change to module scope (
 
 - `hosts/state`: each `set` command, an OSC `/ctrl` after `setF`, and `controls` redefined.
 
-- `lib/tidal-dirt`, cases `xfade` to `forId`: 12 transitions at cycle 0 through Tidal's own mappers, queried a window at a time as funk-midi queries; all 229 messages match.
+- `lib/tidal-dirt`, cases `xfade` to `forId`: 12 transitions at cycle 0 through Tidal's own mappers, queried a window at a time as funk-live queries; all 229 messages match.
 
 - `hosts/transitions`: transitions past cycle 0, on a new slot, on a muted one, and `anticipateIn`.
 

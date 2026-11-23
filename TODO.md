@@ -8,7 +8,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 ## Critical
 
-- [x] `FUNK_GCSTRESS=1` failed funk-midi's check of marks: a false report, from a scratch register `___chkstk_darwin` saved into an interpreter VLA. Fixed 2026-11-10 ([docs/dev/261110-gcstress-chkstk.md](docs/dev/261110-gcstress-chkstk.md)).
+- [x] `FUNK_GCSTRESS=1` failed funk-live's check of marks: a false report, from a scratch register `___chkstk_darwin` saved into an interpreter VLA. Fixed 2026-11-10 ([docs/dev/261110-gcstress-chkstk.md](docs/dev/261110-gcstress-chkstk.md)).
 
 ## High
 
@@ -38,23 +38,23 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] A redefinition does not change code defined before it, overloaded or not, as in GHCi and Tidal. Done 2026-11-09.
 
-- [x] S9: a SuperDirt target, `funk-midi --dirt`. Done 2026-11-09.
+- [x] S9: a SuperDirt target, `funk-live --dirt`. Done 2026-11-09.
 
-- [x] Listen to `funk-midi --dirt 57120` against a running SuperDirt: it plays, on macOS, 2026-11-09.
+- [x] Listen to `funk-live --dirt 57120` against a running SuperDirt: it plays, on macOS, 2026-11-09.
 
-- [x] Check `funk-midi --dirt 57120`'s handshake against a real SuperDirt 1.7.3: started first, it connects at the next 2 s retry; started after, in 70 ms. Done 2026-11-10.
+- [x] Check `funk-live --dirt 57120`'s handshake against a real SuperDirt 1.7.3: started first, it connects at the next 2 s retry; started after, in 70 ms. Done 2026-11-10.
 
-- [x] R1: slots `d1`..`d16` and `p "name"`, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md)).
+- [x] R1: slots `d1`..`d16` and `p "name"`, in funk-live. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md)).
 
 - [ ] R1 in the plugin: slots for funk-clap. The 0.13 acceptance's REAPER set plays through `pat` until then ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md)).
 
 - [x] R2: the slots' commands, and the listener's OSC ones. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#commands)).
 
-- [x] R3, C2: tempo commands and an event's `cps`, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#tempo)).
+- [x] R3, C2: tempo commands and an event's `cps`, in funk-live. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#tempo)).
 
-- [x] R4: transitions, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
+- [x] R4: transitions, in funk-live. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
 
-- [x] R5: `setF` and its kind, in funk-midi. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#state)).
+- [x] R5: `setF` and its kind, in funk-live. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#state)).
 
 - [x] T2: fractional patterned speed factors. Done 2026-11-10.
 
@@ -136,7 +136,7 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 
 - [ ] 0.13 design note: weigh a fixed-order voice record against per-event subgraphs. rustel's voice is a fixed-size record with every effect as an optional field, rendered in one order, plus at most 3 `.FX()` stages (`crates/audio/src/backend.rs:370`). SuperDirt also runs its modules in one order (`DirtEvent.sc:192`, `SuperDirt.sc:174`). Decide first whether parity covers user `addModule` calls and custom SynthDefs; a fixed record cannot.
 
-- [x] A test that the C audio path does not allocate, free or lock: `funkgraph`'s runner, `voices.c` and the plugin's `process()` (`tests/noalloc.c`). Done 2026-11-15; Linux runs it in CI only. `funk-midi --audio`'s Core Audio callback is not covered.
+- [x] A test that the C audio path does not allocate, free or lock: `funkgraph`'s runner, `voices.c` and the plugin's `process()` (`tests/noalloc.c`). Done 2026-11-15; Linux runs it in CI only. `funk-live --audio`'s Core Audio callback is not covered.
 
 - [ ] Negative controls in the scsynth reference renders: each case also renders a wrong variant that must fail the comparison, so the metric is shown to separate them (`crates/audio/tests/chrome_reference.rs`). Compare samples against a stated error bound, not rustel's peak and RMS.
 
@@ -167,9 +167,9 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 
 ### From rustel
 
-- [ ] Write the scheduling contract of funk-midi's slots and the plugin, and test each clause: events carry their pattern's generation and an old generation is never delivered; onset ids are unique; stop does not wait behind evaluation; stale events expire. rustel's is `crates/scheduler/src/lib.rs:1-20`.
+- [ ] Write the scheduling contract of funk-live's slots and the plugin, and test each clause: events carry their pattern's generation and an old generation is never delivered; onset ids are unique; stop does not wait behind evaluation; stale events expire. rustel's is `crates/scheduler/src/lib.rs:1-20`.
 
-- [ ] R6: `funk-midi --watch FILE` reloads the file on save, so any editor works without a package, as `rustel play --watch`.
+- [ ] R6: `funk-live --watch FILE` reloads the file on save, so any editor works without a package, as `rustel play --watch`.
 
 - [ ] L7: also refuse an edit whose first window yields an invalid control value, and keep the last pattern playing, as rustel does (`docs/overview.md`, "Refused edits").
 
@@ -245,17 +245,17 @@ Ideas from [tzfm/rustel](https://github.com/tzfm/rustel), a Rust port of Strudel
 
 ### Kernels compiled while playing (desktop live coding)
 
-- [ ] Kernels compiled while playing, outside the plugin: `funk-midi --audio` has no way to evaluate one (`funk_compile_kernels`). Done in the plugin 2026-11-01.
+- [ ] Kernels compiled while playing, outside the plugin: `funk-live --audio` has no way to evaluate one (`funk_compile_kernels`). Done in the plugin 2026-11-01.
 
 - [ ] Under the hardened runtime, `dlopen` refuses a relative path, so a relative `XDG_CACHE_HOME` would fail every kernel load. Make the cache path absolute. The rest is checked ([docs/dev/plugin.md](docs/dev/plugin.md#hardened-hosts)).
 
 - [ ] **LLVM, as Faust uses it**, only if `$CC` proves too slow for kernels without the runtime: about 60 ms per edit at `-O2`, of which 22 ms is clang's start-up and about 20 ms linking. An IR emitter for the export subset alone would be much smaller than `cgen.c`, since that subset has no allocation, closures or constructors. libtcc compiles faster but does not optimize, and its support for the runtime's `__atomic_*` builtins is unverified.
 
-### funk-midi
+### funk-live
 
-- [ ] `funk-midi --audio` estimates a note's frame from its clock; the plugin already gives `pat`'s notes to its voices at exact frames ([docs/dev/plugin.md](docs/dev/plugin.md#notes-midi-and-voices-both)).
+- [ ] `funk-live --audio` estimates a note's frame from its clock; the plugin already gives `pat`'s notes to its voices at exact frames ([docs/dev/plugin.md](docs/dev/plugin.md#notes-midi-and-voices-both)).
 
-- [ ] Run `funk-midi --audio` on Linux, and listen to it.
+- [ ] Run `funk-live --audio` on Linux, and listen to it.
 
 ### Friction log ([docs/dev/patterns.md](docs/dev/patterns.md#friction-log))
 

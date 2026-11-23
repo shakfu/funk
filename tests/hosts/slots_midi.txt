@@ -1,4 +1,4 @@
--- funk-midi --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): slots to MIDI.
+-- funk-live --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): slots to MIDI.
 -- d1 and d2 play at once; a pat of Ints plays beside them; a pat of
 -- Controls replaces d1; an event's cps sets the tempo, from 2000 ms to 1000.
 d1 $ note "0 7"

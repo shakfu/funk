@@ -4,9 +4,9 @@ project(funk VERSION 0.13.0 LANGUAGES C)
 # One build of every project under projects/:
 #   funk       the language: libfunk and the command line
 #   funkgraph  the graph player for compiled kernels, and funkdsp.so
-#   funk-midi  plays patterns to MIDI, and graphs to audio, live
+#   funk-live  plays patterns to MIDI, and graphs to audio, live
 #   clap       a CLAP plugin framework, from midi-langs (FUNK_CLAP)
-#   funk-clap  funk-midi as a CLAP plugin, on clap (FUNK_CLAP)
+#   funk-clap  funk-live as a CLAP plugin, on clap (FUNK_CLAP)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
@@ -15,14 +15,14 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}) # build/funk, build/funk-midi
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}) # build/funk, build/funk-live
 
 set(FUNK_SANITIZE "" CACHE STRING "Sanitizers for funk itself, e.g. undefined or address")
-option(FUNK_LIBREMIDI "funk-midi's MIDI output, with thirdparty/libremidi" OFF)
-option(FUNK_MINIAUDIO "funk-midi's audio output, with thirdparty/miniaudio" ON)
+option(FUNK_LIBREMIDI "funk-live's MIDI output, with thirdparty/libremidi" OFF)
+option(FUNK_MINIAUDIO "funk-live's audio output, with thirdparty/miniaudio" ON)
 set(FUNK_DSP_LIB ${PROJECT_BINARY_DIR}/funkdsp.so) # lib/kernels.fk, compiled
 
-option(FUNK_CLAP "the funk-midi CLAP plugin, with thirdparty/{clap,pugl,imgui,libremidi}" OFF)
+option(FUNK_CLAP "the funk-live CLAP plugin, with thirdparty/{clap,pugl,imgui,libremidi}" OFF)
 if(FUNK_CLAP AND UNIX AND NOT APPLE)
   find_package(X11)
   find_package(OpenGL COMPONENTS OpenGL GLX)
@@ -56,7 +56,7 @@ endif()
 
 add_subdirectory(projects/funk)
 add_subdirectory(projects/funkgraph)
-add_subdirectory(projects/funk-midi)
+add_subdirectory(projects/funk-live)
 if(FUNK_CLAP)
   set(CMAKE_CXX_STANDARD 17)
   if(APPLE)
@@ -87,10 +87,10 @@ if(FUNK_SANITIZE)
   elseif(FUNK_SANITIZE MATCHES "address")
     list(APPEND san_flags --param=asan-instrument-allocas=0 --param=asan-use-after-return=0)
   endif()
-  foreach(t libfunk libfunk_hooks funk reload funk-midi)
+  foreach(t libfunk libfunk_hooks funk reload funk-live)
     target_compile_options(${t} PRIVATE ${san_flags})
   endforeach()
-  foreach(t funk reload funk-midi)
+  foreach(t funk reload funk-live)
     target_link_options(${t} PRIVATE -fsanitize=${FUNK_SANITIZE})
   endforeach()
   target_link_options(libfunk INTERFACE -fsanitize=${FUNK_SANITIZE}) # for hosts, the installed package's too

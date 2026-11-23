@@ -1,4 +1,4 @@
--- funk-midi --audio --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
+-- funk-live --audio --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
 -- control patterns as events of dirt's templates (docs/dev/dirt-sound.md).
 -- tests/hosts/samples: bd:0 is 0.25, bd:1 0.5 and sn 0.75, each 0.1 s,
 -- mono, so centred each channel gets Pan2's 0.7071 of it.

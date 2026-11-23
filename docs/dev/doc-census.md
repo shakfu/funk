@@ -1,6 +1,6 @@
 # Doc-example census
 
-2026-11-10. The `d1 $` examples in tidal-core 1.10.2's and tidal 1.10.3's doc comments, typed into funk-midi unchanged, to rank the remaining 0.12 gaps of [tidal-comparison.md](tidal-comparison.md). It follows [patch-census.md](patch-census.md), whose 2014 patches could not rank them.
+2026-11-10. The `d1 $` examples in tidal-core 1.10.2's and tidal 1.10.3's doc comments, typed into funk-live unchanged, to rank the remaining 0.12 gaps of [tidal-comparison.md](tidal-comparison.md). It follows [patch-census.md](patch-census.md), whose 2014 patches could not rank them.
 
 ## Method
 
@@ -8,7 +8,7 @@
 
 - Tidal side: each example through `tests/tidal/Dirt.hs`'s `out` in ghci, as `d1` plays it, with `Data.Ratio` in scope. That is 800 windows of 10 ms at 0.5 cps, encoded by Tidal's `toOSC`.
 
-- funk side: `funk-midi --no-sleep --cycle 2000 --dirt`, as `tests/tidal/dirt.sh` runs, with the example as its only input.
+- funk side: `funk-live --no-sleep --cycle 2000 --dirt`, as `tests/tidal/dirt.sh` runs, with the example as its only input.
 
 - An example matches exactly when the two sides send the same `/dirt/play` messages, bit for bit. Otherwise it matches by rounding when every message pairs with one within 36 ticks and 1e-4 in each value.
 
@@ -38,9 +38,9 @@ So 227 of the 248 that Tidal runs run unchanged in funk, and 226 send what Tidal
 
   - `accelerateTake` raises `toDatum: unhandled value` when played.
 
-- **Rounded 35.** Where traced, each divides a cycle finer than 1/16: `chop 32`, `*32`, `striate 128`, or inside a function, as `weave 16` does. 720720 ticks hold 2^4 but not 2^5. funk-midi plays onsets, so 44 us is inaudible. T1's finer ticks remain unneeded.
+- **Rounded 35.** Where traced, each divides a cycle finer than 1/16: `chop 32`, `*32`, `striate 128`, or inside a function, as `weave 16` does. 720720 ticks hold 2^4 but not 2^5. funk-live plays onsets, so 44 us is inaudible. T1's finer ticks remain unneeded.
 
-- **`# cps`, 6.** funk-midi applies an event's `cps` to the tempo, as `Stream/Process.hs:151` does. `Dirt.hs` holds 0.5 cps. Measured in cycles, the two sides match by rounding, except the `delta` of the onsets at cycle 0. funk-midi times those at the old tempo, as Tidal does: `processCps` reads `on`, `off` and the tempo from the frame's session state and sets the new tempo in another (`Stream/Process.hs:136-163`). The two differ only in that span: Tidal's frame is 50 ms (`clockFrameTimespan`), funk-midi's window 10 ms. So `# cps` stays kept (C2) for `Dirt.hs`'s fixed tempo, not for funk-midi.
+- **`# cps`, 6.** funk-live applies an event's `cps` to the tempo, as `Stream/Process.hs:151` does. `Dirt.hs` holds 0.5 cps. Measured in cycles, the two sides match by rounding, except the `delta` of the onsets at cycle 0. funk-live times those at the old tempo, as Tidal does: `processCps` reads `on`, `off` and the tempo from the frame's session state and sets the new tempo in another (`Stream/Process.hs:136-163`). The two differ only in that span: Tidal's frame is 50 ms (`clockFrameTimespan`), funk-live's window 10 ms. So `# cps` stays kept (C2) for `Dirt.hs`'s fixed tempo, not for funk-live.
 
 - **`stripe`, 1.** Tidal's `substruct'` returns events outside the query, so its 800 windows send 3220 messages for 48 onsets. funk sends each of the 48 once.
 

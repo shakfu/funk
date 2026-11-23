@@ -114,11 +114,11 @@ With 46126080 ticks per cycle (720720 * 64, so 2^10), every event outside `p17` 
 
 - Only the query is timed. The hosts also write each event's record: at most 8 events in any window here.
 
-The roadmap does not define "well inside". At 20% of the window, with a 50 ms lookahead in `funk-midi`, this passes (judgement).
+The roadmap does not define "well inside". At 20% of the window, with a 50 ms lookahead in `funk-live`, this passes (judgement).
 
 ## Open
 
-- ~~**The tick rate.**~~ Done 2026-11-11: 46126080. 46126080 makes binary subdivisions down to 1024ths exact. The cost: `randAt`'s constants, `funk-midi`'s `CYCLE_TICKS`, and every expected output written in ticks. A tick count would reach Int64's limit at 2e11 cycles, less by any `_fast` factor. The alternative is to keep 720720, with errors of at most 30 ticks.
+- ~~**The tick rate.**~~ Done 2026-11-11: 46126080. 46126080 makes binary subdivisions down to 1024ths exact. The cost: `randAt`'s constants, `funk-live`'s `CYCLE_TICKS`, and every expected output written in ticks. A tick count would reach Int64's limit at 2e11 cycles, less by any `_fast` factor. The alternative is to keep 720720, with errors of at most 30 ticks.
 
 - ~~**Tidal's `sound` of a pattern.** 12 of 22 patches need it.~~ Done 2026-11-09: controls take patterns.
 

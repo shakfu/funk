@@ -50,7 +50,7 @@ Every library gap of 0.12 is done. Open are T3 and R6; the SuperDirt sound is 0.
 
 - No `fromRational`: it waits for T3's `Rational`. `Floating` (`pi`, `sin` on patterns) is not done.
 
-**L5. Done 2026-11-10: the pattern library is unqualified in the hosts.** funk-midi and the plugin import `pattern` as `p` and with `(..)`, so Tidal's names work as written and `p.` names still do. No `pattern` name is the prelude's. One clashed with `control`: `pattern`'s internal `clip`, now `clipEvent`, so `clip` is Tidal's control. A name defined at the prompt shadows an imported one, as at GHCi's ([modules.md](modules.md)); funk-midi's `sig` needs that. `pattern` has no export list, so its 673 names, helpers included, are all in scope. [patch-census.md](patch-census.md) ran the 22 patches this way.
+**L5. Done 2026-11-10: the pattern library is unqualified in the hosts.** funk-live and the plugin import `pattern` as `p` and with `(..)`, so Tidal's names work as written and `p.` names still do. No `pattern` name is the prelude's. One clashed with `control`: `pattern`'s internal `clip`, now `clipEvent`, so `clip` is Tidal's control. A name defined at the prompt shadows an imported one, as at GHCi's ([modules.md](modules.md)); funk-live's `sig` needs that. `pattern` has no export list, so its 673 names, helpers included, are all in scope. [patch-census.md](patch-census.md) ran the 22 patches this way.
 
 **L8. Done 2026-11-11: `Enum`.** The prelude's `class Enum a` has `succ`, `pred`, `toEnum`, `fromEnum`, `enumFromTo` and `enumFromThenTo`, with instances for `Int`, `Float`, `Char`, `Bool`, `Ordering`, `()` and `Note`, and `deriving Enum`. A fractional range ends at the last value up to `b + 1/2`, so `run 3.5` ends at 3, as Tidal's. `enumFrom` and `enumFromThen` are infinite, so missing. `Int`'s ranges still fuse: list fusion knows the `Int` instance's `enumFromToInt`; `bench.py ab`: -0.7% and +0.6% geomean. `tests/run/enum.fk` prints what GHC prints for the same program.
 
@@ -114,9 +114,9 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 **C1. Done: controls of patterns.** See L2.
 
-**C2. Done 2026-11-10 in funk-midi: an event's `cps` sets the tempo**, at its onset, as in Tidal's `Stream/Process.hs:151`, so `# cps "<0.5 1>"` changes speed ([stream.md](stream.md#tempo)). In the plugin the DAW owns the tempo (R7).
+**C2. Done 2026-11-10 in funk-live: an event's `cps` sets the tempo**, at its onset, as in Tidal's `Stream/Process.hs:151`, so `# cps "<0.5 1>"` changes speed ([stream.md](stream.md#tempo)). In the plugin the DAW owns the tempo (R7).
 
-**C3. Done 2026-11-11, but buses and `ringCount`: the rest of `Params.hs`.** `lib/control.fk` has the 194 `xTake`, 188 `xCount` and 189 `xCountTo` generated from Tidal's `Params.hs`, `pStateF`, `pStateList`, `pStateListF`, `pStateListS`, `pB`, `pR`, `pX`, `array`, `midinote`, `drum`, `drumN` and `grain'`. `Value` has Tidal's `VB`, `VR` (a `Float`), `VX`, `VList` and `VState`. funk-midi resolves each window's state values as Tidal's `doTick` does: sorted by part, in one map with the host's controls, kept for the next window. `tests/tidal/Dirt.hs` checks counters, lists, Bools and blobs against Tidal's own state passing. Missing:
+**C3. Done 2026-11-11, but buses and `ringCount`: the rest of `Params.hs`.** `lib/control.fk` has the 194 `xTake`, 188 `xCount` and 189 `xCountTo` generated from Tidal's `Params.hs`, `pStateF`, `pStateList`, `pStateListF`, `pStateListS`, `pB`, `pR`, `pX`, `array`, `midinote`, `drum`, `drumN` and `grain'`. `Value` has Tidal's `VB`, `VR` (a `Float`), `VX`, `VList` and `VState`. funk-live resolves each window's state values as Tidal's `doTick` does: sorted by part, in one map with the host's controls, kept for the next window. `tests/tidal/Dirt.hs` checks counters, lists, Bools and blobs against Tidal's own state passing. Missing:
 
 - `xbus` and `xrecv` (246 and 208): SuperDirt control buses, which need S2's;
 
@@ -126,19 +126,19 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 ## Runtime and workflow
 
-`Boot.hs` and `Stream/UI.hs` hold Tidal's runtime. funk-midi has Tidal's slots, `:stop` and `:play`, and `:cycle MS`.
+`Boot.hs` and `Stream/UI.hs` hold Tidal's runtime. funk-live has Tidal's slots, `:stop` and `:play`, and `:cycle MS`.
 
-**R1. Done 2026-11-10: named pattern slots.** `d1` to `d16`, `p "name"`, `_p`, `p_`, `_d1` and `d1_`, in `lib/stream.fk`, in funk-midi; `pat` of `Controls` is `d1`'s. `lib/tidal-dirt` checks 5 slots against Tidal's `playStack` ([stream.md](stream.md)). Not yet in the plugin.
+**R1. Done 2026-11-10: named pattern slots.** `d1` to `d16`, `p "name"`, `_p`, `p_`, `_d1` and `d1_`, in `lib/stream.fk`, in funk-live; `pat` of `Controls` is `d1`'s. `lib/tidal-dirt` checks 5 slots against Tidal's `playStack` ([stream.md](stream.md)). Not yet in the plugin.
 
 **R2. Done 2026-11-10: slot commands.** Boot.hs's `hush`, `once`, `first`, `asap`, `solo`, `unsolo`, `mute`, `unmute`, `unmuteAll`, `unsoloAll`, `list`, `panic` and `only`, and the listener's OSC `/silence`, `/muteAll` and the rest ([stream.md](stream.md#commands)). Kept differences: Tidal's `all` is `streamAll`, as the prelude's `all` keeps its name; `only` takes `\_ -> action`, as funk is strict.
 
-**R3. Done 2026-11-10 in funk-midi: tempo and cycle commands.** `setcps`, `setbpm`, `getcps`, `getbpm`, `getnow`, `resetCycles`, `setCycle` and `nudgeAll`, and the listener's OSC forms ([stream.md](stream.md#tempo)). The default is Tidal's 0.575 cycles per second: its clock's `defaultCps` (tidal-link `Clock.hs`), not the 0.5625 of a doc comment (`Safe/Boot.hs:75`). Kept difference: the getters return `Float`, as funk has no `Rational` (T3). In the plugin the host's tempo stays authoritative (R7).
+**R3. Done 2026-11-10 in funk-live: tempo and cycle commands.** `setcps`, `setbpm`, `getcps`, `getbpm`, `getnow`, `resetCycles`, `setCycle` and `nudgeAll`, and the listener's OSC forms ([stream.md](stream.md#tempo)). The default is Tidal's 0.575 cycles per second: its clock's `defaultCps` (tidal-link `Clock.hs`), not the 0.5625 of a doc comment (`Safe/Boot.hs:75`). Kept difference: the getters return `Float`, as funk has no `Rational` (T3). In the plugin the host's tempo stays authoritative (R7).
 
-**R4. Done 2026-11-10 in funk-midi: transitions.** Boot.hs's `xfade` to `forId`, and `Transition.hs`'s mappers, `_xfadeIn` to `_mortalOverlay` ([stream.md](stream.md#transitions)). `lib/tidal-dirt` checks 12 against Tidal's own. `wash`, `washIn` and `mortalOverlay`, which Boot.hs hides, are `_wash`, `_washIn` and `_mortalOverlay`.
+**R4. Done 2026-11-10 in funk-live: transitions.** Boot.hs's `xfade` to `forId`, and `Transition.hs`'s mappers, `_xfadeIn` to `_mortalOverlay` ([stream.md](stream.md#transitions)). `lib/tidal-dirt` checks 12 against Tidal's own. `wash`, `washIn` and `mortalOverlay`, which Boot.hs hides, are `_wash`, `_washIn` and `_mortalOverlay`.
 
-**R5. Done 2026-11-10 in funk-midi: state set from code.** `setF`, `setI`, `setS`, `setR`, `setB` and `getState`; `cF` and the rest query a value that is a pattern, as Tidal's `VPattern` ([stream.md](stream.md#state)). `lib/tidal` checks 9 cases against Tidal. Kept difference: `setR` takes `Float`s (T3).
+**R5. Done 2026-11-10 in funk-live: state set from code.** `setF`, `setI`, `setS`, `setR`, `setB` and `getState`; `cF` and the rest query a value that is a pattern, as Tidal's `VPattern` ([stream.md](stream.md#state)). `lib/tidal` checks 9 cases against Tidal. Kept difference: `setR` takes `Float`s (T3).
 
-**R6. Gap: Ableton Link and editor integration.** Missing are `enableLink` and `disableLink`. Tidal's editor plugins, for Pulsar, VS Code, Vim and Emacs, send blocks to GHCi on standard input. funk-midi reads standard input, and the plugin takes code over UDP (`projects/clap/udp_server.cpp`). No editor package targets either. It is not checked whether an existing Tidal editor plugin can be pointed at `funk-midi` unchanged.
+**R6. Gap: Ableton Link and editor integration.** Missing are `enableLink` and `disableLink`. Tidal's editor plugins, for Pulsar, VS Code, Vim and Emacs, send blocks to GHCi on standard input. funk-live reads standard input, and the plugin takes code over UDP (`projects/clap/udp_server.cpp`). No editor package targets either. It is not checked whether an existing Tidal editor plugin can be pointed at `funk-live` unchanged.
 
 **R7. Kept: in the plugin, the DAW owns the tempo and transport.** A cycle is 4 beats at the host's tempo ([music.md](../music.md)). Tidal's own clock would drift from the host's. Tidal's `cBeatsPerCycle` of 4 agrees with this.
 
@@ -166,7 +166,7 @@ Coverage of `Core.hs`, `UI.hs` and `Control.hs` is complete: 178 cases in `lib/t
 
 - scsynth computes in `float32`. Match it bit for bit in `float32`, or work in double with a stated error bound.
 
-**S9. Done 2026-11-09: an OSC target.** `funk-midi --dirt [HOST:]PORT` sends `/dirt/play` bundles as Tidal's `superdirtTarget` does ([dirt.md](dirt.md)). `lib/tidal-dirt` checks 122 messages of 12 patterns against Tidal's own `toOSC`, float bits included. S1 to S8 now matter only in the plugin and without SuperCollider. It shakes hands as Tidal does. An event's `cps` sets the tempo (C2).
+**S9. Done 2026-11-09: an OSC target.** `funk-live --dirt [HOST:]PORT` sends `/dirt/play` bundles as Tidal's `superdirtTarget` does ([dirt.md](dirt.md)). `lib/tidal-dirt` checks 122 messages of 12 patterns against Tidal's own `toOSC`, float bits included. S1 to S8 now matter only in the plugin and without SuperCollider. It shakes hands as Tidal does. An event's `cps` sets the tempo (C2).
 
 **S10. Done 2026-11-11 for `dirt`: events without a limit per name.** A sound of a top-level `dirt` plays each event on its own chain, made from templates and a pool of 256 stages ([dirt-sound.md](dirt-sound.md)). A full pool drops the newest event and counts it. `d.kit`'s 4 voices a name remain for `m.kit`'s notes and for sounds `dirt` lacks.
 

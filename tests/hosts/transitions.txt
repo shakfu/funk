@@ -1,4 +1,4 @@
--- funk-midi --no-sleep --cycle 2000 --dirt 57120 --script (tests/CMakeLists.txt):
+-- funk-live --no-sleep --cycle 2000 --dirt 57120 --script (tests/CMakeLists.txt):
 -- Tidal's transitions (lib/stream.fk), given past cycle 0 (lib/tidal-dirt
 -- checks each at cycle 0 against Tidal's own). xfade from cycle 2: the gain
 -- of a falls as b's rises, over 4 cycles; the slot then has no _id_, as in

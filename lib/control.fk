@@ -1139,7 +1139,7 @@ writeControlEventsBy :: (Controls -> Controls) -> Ptr Int -> Int -> [p.Event Con
 writeControlEventsBy f buf cap es cs ups = writeControlEventsAt 0 f buf cap es cs ups
 
 -- writeControlEventsBy of events from a pattern shifted ot ticks earlier
--- (funk-midi's slots): a synth's cycle is its whole's start plus ot
+-- (funk-live's slots): a synth's cycle is its whole's start plus ot
 writeControlEventsAt :: Int -> (Controls -> Controls) -> Ptr Int -> Int -> [p.Event Controls] -> Int -> Int ->> Int
 writeControlEventsAt ot f buf cap es cs ups = writeRecords buf cap 0 (concatMap (\(s, d, v) -> map (\r -> (s, r)) (recordsOf ups cs d (f v)))
   (p.sampled cs (map (\e -> p.Event e.whole e.part (setControl "_cycle" (VF (toFloat ((p.wholeOrPart e).start + ot) / toFloat p.cycleTicks)) e.value) e.context) es)))
@@ -1166,7 +1166,7 @@ writeRecords buf cap i rs = case rs of
     else ()
     writeRecords buf cap (i + 1) rest
 
--- For a SuperDirt target (funk-midi --dirt, docs/dev/dirt.md): the onsets
+-- For a SuperDirt target (funk-live --dirt, docs/dev/dirt.md): the onsets
 -- that start in units [a, b) and have an `s`, as Tidal's superdirtShape
 -- requires, in order of start, written to buf's cap bytes. Each is its start
 -- and duration in units, its cycle (ot is the pattern's tick at unit 0),

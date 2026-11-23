@@ -17,18 +17,18 @@ mkdir -p ~/.local/share/funk
 ln -s "$HOME/Library/Application Support/SuperCollider/downloaded-quarks/Dirt-Samples" ~/.local/share/funk/Dirt-Samples
 ```
 
-That is macOS's path; on Linux it is `~/.local/share/SuperCollider/downloaded-quarks/Dirt-Samples`. Then load a file in the plugin, or run it in `funk-midi`:
+That is macOS's path; on Linux it is `~/.local/share/SuperCollider/downloaded-quarks/Dirt-Samples`. Then load a file in the plugin, or run it in `funk-live`:
 
 ```sh
-funk-midi examples/tidal/cycles-05.fk --audio
+funk-live examples/tidal/cycles-05.fk --audio
 ```
 
 `--dirt 57120` in place of `--audio` sends the events to a running SuperDirt instead.
 
-`funk-midi` plays in real time only when built with libremidi: `cmake -S . -B build -DFUNK_LIBREMIDI=ON && cmake --build build`.
+`funk-live` plays in real time only when built with libremidi: `cmake -S . -B build -DFUNK_LIBREMIDI=ON && cmake --build build`.
 
 - **Sound.** Each file plays through `dirt` with `dsp.superDirt`, as SuperDirt does, at its level, with its limiter on each orbit ([docs/music.md](../../docs/music.md#events-as-superdirt-plays-them)). `dsp.kit` would clip: it plays 8 dB louder, without a limiter, and `cycles-05` peaked at 4.6 times full scale through it.
-- **Tempo.** The hosts play 0.5 cycles per second; Tidal's default is 0.5625. `funk-midi --cycle 1778` plays at Tidal's.
+- **Tempo.** The hosts play 0.5 cycles per second; Tidal's default is 0.5625. `funk-live --cycle 1778` plays at Tidal's.
 - **Missing samples.** A name not in Dirt-Samples is silent. `cycles-03`'s `nn` is not in Dirt-Samples.
 
 `tests/tidal/ports.fk` holds the same patterns for the tests. `lib/tidal-examples` checks that the two match.

@@ -77,7 +77,7 @@ render v out i n = if i == n then () else do
 
 ## C: MIDI to external synths (today)
 
-- **How:** patterns produce MIDI (`funk-midi`, the CLAP plugin), and a hardware or software synth makes the sound.
+- **How:** patterns produce MIDI (`funk-live`, the CLAP plugin), and a hardware or software synth makes the sound.
 
 - **Live:** everything funk does, since funk does no audio-rate work.
 
@@ -86,7 +86,7 @@ render v out i n = if i == n then () else do
 - **Limits:**
   - Sound design happens outside funk.
 
-  - Timing is MIDI's: `funk-midi`'s sender is within 0.3 ms on macOS, plus the synth's own latency.
+  - Timing is MIDI's: `funk-live`'s sender is within 0.3 ms on macOS, plus the synth's own latency.
 
   - The note, velocity and channel encoding has no room for continuous parameters.
 
@@ -103,7 +103,7 @@ funk's thread (interpreted, live)            audio thread (compiled, fixed)
        encode, ringPush                            render voices, write buffer
 ```
 
-- **Live:** patterns, as in `funk-midi` now. The synth is fixed for a run.
+- **Live:** patterns, as in `funk-live` now. The synth is fixed for a run.
 
 - **Timing:** sample-accurate. Each event carries its sample, and the voice applies it at that sample. `tests/ffi/sched.fk` already checks the transport's exactness.
 
@@ -120,14 +120,14 @@ What it needs:
 
    Voices sit in one C block, voice `i` at `plusPtr base (i * Voice.size)`: foreign structs cannot hold C arrays ([realtime.md](realtime.md)).
 
-2. **Compiled code inside an interpreting host.** The host runs patterns in the interpreter, but the synth must be compiled. `funk emit-c` pastes the runtime into its output, so linking that output into `funk-midi` would put two copies of the runtime's symbols in one process. The fix is shared-library output with the runtime's symbols hidden ([embedding.md](embedding.md), phase 0 item 5):
+2. **Compiled code inside an interpreting host.** The host runs patterns in the interpreter, but the synth must be compiled. `funk emit-c` pastes the runtime into its output, so linking that output into `funk-live` would put two copies of the runtime's symbols in one process. The fix is shared-library output with the runtime's symbols hidden ([embedding.md](embedding.md), phase 0 item 5):
    - `funk build --shared dsp.fk` builds a library with its own private runtime;
 
    - the host loads it with `dlopen` and calls `fk_voice`;
 
    - the two runtimes share only C memory: the voice struct and the ring. Their ring layouts agree when both come from one funk version.
 
-3. **Audio output in `funk-midi`.** A `--audio` option, with PortAudio, which the example already uses, or miniaudio. Its callback calls `fk_voice`.
+3. **Audio output in `funk-live`.** A `--audio` option, with PortAudio, which the example already uses, or miniaudio. Its callback calls `fk_voice`.
 
 4. **Wider events.** A value has 16 bits, and note, velocity and channel need 18. Parameters such as cutoff need more. Options:
    - two ring entries per event, read as a pair; that needs a two-entry commit, or the reader checks the count;
@@ -260,13 +260,13 @@ What it needs:
 
    These replace widening funk's `Ring Int` (A's item 4) for graphs: the consumer is the C runner, not a funk export, so the queue holds C structs, and funk pushes through a foreign call. A frame is 64 bits, the target a name's hash, the value a `float`.
 
-   **Voices**, 2026-10-29: a fixed pool, as controls. `d.poly n f` sums `n` copies of `f gate freq`, voice `k` reading the controls `vk.gate` and `vk.freq`; `funk-midi --audio` defines `voices f` as `d.poly N f`, N from `--voices` (default 8), and sends `pat`'s notes to it. A note takes the free voice released longest ago, else steals the voice of the oldest note; its gate is velocity / 127. A voice reused within a frame of its release, or stolen, gets a gate of 0 for one frame, so its envelope restarts. One graph for all notes, over adding nodes per note: no swap per note, and every voice's state stays put. One voice per pattern layer was the other option; it cannot play a chord. Test `hosts/voices`, on the virtual clock; with the restart frame removed, its last envelope stays at 0.
+   **Voices**, 2026-10-29: a fixed pool, as controls. `d.poly n f` sums `n` copies of `f gate freq`, voice `k` reading the controls `vk.gate` and `vk.freq`; `funk-live --audio` defines `voices f` as `d.poly N f`, N from `--voices` (default 8), and sends `pat`'s notes to it. A note takes the free voice released longest ago, else steals the voice of the oldest note; its gate is velocity / 127. A voice reused within a frame of its release, or stolen, gets a gate of 0 for one frame, so its envelope restarts. One graph for all notes, over adding nodes per note: no swap per note, and every voice's state stays put. One voice per pattern layer was the other option; it cannot play a chord. Test `hosts/voices`, on the virtual clock; with the restart frame removed, its last envelope stays at 0.
 
    Notes are scheduled in the player's frames. On the virtual clock a frame is exact; in real time the host keeps an offset from its clock to the player's frame count, moved by 1/64 of the error each 10 ms window, since the count advances a callback's block at a time. Measured on macOS at 48 kHz, the error stayed within 300 frames over 8 s, against a lookahead of 2,400. MIDI channels are ignored: every note shares one pool.
 
    **Channels**, 2026-10-29: `g.Channels [Sig]`, or `d.stereo l r`, is a signal of several channels. A node with such an input becomes one node per channel, each reading its inputs' matching channel, or the only one, as in SuperCollider's multichannel expansion; a named node of two channels becomes `n.1` and `n.2`. So `d.pan pos x` is `x` times a stereo gain, and panned voices sum into a stereo graph, from mono kernels. Expansion happens as the graph is written, so a mono input is one node shared by its channels; expanding the tree first would copy it, and a panned voice would cost twice. Inputs of 2 and 3 channels are an error, before the C graph is allocated; SuperCollider wraps the shorter instead. In C, `funk_graph_output` sets a channel's node and `funk_player_render_channels` renders them; channel c plays output c modulo their number, so a mono graph plays on every channel. Tests `kernels/graph` and `kernels/ugens`.
 
-5. **`funk-midi --audio`.** Done, 2026-10-29: input that defines `sig`, a `g.Sig`, plays it from the next block, beside `pat`'s MIDI; test `hosts/audio`, on the virtual clock, which prints the output's peak every 250 ms. The host owns the player and the kernel library, `lib/kernels.fk` compiled by CMake (`projects/funkgraph/CMakeLists.txt`); funk only builds graphs, so the audio thread runs C alone. Through miniaudio, a header-only library vendored in `thirdparty/miniaudio` (`FUNK_MINIAUDIO`, on by default), rather than PortAudio, which would be an installed dependency. Checked on macOS: the device rendered 144,207 frames in 3 s at 48 kHz. Listened to on macOS; not run on Linux. A graph of channels plays one per device channel, a mono graph on all. A `sig` that fails, by type or by naming no kernel, leaves the last graph playing.
+5. **`funk-live --audio`.** Done, 2026-10-29: input that defines `sig`, a `g.Sig`, plays it from the next block, beside `pat`'s MIDI; test `hosts/audio`, on the virtual clock, which prints the output's peak every 250 ms. The host owns the player and the kernel library, `lib/kernels.fk` compiled by CMake (`projects/funkgraph/CMakeLists.txt`); funk only builds graphs, so the audio thread runs C alone. Through miniaudio, a header-only library vendored in `thirdparty/miniaudio` (`FUNK_MINIAUDIO`, on by default), rather than PortAudio, which would be an installed dependency. Checked on macOS: the device rendered 144,207 frames in 3 s at 48 kHz. Listened to on macOS; not run on Linux. A graph of channels plays one per device channel, a mono graph on all. A `sig` that fails, by type or by naming no kernel, leaves the last graph playing.
 
 Limits:
 
@@ -287,7 +287,7 @@ LLVM, as Faust uses it, stays a later option for kernels: only if about 60 ms pe
 | Sound designed in funk | no | yes | yes | yes |
 | `$CC` at run time | no | no | yes | only for new kernels |
 | Feedback within a sample | in the synth | yes | yes | inside one kernel |
-| New funk work | none | DSP library, shared-library output, audio in `funk-midi`, wider events | A, plus compile-and-swap | kernels without the runtime, kernel library, C runner, graph builder, wider events |
+| New funk work | none | DSP library, shared-library output, audio in `funk-live`, wider events | A, plus compile-and-swap | kernels without the runtime, kernel library, C runner, graph builder, wider events |
 | Runs in a plugin | yes (note effect) | needs audio ports in the framework | needs `$CC` in the plugin's process | with kernels built ahead of time; needs audio ports |
 
 ## Recommendation
@@ -302,7 +302,7 @@ Order:
 
 3. The C runner with the graph swap, then the graph builder in funk.
 
-4. `funk-midi --audio`. Done (item 5 above).
+4. `funk-live --audio`. Done (item 5 above).
 
 5. Measurements. Done, 2026-10-29 ([261029-dsp-measurements.md](261029-dsp-measurements.md)): a `d.poly` voice costs 792 ns per 64-frame block, so about 1,600 fit in 1.33 ms on one M1 core; funk's kernels cost what C's do; a kernel compiles in about 120 ms, mostly fixed.
 

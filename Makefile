@@ -9,7 +9,7 @@
 #   make SANITIZE=address test     under ASan; set ASAN_OPTIONS=detect_leaks=0 on Linux
 #   make bench | bench-report      time funk against C; see bench/README.md
 #   make install                   install funk into ~/.local/bin
-#   make clap                      build build/clap/funk-midi.clap (FUNK_CLAP)
+#   make clap                      build build/clap/funk-live.clap (FUNK_CLAP)
 #   make clap-dev                  run the plugin's editor in a minimal host,
 #                                  MIDI to the first port, its audio's peak each second
 #   make tree-sitter               generate projects/tree-sitter-funk's parser and
@@ -53,9 +53,9 @@ clap: $(BUILD)/CMakeCache.txt
 
 # On macOS a .clap is a bundle; dlopen needs the binary inside it
 ifeq ($(shell uname),Darwin)
-CLAP_BIN = $(BUILD)/clap/funk-midi.clap/Contents/MacOS/funk-midi
+CLAP_BIN = $(BUILD)/clap/funk-live.clap/Contents/MacOS/funk-live
 else
-CLAP_BIN = $(BUILD)/clap/funk-midi.clap
+CLAP_BIN = $(BUILD)/clap/funk-live.clap
 endif
 clap-dev: clap
 	./$(BUILD)/clap_dev_host $(CLAP_BIN) --meter

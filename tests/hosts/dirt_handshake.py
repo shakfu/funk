@@ -1,8 +1,8 @@
-"""funk-midi --dirt's handshake against a stand-in for SuperDirt 1.7.3
-(docs/dev/dirt.md): it listens only once funk-midi reports waiting, then
+"""funk-live --dirt's handshake against a stand-in for SuperDirt 1.7.3
+(docs/dev/dirt.md): it listens only once funk-live reports waiting, then
 replies to /dirt/handshake as SuperDirt does, then sends /dirt/hello, which
 must bring another handshake. Bundles must arrive, with no send errors.
-Usage: python3 dirt_handshake.py FUNK_MIDI"""
+Usage: python3 dirt_handshake.py FUNK_LIVE"""
 import socket
 import struct
 import subprocess
@@ -37,7 +37,7 @@ def main():
         script = f.name
     funk = subprocess.Popen([sys.argv[1], "--dirt", "127.0.0.1:%d" % port, "--script", script],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    # listen once funk-midi has waited: start-up takes 10 s under TSAN
+    # listen once funk-live has waited: start-up takes 10 s under TSAN
     early = []
     while not early or "Waiting for SuperDirt" not in early[-1]:
         line = funk.stderr.readline()

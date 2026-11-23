@@ -4,7 +4,7 @@
 -- toOSC, as d1 plays it (Boot.hs: p 1 . (|< orbit 0)), a float printed as its bits. An event's times are
 -- in microseconds, to the nearest, as Link's are (assumed: Link's llround),
 -- and delta is their difference.
--- tests/tidal/dirt.sh diffs this against funk-midi --dirt.
+-- tests/tidal/dirt.sh diffs this against funk-live --dirt.
 import Data.Int (Int64)
 import Data.List (sortOn)
 import Control.Monad (foldM_)
@@ -46,7 +46,7 @@ slotsWith kps = playStack $ Map.fromList [(k, PlayState (pat # pS "_id_" (pure k
 outStack :: String -> ControlPattern -> IO ()
 outStack name pat = mapM_ line es
   where
-    -- funk-midi's windows, 10 ms at 0.5 cps: a signal joined in, as by
+    -- funk-live's windows, 10 ms at 0.5 cps: a signal joined in, as by
     -- fadeOutFrom, is read once a window, as Tidal reads it once a frame
     es = sortOn (start . part) $ concat [filter eventHasOnset $ queryArc pat (Arc (k / 200) ((k + 1) / 200)) | k <- [0 .. 799]]
     pe e = ProcessedEvent

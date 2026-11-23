@@ -1,4 +1,4 @@
--- funk-midi --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
+-- funk-live --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt):
 -- Tidal's setF and its kind (lib/stream.fk), which cF and the rest read as
 -- a pattern, from the next window. Cycle 0: no value, so cF's default; 1:
 -- setF a pattern of two; 2: OSC /ctrl sets x, and replaces setF's; 3: setF

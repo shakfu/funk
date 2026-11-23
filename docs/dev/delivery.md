@@ -12,7 +12,7 @@ Every hop from a pattern to the audio thread carries one `Int` per event, which 
 
 1. `pat` is a `Pattern Int`: note + 128 * velocity + 16384 * (channel - 1) (`lib/midi.fk`).
 
-2. `p.writeEvents` writes 3 `Int`s per event, start, duration and value, up to 4096 per 10 ms window. The host calls `step` through `funk_call` (`projects/funk-clap/funk_clap.cpp:71`, `projects/funk-midi/main.c:60`).
+2. `p.writeEvents` writes 3 `Int`s per event, start, duration and value, up to 4096 per 10 ms window. The host calls `step` through `funk_call` (`projects/funk-clap/funk_clap.cpp:71`, `projects/funk-live/main.c:60`).
 
 3. The plugin turns each event into a note-on and a note-off in `pending_`, a heap of 3-byte messages, and sends them with `midi_out_send` (`funk_clap.cpp:623-645`).
 
@@ -137,7 +137,7 @@ Recommendation: T2, with T1's mapping for MIDI output. T3 falls out of T2: a par
 
 1. `lib/control.fk`: `Value`, `Controls`, controls, operators, the float mode, and tests. No host changes.
 
-2. Hosts: `writeEvents`' record format; `funk-midi` and the plugin read records; the MIDI mapping.
+2. Hosts: `writeEvents`' record format; `funk-live` and the plugin read records; the MIDI mapping.
 
 3. `projects/clap`: the parameter pool; `audioNote` with parameters; `funk_voices_on` with parameters; `voicesWith`; `d.kit`'s parameters.
 
@@ -175,7 +175,7 @@ Taken 2026-11-07.
 
 ## Step 2
 
-Done 2026-11-07: control patterns play as MIDI in `funk-midi` and the plugin.
+Done 2026-11-07: control patterns play as MIDI in `funk-live` and the plugin.
 
 - `c.midiOf` follows SuperDirt's MIDI event (`DirtEventTypes.sc`, defaults from `DirtOrbit.sc`), on Tidal's `develop` branch as of 2026-11-07. `c.writeControls` writes three `Int`s a message: its time, its bytes with their size, and a note-on's length. The length rides with the note-on because `funk_voices` sends in time order: an off queued ahead of the next window would hold that window's notes back.
 
@@ -193,7 +193,7 @@ Done 2026-11-07: control patterns play as MIDI in `funk-midi` and the plugin.
 
 ## Step 3
 
-Done 2026-11-08: an event's parameters reach the voices, and a sample event `d.kit`, in `funk-midi` and the plugin.
+Done 2026-11-08: an event's parameters reach the voices, and a sample event `d.kit`, in `funk-live` and the plugin.
 
 - `c.recordsOf` adds records to `writeControls`' stream: a name's chunks, 8 characters each, then a value, a `Float` in the payload's 8 bytes; and a trigger, which takes the chunks before it as a sample's key. A MIDI event's parameters precede its note-on, except the names `midiOf` reads.
 

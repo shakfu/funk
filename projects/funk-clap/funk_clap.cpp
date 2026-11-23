@@ -1,4 +1,4 @@
-// funk-midi as a CLAP plugin: funk's patterns (funk's docs/dev/patterns.md) behind
+// funk-live as a CLAP plugin: funk's patterns (funk's docs/dev/patterns.md) behind
 // projects/clap/plugin.cpp.
 //
 // `pat = <a Pattern Int>` loops in Live mode; an expression of type Pattern Int plays once,
@@ -8,7 +8,7 @@
 // makes them; velocity 0 plays as 100.
 //
 // `sig = <a g.Sig>` plays on the plugin's stereo output from the next block, as in
-// funk-midi --audio; `voices f` is d.poly of kVoices voices, which every note the plugin
+// funk-live --audio; `voices f` is d.poly of kVoices voices, which every note the plugin
 // sends plays too (funk_voices, on the audio thread). The kernels are lib/kernels.fk,
 // compiled into funkdsp.so, which the build puts in the bundle's Resources (beside the
 // .clap on Linux). graph.fk's imports use glue.c, linked in (funk_glue), so no C compiler runs.
@@ -248,7 +248,7 @@ private:
 		// MIDI still plays, the output is silent.
 		s.graphs_ = ok && funk_eval(f, "import graph as g", "<setup>", &shown) && funk_eval(f, "import dsp as d", "<setup>", &shown)
 		            && funk_eval(f, "dirt = d.noDirt", "<setup>", &shown);
-		if (ok && !s.graphs_) fputs("funk-midi: no audio: graph.fk's foreign imports did not compile\n", stderr);
+		if (ok && !s.graphs_) fputs("funk-live: no audio: graph.fk's foreign imports did not compile\n", stderr);
 		started->set_value(ok);
 		if (!ok) return 1;
 		for (;;) {
@@ -324,7 +324,7 @@ struct KernelBuild {
 		const std::string path = b->dir + "/kernel." + std::to_string(getpid()) + "." + std::to_string(h) + ".fk";
 		FILE* file = fopen(path.c_str(), "w");
 		if (!file || fputs(b->code.c_str(), file) < 0) {
-			b->messages += "funk-midi: cannot write " + path + "\n";
+			b->messages += "funk-live: cannot write " + path + "\n";
 			if (file) fclose(file);
 			return 1;
 		}
@@ -346,7 +346,7 @@ void BuildKernels(KernelBuild* b)
 	const funk_config config{kHeapLimit, kThreshold, kStackSize, nullptr, 0};
 	funk* f = funk_new(&config);
 	if (!f) {
-		b->messages += "funk-midi: cannot start a session for the kernels\n";
+		b->messages += "funk-live: cannot start a session for the kernels\n";
 		return;
 	}
 	funk_run(f, &KernelBuild::Run, b);
@@ -355,7 +355,7 @@ void BuildKernels(KernelBuild* b)
 	// 250 ms, which would stall a looping pat.
 	if (b->library.empty()) return;
 	b->handle = dlopen(b->library.c_str(), RTLD_NOW | RTLD_LOCAL);
-	if (!b->handle) b->messages += std::string("funk-midi: cannot load the kernels: ") + dlerror() + "\n";
+	if (!b->handle) b->messages += std::string("funk-live: cannot load the kernels: ") + dlerror() + "\n";
 }
 
 // --- audio ------------------------------------------------------------------
@@ -459,7 +459,7 @@ public:
 				pat = s.eval(controls ? stepControls() : kStep, out)
 				      && (live_ || (s.eval("once = pat", out) && s.eval(controls ? stepOnceControls() : kStepOnce, out)));
 				if (pat) stepControls_ = onceControls_ = controls;
-				else out += "funk-midi: pat is not playing: it must be a Pattern Int or of Controls\n";
+				else out += "funk-live: pat is not playing: it must be a Pattern Int or of Controls\n";
 			}, &out);
 			if (interrupted) out += "stopped\n";
 		}
@@ -540,7 +540,7 @@ public:
 			const std::string path = KernelsPath();
 			audio_.kernels = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
 			if (!audio_.kernels) {
-				fprintf(stderr, "funk-midi: no audio: cannot load the kernels: %s\n", dlerror());
+				fprintf(stderr, "funk-live: no audio: cannot load the kernels: %s\n", dlerror());
 				return true;
 			}
 		}
@@ -629,7 +629,7 @@ private:
 	void loadKernels(const std::string& code, std::string& out)
 	{
 		if (!session_.graphs()) {
-			out += "funk-midi: no audio, so no kernels\n";
+			out += "funk-live: no audio, so no kernels\n";
 			return;
 		}
 		const auto started = std::chrono::steady_clock::now();
@@ -650,7 +650,7 @@ private:
 			return;
 		}
 		if (!build.handle) {
-			if (build.messages.empty()) out += "funk-midi: the kernels did not compile\n";
+			if (build.messages.empty()) out += "funk-live: the kernels did not compile\n";
 			return;
 		}
 		session_.call([&] {
@@ -679,7 +679,7 @@ private:
 		long arg = 0, r = 0;
 		if (!session_.eval("playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }", out) ||
 		    !funk_call(session_.handle(), "playsig", 1, &arg, &r))
-			out += "funk-midi: sig is not playing: it must be a g.Sig of funkdsp.so's kernels\n";
+			out += "funk-live: sig is not playing: it must be a g.Sig of funkdsp.so's kernels\n";
 	}
 
 	// On funk's thread: dirt's templates, and the steps of control patterns compiled again, so
@@ -692,7 +692,7 @@ private:
 		if (!audio_.ready) return;
 		long arg = 0, r = 0;
 		if (!session_.eval(kPlayDirt, out) || !funk_call(session_.handle(), "playdirt", 1, &arg, &r))
-			out += "funk-midi: dirt is not playing: it must be a d.Dirt of funkdsp.so's kernels\n";
+			out += "funk-live: dirt is not playing: it must be a d.Dirt of funkdsp.so's kernels\n";
 	}
 
 	const char* stepControls() { return session_.graphs() ? kStepDirt : kStepControls; }
@@ -734,10 +734,10 @@ private:
 		bool ok = false;
 		session_.call([&] { ok = funk_call(session_.handle(), step, 5, args, &n); }, &out);
 		if (!ok) {
-			out += "funk-midi: the pattern failed; it stops until it is evaluated again\n";
+			out += "funk-live: the pattern failed; it stops until it is evaluated again\n";
 			return false;
 		}
-		if (n > kCap) out += "funk-midi: " + std::to_string(n) + " events in one window; played " + std::to_string(kCap) + "\n";
+		if (n > kCap) out += "funk-live: " + std::to_string(n) + " events in one window; played " + std::to_string(kCap) + "\n";
 		// A clip's note-offs end 1 ms before its bar: at the bar they would grow the clip by one,
 		// and within half a frame of it the clip player drops them as it loops.
 		const double end = origin + kCycleMs - 1.;
@@ -820,14 +820,14 @@ private:
 		nOsc_ = 0, ccOn_ = paramsOn_ = false, controls_.n = 0;
 		long ins[8], n = 0, arg = (long)ins;
 		if (!session_.eval("controlIns buf = p.writeControlIns (plusPtr nullPtr buf) controls", out) || !funk_call(session_.handle(), "controlIns", 1, &arg, &n)) {
-			out += "funk-midi: controls is not used: it must be a [p.ControlIn]\n";
+			out += "funk-live: controls is not used: it must be a [p.ControlIn]\n";
 			return;
 		}
 		for (long i = 0; i < n && i < 8; i++) {
 			if (ins[i] == -1) ccOn_ = true;
 			else if (ins[i] == -2) paramsOn_ = true;
 			else if ((oscFds_[nOsc_] = funk_osc_open((int)ins[i])) >= 0) nOsc_++;
-			else out += "funk-midi: cannot listen for OSC on port " + std::to_string(ins[i]) + "\n";
+			else out += "funk-live: cannot listen for OSC on port " + std::to_string(ins[i]) + "\n";
 		}
 	}
 	double patternCycle_ = 0;     // the cycle pat last changed at, for trigger
@@ -875,11 +875,11 @@ private:
 } // namespace
 
 const LanguageInfo kLanguage = {
-	"com.github.shakfu.midi-langs.funk-midi",
-	"funk-midi",
+	"com.github.shakfu.funk.funk-live",
+	"funk-live",
 	"funk patterns, live",
-	"MidiLangsFunkMidiEditor",
-	"FUNK_MIDI_CLAP_UDP_PORT",
+	"FunkLiveEditor",
+	"FUNK_LIVE_CLAP_UDP_PORT",
 	57170,
 	{EvalSyntax::kParagraphs, "--", "\"'"},
 	kDefaultCode,
@@ -894,6 +894,6 @@ const LanguageInfo kLanguage = {
 #else
 	nullptr,
 #endif
-	"FUNK_MIDI_CLAP_SIM",
+	"FUNK_LIVE_CLAP_SIM",
 	kControlParams,
 };

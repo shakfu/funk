@@ -6,15 +6,15 @@ The simulator evaluates steps from a script, one every interval, as a performer 
 
 ## Variables
 
-Read once per instance, at `init`. Unset `FUNK_MIDI_CLAP_SIM` turns the simulator off.
+Read once per instance, at `init`. Unset `FUNK_LIVE_CLAP_SIM` turns the simulator off.
 
 | Variable | Value | Default |
 |-|-|-|
-| `FUNK_MIDI_CLAP_SIM` | the script's absolute path | off |
-| `FUNK_MIDI_CLAP_SIM_ORDER` | `rotate` or `random` | `rotate` |
-| `FUNK_MIDI_CLAP_SIM_INTERVAL` | seconds from one step's start to the next, >= 0.1 | 16 |
-| `FUNK_MIDI_CLAP_SIM_LOG` | the log's path; appended to | the script's path + `.log` |
-| `FUNK_MIDI_CLAP_SIM_SEED` | an unsigned integer | the clock's; logged |
+| `FUNK_LIVE_CLAP_SIM` | the script's absolute path | off |
+| `FUNK_LIVE_CLAP_SIM_ORDER` | `rotate` or `random` | `rotate` |
+| `FUNK_LIVE_CLAP_SIM_INTERVAL` | seconds from one step's start to the next, >= 0.1 | 16 |
+| `FUNK_LIVE_CLAP_SIM_LOG` | the log's path; appended to | the script's path + `.log` |
+| `FUNK_LIVE_CLAP_SIM_SEED` | an unsigned integer | the clock's; logged |
 
 - `rotate` starts instance N at step N. `random` never picks a step twice in a row; instance N uses seed + N.
 
@@ -79,18 +79,18 @@ A block is over budget when `process()` takes longer than the block lasts: `fram
 
 1. `make clap`.
 
-2. In REAPER's preferences, under Plug-ins > CLAP, add `build/clap` to the paths and rescan. `funkdsp.so` must stay beside `funk-midi.clap`. A symlink to the `.clap` alone loses the kernels: the plugin looks beside the path it was loaded from.
+2. In REAPER's preferences, under Plug-ins > CLAP, add `build/clap` to the paths and rescan. `funkdsp.so` must stay beside `funk-live.clap`. A symlink to the `.clap` alone loses the kernels: the plugin looks beside the path it was loaded from.
 
 3. Start REAPER with the variables set:
 
    ```sh
-   FUNK_MIDI_CLAP_SIM=$PWD/projects/funk-clap/sim-set.fk \
-   FUNK_MIDI_CLAP_SIM_INTERVAL=8 FUNK_MIDI_CLAP_SIM_ORDER=random reaper
+   FUNK_LIVE_CLAP_SIM=$PWD/projects/funk-clap/sim-set.fk \
+   FUNK_LIVE_CLAP_SIM_INTERVAL=8 FUNK_LIVE_CLAP_SIM_ORDER=random reaper
    ```
 
    On macOS, run `/Applications/REAPER.app/Contents/MacOS/REAPER` in place of `reaper`. REAPER started from Finder or the Dock does not see the variables.
 
-4. Insert `funk-midi` on one or more tracks. Steps start at each instance's first block.
+4. Insert `funk-live` on one or more tracks. Steps start at each instance's first block.
 
 5. Read the log: `grep -E ' (slow|busy|error) |failed' projects/funk-clap/sim-set.fk.log`. The `error` step fails on purpose.
 

@@ -1,11 +1,11 @@
 #!/bin/sh
-# Tidal's doc examples against funk-midi --dirt (docs/dev/doc-census.md).
+# Tidal's doc examples against funk-live --dirt (docs/dev/doc-census.md).
 # tests/tidal/docs.cases holds the 248 `d1 $` examples of tidal-core 1.10.2's
 # and tidal 1.10.3's doc comments that Tidal runs, one per line. ghci plays
-# each through tests/tidal/Dirt.hs's out; funk-midi plays it as typed.
+# each through tests/tidal/Dirt.hs's out; funk-live plays it as typed.
 # tests/tidal/docs.py classifies each case; the result must be
 # tests/tidal/docs.expected.
-# Arguments: ghc, funk-midi, python3, a scratch directory. Run from the repository root.
+# Arguments: ghc, funk-live, python3, a scratch directory. Run from the repository root.
 ghc="$1" midi="$2" python="$3" dir="$4"
 set -e
 mkdir -p "$dir"

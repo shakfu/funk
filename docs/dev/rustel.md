@@ -19,7 +19,7 @@ Status: research, 2026-11-11. It compares funk with [rustel](https://github.com/
 | Sound | its own engine, after Strudel's superdough | SuperDirt over OSC; `d.kit` and voices in the plugin |
 | Voices | a fixed-size record per voice; at most 512, newest dropped | a fixed graph; at most 64 voices, oldest stolen (`projects/funkgraph/graph.h:143`) |
 | Orbits | 16, each with delay and reverb (`crates/audio/src/scalar.rs:232`) | S2, in 0.13 |
-| Hosts | CLI, terminal studio, embeddable engine | REPL, `funk-midi`, CLAP plugin, `libfunk` |
+| Hosts | CLI, terminal studio, embeddable engine | REPL, `funk-live`, CLAP plugin, `libfunk` |
 
 ## Lessons
 
@@ -61,7 +61,7 @@ rustel compares only peak and RMS. That is too weak for funk's exact parity. Kee
 
 - the clock is injected, and offline rendering uses the same virtual clock.
 
-funk-midi's slots ([stream.md](stream.md)) and the plugin hold some of these without a written contract. Writing it gives each clause a test.
+funk-live's slots ([stream.md](stream.md)) and the plugin hold some of these without a written contract. Writing it gives each clause a test.
 
 ### 5. Refused edits
 
@@ -75,7 +75,7 @@ This is one option for T3, against Haskell's unbounded `Rational`. clang and gcc
 
 ### 7. Editor integration without packages (R6)
 
-`rustel play song.strudel --watch` reloads the file on save. Any editor then works with no package. `funk-midi --watch FILE` would close most of R6's editor gap.
+`rustel play song.strudel --watch` reloads the file on save. Any editor then works with no package. `funk-live --watch FILE` would close most of R6's editor gap.
 
 ### 8. Link (R6)
 

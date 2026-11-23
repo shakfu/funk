@@ -1,6 +1,6 @@
 # A SuperDirt target
 
-`funk-midi --dirt [HOST:]PORT` sends the slots, `d1` and the rest, to SuperDirt as Tidal 1.10.3's `superdirtTarget` does, in place of MIDI. This closes S9 in [tidal-comparison.md](tidal-comparison.md): anyone running SuperCollider hears SuperDirt itself.
+`funk-live --dirt [HOST:]PORT` sends the slots, `d1` and the rest, to SuperDirt as Tidal 1.10.3's `superdirtTarget` does, in place of MIDI. This closes S9 in [tidal-comparison.md](tidal-comparison.md): anyone running SuperCollider hears SuperDirt itself.
 
 ## What is sent
 
@@ -12,13 +12,13 @@ One OSC bundle per onset whose controls name `s`, Tidal's `superdirtShape` (`Str
 
 - `_id_`, the slot's ID, which each slot adds ([stream.md](stream.md)).
 
-`lib/control.fk`'s `writeDirtWith` writes each event's times, cycle and controls to the host's buffer; `projects/funk-midi/dirt.c` encodes the bundle. The encoding stays in C because funk has no way to write a big-endian `float32`.
+`lib/control.fk`'s `writeDirtWith` writes each event's times, cycle and controls to the host's buffer; `projects/funk-live/dirt.c` encodes the bundle. The encoding stays in C because funk has no way to write a big-endian `float32`.
 
 An event's start and stop are rounded to the nearest microsecond, and `delta` is their difference, as Tidal's Link times are. That Link rounds to the nearest (`llround`) is assumed, not checked against Link's source.
 
 ## When it is sent
 
-The bundle's time tag is the onset's wall time plus its `nudge`, and SuperDirt plays it at that time: its `playFunc` takes `time - thisThread.seconds` as the event's latency. Tidal stamps its bundles at the onset's Link time less `oLatency`, 0.2 s, but its Link timeline runs `clockProcessAhead`, 0.3 s, ahead of the query, so its bundles reach SuperDirt about 0.1 s before they sound. funk-midi's clock has no such offset: an onset's time is when it sounds. So `--dirt` raises the lookahead from 50 ms to 0.1 s, and bundles go out as each window is computed. On a local listener, 12 bundles arrived 97.7 to 99.6 ms before their time tags.
+The bundle's time tag is the onset's wall time plus its `nudge`, and SuperDirt plays it at that time: its `playFunc` takes `time - thisThread.seconds` as the event's latency. Tidal stamps its bundles at the onset's Link time less `oLatency`, 0.2 s, but its Link timeline runs `clockProcessAhead`, 0.3 s, ahead of the query, so its bundles reach SuperDirt about 0.1 s before they sound. funk-live's clock has no such offset: an onset's time is when it sounds. So `--dirt` raises the lookahead from 50 ms to 0.1 s, and bundles go out as each window is computed. On a local listener, 12 bundles arrived 97.7 to 99.6 ms before their time tags.
 
 Cycle 0 starts one lookahead after start-up; otherwise the first window's bundles would be late. A redefinition plays from the first window past the lookahead, so an edit sounds 0.1 s later than with MIDI, as in Tidal.
 
@@ -34,8 +34,8 @@ As Tidal's (`Stream/Target.hs`, `handshake`): `/dirt/handshake`, then 2 s of lis
 
 ## Tests
 
-- `lib/tidal-dirt` (`tests/tidal/dirt.sh`): `tests/tidal/Dirt.hs` builds Tidal's own `/dirt/play` messages for 12 patterns through `toOSC`, over cycles 0 to 4 at 0.5 cps; funk-midi plays the same patterns on its virtual clock and prints the messages it encodes, decoded. All 122 messages match, float bits included. The time tags are not compared: Tidal's come from its Link clock.
+- `lib/tidal-dirt` (`tests/tidal/dirt.sh`): `tests/tidal/Dirt.hs` builds Tidal's own `/dirt/play` messages for 12 patterns through `toOSC`, over cycles 0 to 4 at 0.5 cps; funk-live plays the same patterns on its virtual clock and prints the messages it encodes, decoded. All 122 messages match, float bits included. The time tags are not compared: Tidal's come from its Link clock.
 
 - `hosts/dirt` (`tests/hosts/dirt.txt`): time tags, `nudge`, `:cycle`, `:stop` and a pattern of the wrong type.
 
-- `hosts/dirt-handshake` (`tests/hosts/dirt_handshake.py`): a stand-in for SuperDirt that listens only after 2.5 s, replies, then sends `/dirt/hello`. funk-midi must wait, connect, report each once, and shake again.
+- `hosts/dirt-handshake` (`tests/hosts/dirt_handshake.py`): a stand-in for SuperDirt that listens only after 2.5 s, replies, then sends `/dirt/hello`. funk-live must wait, connect, report each once, and shake again.

@@ -1,4 +1,4 @@
-"""Classify funk-midi's messages for each of Tidal's doc examples.
+"""Classify funk-live's messages for each of Tidal's doc examples.
 
 Usage: docs.py CASES TIDAL_OUT FUNK_OUT
 

@@ -6,25 +6,25 @@ A guide to funk's music library: `lib/pattern.fk`, `lib/midi.fk`, and the two pr
 
 - **`midi`** sets velocity and channel on a pattern of MIDI notes.
 
-- **`funk-midi`** is a REPL that plays a pattern to a MIDI port and replaces it live when you redefine it.
+- **`funk-live`** is a REPL that plays a pattern to a MIDI port and replaces it live when you redefine it.
 
 - **The CLAP plugin** (`projects/funk-clap`) does the same inside a DAW, or in a standalone host.
 
-The patterns drive an external synth over MIDI, or SuperDirt over OSC, as Tidal does (`funk-midi --dirt 57120`). `funk-midi --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
+The patterns drive an external synth over MIDI, or SuperDirt over OSC, as Tidal does (`funk-live --dirt 57120`). `funk-live --audio` also plays `sig`, a graph of `lib/dsp.fk`'s signals, to the audio device ([dev/audio.md](dev/audio.md), D).
 
-Every output below comes from `funk-midi --no-sleep --cycle 2000`. Note-offs are left out.
+Every output below comes from `funk-live --no-sleep --cycle 2000`. Note-offs are left out.
 
 ## Quick start
 
-Build `funk-midi` with MIDI output, through the vendored `thirdparty/libremidi`:
+Build `funk-live` with MIDI output, through the vendored `thirdparty/libremidi`:
 
 ```sh
 cmake -B build -DFUNK_LIBREMIDI=ON
-cmake --build build --target funk-midi
-build/funk-midi
+cmake --build build --target funk-live
+build/funk-live
 ```
 
-It opens a virtual MIDI port named `funk-midi`. Point a synth or a DAW track at it, then type:
+It opens a virtual MIDI port named `funk-live`. Point a synth or a DAW track at it, then type:
 
 ```haskell
 pat = p.fastcat [p.atom 60, p.atom 64, p.atom 67]
@@ -42,7 +42,7 @@ The hosts import `lib/pattern.fk` both as `p` and unqualified, so `fastcat [atom
 
 ## Time
 
-- **A cycle** is the unit of musical time. A host gives it a length: in `funk-midi`, Tidal's 0.575 cycles a second by default, changed by `setcps` and an event's `cps`; 4 beats in the CLAP plugin.
+- **A cycle** is the unit of musical time. A host gives it a length: in `funk-live`, Tidal's 0.575 cycles a second by default, changed by `setcps` and an event's `cps`; 4 beats in the CLAP plugin.
 
 - **A tick** is 1/46126080 of a cycle (`p.cycleTicks`). 46126080 is 64 times the least common multiple of 1 to 16, so a cycle divides exactly into 2 to 16 steps, into products of those while the prime factors last, and into 1024ths. A step of 1/17, or triplets nested three deep (1/27), rounds to the tick below.
 
@@ -249,14 +249,14 @@ A name not in the kit is dropped. A folder with no WAV or AIFF file fails `sig`,
 
 ### Control patterns
 
-`pat` may also be a control pattern, as Tidal's: events of named parameters, from `lib/control.fk`. `funk-midi` and the plugin import every name of it unqualified, as Tidal's are, with `import control (..)`:
+`pat` may also be a control pattern, as Tidal's: events of named parameters, from `lib/control.fk`. `funk-live` and the plugin import every name of it unqualified, as Tidal's are, with `import control (..)`:
 
 ```haskell
 pat = note "0 [4 7]" # ccn "74" # ccv "<64 100>"
 pat = n "0 12" # midichan "1" # gain "1.2" |+ n "<0 2>"
 ```
 
-`funk-midi` also has Tidal's slots, from `lib/stream.fk`, imported as `import stream (..)`. Each plays at once, and each is replaced alone; `pat` of controls is `d1`'s. `d1` to `d12` play on orbits 0 to 11, and `_d1` or `d1_` silences slot 1 ([dev/stream.md](dev/stream.md)):
+`funk-live` also has Tidal's slots, from `lib/stream.fk`, imported as `import stream (..)`. Each plays at once, and each is replaced alone; `pat` of controls is `d1`'s. `d1` to `d12` play on orbits 0 to 11, and `_d1` or `d1_` silences slot 1 ([dev/stream.md](dev/stream.md)):
 
 ```haskell
 d1 $ s "bd*2 sn"
@@ -281,7 +281,7 @@ An event plays as SuperDirt's MIDI target plays it, if it has no `s` or `s` is `
 
 Each message goes out at the event's onset, before its note.
 
-The plugin's voices, and `funk-midi --audio`'s, read an event's other parameters through `voicesWith`, whose function also takes `param`: `param name default` is the voice's value of `name`, which its event sets as its note starts. A parameter MIDI takes, such as `note`, `gain` or `ccn`, is not sent to the voice.
+The plugin's voices, and `funk-live --audio`'s, read an event's other parameters through `voicesWith`, whose function also takes `param`: `param name default` is the voice's value of `name`, which its event sets as its note starts. A parameter MIDI takes, such as `note`, `gain` or `ccn`, is not sent to the voice.
 
 ```haskell
 sig = voicesWith (\gate freq param -> d.lowpass1 (param "cutoff" 2000.0) (d.saw freq) * gate)
@@ -345,17 +345,17 @@ pat = p.segment 8 (p.range 48.0 72.0 (p.cF 0.0 "cc74")) -- a Pattern Float, mapp
 
 - `p.osc port`: Tidal's OSC `/ctrl name value` on 127.0.0.1, under its own name. Tidal's port is 6010.
 
-- `p.midiCC`: CC 74 as `"cc74"`, from any channel, and `"1:cc74"` from channel 1, 0 to 1. The plugin takes it from its MIDI input; `funk-midi` from `--in N` or `--in-virtual NAME`, and from `:cc CHANNEL NUM VALUE`.
+- `p.midiCC`: CC 74 as `"cc74"`, from any channel, and `"1:cc74"` from channel 1, 0 to 1. The plugin takes it from its MIDI input; `funk-live` from `--in N` or `--in-virtual NAME`, and from `:cc CHANNEL NUM VALUE`.
 
 - `p.params`: the plugin's parameters `"p1"` to `"p16"`, 0 to 1, which a DAW can automate.
 
-In `funk-midi`, Tidal's `setF "x" "<0.25 0.5>"`, `setI`, `setS`, `setR` and `setB` set a value from code, as a pattern; `getState "x"` reads one ([dev/stream.md](dev/stream.md#state)).
+In `funk-live`, Tidal's `setF "x" "<0.25 0.5>"`, `setI`, `setS`, `setR` and `setB` set a value from code, as a pattern; `getState "x"` reads one ([dev/stream.md](dev/stream.md#state)).
 
 `trigger` and `qtrigger` start a pattern from the cycle it was defined at, and `sec` and `msec` turn seconds into cycles, from the hosts' `_t_pattern` and `_cps` ([dev/controls-in.md](dev/controls-in.md)).
 
 ## MIDI values
 
-`funk-midi` and the CLAP plugin play a `Pattern Int`. Each value is:
+`funk-live` and the CLAP plugin play a `Pattern Int`. Each value is:
 
 ```text
 note + 128 * velocity + 16384 * (channel - 1)
@@ -382,7 +382,7 @@ They clamp, not fail, so a typo cannot stop playback. `mapP (+ 12)` changes the 
 
 ## Live coding
 
-### funk-midi
+### funk-live
 
 Input is funk REPL input: declarations, expressions, and these commands:
 
@@ -399,7 +399,7 @@ Input is funk REPL input: declarations, expressions, and these commands:
 | `FILE` | load `FILE` at start |
 | `--script FILE` | run `FILE`'s lines as input, then exit |
 | `--port N`, `--list` | send to output port `N`; list the ports |
-| `--virtual NAME` | name the virtual port (default `funk-midi`) |
+| `--virtual NAME` | name the virtual port (default `funk-live`) |
 | `--cycle MS` | the cycle's length (default 1739.13, Tidal's 0.575 cycles a second) |
 | `--print`, `--no-sleep` | print messages instead of sending them; run on a virtual clock |
 | `-M DIR` | search `DIR` for modules |
@@ -413,7 +413,7 @@ Errors leave the music playing:
 
 ### The CLAP plugin
 
-`make clap` builds `build/clap/funk-midi.clap`. `make clap-dev` runs it without a DAW: its audio plays on the default output device, and its MIDI goes to the first port or to a virtual port named `midi-langs-dev`. `build/clap_dev_host --meter PLUGIN` also prints the output's peak every second.
+`make clap` builds `build/clap/funk-live.clap`. `make clap-dev` runs it without a DAW: its audio plays on the default output device, and its MIDI goes to the first port or to a virtual port named `midi-langs-dev`. `build/clap_dev_host --meter PLUGIN` also prints the output's peak every second.
 
 The editor opens with a `sig` and a `pat`: evaluate both paragraphs to hear `pat`'s notes on the plugin's voices. Notes the DAW sends to the plugin, from a keyboard or a MIDI clip, play the same voices.
 
@@ -427,7 +427,7 @@ In the editor, Ctrl+Return evaluates the paragraph around the caret, and Ctrl+. 
 | an expression of type `Pattern Int` | plays once, one cycle | becomes a one-cycle clip |
 | anything else | evaluated; its value is printed | the same |
 
-`sig = ...` plays a graph on the plugin's stereo output, as `funk-midi --audio` does, and every note the plugin sends also plays `voices f`, 8 voices of `f gate freq`:
+`sig = ...` plays a graph on the plugin's stereo output, as `funk-live --audio` does, and every note the plugin sends also plays `voices f`, 8 voices of `f gate freq`:
 
 ```haskell
 sig = voices (\gate freq -> d.adsr 0.01 0.2 0.5 0.3 gate * d.saw freq)
@@ -496,7 +496,7 @@ pat = p.stack [bass]   -- now 40, from the next cycle
  6000.000 on  ch1 40 100
 ```
 
-**A change sounds after the lookahead.** `funk-midi` schedules 50 ms ahead; the CLAP plugin, as far ahead as its host renders. An onset inside that window when you evaluate is played from the old pattern. A redefinition just at a cycle's start therefore sounds from the next cycle.
+**A change sounds after the lookahead.** `funk-live` schedules 50 ms ahead; the CLAP plugin, as far ahead as its host renders. An onset inside that window when you evaluate is played from the old pattern. A redefinition just at a cycle's start therefore sounds from the next cycle.
 
 **A `String` is not a list.** `map p.atom "abc"` is a type error; `String` is packed. Use `unpack "abc"`, or a list of values.
 
@@ -520,6 +520,6 @@ Below the combinators, `pattern` gives the pieces a scheduler needs.
 - **Units.** The time unit is up to the caller: samples, microseconds. A tick maps to `div (t * cs) p.cycleTicks`. Adjacent blocks `[a, b)`, `[b, c)` then split the onsets exactly: none lost, none repeated.
 
 - **Values from C.**
-  - **`p.writeEvents buf cap pat cs a b`** writes `sampleEvents` to a C array of `Int`s, three per event, and returns their number. A host calls it through `funk_call` in `libfunk.h`; see `bench/reload.c` and `projects/funk-midi/main.c`.
+  - **`p.writeEvents buf cap pat cs a b`** writes `sampleEvents` to a C array of `Int`s, three per event, and returns their number. A host calls it through `funk_call` in `libfunk.h`; see `bench/reload.c` and `projects/funk-live/main.c`.
 
   - **`p.pushOnsets ring pat cs a b`** puts `sampleOnsets` on a `Ring Int`, for an audio-thread export ([dev/realtime.md](dev/realtime.md)). Each entry is one `Int`, `sample * 65536 + value`, so a push cannot tear. `p.eventSample` and `p.eventValue` decode it, without allocating, in the export. Values must be in 0..65535. `tests/ffi/sched.fk` is a complete example.

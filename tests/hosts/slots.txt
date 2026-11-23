@@ -1,4 +1,4 @@
--- funk-midi --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): Tidal's
+-- funk-live --dirt 57120 --no-sleep --cycle 2000 --script (tests/CMakeLists.txt): Tidal's
 -- slots (lib/stream.fk). They play in order of ID as strings, "1" < "10" <
 -- "13" < "2" < "3" < "x"; d1 to d12 add orbit 0 to 11 unless the pattern
 -- has one; d13 adds none. Replacing one slot leaves the others; _d2 and

@@ -52,7 +52,7 @@ Needed by every host, whatever follows.
 
    - Foreign-import glue reaches the runtime through pointers that `ffi_load` sets after loading it, not through symbols (`GLUE_NAMES` in `ffi.c`; test `embed/plugin`). Measured on macOS before the change, with two modules each embedding `libfunk`: loaded `RTLD_LOCAL`, or exporting only an entry point as a CLAP plugin does, glue failed to load (`symbol not found in flat namespace`); loaded `RTLD_GLOBAL`, the second module's glue bound the first's runtime. The glue's cache key includes the path of the image that loads it, since two plugins loading one file would share one image and one set of pointers.
 
-   - A host's own functions and variables reach imports the same way, through `funk_provide` (test `embed/plugin`, with a `static` function). `funk-midi` provides `funkgraph`'s functions to `lib/graph.fk`'s imports, and no longer exports its symbols.
+   - A host's own functions and variables reach imports the same way, through `funk_provide` (test `embed/plugin`, with a `static` function). `funk-live` provides `funkgraph`'s functions to `lib/graph.fk`'s imports, and no longer exports its symbols.
 
    - **`funk build --shared`**, a library with its own private runtime. Deferred: `funk emit-c --kernels` covers a compiled synth inside an interpreting host ([audio.md](audio.md), D) without a second runtime. A full runtime per library needs an entry point that starts its thread, 64 GiB of address space and a 4 GiB stack each, and an overflow's recovery extended to compiled programs (item 2).
 
@@ -142,7 +142,7 @@ Each passes `make test`.
 
 1. Measure. Done, 2026-10-30.
 
-2. The API alone: `funk *` in `libfunk.h`, backed by the one global session; the CLI, `funk-midi`, the plugin and `embed/*` move to it. Done, 2026-10-30, with the session's thread (from step 6); test `embed/session`. A process makes one session in its life until step 4.
+2. The API alone: `funk *` in `libfunk.h`, backed by the one global session; the CLI, `funk-live`, the plugin and `embed/*` move to it. Done, 2026-10-30, with the session's thread (from step 6); test `embed/session`. A process makes one session in its life until step 4.
 
 3. Static builtin nullaries; `const` on fixed tables. Done, 2026-10-30: `False`, `True`, `()` and `[]` are one read-only object each in `libfunk` (`builtin_nullaries`); before, `fk_init` `calloc`ed them, so with `fk_cons` per session, each session would have made its own `True`, and the interpreter compares by address. Few tables were left to make `const`: the initialized globals are mostly `funk_config`'s sizes, which move into `FkRt`.
 

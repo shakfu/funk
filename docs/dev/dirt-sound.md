@@ -270,7 +270,7 @@ Done 2026-11-11, as option C:
 
 - **funk:** `lib/dsp.fk`'s `Dirt`, with `superDirt`, `loadSoundFiles`, `addSynth`, `addModule`, `addFilterModule`, `removeModule`, `orderModules`, `has`, `prepare`, `playDirt`, `orbit` and `orbits`. `d.prepare` marks an event with `~NAME` for each module whose test passes; `c.writeControlsWithBy` sends every number of a marked event. A module may add controls to an event it runs on, as SuperDirt's module function computes its arguments: `vowel` adds its formants.
 
-- **Hosts:** funk-midi and the plugin load a top-level `dirt` as they play `sig`. `funk_voices_trigger` sends a trigger whose sound has a template to the event layer.
+- **Hosts:** funk-live and the plugin load a top-level `dirt` as they play `sig`. `funk_voices_trigger` sends a trigger whose sound has a template to the event layer.
 
 - **Kernels:** `funk_context` gains `done`, which ends an event, as `doneAction: 14` does. A sample's template is `dsp_dirt_span`, DirtEvent's `calcTimeSpan`, then `dsp_dirt_sample` on each channel, `dirt_sample_N_2`. `dsp_gate`, `dirt_gate2`, ends every event. They run SuperCollider 3.13.0's UGens in float arithmetic, constructors included: 3.13.0's `Line`, `LFSaw` and `EnvGen` each take a step in theirs, and `develop`'s do not all take one.
 
@@ -311,7 +311,7 @@ Done 2026-11-11, as option C:
 
 - **Exports:** a template's node named `>NAME` sets parameter NAME of the stages after it, each block. The span exports `sustain`, `fadeTime`, `fadeInTime`, `speed` and `endSpeed`, so modules and the gate read DirtEvent's values. The alternative, the span on funk's thread as sclang computes it, needs each sample's length there.
 
-- **Tests:** `kernels/events` (funk, interpreted and compiled), `kernels/templates` (C, plain and under AddressSanitizer and ThreadSanitizer), `kernels/noalloc`, `hosts/clap/noalloc` and `hosts/clap/sim/noalloc` (no allocation, freeing or locking on the audio thread; `tests/noalloc.c`), `hosts/events` (funk-midi) and a case in `hosts/clap`. `lib/dirt-scsynth` (`tests/dirt/oracle.py`) renders 48 cases in scsynth with SuperDirt 1.7.3's SynthDefs, through DirtEvent's own `calcTimeSpan` and `playSynths`, SuperDirt's module functions and 16 orbits of its own `GlobalDirtEffect`s, into a Score, seeded by `RandSeed`. 18 cases are modules and 14 global effects, among them a pause and resume, two orbits, and `pshift` with `psdisp` beside the reverb. funk matches every frame within 1.8e-7, against 0.017 or more for its output a frame late. Its scsynth times are a quarter frame past each event's frame: an OSC time tag is whole 2^-32 s, and scsynth truncates the offset.
+- **Tests:** `kernels/events` (funk, interpreted and compiled), `kernels/templates` (C, plain and under AddressSanitizer and ThreadSanitizer), `kernels/noalloc`, `hosts/clap/noalloc` and `hosts/clap/sim/noalloc` (no allocation, freeing or locking on the audio thread; `tests/noalloc.c`), `hosts/events` (funk-live) and a case in `hosts/clap`. `lib/dirt-scsynth` (`tests/dirt/oracle.py`) renders 48 cases in scsynth with SuperDirt 1.7.3's SynthDefs, through DirtEvent's own `calcTimeSpan` and `playSynths`, SuperDirt's module functions and 16 orbits of its own `GlobalDirtEffect`s, into a Score, seeded by `RandSeed`. 18 cases are modules and 14 global effects, among them a pause and resume, two orbits, and `pshift` with `psdisp` beside the reverb. funk matches every frame within 1.8e-7, against 0.017 or more for its output a frame late. Its scsynth times are a quarter frame past each event's frame: an OSC time tag is whole 2^-32 s, and scsynth truncates the offset.
 
 Where it differs from SuperDirt, or from the plan:
 
@@ -351,7 +351,7 @@ Steps 1 to 5 are done, and of step 6 the API, the UGen library and `default-synt
 
 2. **S1 init exports.** Port `dirt_sample`'s `BufRd` with cubic interpolation (S5), `DirtPan` with `Pan2` and `Balance2` (S4), and the gate. Check against scsynth's non-real-time render.
 
-3. **The plugin and `funk-midi --audio`** play control patterns through the event layer. `d.kit`'s fixed voices remain for notes (`m.kit`).
+3. **The plugin and `funk-live --audio`** play control patterns through the event layer. `d.kit`'s fixed voices remain for notes (`m.kit`).
 
 4. **The 13 core modules** (S1) and their UGens (S8), each checked against scsynth. Done 2026-11-12: `sound` and 12 effects.
 

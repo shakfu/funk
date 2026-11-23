@@ -90,7 +90,7 @@ Released 2026-10-30; see [CHANGELOG.md](../../CHANGELOG.md).
 
 - Embedding ([embedding.md](embedding.md), phase 0): `libfunk.h`'s output, interrupt, memory and provide calls; only `funk_*` exported; foreign imports inside a plugin; `cmake --install` with a CMake package.
 
-- Patterns ([patterns.md](patterns.md)): `lib/pattern.fk` and `lib/midi.fk`, and `funk-midi`, a REPL that plays `pat` live.
+- Patterns ([patterns.md](patterns.md)): `lib/pattern.fk` and `lib/midi.fk`, and `funk-live`, a REPL that plays `pat` live.
 
 - Audio ([audio.md](audio.md)): kernels from `funk emit-c --kernels`, the `funkgraph` runner, `lib/graph.fk` and `lib/dsp.fk`, voices per MIDI channel.
 
@@ -174,9 +174,9 @@ In order:
 
 1. **String literals as patterns (L1, L2, C1):** done 2026-11-09. A `FromString` class, as `FromFloat`, with a `String` default; controls and patterned arguments take patterns. This closes `sound` of a pattern, `pan sine`, `fast "<2 4>"` and `"<0 0.25>" <~ p`.
 
-2. **A SuperDirt target (S9):** `/dirt/play` over OSC, as Tidal's `superdirtTarget`, from `funk-midi`. Done 2026-11-09 ([dirt.md](dirt.md)).
+2. **A SuperDirt target (S9):** `/dirt/play` over OSC, as Tidal's `superdirtTarget`, from `funk-live`. Done 2026-11-09 ([dirt.md](dirt.md)).
 
-3. **Slots and commands (R1-R5):** `d1`..`d16` and `p "name"`, `hush`, `once`, `solo`, `mute` and the rest, `setcps` and `setbpm` with Tidal's default of 0.575, an event's `cps`, transitions, and `setF` and its kind. Done 2026-11-10 in funk-midi ([stream.md](stream.md)).
+3. **Slots and commands (R1-R5):** `d1`..`d16` and `p "name"`, `hush`, `once`, `solo`, `mute` and the rest, `setcps` and `setbpm` with Tidal's default of 0.575, an event's `cps`, transitions, and `setF` and its kind. Done 2026-11-10 in funk-live ([stream.md](stream.md)).
 
 4. **Time (T1-T3):** 46126080 ticks per cycle; fractional patterned speed factors. T1 done 2026-11-11, T2 2026-11-10.
 
@@ -194,7 +194,7 @@ In order:
 
 ## 0.14+ -- possible language growth
 
-No milestone is set. The product is the language, compiler, runtime and libfunk; the plugin and funk-midi demonstrate them ([261123-status.md](261123-status.md#gaps-in-the-plan)).
+No milestone is set. The product is the language, compiler, runtime and libfunk; the plugin and funk-live demonstrate them ([261123-status.md](261123-status.md#gaps-in-the-plan)).
 
 Larger changes, each needing its own design note in `docs/dev/` first.
 

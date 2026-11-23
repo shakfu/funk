@@ -5,10 +5,10 @@
  1250.000 audio peak 0
  1500.000 audio peak 9958
 <input>:2:37: error: type mismatch: expected `graph.Sig`, found `Char`
-funk-midi: sig is not playing: it must be a g.Sig
+funk-live: sig is not playing: it must be a g.Sig
  1750.000 audio peak 2490
 runtime error: graph: no kernel no_such_kernel
-funk-midi: sig failed; the last graph plays on until sig is defined again
+funk-live: sig failed; the last graph plays on until sig is defined again
  2000.000 audio peak 2490
  2250.000 audio peak 5000
  2500.000 audio peak 5000
@@ -16,6 +16,6 @@ funk-midi: sig failed; the last graph plays on until sig is defined again
  3000.000 audio peak 2500
  3250.000 audio peak 4896
 runtime error: graph: dsp_sampler cannot read /nonexistent/x.wav: cannot open
-funk-midi: sig failed; the last graph plays on until sig is defined again
+funk-live: sig failed; the last graph plays on until sig is defined again
  3500.000 audio peak 4896
  3750.000 audio peak 8778

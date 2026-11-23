@@ -1,4 +1,4 @@
-/* funk-midi -- plays a funk pattern to a MIDI port, live (docs/dev/patterns.md).
+/* funk-live -- plays a funk pattern to a MIDI port, live (docs/dev/patterns.md).
 
    A REPL over libfunk.h, with `pattern as p` and `midi as m` imported, and
    control and stream unqualified. Tidal's slots, `d1 $ ...` and `p "name"
@@ -193,13 +193,13 @@ static bool open_in(int port, const char *name) {
   } else {
     find_in_ports();
     if (port >= nin_ports) {
-      fprintf(stderr, "funk-midi: no input port %d; --list shows them\n", port);
+      fprintf(stderr, "funk-live: no input port %d; --list shows them\n", port);
       return false;
     }
     mc.in_port = in_ports[port];
   }
   if (libremidi_midi_in_new(&mc, &ac, &in) != 0) {
-    fputs("funk-midi: cannot open the MIDI input\n", stderr);
+    fputs("funk-live: cannot open the MIDI input\n", stderr);
     return false;
   }
   return true;
@@ -234,13 +234,13 @@ static bool open_out(int port, const char *name) {
   } else {
     find_ports();
     if (port >= nports) {
-      fprintf(stderr, "funk-midi: no output port %d; --list shows them\n", port);
+      fprintf(stderr, "funk-live: no output port %d; --list shows them\n", port);
       return false;
     }
     mc.out_port = ports[port];
   }
   if (libremidi_midi_out_new(&mc, &ac, &out) != 0) {
-    fputs("funk-midi: cannot open the MIDI output\n", stderr);
+    fputs("funk-live: cannot open the MIDI output\n", stderr);
     return false;
   }
   return true;
@@ -285,7 +285,7 @@ static void heap_push(Msg m) {
   if (nheap == capheap) {
     capheap = capheap ? 2 * capheap : 256;
     heap = realloc(heap, capheap * sizeof *heap);
-    if (!heap) { fputs("funk-midi: out of memory\n", stderr); exit(1); }
+    if (!heap) { fputs("funk-live: out of memory\n", stderr); exit(1); }
   }
   size_t i = nheap++;
   for (; i && before(&m, &heap[(i - 1) / 2]); i = (i - 1) / 2) heap[i] = heap[(i - 1) / 2];
@@ -326,7 +326,7 @@ static void hush(void) {
     return;
   }
   Msg *all = malloc(n * sizeof *all);
-  if (!all) { fputs("funk-midi: out of memory\n", stderr); exit(1); }
+  if (!all) { fputs("funk-live: out of memory\n", stderr); exit(1); }
   memcpy(all, heap, n * sizeof *all);
   nheap = 0;
   int64_t now = now_us();
@@ -434,12 +434,12 @@ static void send_dirt(long n) {
   for (; dirt_next(p, end, &e); p = e.next, sent++) {
     int64_t at = origin_us + e.start + (int64_t)(dirt_float(&e, "nudge", 0) * 1e6);
     size_t size = dirt_bundle(&e, dirt_ntp(unix_at_t0 + at), cps, (double)e.dur / 1e6, out, sizeof out);
-    if (!size) fputs("funk-midi: an event too large for one datagram\n", stderr);
+    if (!size) fputs("funk-live: an event too large for one datagram\n", stderr);
     else if (print_sink) dirt_print(stdout, out, size, 0);
-    else if (send(dirt_fd, out, size, 0) < 0 && dirt_connected) perror("funk-midi: sending to SuperDirt"); /* before, the handshake reports */
+    else if (send(dirt_fd, out, size, 0) < 0 && dirt_connected) perror("funk-live: sending to SuperDirt"); /* before, the handshake reports */
   }
   if (print_sink) fflush(stdout);
-  if (sent < n) fprintf(stderr, "funk-midi: %ld events in a window; sent %ld\n", n, sent);
+  if (sent < n) fprintf(stderr, "funk-live: %ld events in a window; sent %ld\n", n, sent);
 }
 
 /* Calls `step` for every window that starts within the lookahead. */
@@ -456,14 +456,14 @@ static void schedule(void) {
       int64_t base = origin_us; /* the units' zero, until the window's tempo changes at its end */
       bool tempo = false;
       if (slots && !funk_call(session, "slots", 8, args, &n)) {
-        fputs("funk-midi: a window failed; each slot returns to its previous pattern\n", stderr); /* the error is reported */
-        if (!funk_call(session, "revertSlots", 1, args, &r)) fputs("funk-midi: the slots could not return to their previous patterns\n", stderr);
+        fputs("funk-live: a window failed; each slot returns to its previous pattern\n", stderr); /* the error is reported */
+        if (!funk_call(session, "revertSlots", 1, args, &r)) fputs("funk-live: the slots could not return to their previous patterns\n", stderr);
       } else if (slots && dirt) {
         send_dirt(n);
         tempo = true;
       } else if (slots) {
         tempo = true;
-        if (n > CAP) fprintf(stderr, "funk-midi: %ld events in a window; played %d\n", n, CAP);
+        if (n > CAP) fprintf(stderr, "funk-live: %ld events in a window; played %d\n", n, CAP);
         for (long i = 0; i < n && i < CAP; i++) {
           int64_t at = origin_us + buf[3 * i];
           long m = buf[3 * i + 1], length = buf[3 * i + 2];
@@ -477,9 +477,9 @@ static void schedule(void) {
       args[0] = (long)buf;
       if (have_step && !funk_call(session, "step", 7, args, &n)) {
         have_step = false; /* a runtime error, reported: silence until pat is defined again */
-        fputs("funk-midi: pat failed; stopped until it is defined again\n", stderr);
+        fputs("funk-live: pat failed; stopped until it is defined again\n", stderr);
       } else if (have_step) {
-        if (n > CAP) fprintf(stderr, "funk-midi: %ld events in a window; played %d\n", n, CAP);
+        if (n > CAP) fprintf(stderr, "funk-live: %ld events in a window; played %d\n", n, CAP);
         for (long i = 0; i < n && i < CAP; i++) {
           int64_t at = origin_us + buf[3 * i], dur = buf[3 * i + 1] > 0 ? buf[3 * i + 1] : 1;
           long v = buf[3 * i + 2];
@@ -515,7 +515,7 @@ static void play_sig(void) {
   if (!audio || !have_sig) return;
   if (!funk_call(session, playing ? "playsig" : "hushsig", 1, &arg, &r)) {
     have_sig = false;
-    fputs("funk-midi: sig failed; the last graph plays on until sig is defined again\n", stderr);
+    fputs("funk-live: sig failed; the last graph plays on until sig is defined again\n", stderr);
   }
 }
 
@@ -560,7 +560,7 @@ static void voice_sync(void) {
 }
 
 static void voice_check(bool ok) {
-  if (!ok) fputs("funk-midi: audio event queue full\n", stderr);
+  if (!ok) fputs("funk-live: audio event queue full\n", stderr);
 }
 
 static void voice_release_until(int64_t t) { voice_check(funk_voices_until(voices, frame_at(t))); }
@@ -644,7 +644,7 @@ static void on_audio(ma_device *d, void *out, const void *in, ma_uint32 n) {
 static bool start_audio(const char *kernels_path) {
   void *kernels = dlopen(kernels_path, RTLD_NOW | RTLD_LOCAL);
   if (!kernels) {
-    fprintf(stderr, "funk-midi: cannot load the kernels: %s\n", dlerror());
+    fprintf(stderr, "funk-live: cannot load the kernels: %s\n", dlerror());
     return false;
   }
 #ifdef HAVE_MINIAUDIO
@@ -655,7 +655,7 @@ static bool start_audio(const char *kernels_path) {
     cfg.sampleRate = 48000;
     cfg.dataCallback = on_audio;
     if (ma_device_init(NULL, &cfg, &device) != MA_SUCCESS) {
-      fputs("funk-midi: cannot open the audio device\n", stderr);
+      fputs("funk-live: cannot open the audio device\n", stderr);
       return false;
     }
     rate = device.sampleRate;
@@ -679,7 +679,7 @@ static bool start_audio(const char *kernels_path) {
   playsig_src = "playsig :: Int ->> Int\nplaysig u = do { g.play audioPlayer sig ; 0 }";
 #ifdef HAVE_MINIAUDIO
   if (!virtual_time && ma_device_start(&device) != MA_SUCCESS) {
-    fputs("funk-midi: cannot start the audio device\n", stderr);
+    fputs("funk-live: cannot start the audio device\n", stderr);
     return false;
   }
 #endif
@@ -797,7 +797,7 @@ static void osc_command(void *ctx, const char *addr, int nargs, int kind, const 
     eval(src);
     return;
   }
-  fprintf(stderr, "funk-midi: unhandled OSC: %s\n", addr);
+  fprintf(stderr, "funk-live: unhandled OSC: %s\n", addr);
 }
 
 /* A pattern given now plays from the next window: its first tick, as
@@ -820,9 +820,9 @@ static void rebind(void) {
     return;
   }
   funk_control_float(&controls, "_t_pattern", funk_stream_now());
-  if (dirt) fputs("funk-midi: pat is not playing: with --dirt it must be a pattern of Controls\n", stderr);
+  if (dirt) fputs("funk-live: pat is not playing: with --dirt it must be a pattern of Controls\n", stderr);
   else if (eval(STEP)) have_step = true;
-  else fputs("funk-midi: pat is not playing: it must be a Pattern Int or of Controls\n", stderr);
+  else fputs("funk-live: pat is not playing: it must be a Pattern Int or of Controls\n", stderr);
 }
 
 
@@ -848,14 +848,14 @@ static void rebind_controls(void) {
   funk_control_float(&controls, "_t_pattern", funk_stream_now());
   long ins[8], n = 0, arg = (long)ins;
   if (!eval("controlIns buf = p.writeControlIns (plusPtr nullPtr buf) controls") || !funk_call(session, "controlIns", 1, &arg, &n)) {
-    fputs("funk-midi: controls is not used: it must be a [p.ControlIn]\n", stderr);
+    fputs("funk-live: controls is not used: it must be a [p.ControlIn]\n", stderr);
     return;
   }
   for (long i = 0; i < n && i < 8; i++) {
     if (ins[i] == -1) cc_on = true;
-    else if (ins[i] == -2) fputs("funk-midi: p.params is the plugin's; funk-midi has none\n", stderr);
+    else if (ins[i] == -2) fputs("funk-live: p.params is the plugin's; funk-live has none\n", stderr);
     else if ((osc_fds[nosc] = funk_osc_open((int)ins[i])) >= 0) nosc++;
-    else fprintf(stderr, "funk-midi: cannot listen for OSC on port %ld\n", ins[i]);
+    else fprintf(stderr, "funk-live: cannot listen for OSC on port %ld\n", ins[i]);
   }
 }
 
@@ -879,7 +879,7 @@ static bool file_defines(const char *path, const char *name) {
 static void rebind_sig(void) {
   if (!audio) return;
   if (!eval(playsig_src)) {
-    fputs("funk-midi: sig is not playing: it must be a g.Sig\n", stderr);
+    fputs("funk-live: sig is not playing: it must be a g.Sig\n", stderr);
     return;
   }
   have_sig = true;
@@ -892,11 +892,11 @@ static void rebind_dirt(void) {
   long r, arg = 0;
   if (!audio) return;
   if (dirt) {
-    fputs("funk-midi: dirt is not played with --dirt: SuperDirt plays the events\n", stderr);
+    fputs("funk-live: dirt is not played with --dirt: SuperDirt plays the events\n", stderr);
     return;
   }
   if (!eval(PLAYDIRT) || !funk_call(session, "playdirt", 1, &arg, &r) || !eval(SLOTS_AUDIO))
-    fputs("funk-midi: dirt failed; the last one plays on until dirt is defined again\n", stderr);
+    fputs("funk-live: dirt failed; the last one plays on until dirt is defined again\n", stderr);
 }
 
 /* One line of input; false to quit. */
@@ -955,7 +955,7 @@ static bool handle(char *line) {
   if (!strncmp(s, ":cc ", 4)) {
     int ch, num, v;
     if (sscanf(s + 4, "%d %d %d", &ch, &num, &v) == 3 && ch >= 1 && ch <= 16 && num >= 0 && num < 128 && v >= 0 && v < 128) cc_set(ch - 1, num, v);
-    else fputs("funk-midi: :cc needs a channel 1 to 16, a number and a value 0 to 127\n", stderr);
+    else fputs("funk-live: :cc needs a channel 1 to 16, a number and a value 0 to 127\n", stderr);
     return true;
   }
   char *arg = s + strcspn(s, " \t"); /* after the command's name */
@@ -979,7 +979,7 @@ static bool handle(char *line) {
   case 'p': playing = true; play_sig(); return true;
   case 'c':
     if (atof(arg) >= 1) set_cycle((int64_t)(atof(arg) * 1000));
-    else fputs("funk-midi: :cycle needs a length in ms\n", stderr);
+    else fputs("funk-live: :cycle needs a length in ms\n", stderr);
     return true;
   default:
     fputs("commands: :l FILE, :cycle MS, :wait MS, :cc CH NUM VALUE, :osc ADDR [ARG ...], :stop, :play, :q\n", stderr);
@@ -996,7 +996,7 @@ static pthread_cond_t lcond = PTHREAD_COND_INITIALIZER;
 static void *reader(void *arg) {
   (void)arg;
   for (;;) {
-    fputs("funk-midi> ", stdout);
+    fputs("funk-live> ", stdout);
     fflush(stdout);
     char *line = NULL;
     size_t cap = 0;
@@ -1071,10 +1071,10 @@ static int run(funk *f, void *arg) {
     unix_at_t0 = (int64_t)rt.tv_sec * 1000000 + rt.tv_nsec / 1000 - (mono_us() - t0);
   }
   pthread_t send_th = 0;
-  if (!virtual_time && pthread_create(&send_th, NULL, sender, NULL)) { perror("funk-midi: pthread_create"); return 1; }
+  if (!virtual_time && pthread_create(&send_th, NULL, sender, NULL)) { perror("funk-live: pthread_create"); return 1; }
   if (dirt_fd >= 0) {
     pthread_t hs_th;
-    if (pthread_create(&hs_th, NULL, handshake, NULL)) { perror("funk-midi: pthread_create"); return 1; }
+    if (pthread_create(&hs_th, NULL, handshake, NULL)) { perror("funk-live: pthread_create"); return 1; }
     pthread_detach(hs_th); /* it may sit in poll at exit */
   }
   if (o->file && funk_load_file(f, o->file)) {
@@ -1094,7 +1094,7 @@ static int run(funk *f, void *arg) {
     fclose(f);
   } else {
     pthread_t read_th;
-    if (pthread_create(&read_th, NULL, reader, NULL)) { perror("funk-midi: pthread_create"); return 1; }
+    if (pthread_create(&read_th, NULL, reader, NULL)) { perror("funk-live: pthread_create"); return 1; }
     pthread_detach(read_th); /* it may sit in getline at exit */
     for (;;) {
       schedule();
@@ -1131,7 +1131,7 @@ static int run(funk *f, void *arg) {
 }
 
 static void usage(FILE *f) {
-  fputs("usage: funk-midi [FILE] [--script FILE] [--port N | --virtual NAME] [--list]\n"
+  fputs("usage: funk-live [FILE] [--script FILE] [--port N | --virtual NAME] [--list]\n"
         "                 [--cycle MS] [--print] [--no-sleep] [-M DIR] [--audio [--kernels LIB] [--voices N]]\n"
         "                 [--dirt [HOST:]PORT]\n"
         "Plays Tidal's slots, `d1 $ s \"bd\"` and `p \"name\" $ ...`, and `pat`, a Pattern\n"
@@ -1139,7 +1139,7 @@ static void usage(FILE *f) {
         "FILE is loaded first.\n"
         "  --script FILE  run FILE's lines as input, then exit; `:wait MS` plays for MS\n"
         "  --port N       output port N; --list shows them. Default: a virtual port\n"
-        "  --virtual NAME a virtual output port named NAME (default funk-midi)\n"
+        "  --virtual NAME a virtual output port named NAME (default funk-live)\n"
         "  --in N         MIDI input port N, for controls' p.midiCC; --list shows them\n"
         "  --in-virtual NAME  a virtual MIDI input named NAME\n"
         "  --cycle MS     the length of a cycle (default 1739.13: Tidal's 0.575 cycles a second)\n"
@@ -1162,7 +1162,7 @@ static void usage(FILE *f) {
 int main(int argc, char **argv) {
   Opts o = {FUNK_LIB_DIR, NULL, NULL, FUNK_DSP_LIB};
   int port = -1, in_port = -2; /* -2: no input */
-  const char *vname = "funk-midi", *in_name = NULL, *dirt_to = NULL;
+  const char *vname = "funk-live", *in_name = NULL, *dirt_to = NULL;
   bool list = false;
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i], *next = i + 1 < argc ? argv[i + 1] : NULL;
@@ -1185,17 +1185,17 @@ int main(int argc, char **argv) {
     else { usage(stderr); return 2; }
   }
   if (!cs) cs = llround(1e6 / cps);
-  if (cs < 1000) { fputs("funk-midi: --cycle needs at least 1 ms\n", stderr); return 2; }
+  if (cs < 1000) { fputs("funk-live: --cycle needs at least 1 ms\n", stderr); return 2; }
   if (dirt) {
     char host[256] = "127.0.0.1";
     const char *colon = strrchr(dirt_to, ':');
     if (colon) snprintf(host, sizeof host, "%.*s", (int)(colon - dirt_to), dirt_to);
     int dport = atoi(colon ? colon + 1 : dirt_to);
-    if (dport < 1 || dport > 65535) { fputs("funk-midi: --dirt needs a port, as 57120 or 127.0.0.1:57120\n", stderr); return 2; }
-    if (!print_sink && (dirt_fd = dirt_open(host, dport)) < 0) { fprintf(stderr, "funk-midi: cannot reach %s:%d\n", host, dport); return 1; }
+    if (dport < 1 || dport > 65535) { fputs("funk-live: --dirt needs a port, as 57120 or 127.0.0.1:57120\n", stderr); return 2; }
+    if (!print_sink && (dirt_fd = dirt_open(host, dport)) < 0) { fprintf(stderr, "funk-live: cannot reach %s:%d\n", host, dport); return 1; }
     lookahead_us = 100000;
   }
-  if (nvoices < 1 || nvoices > MAX_VOICES) { fprintf(stderr, "funk-midi: --voices needs 1 to %d\n", MAX_VOICES); return 2; }
+  if (nvoices < 1 || nvoices > MAX_VOICES) { fprintf(stderr, "funk-live: --voices needs 1 to %d\n", MAX_VOICES); return 2; }
 #ifdef HAVE_LIBREMIDI
   if (list) { list_ports(); return 0; }
   if (!print_sink && !dirt && !open_out(port, vname)) return 1;
@@ -1203,13 +1203,13 @@ int main(int argc, char **argv) {
 #else
   (void)port, (void)vname, (void)in_name;
   if (list || (!print_sink && !dirt) || in_port != -2) {
-    fputs("funk-midi: built without libremidi: only --print and --no-sleep work\n", stderr);
+    fputs("funk-live: built without libremidi: only --print and --no-sleep work\n", stderr);
     return 1;
   }
 #endif
 #ifndef HAVE_MINIAUDIO
   if (audio && !virtual_time) {
-    fputs("funk-midi: built without miniaudio: --audio works only with --no-sleep\n", stderr);
+    fputs("funk-live: built without miniaudio: --audio works only with --no-sleep\n", stderr);
     return 1;
   }
 #endif

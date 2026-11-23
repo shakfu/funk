@@ -194,7 +194,7 @@ main = do
   g.close p
 
 -- the cycle parameter of each event the records of a cycle of pat carry,
--- written as funk-midi's slots write them for a pattern shifted ot ticks
+-- written as funk-live's slots write them for a pattern shifted ot ticks
 cycles :: d.Dirt -> pt.Pattern Controls -> Int ->> [Float]
 cycles dt pat ot = allocaBytes (24 * 256) (\buf -> do
   n <- writeControlEventsAt ot (d.prepare dt) buf 256 (pt.windowOnsets [] pat 1000 0 1000) 1000 1000

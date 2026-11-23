@@ -21,5 +21,5 @@
 20100.000 dirt /dirt/play _id_=s:1 cps=f:3f000000 cycle=f:41200000 delta=f:40000000 orbit=i:0 s=s:d
 20100.000 dirt /dirt/play cps=f:3f000000 cycle=f:41200000 delta=f:40000000 s=s:o
 22100.000 dirt /dirt/play _id_=s:2 cps=f:3f000000 cycle=f:41300000 delta=f:40000000 orbit=i:1 s=s:z
-funk-midi: unhandled OSC: /nope
+funk-live: unhandled OSC: /nope
 24100.000 dirt /dirt/play cps=f:3f000000 cycle=f:41400000 delta=f:40000000 s=s:superpanic

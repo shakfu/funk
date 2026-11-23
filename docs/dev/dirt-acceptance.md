@@ -47,7 +47,7 @@ Roadmap 0.13 ([roadmap.md](roadmap.md#013----superdirt-sound-in-the-plugin)) has
         tests/hosts/sim-dirt.fk > /tmp/sim-dirt-ear.fk
       ```
 
-   2. REAPER at 120 BPM, as [simulator.md](simulator.md#in-reaper) says, with `FUNK_MIDI_CLAP_SIM=/tmp/sim-dirt-ear.fk` and `FUNK_MIDI_CLAP_SIM_INTERVAL=16`, so each set plays 8 bars.
+   2. REAPER at 120 BPM, as [simulator.md](simulator.md#in-reaper) says, with `FUNK_LIVE_CLAP_SIM=/tmp/sim-dirt-ear.fk` and `FUNK_LIVE_CLAP_SIM_INTERVAL=16`, so each set plays 8 bars.
 
    3. SuperDirt in SuperCollider, and Tidal, with REAPER stopped; each block of `sim-dirt.tidal` in turn.
 

@@ -7,7 +7,7 @@ make                                          # the host tools: build/funk, buil
 scripts/linux-sysroot.py /tmp/sysroot         # X11, OpenGL, ALSA from Debian bookworm
 FUNK_SYSROOT=/tmp/sysroot cmake -S . -B xbuild -G Ninja -DCMAKE_TOOLCHAIN_FILE=scripts/zig-linux.cmake \
   -DFUNK_CLAP=ON -DLIBREMIDI_NO_UDEV=ON -DFUNK_HOST_TOOLS=$PWD/build
-cmake --build xbuild --target funk_midi_clap
+cmake --build xbuild --target funk_live_clap
 ```
 
 Zig provides glibc, but not X11, OpenGL or ALSA, hence the sysroot. udev is off to keep libudev out of it. Tried with Zig 0.17.1 and 0.18.0-dev.930.
