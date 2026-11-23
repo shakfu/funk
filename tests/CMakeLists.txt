@@ -232,7 +232,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory overflow session sessions compile_limit kernels teardown specialize rollback)
+foreach(n signals output interrupt memory overflow session sessions compile_limit kernels teardown specialize rollback inflight)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -245,6 +245,19 @@ add_test(NAME embed/signals/stress COMMAND embed_signals)
 set_tests_properties(embed/signals embed/signals/stress PROPERTIES LABELS embed TIMEOUT 300
   PASS_REGULAR_EXPRESSION "host handler: 3 faults, page 3\nafter funk_free: host handler\nlate, after funk_free: late handler\nlate, after a second session: late handler, 2 late faults, 5 faults\n")
 set_tests_properties(embed/signals/stress PROPERTIES ENVIRONMENT FUNK_GCSTRESS=1)
+add_executable(embed_compiler_bug embed/compiler_bug.c)
+target_link_libraries(embed_compiler_bug PRIVATE libfunk_hooks)
+if(FUNK_SANITIZE)
+  target_compile_options(embed_compiler_bug PRIVATE -fsanitize=${FUNK_SANITIZE} -fno-sanitize-recover=all)
+  target_link_options(embed_compiler_bug PRIVATE -fsanitize=${FUNK_SANITIZE})
+endif()
+add_test(NAME embed/compiler_bug COMMAND sh -c "\"$<TARGET_FILE:embed_compiler_bug>\" tests/embed/compiler_bug.fk 2>&1"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/compiler_bug PROPERTIES LABELS embed TIMEOUT 120
+  PASS_REGULAR_EXPRESSION "^ok   -\nfunk: internal compiler error at fuse.c:[0-9]+\nfail -\n<test>:1:1: error: variable not in scope: `fkTestBug`\nfail -\nok   10\nfunk: internal compiler error at cgen.c:[0-9]+\nemit-c: none\nok   6\n$")
+add_test(NAME embed/inflight COMMAND embed_inflight)
+set_tests_properties(embed/inflight PROPERTIES LABELS embed TIMEOUT 60
+  PASS_REGULAR_EXPRESSION "^written before funk_free returned: yes\nfunk_free waited: yes\na claim after funk_free: none\n$")
 add_test(NAME embed/rollback COMMAND embed_rollback tests/embed/rollback_a.fk tests/embed/rollback_b.fk WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(embed/rollback PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "ok_three: yes, ok_one: no\n$")
 add_test(NAME embed/specialize COMMAND embed_specialize tests/embed/specialize.fk WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
@@ -556,6 +569,14 @@ endforeach()
 
 funk_test(cli/compile_limit cli cli 1 "<prelude>:0:0: error: the compiler exceeded its memory limit (FK_COMPILE_LIMIT, default 2 GiB)" check tests/run/ho_chain.fk)
 set_property(TEST cli/compile_limit APPEND PROPERTY ENVIRONMENT FK_COMPILE_LIMIT=1000)
+# FK_DUMP prints a pass's output; FK_SKIP and FK_DUMP name no unknown pass (pipeline.c)
+add_test(NAME cli/pipeline_dump COMMAND sh -c "FK_DUMP=elab,fuse \"$<TARGET_FILE:funk>\" check tests/pipeline/dump.fk 2>&1"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(cli/pipeline_dump PROPERTIES LABELS cli
+  PASS_REGULAR_EXPRESSION "^-- tests/pipeline/dump.fk: after elab\nsq = [^\n]*\n  \\(\\* [^\n]*\n(.*\n)?main = \\(primPrintInt \\(sum@Int \\(map sq@Int .*-- tests/pipeline/dump.fk: after fuse\n.*main = \\(primPrintInt \\(main/[$]f[0-9]+ 1 0\\)\\)\n")
+add_test(NAME cli/pipeline_unknown COMMAND sh -c "FK_SKIP=fuse,lfit \"$<TARGET_FILE:funk>\" check tests/pipeline/dump.fk 2>&1"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(cli/pipeline_unknown PROPERTIES LABELS cli PASS_REGULAR_EXPRESSION "^funk: FK_SKIP: no pass `lfit`\n")
 # A cache directory others can write is refused, as dlopen would load what they put there.
 set(unsafe_cache ${CMAKE_CURRENT_BINARY_DIR}/unsafe_cache)
 add_test(NAME cli/ffi_cache_unsafe

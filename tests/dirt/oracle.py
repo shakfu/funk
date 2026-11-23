@@ -464,6 +464,10 @@ def main():
                             "True" if core else "False", layouts[n][2], ", ".join('"%s"' % k for k in layouts[n][3]))
                             for n, s, secs, cs, core in cases))
         f.write("]\n")
+    for n, s, secs, cs, core in cases:  # a run's files, not an earlier run's
+        for ext in (".wav", ".funk.wav"):
+            if os.path.exists(os.path.join(outdir, n + ext)):
+                os.remove(os.path.join(outdir, n + ext))
     r = subprocess.run([sclang, os.path.abspath("tests/dirt/render.scd"), os.path.abspath(os.path.join(outdir, "cases.scd")),
                         os.path.abspath(outdir)], capture_output=True, text=True, timeout=300)
     if r.returncode == 2:
@@ -475,6 +479,8 @@ def main():
     if ugens:
         print("skipped: scsynth lacks the plugins of %s, which sclang has" % ", ".join(ugens))
         sys.exit(77)
+    if r.returncode:
+        sys.exit("sclang failed (%d):\n%s%s" % (r.returncode, r.stdout[-3000:], r.stderr[-3000:]))
     missing = [n for n, s, secs, cs, core in cases if not os.path.exists(os.path.join(outdir, n + ".wav"))]
     if missing:
         sys.exit("sclang rendered no %s:\n%s%s" % (", ".join(missing), r.stdout[-3000:], r.stderr[-3000:]))
@@ -486,6 +492,8 @@ def main():
     failed = 0
     for name, s, secs, cs, core in cases:
         sc = read_float_wav(os.path.join(outdir, name + ".wav"))
+        if len(sc[0]) < len(got[name][0][0]):  # worst would read the missing frames as silence
+            sys.exit("scsynth rendered %d frames of %s, funk %d" % (len(sc[0]), name, len(got[name][0][0])))
         err, wrong = worst(sc, got[name][0], 0), worst(sc, got[name][0], 1)
         bound = FFT_TOLERANCE if name in FFT_CASES else TOLERANCE
         ok = err <= bound and wrong > bound

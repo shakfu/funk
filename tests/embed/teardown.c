@@ -3,8 +3,8 @@
    returns. Later claims find the session gone while the sender runs on for
    300 ms. Then a new session takes the freed id: without the generation in
    the StablePtr, the sender's claims reached it before its ring existed, and
-   most runs crashed. The ring is full by then, so the window between claim
-   and publish that funk_free waits for is too short to hit here. */
+   most runs crashed. embed/inflight tests the wait for a claim not yet
+   published. */
 #define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>

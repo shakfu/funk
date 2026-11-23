@@ -88,6 +88,7 @@ typedef struct {
   int rec_counter;
   int warn_line, warn_col; /* pattern bindings share one case location */
   int untyped;
+  const char *ct_pass; /* the pass check_types runs after */
   VEC(CStruct) cstructs; /* foreign structs so far, for fields of their types */
 } CheckState;
 static const CheckState check_init = {.nprelude_types = NBUILTIN_TYPES, .nprelude_cons = FK_NBUILTIN_CONS};
@@ -2430,9 +2431,8 @@ int global_add(const char *name, Type *t, Lambda *lam) {
   return CS->globals.n - 1;
 }
 
-typedef VEC(Bind *) BindVec;
 
-static void register_classes(Module *m, BindVec *extra, BindVec *raw) {
+static void register_classes(Module *m, Binds *extra, Binds *raw) {
   for (int k = 0; k < m->ncl; k++) {
     ClassDecl *cd = m->classes[k];
     if (map_get(&ST->clsmap, cd->name) >= 0) cerror(cd->line, cd->col, "class `%s` is already defined", cd->name);
@@ -2552,7 +2552,7 @@ static const char *head_tycon(InstDecl *in, Strs *vars) {
   return tc;
 }
 
-static void register_instances(Module *m, BindVec *extra, int *first) {
+static void register_instances(Module *m, Binds *extra, int *first) {
   *first = CS->insts.n;
   for (int k = 0; k < m->ni; k++) {
     InstDecl *in = m->insts[k];
@@ -2614,12 +2614,6 @@ static void register_instances(Module *m, BindVec *extra, int *first) {
   }
 }
 
-static int popcount(uint64_t m) {
-  int n = 0;
-  for (; m; m &= m - 1) n++;
-  return n;
-}
-
 /* ---------------------------------------------------- type completeness */
 
 /* With FK_CHECK_TYPES set, report every expression, pattern and lambda
@@ -2627,7 +2621,7 @@ static int popcount(uint64_t m) {
    top-level function's parameter and result types. The typed backend treats them as V, which
    is safe but slow, so a gap would otherwise go unnoticed. */
 static void untyped_at(const char *what, int line, int col) {
-  fprintf(stderr, "%s:%d:%d: untyped %s\n", CS->cur_file, line, col, what);
+  fprintf(stderr, "%s:%d:%d: untyped %s after %s\n", CS->cur_file, line, col, what, ST->ct_pass);
   ST->untyped++;
 }
 
@@ -2685,13 +2679,14 @@ static void ct_expr(Expr *e) {
   }
 }
 
-void check_types(Bind **bs, int n) {
+void check_types(Bind **bs, int n, const char *pass) {
   const char *mode = getenv("FK_CHECK_TYPES");
   if (!mode) return;
+  ST->ct_pass = pass;
   for (int i = 0; i < n; i++) {
     if (!bs[i]->type) untyped_at("binding", bs[i]->line, bs[i]->col);
     ct_expr(bs[i]->e);
-    if (strcmp(mode, "2") || bs[i]->e->k != E_LAM) continue;
+    if (strcmp(mode, "2") || strcmp(pass, "elab") || bs[i]->e->k != E_LAM) continue;
     Lambda *L = bs[i]->e->lam;
     fprintf(stderr, "%s:", bs[i]->name);
     for (int k = 0; k < L->n; k++) fprintf(stderr, " %s", L->ptypes[k] ? type_str(L->ptypes[k]) : "?");
@@ -2981,51 +2976,47 @@ static bool sig_names(Sig *s) {
   return false;
 }
 
-bool compile_chunk(Module *m, Chunk *out) {
-  jmp_buf jb, *saved = CS->cerr_jmp;
-  int mark = undo_mark(), ng0 = CS->globals.n, nc0 = CS->condefs.n, nt0 = CS->tydefs.n, ncl0 = CS->classes.n, ni0 = CS->insts.n, ns0 = ST->cstructs.n;
-  uint64_t nb0 = ST->num_bit, nf0 = ST->float_bit, ns0b = ST->string_bit;
-  int nk0 = CS->num_class, nfk0 = CS->float_class, nsk0 = CS->string_class;
-  int nx0 = CS->ffi_exports.n, nl0 = CS->all_lambdas.n;
-  CS->chunk_globals = ng0;
+ChunkMark chunk_mark(void) {
+  ChunkMark k = {undo_mark(), CS->globals.n, CS->condefs.n, CS->tydefs.n, CS->classes.n, CS->insts.n, ST->cstructs.n,
+                 ST->num_bit, ST->float_bit, ST->string_bit, CS->num_class, CS->float_class, CS->string_class,
+                 CS->ffi_exports.n, CS->all_lambdas.n};
+  CS->chunk_globals = k.globals;
   ST->cvars.n = 0;
   ST->level = 0;
   ty_begin();
-  if (setjmp(jb)) {
-    compile_budget(false);
-    elab_abort();
-    CS->cerr_jmp = saved;
-    undo_to(mark);
-    ty_undo();
-    CS->globals.n = ng0;
-    CS->condefs.n = nc0;
-    CS->tydefs.n = nt0;
-    CS->classes.n = ncl0;
-    CS->insts.n = ni0;
-    ST->cstructs.n = ns0;
-    CS->ffi_exports.n = nx0; /* an export checked before a later one failed */
-    CS->all_lambdas.n = nl0;
-    ST->num_bit = nb0;
-    ST->float_bit = nf0;
-    ST->string_bit = ns0b;
-    CS->num_class = nk0;
-    CS->float_class = nfk0;
-    CS->string_class = nsk0;
-    fk_truncate_cons((uint32_t)nc0);
-    ST->cvars.n = 0;
-    ST->pending.n = 0;
-    ST->level = 0;
-    return false;
-  }
-  CS->cerr_jmp = &jb;
-  compile_budget(true);
+  return k;
+}
+
+void chunk_undo(const ChunkMark *k) {
+  undo_to(k->undo);
+  ty_undo();
+  CS->globals.n = k->globals;
+  CS->condefs.n = k->condefs;
+  CS->tydefs.n = k->tydefs;
+  CS->classes.n = k->classes;
+  CS->insts.n = k->insts;
+  ST->cstructs.n = k->cstructs;
+  CS->ffi_exports.n = k->exports; /* an export checked before a later one failed */
+  CS->all_lambdas.n = k->lambdas;
+  ST->num_bit = k->num_bit;
+  ST->float_bit = k->float_bit;
+  ST->string_bit = k->string_bit;
+  CS->num_class = k->num_class;
+  CS->float_class = k->float_class;
+  CS->string_class = k->string_class;
+  fk_truncate_cons((uint32_t)k->condefs);
+  ST->cvars.n = 0;
+  ST->pending.n = 0;
+  ST->level = 0;
+}
+
+Group *check_chunk(Module *m, Binds *raw, int *first_inst, int *ng_out) {
   ST->pending.n = 0;
   register_struct_names(m);
   register_datas(m);
-  BindVec extra = {0}, raw = {0};
-  int first_inst;
-  register_classes(m, &extra, &raw);
-  register_instances(m, &extra, &first_inst);
+  Binds extra = {0};
+  register_classes(m, &extra, raw);
+  register_instances(m, &extra, first_inst);
   register_structs(m);
   register_foreigns(m);
   for (int i = 0; i < m->nb; i++) VPUSH(extra, m->binds[i]);
@@ -3059,7 +3050,7 @@ bool compile_chunk(Module *m, Chunk *out) {
   Group *gs = scc(m->binds, m->nb, &ng);
   for (int i = 0; i < ng; i++) infer_group(&gs[i], NULL, true);
   default_classes();
-  check_export_types(m, ng0);
+  check_export_types(m, CS->chunk_globals);
   /* Evaluate `main` last, unless another binding uses it. */
   for (int i = 0; i < ng; i++) {
     if (gs[i].n != 1 || strcmp(gs[i].b[0]->name, "main") != 0) continue;
@@ -3078,54 +3069,11 @@ bool compile_chunk(Module *m, Chunk *out) {
       m->binds[i]->orig = copy_expr(m->binds[i]->e);
       m->binds[i]->orig_globals = CS->globals.n;
     }
-  CS->specialized.n = 0;
-  for (int i = 0; i < m->nb; i++) elab_bind(m->binds[i]);
-  if (CS->interactive)
-    for (int i = 0; i < m->nb; i++) elab_default_value(m->binds[i]);
-  check_types(m->binds, m->nb);
-  check_types(CS->specialized.a, CS->specialized.n);
-  /* Clones of values, in the order made: an earlier input's run first; this
-     input's, at their default types, after the input's own groups. */
-  VEC(Group) vclones = {0}, vlate = {0};
-  for (int i = 0; i < CS->specialized.n; i++) {
-    Bind *b = CS->specialized.a[i];
-    if (b->e->k == E_LAM) VPUSH(raw, b);
-    else if (b->from->gidx < ng0) VPUSH(vclones, ((Group){&CS->specialized.a[i], 1, false}));
-    else VPUSH(vlate, ((Group){&CS->specialized.a[i], 1, false}));
-  }
-  int nspec = CS->specialized.n;
-  lift_locals(m->binds, m->nb);
-  lift_locals(CS->specialized.a, nspec); /* type-class clones made above */
-  VEC(Bind *) cand = {0};
-  for (int i = 0; i < m->nb; i++) VPUSH(cand, m->binds[i]);
-  for (int i = 0; i < CS->specialized.n; i++) VPUSH(cand, CS->specialized.a[i]);
-  lift_locals(cand.a, fuse_lists(cand.a, cand.n)); /* the fused loops */
-  ho_begin();
-  ho_specialize(m->binds, m->nb);
-  ho_specialize(CS->specialized.a, CS->specialized.n); /* clones and lifted functions */
-  reuse_cells(m->binds, m->nb, CS->specialized.a, CS->specialized.n);
-  for (int i = nspec; i < CS->specialized.n; i++) VPUSH(raw, CS->specialized.a[i]);
-  /* Dictionaries after the selectors, superclass dictionaries first. */
-  for (int depth = 1; depth <= 64; depth++)
-    for (int i = first_inst; i < CS->insts.n; i++)
-      if (popcount(CS->classes.a[CS->insts.a[i].cls].closure) == depth) VPUSH(raw, dict_bind(&CS->insts.a[i]));
-  for (int i = 0; i < m->nb; i++) resolve_top(m->binds[i]);
-  if (vclones.n || vlate.n) {
-    for (int i = 0; i < vclones.n; i++) resolve_top(vclones.a[i].b[0]);
-    for (int i = 0; i < vlate.n; i++) resolve_top(vlate.a[i].b[0]);
-    Group *all = xmalloc((size_t)(vclones.n + ng + vlate.n) * sizeof *all);
-    copy_n(all, vclones.a, (size_t)vclones.n * sizeof *all);
-    copy_n(all + vclones.n, gs, (size_t)ng * sizeof *all);
-    copy_n(all + vclones.n + ng, vlate.a, (size_t)vlate.n * sizeof *all);
-    gs = all;
-    ng += vclones.n + vlate.n;
-  }
-  for (int i = 0; i < raw.n; i++) {
-    Bind *b = raw.a[i];
-    b->gidx = global_lookup(b->name);
-    if (b->e->k == E_LAM) CS->globals.a[b->gidx].lam = b->e->lam;
-    resolve_top(b);
-  }
+  *ng_out = ng;
+  return gs;
+}
+
+void check_late(Module *m) {
   check_export_code(m);
   ST->warn_line = ST->warn_col = 0;
   for (int i = 0; i < m->nb; i++) cover_expr(m->binds[i]->e, m->binds[i]->name);
@@ -3135,18 +3083,6 @@ bool compile_chunk(Module *m, Chunk *out) {
     ST->nprelude_cons = CS->condefs.n;
     ST->nprelude_classes = CS->classes.n;
   }
-  out->groups = gs;
-  out->ng = ng;
-  out->raw = raw.a;
-  out->nraw = raw.n;
-  for (int i = 0; i < m->nlibs; i++) {
-    bool seen = false;
-    for (int j = 0; j < CS->ffi_libs.n; j++) seen |= !strcmp(CS->ffi_libs.a[j], m->libs[i]);
-    if (!seen) VPUSH(CS->ffi_libs, m->libs[i]);
-  }
-  compile_budget(false);
-  CS->cerr_jmp = saved;
-  return true;
 }
 
 static void te_print(SB *b, TypeExpr *t, bool atom) {

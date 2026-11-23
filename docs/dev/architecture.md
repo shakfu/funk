@@ -11,33 +11,41 @@ source --lex.c--> tokens (layout applied)
        --qualify.c--> a module's names prefixed (modules.md)
        --check.c--> SCC groups, inferred types, class constraints
        --elab.c--> dictionaries passed explicitly, specializations
+       --lift.c--> local functions only called, made top-level
+       --fuse.c--> list pipelines fused into loops
+       --ho.c--> calls specialized on function arguments
+       --reuse.c--> copies that reuse a consumed list's cells
        --resolve.c--> frame slots, free-variable lists
            |--interp.c--> evaluate (REPL, funk run)
            '--cgen.c----> C source --$CC--> executable
 ```
 
-Both backends link the same runtime, `rt.c`.
+`pipeline.c` runs the passes from `check.c` to `resolve.c` for each chunk. Both backends link the same runtime, `rt.c`.
 
 | File | Lines | Role |
 |-|-|-|
-| `projects/funk/src/lex.c` | 353 | tokenizer, layout rule |
-| `projects/funk/src/parse.c` | 1431 | recursive-descent parser, desugaring |
-| `projects/funk/src/check.c` | 1966 | data types, classes, SCC analysis, type inference, chunk driver |
-| `projects/funk/src/elab.c` | 475 | dictionary passing, specialization |
-| `projects/funk/src/fuse.c` | 1148 | fusion of list pipelines into loops |
-| `projects/funk/src/resolve.c` | 158 | closure conversion |
-| `projects/funk/src/qualify.c` | 234 | module scope: a module's names prefixed, imports' qualifiers resolved |
-| `projects/funk/src/interp.c` | 173 | interpreter |
-| `projects/funk/src/cgen.c` | 321 | C generator |
-| `projects/funk/src/ffi.c` | 122 | foreign-import glue; the interpreter's compile, cache and load |
-| `projects/funk/src/rt.c`, `rt.h` | 898 | values, GC, apply, `show`, compare, primitives |
-| `projects/funk/src/prims.def` | 64 | primitive table: C name, funk name, arity, type |
-| `projects/funk/src/driver.c`, `libfunk.h` | 271 | the library's api: prelude, files, backends, REPL input |
-| `projects/funk/cli/main.c` | 287 | command line and REPL loop, over `libfunk.h` only |
-| `projects/funk/src/util.c`, `funk.h` | 549 | allocation, interning, maps with undo, AST types |
-| `lib/prelude.fk` | 274 | standard functions in funk |
-| `projects/funk/tools/embed.c` | 45 | embeds `rt.c`, `rt.h` and the prelude into the binary |
-| `CMakeLists.txt` | 50 | the build; `Makefile` is a frontend to it |
+| `projects/funk/src/lex.c` | 355 | tokenizer, layout rule |
+| `projects/funk/src/parse.c` | 1937 | recursive-descent parser, desugaring |
+| `projects/funk/src/check.c` | 3174 | data types, classes, SCC analysis, type inference, a chunk's undo |
+| `projects/funk/src/pipeline.c` | 284 | a chunk's passes in order; `FK_SKIP`, `FK_DUMP` |
+| `projects/funk/src/elab.c`, `elab.h` | 739 | dictionary passing, type-class specialization; the later passes' shared state |
+| `projects/funk/src/lift.c` | 323 | lambda lifting |
+| `projects/funk/src/fuse.c` | 1190 | fusion of list pipelines into loops |
+| `projects/funk/src/ho.c` | 611 | specialization on function arguments |
+| `projects/funk/src/reuse.c` | 637 | reuse of list cells, ownership |
+| `projects/funk/src/resolve.c` | 223 | closure conversion |
+| `projects/funk/src/qualify.c` | 443 | module scope: a module's names prefixed, imports' qualifiers resolved |
+| `projects/funk/src/interp.c` | 209 | interpreter |
+| `projects/funk/src/cgen.c` | 1511 | C generator |
+| `projects/funk/src/ffi.c` | 563 | foreign-import glue; the interpreter's compile, cache and load |
+| `projects/funk/src/rt.c`, `rt.h` | 3190 | values, GC, apply, `show`, compare, primitives |
+| `projects/funk/src/prims.def` | 175 | primitive table: C name, funk name, arity, type, whether it can fail |
+| `projects/funk/src/driver.c`, `libfunk.h` | 975 | the library's api: prelude, files, backends, REPL input |
+| `projects/funk/cli/main.c` | 351 | command line and REPL loop, over `libfunk.h` only |
+| `projects/funk/src/util.c`, `funk.h` | 887 | allocation, interning, maps with undo, AST types |
+| `lib/prelude.fk` | 640 | standard functions in funk |
+| `projects/funk/tools/embed.c` | 41 | embeds `rt.c`, `rt.h` and the prelude into the binary |
+| `CMakeLists.txt` | 105 | the build; `Makefile` is a frontend to it |
 
 ## Lexing and layout (`lex.c`)
 
@@ -77,7 +85,7 @@ Generated names start with `$`, which user identifiers cannot contain.
 
 ## Checking (`check.c`)
 
-`compile_chunk` processes one module or REPL input:
+`compile_chunk` (`pipeline.c`) processes one module or REPL input:
 
 1. Register data types and constructors. Constructor ids are shared with the runtime table `fk_cons`. `deriving` was already expanded by the parser into instance declarations.
 
@@ -91,7 +99,7 @@ Generated names start with `$`, which user identifiers cannot contain.
 
 6. Default remaining `Num` variables to `Int`, report other open constrained variables as ambiguous, and move `main` last.
 
-7. Elaborate each binding (`elab.c`), then build each new instance's dictionary `$dict.C.T`. Selectors, dictionaries and specializations go to `Chunk.raw`.
+7. Elaborate each binding (`elab.c`), run the optimizing passes (lift, fuse, ho, reuse), then build each new instance's dictionary `$dict.C.T`. Selectors, dictionaries and specializations go to `Chunk.raw`.
 
 8. Run `resolve_top` on each binding.
 
@@ -119,17 +127,19 @@ Inference:
 
 - Each variable reference records the instantiated constraints of its scheme (`Expr.preds`). Each binding records the constraints it generalized (`Bind.preds`), in the order `preds_of` gives. Elaboration needs both.
 
-## Elaboration (`elab.c`)
+## Elaboration (`elab.c`) and the optimizing passes
 
 A binding with constraints gets one dictionary parameter per constraint, prepended to its lambda. A use gets its dictionaries as leading arguments of the same application, so a call to a known function stays saturated. A dictionary is a parameter in scope, a superclass selector applied to one, or an instance dictionary, applied to its context's dictionaries if it has one. The rewrites that avoid dictionaries at known types are described in [type-classes.md](type-classes.md#performance).
 
-After elaboration, `lift_locals` lifts local functions that are only ever called (never passed, returned or partially applied) to top-level functions, with their free local variables as leading parameters; each call passes them. A group is lifted only if no binder in its region rebinds one of those variables. `safe q qs = check qs 1 where check ...` calls `safe/check q qs 1`, with no closure.
+After elaboration, `lift_locals` (`lift.c`) lifts local functions that are only ever called (never passed, returned or partially applied) to top-level functions, with their free local variables as leading parameters; each call passes them. A group is lifted only if no binder in its region rebinds one of those variables. `safe q qs = check qs 1 where check ...` calls `safe/check q qs 1`, with no closure.
 
-Then `ho_specialize` specializes calls on function arguments. A call to a top-level function whose argument for a function-typed parameter is built from globals, literals, constructors and lambdas gets a copy with the parameter replaced by the argument. Local variables of the call site in the argument become leading parameters of the copy. Arguments may contain `case`, which lambdas with patterns desugar to (`\n _ -> n + 1`). An application of a lambda literal, which substitution creates, is beta-reduced into `case a of p -> body`, which evaluates the argument first and builds no closure. `map (flip primMulInt 3) xs` calls `map@{0=(flip@{0=primMulInt} 3)}`, in which `f x` is a known call. In desugared clauses, the pattern variables bound to that parameter are replaced too. Copies are keyed by the argument's structure, so recursive calls reuse them. Arguments longer than 160 characters as keys are not specialized, so specialization terminates when an argument grows. Global references copied into a body are marked `global_ref`, so a local of the same name cannot capture them. `.` and `>>>` take three parameters in the prelude, which makes `(f . g) x` a saturated, specializable call.
+Then `ho_specialize` (`ho.c`) specializes calls on function arguments. A call to a top-level function whose argument for a function-typed parameter is built from globals, literals, constructors and lambdas gets a copy with the parameter replaced by the argument. Local variables of the call site in the argument become leading parameters of the copy. Arguments may contain `case`, which lambdas with patterns desugar to (`\n _ -> n + 1`). An application of a lambda literal, which substitution creates, is beta-reduced into `case a of p -> body`, which evaluates the argument first and builds no closure. `map (flip primMulInt 3) xs` calls `map@{0=(flip@{0=primMulInt} 3)}`, in which `f x` is a known call. In desugared clauses, the pattern variables bound to that parameter are replaced too. Copies are keyed by the argument's structure, so recursive calls reuse them. Arguments longer than 160 characters as keys are not specialized, so specialization terminates when an argument grows. Global references copied into a body are marked `global_ref`, so a local of the same name cannot capture them. `.` and `>>>` take three parameters in the prelude, which makes `(f . g) x` a saturated, specializable call.
 
 After lambda lifting, `fuse_lists` (`fuse.c`) replaces chains of prelude list functions with a local loop, which is lifted in turn; see [fusion.md](fusion.md). It runs before `ho_specialize`, so the loop's stage functions become direct calls.
 
-Last, `reuse_cells` finds fresh-producing functions and consuming list parameters, and sends calls that pass a fresh list to a consuming parameter to a copy `f@reuseK`. In the copy, scrutinees holding the input's spine are marked `own`, and cgen writes TRMC output cells into the cells matched from them. Before that, an alternative's `C x1 .. xn` that rebuilds the cell it matched becomes the scrutinee. See [reuse.md](reuse.md).
+Last, `reuse_cells` (`reuse.c`) finds fresh-producing functions and consuming list parameters, and sends calls that pass a fresh list to a consuming parameter to a copy `f@reuseK`. In the copy, scrutinees holding the input's spine are marked `own`, and cgen writes TRMC output cells into the cells matched from them. Before that, an alternative's `C x1 .. xn` that rebuilds the cell it matched becomes the scrutinee. See [reuse.md](reuse.md).
+
+For the compiler's developers, `FK_SKIP=lift,fuse,ho,reuse` turns those passes off, and `FK_DUMP=pass,...` prints a chunk's bindings after each pass named, as source (`pipeline.c` lists the passes). `FK_CHECK_TYPES=1` checks after each pass from `elab` on that every expression has a type.
 
 Installation runs in three steps per chunk, in both backends: function closures, then dictionaries (superclasses first), then top-level values. Dictionaries refer to method functions, and values may use dictionaries.
 

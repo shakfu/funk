@@ -34,19 +34,27 @@ add_custom_command(
 # in src/libfunk.h. Static; the command line links it, and so may a host.
 # It exports only libfunk.h's funk_*; position-independent, for hosts that
 # are plugins.
-add_library(libfunk STATIC
-  src/driver.c src/util.c src/lex.c src/parse.c src/check.c src/elab.c src/fuse.c
+set(LIBFUNK_SOURCES
+  src/driver.c src/util.c src/lex.c src/parse.c src/check.c src/pipeline.c src/elab.c src/ho.c src/lift.c src/reuse.c src/fuse.c
   src/resolve.c src/qualify.c src/interp.c src/cgen.c src/ffi.c src/rt.c
   ${CMAKE_CURRENT_BINARY_DIR}/embedded.c)
+add_library(libfunk STATIC ${LIBFUNK_SOURCES})
 set_target_properties(libfunk PROPERTIES OUTPUT_NAME funk C_VISIBILITY_PRESET hidden
   POSITION_INDEPENDENT_CODE ON PUBLIC_HEADER src/libfunk.h)
-target_include_directories(libfunk INTERFACE
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<INSTALL_INTERFACE:include>)
-# FK_SESSIONS: the runtime's state per session, found from the stack (src/rt.h);
-# compiled programs paste src/rt.c without it, as one session
-target_compile_definitions(libfunk PRIVATE FUNK_VERSION="${PROJECT_VERSION}" FK_SESSIONS)
-target_compile_options(libfunk PRIVATE -Wall -Wextra -Wno-unused-parameter)
-target_link_libraries(libfunk PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
+# libfunk_hooks: libfunk with FK_TEST_HOOKS, for tests that need a fault
+# no input can cause (funk.h); built only when a test links it
+add_library(libfunk_hooks STATIC EXCLUDE_FROM_ALL ${LIBFUNK_SOURCES})
+set_target_properties(libfunk_hooks PROPERTIES C_VISIBILITY_PRESET hidden POSITION_INDEPENDENT_CODE ON)
+target_compile_definitions(libfunk_hooks PRIVATE FK_TEST_HOOKS)
+foreach(t libfunk libfunk_hooks)
+  target_include_directories(${t} INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src> $<INSTALL_INTERFACE:include>)
+  # FK_SESSIONS: the runtime's state per session, found from the stack (src/rt.h);
+  # compiled programs paste src/rt.c without it, as one session
+  target_compile_definitions(${t} PRIVATE FUNK_VERSION="${PROJECT_VERSION}" FK_SESSIONS)
+  target_compile_options(${t} PRIVATE -Wall -Wextra -Wno-unused-parameter)
+  target_link_libraries(${t} PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
+endforeach()
 # rt.c's GC check calls _Unwind_Backtrace: GCC's driver links it from libgcc, zig cc needs -lunwind
 include(CheckCSourceCompiles)
 set(unwind_src "#include <unwind.h>
@@ -59,6 +67,7 @@ if(NOT FUNK_UNWIND_IMPLICIT)
   unset(CMAKE_REQUIRED_LIBRARIES)
   if(FUNK_UNWIND_LIB)
     target_link_libraries(libfunk PUBLIC unwind)
+    target_link_libraries(libfunk_hooks PUBLIC unwind)
   endif()
 endif()
 

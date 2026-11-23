@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- The passes after inference are one file each, `elab.c`, `lift.c`, `fuse.c`, `ho.c` and `reuse.c`, run in order by `pipeline.c`. `FK_SKIP=lift,fuse,ho,reuse` turns passes off and replaces `FK_NOFUSE=1`. `FK_DUMP=pass,...` prints a chunk's bindings after each pass named. `FK_CHECK_TYPES=1` now checks after each pass, not only after elaboration. A pass could be tested only through the whole compiler, and `elab.c` held four of them in 2,300 lines. The generated C is unchanged for every test, benchmark and library program.
+
 - A `let` or `where` value whose evaluation can act no longer generalizes, as in ML's value restriction. `let a = newArray 2 nullPtr` gave `a :: Array (Ptr a)`, so one array could be written at `Ptr Int` and read at `Ptr Float`, or written at `Float` and read at `Int`. Such a binding with a polymorphic signature is an error.
 
 ### Fixed
@@ -33,6 +35,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Compiled foreign imports and kernels are cached only in a directory the user owns that others cannot write; another is a runtime error. Without `$HOME` the cache fell back to `/tmp/.cache/funk/ffi`, and funk `dlopen`ed any `.so` there, including one another user put in place. Without `$HOME` it is now `/tmp/funk-<uid>`. A kernel's key also includes the size and time of the libraries its link line names, as the glue's did.
 
 - Whether a primitive can fail is a column of `prims.def`, read by both fusion and `resolve.c`'s test for calls it can evaluate early. Fusion listed the primitives that fail, so a new one was total by default; the list missed `primConTag`, which fails on a value that is not a constructor.
+
+- Two processes compiling the same foreign imports no longer share one source file. Each wrote `HASH.c` in the cache, so one could truncate it while the other's C compiler read it, and the import could fail to compile. The source and depfile are now per process. This is a precaution: `tests/ffi_cache_race.sh`, a manual stress test, found no failure in 480 concurrent compiles with the old code.
+
+- `lib/dirt-scsynth` fails with scsynth's exit code when a render fails, and deletes each case's renders before running. It ignored that exit, kept an earlier run's WAV, and read frames missing from a short WAV as silence. One full-suite run failed `envelopeLinear` with an error equal to its peak, 0.22, which a silent render gives; that run's cause was not reproduced in 3 full runs.
 
 ## [0.13.0] - 2026-11-19
 

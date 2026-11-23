@@ -101,7 +101,7 @@ run)
       fail "warnings in the generated C" "$tmp/cc"
     exit 0 ;;
   reuse)
-    FK_NOFUSE=1 "$FUNK" emit-c "$f" -o "$tmp/c" || fail "funk emit-c"
+    FK_SKIP=fuse "$FUNK" emit-c "$f" -o "$tmp/c" || fail "funk emit-c"
     grep '^static .* w_[0-9]*(.*) { /\* .*@\(reuse\|own\)[0-9]* \*/$' "$tmp/c" | sed 's|.*/\* ||; s| \*/$||' | LC_ALL=C sort >"$tmp/out"
     same "$base.reuse" "$tmp/out"
     exit 0 ;;

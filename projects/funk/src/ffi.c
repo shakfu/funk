@@ -455,7 +455,11 @@ void ffi_load(ForeignDecl **fs, int n) {
     utimes(so, NULL);
   } else {
     prune(dir);
-    char *c = xsprintf("%s/%016llx.c", dir, (unsigned long long)h), *tmp = xsprintf("%s.%d", so, (int)getpid());
+    /* per process: two compiling one hash would truncate each other's source.
+       The .c stays, as the depfile names it. */
+    int pid = (int)getpid();
+    char *c = xsprintf("%s/%016llx.%d.c", dir, (unsigned long long)h, pid), *tmp = xsprintf("%s.%d", so, pid),
+         *dep = xsprintf("%s.%d.d", so, pid);
     FILE *f = fopen(c, "w");
     if (!f) fk_error("cannot write %s", c);
     fputs(src, f);
@@ -464,7 +468,7 @@ void ffi_load(ForeignDecl **fs, int n) {
 #ifdef __APPLE__
                            "-undefined", "dynamic_lookup", /* a host's functions it did not give to funk_provide */
 #endif
-                           "-o", tmp, c, "-MD", "-MF", xsprintf("%s.d", so)};
+                           "-o", tmp, c, "-MD", "-MF", dep};
     for (size_t i = 0; i < sizeof fixed / sizeof fixed[0]; i++) VPUSH(argv, (char *)fixed[i]);
     for (int i = 0; i < CS->ffi_cc_args.n; i++) VPUSH(argv, (char *)CS->ffi_cc_args.a[i]);
     bool m = false; /* the linker warns about a library named twice */
@@ -476,9 +480,10 @@ void ffi_load(ForeignDecl **fs, int n) {
     const char *cc = argv.a[0];
     if (spawn_wait(&argv) != 0) {
       unlink(tmp);
+      unlink(dep);
       fk_error("foreign imports failed to compile with %s; its messages are above, and a conversion error means an import's type differs from its C declaration (source: %s)", cc, c);
     }
-    if (rename(tmp, so) != 0) fk_error("cannot write %s", so);
+    if (rename(dep, xsprintf("%s.d", so)) != 0 || rename(tmp, so) != 0) fk_error("cannot write %s", so);
   }
   void *lib = dlopen(so, RTLD_NOW | RTLD_LOCAL);
   if (!lib) fk_error("cannot load foreign imports: %s", dlerror());

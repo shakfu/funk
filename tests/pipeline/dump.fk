@@ -1,0 +1,4 @@
+-- cli/pipeline_dump: FK_DUMP shows the fused loop fusion made (pipeline.c).
+sq x = x * x
+
+main = print (sum (map sq [1 .. 10]))

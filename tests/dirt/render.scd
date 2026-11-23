@@ -95,7 +95,10 @@ fork { try {
 			++ [[0.0, [\g_new, top, 0, 0]], [0.0, [\s_new, \oracle_seed, -1, 0, 0, \seed, seed]]]
 			++ score ++ [[secs, [\c_set, 0, 0]]];
 		Score.recordNRT(score, outDir +/+ name ++ ".osc", outDir +/+ name ++ ".wav", nil, rate, "WAV", "float",
-			options, "", secs, { c.unhang });
+			options, "", secs, { |code|
+				// a failed render may leave a short WAV, which would compare as silence
+				if(code != 0) { ("render.scd: scsynth exited % on %".format(code, name)).postln; 1.exit };
+				c.unhang });
 		c.hang;
 	};
 	0.exit;

@@ -106,7 +106,7 @@ The pass runs after elaboration and before `lift_locals`, so the loop is lifted,
 
 ## Tests
 
-- **Reference semantics.** `FK_NOFUSE=1` disables the pass. The expected output of `tests/run/fuse.fk` is produced with it, so the test checks the fused program against the unfused one, in both backends.
+- **Reference semantics.** `FK_SKIP=fuse` disables the pass (formerly `FK_NOFUSE=1`). The expected output of `tests/run/fuse.fk` is produced with it, so the test checks the fused program against the unfused one, in both backends.
 
 - **Must fuse:** the two benchmark pipelines; `sum`, `length`, `any` and `elem` over `map` and `filter`; `concatMap` with an inner pipeline; `take` after total stages. `tests/run/fuse.fuse` lists the generated loops, as `reuse.reuse` lists reuse copies.
 
@@ -147,7 +147,7 @@ Implemented in `projects/funk/src/fuse.c`, about 1,000 lines. Differences from t
 
 - **Dictionaries.** A call through a dictionary counts as unknown, so overloaded code fuses only in its specialized clones.
 
-- **Tests.** `tests/run/fuse.fk` and `fuse_err1.fk`, `fuse_err2.fk`, with expected output from `FK_NOFUSE=1`; `fuse.fuse` lists the functions that get a loop. The `.reuse` check now runs with fusion off, since fusion removes the lists it tests.
+- **Tests.** `tests/run/fuse.fk` and `fuse_err1.fk`, `fuse_err2.fk`, with expected output from `FK_SKIP=fuse`; `fuse.fuse` lists the functions that get a loop. The `.reuse` check now runs with fusion off, since fusion removes the lists it tests.
 
 | Benchmark | Before | After |
 |-|-|-|

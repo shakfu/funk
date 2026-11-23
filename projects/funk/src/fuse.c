@@ -1157,6 +1157,10 @@ static void fuse_expr(Expr *e, Nm *loc, Nm *lazy) {
 /* Fuse pipelines in the chunk's bindings; returns how many were changed
    and moves them to the front of all, for lift_locals. */
 int fuse_lists(Bind **all, int n) {
+#ifdef FK_TEST_HOOKS /* embed/compiler_bug: a bug in a pass inside compile_chunk */
+  for (int i = 0; i < n; i++)
+    if (!strcmp(all[i]->name, "fkTestBug")) BUG();
+#endif
   bool prelude = !strcmp(CS->cur_file, "<prelude>");
   VEC(Bind *) fns = {0};
   for (int i = 0; i < n; i++) {
@@ -1169,7 +1173,6 @@ int fuse_lists(Bind **all, int n) {
     if (b->e->k == E_LAM && b->e->lam->ptypes) VPUSH(fns, b);
   }
   analyze(fns.a, fns.n);
-  if (getenv("FK_NOFUSE")) return 0;
   int nc = 0;
   for (int i = 0; i < n; i++) {
     ST->changed = false;

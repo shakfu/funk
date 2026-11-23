@@ -65,7 +65,8 @@ int undo_mark(void);
 void undo_to(int mark);
 
 _Noreturn void cerror(int line, int col, const char *fmt, ...);
-/* A broken invariant in the compiler: reported, then unwound as a compile error, so a host's process goes on. */
+/* A broken invariant in the compiler: reported, then unwound as a compile error, so a host's process goes on.
+   FK_TEST_HOOKS builds (libfunk_hooks) call it for the names fkTestBug and fkTestCgenBug. */
 _Noreturn void compiler_bug(const char *file, int line);
 #define BUG() compiler_bug(__FILE__, __LINE__)
 void cwarning(int line, int col, const char *fmt, ...);
@@ -423,11 +424,24 @@ typedef struct {
 /* Dictionaries, selectors: bindings built after inference. */
 typedef struct { Group *groups; int ng; Bind **raw; int nraw; } Chunk;
 typedef VEC(ForeignDecl *) Foreigns;
-
+typedef VEC(Bind *) Binds;
 
 void compiler_init(void);
+/* A chunk's passes, in order (pipeline.c); false after a compile error, with the chunk undone. */
 bool compile_chunk(Module *m, Chunk *out);
-void elab_abort(void); /* a compile error left elab.c's passes unfinished */
+/* check.c's part of it. What a chunk adds to the session, to undo on an error. */
+typedef struct {
+  int undo, globals, condefs, tydefs, classes, insts, cstructs;
+  uint64_t num_bit, float_bit, string_bit;
+  int num_class, float_class, string_class, exports, lambdas;
+} ChunkMark;
+ChunkMark chunk_mark(void);
+void chunk_undo(const ChunkMark *k);
+/* Declarations registered and inferred: the groups in evaluation order.
+   raw gets generated bindings that are not inferred; first_inst, the chunk's first instance. */
+Group *check_chunk(Module *m, Binds *raw, int *first_inst, int *ng);
+void check_late(Module *m); /* after resolve: exports' code, coverage warnings */
+void elab_abort(void); /* a compile error left the passes after inference unfinished */
 const char *infer_type_text(Expr *e);
 int global_lookup(const char *name);
 void global_alias(const char *name, int gidx);
@@ -441,7 +455,7 @@ Type *tcon_new(const char *name, int n, Type **args);
 
 /* ---------------------------------------------------------- elaboration */
 
-void check_types(Bind **bs, int n); /* report expressions without a type (FK_CHECK_TYPES) */
+void check_types(Bind **bs, int n, const char *pass); /* report expressions without a type after pass (FK_CHECK_TYPES) */
 int global_add(const char *name, Type *t, Lambda *lam);
 void elab_bind(Bind *b);
 void elab_default_value(Bind *b);

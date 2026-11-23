@@ -1,0 +1,5 @@
+-- embed/compiler_bug: code generation hits the test build's BUG.
+fkTestCgenBug :: Int
+fkTestCgenBug = 1
+
+main = print fkTestCgenBug

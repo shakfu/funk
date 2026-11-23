@@ -1368,6 +1368,9 @@ static void cg_functions(SB *out, Reach *r) {
 
 char *cgen_program(Chunk *chunks, int nchunks) {
   ST->kmode = false; /* left set if cgen_kernels failed */
+#ifdef FK_TEST_HOOKS /* embed/compiler_bug: a bug in code generation, after compile_chunk */
+  if (global_lookup(intern("fkTestCgenBug")) >= 0) BUG();
+#endif
   Reach r = reach_program(chunks, nchunks);
   Chunk *user = &chunks[nchunks - 1];
   ST->user.n = 0;

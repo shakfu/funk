@@ -33,7 +33,6 @@ typedef struct {
   const char *lib;  /* D_LIBRARY */
 } Decl;
 typedef VEC(Decl) Decls;
-typedef VEC(Bind *) Binds;
 typedef VEC(Pat *) Pats;
 typedef VEC(DataDecl *) Datas;
 

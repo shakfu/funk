@@ -87,13 +87,14 @@ if(FUNK_SANITIZE)
   elseif(FUNK_SANITIZE MATCHES "address")
     list(APPEND san_flags --param=asan-instrument-allocas=0 --param=asan-use-after-return=0)
   endif()
-  foreach(t libfunk funk reload funk-midi)
+  foreach(t libfunk libfunk_hooks funk reload funk-midi)
     target_compile_options(${t} PRIVATE ${san_flags})
   endforeach()
   foreach(t funk reload funk-midi)
     target_link_options(${t} PRIVATE -fsanitize=${FUNK_SANITIZE})
   endforeach()
   target_link_options(libfunk INTERFACE -fsanitize=${FUNK_SANITIZE}) # for hosts, the installed package's too
+  target_link_options(libfunk_hooks INTERFACE -fsanitize=${FUNK_SANITIZE})
 endif()
 
 # Included by another project, funk adds its targets only: not its install
