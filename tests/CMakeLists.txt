@@ -556,6 +556,13 @@ endforeach()
 
 funk_test(cli/compile_limit cli cli 1 "<prelude>:0:0: error: the compiler exceeded its memory limit (FK_COMPILE_LIMIT, default 2 GiB)" check tests/run/ho_chain.fk)
 set_property(TEST cli/compile_limit APPEND PROPERTY ENVIRONMENT FK_COMPILE_LIMIT=1000)
+# A cache directory others can write is refused, as dlopen would load what they put there.
+set(unsafe_cache ${CMAKE_CURRENT_BINARY_DIR}/unsafe_cache)
+add_test(NAME cli/ffi_cache_unsafe
+  COMMAND sh -c "mkdir -p '${unsafe_cache}/funk/ffi' && chmod 777 '${unsafe_cache}/funk/ffi' && XDG_CACHE_HOME='${unsafe_cache}' \"$<TARGET_FILE:funk>\" run tests/run/ffi.fk 2>&1"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(cli/ffi_cache_unsafe PROPERTIES LABELS cli
+  PASS_REGULAR_EXPRESSION "cannot use [^\n]*unsafe_cache/funk/ffi, or a directory above it, for compiled C: it must be a directory you own that others cannot write")
 
 # Under AddressSanitizer (FUNK_SANITIZE=address), what ASan itself changes:
 # - run/overflow/interp: ASan prints a warning when a longjmp leaves funk's large stack

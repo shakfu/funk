@@ -26,6 +26,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - The compiler's calls to `waitpid` retry on `EINTR` and check the result. One interrupted call read an uninitialized status. Its `stat` and `waitpid` calls also release the stack snapshot first: they write into the frame, which the kernel cannot do while the page is read-only.
 
+- A broken invariant in the compiler is a compile error, `internal compiler error at <file>:<line>`, and the input is rolled back. It called `abort()`, which ended an embedding host's process.
+
+- `funk_on_fatal` sets its session's hook. It set one hook for the process, so the last session to call it received every session's fatal errors.
+
+- Compiled foreign imports and kernels are cached only in a directory the user owns that others cannot write; another is a runtime error. Without `$HOME` the cache fell back to `/tmp/.cache/funk/ffi`, and funk `dlopen`ed any `.so` there, including one another user put in place. Without `$HOME` it is now `/tmp/funk-<uid>`. A kernel's key also includes the size and time of the libraries its link line names, as the glue's did.
+
+- Whether a primitive can fail is a column of `prims.def`, read by both fusion and `resolve.c`'s test for calls it can evaluate early. Fusion listed the primitives that fail, so a new one was total by default; the list missed `primConTag`, which fails on a value that is not a constructor.
+
 ## [0.13.0] - 2026-11-19
 
 ### Changed

@@ -65,6 +65,9 @@ int undo_mark(void);
 void undo_to(int mark);
 
 _Noreturn void cerror(int line, int col, const char *fmt, ...);
+/* A broken invariant in the compiler: reported, then unwound as a compile error, so a host's process goes on. */
+_Noreturn void compiler_bug(const char *file, int line);
+#define BUG() compiler_bug(__FILE__, __LINE__)
 void cwarning(int line, int col, const char *fmt, ...);
 
 /* ---------------------------------------------------------------- tokens */
@@ -450,12 +453,15 @@ void lift_locals(Bind **bs, int n);   /* lifted functions go to `specialized` */
 void reuse_cells(Bind **bs, int n, Bind **cs, int nc); /* copies go to `specialized` */
 int fuse_lists(Bind **all, int n); /* moves the changed bindings to the front; returns their count */
 bool case_covers(Expr *e, bool otherwise_true); /* exhaustive, guards included; before resolve */
-bool prim_call_total(Expr *e); /* an application of a primitive that cannot fail: div by a non-zero literal, not chr */
 
 /* --------------------------------------------------------------- backends */
 
 void resolve_top(Bind *b);
 const char *prim_cname(int i);
+/* prims.def's kind. May the call e of primitive p fail? With e NULL, may some call?
+   prim_cheap: no effect, constant time, and total but for prim_fails's literal cases. */
+bool prim_fails(int p, Expr *e);
+bool prim_cheap(int p);
 
 void interp_install(Chunk *c);
 V interp_global(int gidx);

@@ -231,13 +231,28 @@ static uint64_t hash(uint64_t h, const char *s) {
   return h;
 }
 
-static const char *cache_dir(void) {
-  const char *x = getenv("XDG_CACHE_HOME"), *home = getenv("HOME");
-  char *base = x && *x ? xsprintf("%s", x) : xsprintf("%s/.cache", home && *home ? home : "/tmp");
-  const char *parts[] = {base, xsprintf("%s/funk", base), xsprintf("%s/funk/ffi", base)};
-  for (int i = 0; i < 3; i++) mkdir(parts[i], 0755); /* existing directories are fine */
-  return parts[2];
+/* A directory only this user can write, as dlopen trusts what is in it:
+   made 0700, or existing, ours, and not writable by others. The first
+   may be a symbolic link, as a ~/.cache on another disk. */
+static bool own_dir(const char *p, bool link_ok) {
+  mkdir(p, 0700);
+  struct stat st;
+  return (link_ok ? stat(p, &st) : lstat(p, &st)) == 0 && S_ISDIR(st.st_mode) && st.st_uid == geteuid() && !(st.st_mode & 022);
 }
+
+/* The cache's directory; NULL, with *path set, if it is not safe. */
+static const char *cache_dir(const char **path) {
+  fk_ffi_enter(); /* stat writes into this frame */
+  const char *x = getenv("XDG_CACHE_HOME"), *home = getenv("HOME");
+  char *base = x && *x ? xsprintf("%s", x) : home && *home ? xsprintf("%s/.cache", home) : xsprintf("/tmp/funk-%d", (int)geteuid());
+  char *funk = xsprintf("%s/funk", base), *ffi = xsprintf("%s/ffi", funk);
+  *path = ffi;
+  bool ok = own_dir(base, true) && own_dir(funk, false) && own_dir(ffi, false);
+  if (!ok) *path = xsprintf("%s, or a directory above it,", ffi);
+  return ok ? ffi : NULL;
+}
+
+#define UNSAFE_CACHE "cannot use %s for compiled C: it must be a directory you own that others cannot write"
 
 /* Deletes cache entries unused for 30 days; a hit refreshes its mtime. */
 static void prune(const char *dir) {
@@ -433,7 +448,8 @@ void ffi_load(ForeignDecl **fs, int n) {
   for (int i = 0; i < CS->ffi_libs.n; i++) h = hash(h, CS->ffi_libs.a[i]);
   for (int i = 0; i < CS->ffi_cc_args.n; i++) h = hash(h, CS->ffi_cc_args.a[i]);
   h = hash_libraries(h);
-  const char *dir = cache_dir();
+  const char *where, *dir = cache_dir(&where);
+  if (!dir) fk_error(UNSAFE_CACHE, where);
   char *so = xsprintf("%s/%016llx.so", dir, (unsigned long long)h);
   if (access(so, R_OK) == 0 && !headers_newer(so)) {
     utimes(so, NULL);
@@ -492,7 +508,12 @@ char *ffi_compile_kernels(const char *src, const char **err) {
   Argv argv = cc_argv();
   uint64_t h = hash(14695981039346656037ULL, src);
   for (int i = 0; i < argv.n; i++) h = hash(h, argv.a[i]);
-  const char *dir = cache_dir();
+  h = hash_libraries(h); /* a rebuilt library the link line names */
+  const char *where, *dir = cache_dir(&where);
+  if (!dir) {
+    *err = xsprintf(UNSAFE_CACHE, where);
+    return NULL;
+  }
   char *so = xsprintf("%s/k%016llx.so", dir, (unsigned long long)h);
   if (access(so, R_OK) == 0) {
     utimes(so, NULL);

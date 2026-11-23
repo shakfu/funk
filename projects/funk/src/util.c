@@ -291,6 +291,17 @@ _Noreturn void cerror(int line, int col, const char *fmt, ...) {
   exit(1);
 }
 
+_Noreturn void compiler_bug(const char *file, int line) {
+  const char *base = strrchr(file, '/');
+  fk_message("funk: ", "internal compiler error at %s:%d", base ? base + 1 : file, line);
+  CS->cerr_quiet = false; /* reported above */
+  if (CS->cerr_jmp) {
+    fk_unwinding();
+    longjmp(*CS->cerr_jmp, 1);
+  }
+  fk_fatal("internal compiler error");
+}
+
 void cwarning(int line, int col, const char *fmt, ...) {
   va_list ap;
   char *prefix = xsprintf("%s:%d:%d: warning: ", CS->cur_file, line, col);

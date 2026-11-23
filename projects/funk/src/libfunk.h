@@ -50,11 +50,12 @@ int funk_run(funk *f, int (*fn)(funk *f, void *arg), void *arg);
    signal handlers are installed again. */
 void funk_free(funk *f);
 
-/* fn runs on an error funk cannot recover from, such as malloc failing or
-   a stack overflow inside a system library; then the process exits. It may
-   save the host's work; it must not call funk. After a stack overflow it
-   runs in a signal handler, on a 1 MiB stack, and malloc may be locked; 5
-   seconds later SIGALRM ends the process, unless the host handles SIGALRM. */
+/* fn runs on an error funk cannot recover from in f's thread, such as
+   malloc failing or a stack overflow inside a system library; then the
+   process exits. It may save the host's work; it must not call funk.
+   After a stack overflow it runs in a signal handler, on a 1 MiB stack,
+   and malloc may be locked; 5 seconds later SIGALRM ends the process,
+   unless the host handles SIGALRM. */
 void funk_on_fatal(funk *f, void (*fn)(void *ctx, const char *msg), void *ctx);
 
 /* Search dir for imported modules, after the importing file's own

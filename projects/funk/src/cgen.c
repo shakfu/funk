@@ -611,7 +611,7 @@ static const char *af_expr(Expr *e, Lambda *L, bool tail) { /* tail: a self call
     if (f->k != E_VAR || f->vk != VK_GLOBAL) return af_at("a call of an unknown function", e, L);
     Global *g = &CS->globals.a[f->idx];
     if (g->prim >= 0) {
-      if (!prim_call_total(e)) return af_at(xsprintf("`%s` may fail; divide only by a non-zero literal", g->name), e, L);
+      if (prim_fails(g->prim, e)) return af_at(xsprintf("`%s` may fail; divide only by a non-zero literal", g->name), e, L);
       const Scalar *sc = scalar_prim(prim_cname(g->prim));
       if (e->n == fk_prims[g->prim].arity && sc && !scalar_allocs(sc)) return NULL;
       if (!strcmp(prim_cname(g->prim), "then") && e->n == 2) { /* its arguments are boxed: () and Bool box without allocating */
@@ -870,7 +870,7 @@ static TV cg_expr(CG *c, Expr *e) {
   }
   case E_CASE: return cg_case(c, e, false);
   case E_ANN: return cg_expr(c, e->body);
-  default: abort();
+  default: BUG();
   }
 }
 
@@ -1367,6 +1367,7 @@ static void cg_functions(SB *out, Reach *r) {
 }
 
 char *cgen_program(Chunk *chunks, int nchunks) {
+  ST->kmode = false; /* left set if cgen_kernels failed */
   Reach r = reach_program(chunks, nchunks);
   Chunk *user = &chunks[nchunks - 1];
   ST->user.n = 0;

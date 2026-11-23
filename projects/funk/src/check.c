@@ -101,13 +101,25 @@ void *check_state_new(void) {
 }
 
 
-static const struct { const char *cname, *type; } prim_info[] = {
-#define P(c, name, ar, ty) {#c, ty},
+static const struct { const char *cname, *type; char kind; } prim_info[] = {
+#define P(c, name, ar, ty, k) {#c, ty, #k[0]},
 #include "prims.def"
 #undef P
 };
 
 const char *prim_cname(int i) { return prim_info[i].cname; }
+
+bool prim_fails(int p, Expr *e) {
+  bool lit = e && e->n == 2 && e->args[1]->k == E_INT;
+  switch (prim_info[p].kind) {
+  case 'F': return true;
+  case 'D': return !(lit && e->args[1]->ival != 0);
+  case 'S': return !(lit && e->args[1]->ival >= 0);
+  default: return false;
+  }
+}
+
+bool prim_cheap(int p) { return strchr("CDS", prim_info[p].kind) != NULL; }
 
 int global_lookup(const char *name) { return map_get(&ST->gmap, name); }
 
@@ -285,7 +297,7 @@ static const char *var_name(Names *nm, int i) {
       }
     }
   }
-  abort();
+  BUG();
 }
 
 static void pr(SB *b, Type *t, int prec, Names *nm) {
@@ -736,7 +748,7 @@ static Type *te_type(TypeExpr *te, TVars *tv, Sig *sig) {
     return tcon(CS->tydefs.a[ti].name, te->n, args);
   }
   }
-  abort();
+  BUG();
 }
 
 static Type *sig_scheme(Sig *s) {
@@ -807,7 +819,7 @@ static void register_datas(Module *m) {
       }
       const char *dot = islower((unsigned char)cd->name[0]) ? strchr(cd->name, '.') : NULL;
       uint32_t id = fk_register_con(dot ? dot + 1 : cd->name, cd->nfields); /* shown as derived Show does: unqualified */
-      if ((int)id != CS->condefs.n) abort();
+      if ((int)id != CS->condefs.n) BUG();
       con_effects(t);
       fk_con_labels(id, cd->labels);
       VPUSH(CS->condefs, ((ConDef){cd->name, cd->nfields, t, map_get(&ST->tmap, d->name), cd->labels}));
@@ -1696,7 +1708,7 @@ static Type *infer_pat0(Pat *p, Env **env, Env *stop) {
     return t;
   }
   }
-  abort();
+  BUG();
 }
 
 /* Every pattern records its type, for the typed backend. */
@@ -1939,7 +1951,7 @@ static Type *infer0(Expr *e, Env *env) {
     return pd.rec;
   }
   }
-  abort();
+  BUG();
 }
 
 /* Does v occur as the effect of an arrow within t? */

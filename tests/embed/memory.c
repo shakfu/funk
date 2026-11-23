@@ -4,8 +4,8 @@
    system, so the process is resident under the limit; a computation whose garbage exceeds the limit many
    times over runs, with the process's peak memory, until then, under
    100 MiB; deep
-   recursion on a 64 MiB stack is "stack overflow". The fatal hook runs in a
-   child, before it exits. */
+   recursion on a 64 MiB stack is "stack overflow". In a child, the fatal
+   hook of the failing session runs, and another session's does not. */
 #define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -70,11 +70,18 @@ static void on_fatal(void *ctx, const char *msg) {
   fflush(stdout);
 }
 
+static int die(funk *f, void *ctx) {
+  (void)f, (void)ctx;
+  fk_fatal("test");
+}
+
 int main(void) {
   pid_t child = fork();
   if (child == 0) {
-    funk_on_fatal(funk_new(NULL), on_fatal, "set");
-    fk_fatal("test");
+    funk *other = funk_new(NULL), *f = funk_new(NULL);
+    funk_on_fatal(other, on_fatal, "other");
+    funk_on_fatal(f, on_fatal, "set");
+    funk_run(f, die, NULL);
   }
   int status;
   waitpid(child, &status, 0);

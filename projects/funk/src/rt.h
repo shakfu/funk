@@ -397,9 +397,7 @@ int fk_compare(V a, V b);
 int fk_num_eq_int(V v, long long i);
 
 __attribute__((noreturn)) void fk_error(const char *fmt, ...);
-/* An error funk cannot recover from: fk_fatal_hook (libfunk.h, funk_on_fatal) runs, then the process exits. */
-extern void (*fk_fatal_hook)(void *ctx, const char *msg);
-extern void *fk_fatal_ctx;
+/* An error funk cannot recover from: the session's funk_on_fatal hook (libfunk.h) runs, then the process exits. */
 _Noreturn void fk_fatal(const char *msg);
 void fk_unwinding(void); /* before a longjmp out of funk code (rt.c) */
 void fk_recover(void); /* after a runtime error has unwound: a full heap's memory collected */
@@ -411,6 +409,7 @@ void fk_message(const char *prefix, const char *fmt, ...);
 void fk_vmessage(const char *prefix, const char *fmt, va_list ap);
 void fk_message_rt(FkRt *r, const char *prefix, const char *fmt, ...);
 void fk_rt_output(FkRt *r, void (*out)(void *ctx, int stream, const char *s, size_t n), void *ctx);
+void fk_rt_on_fatal(FkRt *r, void (*fn)(void *ctx, const char *msg), void *ctx);
 void fk_rt_interrupt(FkRt *r);
 _Noreturn void fk_match_fail(const char *where);
 _Noreturn void fk_stack_overflow(void);
@@ -422,7 +421,7 @@ extern const FkPrim fk_prims[];
 extern const int fk_nprims;
 V fk_prim_value(int i);
 
-#define P(c, name, ar, ty) V fk_p_##c(V self, V *a);
+#define P(c, name, ar, ty, k) V fk_p_##c(V self, V *a);
 #include "prims.def"
 #undef P
 

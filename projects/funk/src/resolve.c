@@ -58,20 +58,6 @@ static FreeSrc capture(Fn *f, Fn *owner, int slot) {
 static void expr(Expr *e, Fn *f, Scope *sc);
 static void lambda(Lambda *L, Fn *parent, Scope *sc);
 
-/* Primitives that are total, have no effect and take constant time. The
-   division family is total only with a literal, non-zero divisor. */
-static bool total_prim(const char *c) {
-  static const char *const names[] = {"addi", "subi", "muli", "negi", "absi", "addf", "subf", "mulf", "fdiv", "negf",
-                                      "absf", "sqrt", "exp",  "log",  "sin",  "cos",  "pow",  "tofloat", "ord",
-                                      "eqw",  "new",  "ltw",  "lew",  "gtw",  "gew",  "eqf",  "nef",  "ltf",
-                                      "lef",  "gtf",  "gef",  "band", "bor",  "bxor", "bnot"};
-  for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
-    if (strcmp(names[i], c) == 0) return true;
-  return false;
-}
-
-static bool nonzero_literal(Expr *e) { return (e->k == E_INT && e->ival) || (e->k == E_FLOAT && e->fval); }
-
 static bool eager(Expr *e, Scope *sc);
 
 /* A full call of global g is eager when g's body is, under its parameters,
@@ -119,11 +105,7 @@ static bool eager(Expr *e, Scope *sc) {
     if (p < 0) return g >= 0 && CS->globals.a[g].bind && CS->globals.a[g].bind->e->k == E_LAM &&
                       e->n == CS->globals.a[g].bind->e->lam->n && eager_fn(g);
     if (e->n != fk_prims[p].arity) return false;
-    const char *c = prim_cname(p);
-    if (total_prim(c)) return true;
-    if (!strcmp(c, "shl") || !strcmp(c, "shr")) return e->args[1]->k == E_INT && e->args[1]->ival >= 0; /* a negative shift fails */
-    return (!strcmp(c, "div") || !strcmp(c, "mod") || !strcmp(c, "quot") || !strcmp(c, "rem")) &&
-           nonzero_literal(e->args[1]);
+    return prim_cheap(p) && !prim_fails(p, e);
   }
   default: return false;
   }

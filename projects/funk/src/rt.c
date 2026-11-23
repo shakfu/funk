@@ -174,16 +174,6 @@ _Noreturn void fk_match_fail(const char *where) {
 
 _Noreturn void fk_stack_overflow(void) { fk_error("stack overflow"); }
 
-void (*fk_fatal_hook)(void *ctx, const char *msg);
-void *fk_fatal_ctx;
-
-_Noreturn void fk_fatal(const char *msg) {
-  if (fk_fatal_hook) fk_fatal_hook(fk_fatal_ctx, msg);
-  fflush(stdout);
-  fprintf(stderr, "funk: %s\n", msg);
-  exit(1);
-}
-
 static void *rt_realloc(void *p, size_t n) {
   p = realloc(p, n);
   if (!p) fk_fatal("out of memory");
@@ -283,6 +273,8 @@ struct FkRt {
   char *heap_map;      /* the heap's reservation, as mapped, and its size */
   size_t heap_map_size;
   struct { void (*fn)(void *); void *arg; } task; /* for task_main */
+  void (*fatal)(void *ctx, const char *msg); /* libfunk.h, funk_on_fatal */
+  void *fatal_ctx;
   char *getline_line;  /* fk_p_getline's buffer, reused */
   size_t getline_cap;
   V **verify_st;       /* verify_marks's stack */
@@ -364,6 +356,19 @@ void fk_unwinding(void) {
   char *sp = (char *)__builtin_frame_address(0);
   if (RT->stack_top > sp) __asan_unpoison_memory_region(sp, (size_t)(RT->stack_top - sp));
 #endif
+}
+
+void fk_rt_on_fatal(FkRt *r, void (*fn)(void *ctx, const char *msg), void *ctx) {
+  r->fatal = fn;
+  r->fatal_ctx = ctx;
+}
+
+_Noreturn void fk_fatal(const char *msg) {
+  FkRt *r = fk_current();
+  if (r && r->fatal) r->fatal(r->fatal_ctx, msg);
+  fflush(stdout);
+  fprintf(stderr, "funk: %s\n", msg);
+  exit(1);
 }
 
 FkRt *fk_current(void) {
@@ -2355,7 +2360,7 @@ V fk_p_error(V self, V *a) {
 V fk_p_then(V self, V *a) { return a[1]; }
 
 const FkPrim fk_prims[] = {
-#define P(c, name, ar, ty) {name, ar, fk_p_##c},
+#define P(c, name, ar, ty, k) {name, ar, fk_p_##c},
 #include "prims.def"
 #undef P
 };
@@ -2542,9 +2547,9 @@ static bool fault(siginfo_t *si, void *ctx) {
     }
 #endif
     static const char msg[] = "runtime error: stack overflow\n";
-    if (fk_fatal_hook) {
+    if (r->fatal) {
       alarm(5); /* the hook may wait on a lock the overflow left held: the default action ends the process */
-      fk_fatal_hook(fk_fatal_ctx, "stack overflow");
+      r->fatal(r->fatal_ctx, "stack overflow");
     }
     fflush(stdout); /* not async-signal-safe, but the process exits next */
     if (write(2, msg, sizeof msg - 1) < 0) {}

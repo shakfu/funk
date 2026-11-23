@@ -461,6 +461,21 @@ static bool compile_program(const char *path, Chunk *out) {
   return false;
 }
 
+/* cgen_program, or with err cgen_kernels, with a compiler bug caught: NULL
+   after its message, and err NULL then too. */
+static char *cgen_caught(Chunk *all, int n, const char **err) {
+  jmp_buf jb, *saved = CS->cerr_jmp;
+  char *volatile src = NULL;
+  if (!setjmp(jb)) {
+    CS->cerr_jmp = &jb;
+    src = err ? cgen_kernels(all, n, err) : cgen_program(all, n);
+  } else if (err) {
+    *err = NULL;
+  }
+  CS->cerr_jmp = saved;
+  return src;
+}
+
 bool funk_check_file(funk *f, const char *path) {
   ON_THREAD(f, false);
   Chunk c;
@@ -500,7 +515,7 @@ char *funk_emit_c(funk *f, const char *path) {
   all[0] = ST->prelude;
   copy_n(all + 1, ST->mod_chunks.a, (size_t)ST->mod_chunks.n * sizeof *all);
   all[n - 1] = c;
-  return plain(cgen_program(all, n));
+  return plain(cgen_caught(all, n, NULL));
 }
 
 static int by_line(const void *a, const void *b) {
@@ -533,8 +548,8 @@ char *funk_emit_kernels(funk *f, const char *path) {
   copy_n(all + 1, ST->mod_chunks.a, (size_t)ST->mod_chunks.n * sizeof *all);
   all[n - 1] = c;
   const char *err = NULL;
-  char *src = cgen_kernels(all, n, &err);
-  if (!src) report("%s", xsprintf("%s: %s", path, err));
+  char *src = cgen_caught(all, n, &err);
+  if (!src && err) report("%s", xsprintf("%s: %s", path, err));
   return plain(src);
 }
 
@@ -548,9 +563,9 @@ char *funk_compile_kernels(funk *f, const char *path) {
   copy_n(all + 1, ST->mod_chunks.a, (size_t)ST->mod_chunks.n * sizeof *all);
   all[n - 1] = c;
   const char *err = NULL;
-  char *src = cgen_kernels(all, n, &err);
+  char *src = cgen_caught(all, n, &err);
   char *so = src ? ffi_compile_kernels(src, &err) : NULL;
-  if (!so) report("%s", xsprintf("%s: %s", path, err));
+  if (!so && err) report("%s", xsprintf("%s: %s", path, err));
   return plain(so);
 }
 
@@ -779,9 +794,7 @@ static bool int_function(Type *t, int n) {
 }
 
 void funk_on_fatal(funk *f, void (*fn)(void *ctx, const char *msg), void *ctx) {
-  (void)f;
-  fk_fatal_hook = fn;
-  fk_fatal_ctx = ctx;
+  fk_rt_on_fatal(f->rt, fn, ctx);
 }
 
 void funk_interrupt(funk *f) { fk_rt_interrupt(f->rt); }

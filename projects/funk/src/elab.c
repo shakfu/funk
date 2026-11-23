@@ -219,7 +219,7 @@ static Expr *super_path(int from, int to, Expr *e, int line, int col) {
     const char *sel = intern(xsprintf("$sup.%s.%s", c->name, CS->classes.a[s].name));
     return super_path(s, to, app(var(sel, line, col), 1, a), line, col);
   }
-  abort();
+  BUG();
 }
 
 /* The constraints an instance's dictionary function takes, in order. */
@@ -865,7 +865,7 @@ static void key(SB *b, Expr *e, Nm *params) {
     }
     sb_puts(b, ")");
     return;
-  default: abort();
+  default: BUG();
   }
 }
 

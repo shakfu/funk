@@ -51,34 +51,11 @@ static Bind *gbind(int g) {
 
 static bool impure_prim(int g) { return type_acts(CS->globals.a[g].type); }
 
-static bool divides(const char *n) {
-  return !strcmp(n, "div") || !strcmp(n, "mod") || !strcmp(n, "quot") || !strcmp(n, "rem");
-}
-
-static bool shifts(const char *n) { return !strcmp(n, "shiftL") || !strcmp(n, "shiftR"); } /* fail on a negative count */
-
-static bool partial_prim(const char *n) {
-  static const char *const p[] = {"error", "chr", "primFloorFloat", "primCeilingFloat", "primRoundFloat", "primTruncateFloat", "readInt", "readFloat", "getLine",
-                                  "primNewArray", "primNewRing", "mallocBytes", "newCString", "peekCString", "deRefStablePtr",
-                                  "freeStablePtr", "waitEvent", "pollEvent", "indexString",
-                                  "writeArrayString", "putArray", "getArray", "copyArray"};
-  for (size_t i = 0; i < sizeof p / sizeof p[0]; i++)
-    if (!strcmp(n, p[i])) return true;
-  return divides(n) || shifts(n);
-}
-
-bool prim_call_total(Expr *e) {
-  const char *n = CS->globals.a[e->fn->idx].name;
-  if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
-  if (shifts(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival >= 0;
-  return !partial_prim(n);
-}
-
 /* May the global g, used as a function value, be called? tot: without
    failing; otherwise: without effects. */
 static bool gval_ok(int g, bool tot) {
   if (g < 0) return false;
-  if (CS->globals.a[g].prim >= 0) return tot ? !partial_prim(CS->globals.a[g].name) : !impure_prim(g);
+  if (CS->globals.a[g].prim >= 0) return tot ? !prim_fails(CS->globals.a[g].prim, NULL) : !impure_prim(g);
   if (CS->globals.a[g].ffi) return !tot && CS->globals.a[g].ffi->pure; /* C may fail in ways funk cannot see */
   Bind *b = CS->globals.a[g].bind;
   if (!b) return !CS->globals.a[g].lam; /* a value, evaluated at startup, or an unanalyzed function */
@@ -120,12 +97,8 @@ static bool ok_e(Expr *e, Nm *loc, Nm *call, bool tot) {
     int g = gref(f, loc);
     if (g < 0) return in(loc, f->name) && in(call, f->name);
     if (CS->globals.a[g].prim >= 0) {
-      const char *n = CS->globals.a[g].name;
       if (e->n > fk_prims[CS->globals.a[g].prim].arity) return false; /* applies an unknown result */
-      if (!tot) return !impure_prim(g);
-      if (divides(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival != 0;
-      if (shifts(n)) return e->n == 2 && e->args[1]->k == E_INT && e->args[1]->ival >= 0;
-      return !partial_prim(n);
+      return tot ? !prim_fails(CS->globals.a[g].prim, e) : !impure_prim(g);
     }
     if (CS->globals.a[g].ffi) return e->n <= CS->globals.a[g].ffi->arity && gval_ok(g, tot);
     Bind *b = gbind(g);
@@ -881,7 +854,7 @@ static Expr *flow(Gen *g, int lv, int j, Expr *y, Expr **cur) {
     return cont(g, c);
   case F_ANY: return eif(eapp1(use(s->fn), y, t_bool()), ebool(true), cont(g, cur), g->res);
   case F_ALL: return eif(eapp1(use(s->fn), y, t_bool()), cont(g, cur), ebool(false), g->res);
-  default: abort();
+  default: BUG();
   }
 }
 
