@@ -72,3 +72,10 @@ dkms.conf
 
 # macOS Finder metadata
 .DS_Store
+
+# agents
+.claude
+CLAUDE.md
+AGENTS.md
+REVIEW.md
+
