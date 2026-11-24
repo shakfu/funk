@@ -49,7 +49,8 @@ int spawn_wait_err(Argv *a, const char *err); /* spawn_wait, with its stderr in 
       (v).a = xrealloc((v).a, (size_t)cap_ * sizeof *(v).a);            \
       (v).cap = cap_;                                                   \
     }                                                                   \
-    (v).a[(v).n++] = (x);                                               \
+    (v).a[(v).n] = (x); /* n after x: an x that throws adds nothing */  \
+    (v).n++;                                                            \
   } while (0)
 
 typedef struct { char *s; size_t n, cap; } SB;

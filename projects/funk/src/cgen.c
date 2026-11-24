@@ -1290,10 +1290,18 @@ static void reach_lambda(Reach *r, Lambda *L) {
   reach_expr(r, L->body);
 }
 
+/* One more than the largest lambda id. Not all_lambdas.n: a failed input's
+   lambdas leave the list (chunk_undo), but their ids are not given again. */
+static int lambda_ids(void) {
+  int n = 0;
+  for (int i = 0; i < CS->all_lambdas.n; i++) n = CS->all_lambdas.a[i]->id >= n ? CS->all_lambdas.a[i]->id + 1 : n;
+  return n;
+}
+
 /* Nothing reached yet; each global's binding. */
 static Reach reach_new(Chunk *chunks, int nchunks) {
   Reach r = {xcalloc((size_t)CS->globals.n + 1, sizeof(Bind *)), xcalloc((size_t)CS->globals.n + 1, 1),
-             xcalloc((size_t)CS->all_lambdas.n + 1, 1)};
+             xcalloc((size_t)lambda_ids() + 1, 1)};
   for (int k = 0; k < nchunks; k++) {
     for (int i = 0; i < chunks[k].nraw; i++) r.bind[chunks[k].raw[i]->gidx] = chunks[k].raw[i];
     for (int i = 0; i < chunks[k].ng; i++)
@@ -1357,9 +1365,7 @@ static void cg_functions(SB *out, Reach *r) {
                    "FK_HIDDEN V fk_false = (V)&fk_nullaries[%d], fk_true = (V)&fk_nullaries[%d], fk_unit = (V)&fk_nullaries[%d], fk_nil = (V)&fk_nullaries[%d];\n"
                    "FK_HIDDEN void fk_match_fail(const char *where) { (void)where; __builtin_trap(); }\n\n",
               FK_C_FALSE, FK_C_TRUE, FK_C_UNIT, FK_C_NIL);
-  int maxid = 0;
-  for (int i = 0; i < CS->all_lambdas.n; i++) maxid = CS->all_lambdas.a[i]->id > maxid ? CS->all_lambdas.a[i]->id : maxid;
-  ST->freps = xcalloc((size_t)maxid + 1, sizeof *ST->freps);
+  ST->freps = xcalloc((size_t)lambda_ids() + 1, sizeof *ST->freps);
   for (int i = 0; i < CS->all_lambdas.n; i++) /* the outermost functions; nested ones from their creators */
     if (r->lam[CS->all_lambdas.a[i]->id] && !CS->all_lambdas.a[i]->nfree) freps_lambda(CS->all_lambdas.a[i], NULL, NULL);
   for (int i = 0; i < CS->all_lambdas.n; i++)

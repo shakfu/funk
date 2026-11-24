@@ -20,6 +20,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A compile that failed while adding to one of the compiler's vectors left a slot counted but unwritten, when it failed in the added value itself, such as an allocation over `FK_COMPILE_LIMIT`. `VPUSH` incremented the count and evaluated the value unsequenced; GCC incremented first, so on Linux the input's rollback then freed the unwritten slot and crashed. The value is now evaluated first.
+
+- Emitting C after a failed input read and wrote one byte past an array, by lambda id. The array was sized by the count of live lambdas, which a failed input lowers, while ids are never given again. It is sized by the largest id, as cgen's other arrays already were.
+
 - The plugin restores UDP from a saved project only when `FUNK_LIVE_CLAP_UDP_PORT` is set. A project file could turn on the evaluator, which takes code from any local process on 127.0.0.1. The variable already turns UDP on at init, so honouring the saved flag then exposes nothing more. Otherwise the editor turns UDP on, each session.
 
 - A tuple section or instance head with more than 7 elements is a compile error. Both overflowed a 16-byte stack buffer, and the process aborted.
