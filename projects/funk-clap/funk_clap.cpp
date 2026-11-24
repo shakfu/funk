@@ -7,6 +7,9 @@
 // 4/4. Values are note + 128 * velocity + 16384 * (channel - 1), as funk's lib/midi.fk
 // makes them; velocity 0 plays as 100.
 //
+// `d1 $ ...` and the other slots of lib/stream.fk play beside pat: they loop in Live mode, and
+// as a clip a change to them renders one cycle of them all (funk's docs/dev/stream.md).
+//
 // `sig = <a g.Sig>` plays on the plugin's stereo output from the next block, as in
 // funk-live --audio; `voices f` is d.poly of kVoices voices, which every note the plugin
 // sends plays too (funk_voices, on the audio thread). The kernels are lib/kernels.fk,
@@ -57,6 +60,7 @@ extern "C" {
 #include "graph.h"
 #include "libfunk.h"
 #include "midi_clock.h"
+#include "stream.h"
 extern const funk_glue_entry funk_glue_table[]; // glue.c, from glue.fk by funk emit-c --glue
 extern const int funk_glue_count;
 }
@@ -71,18 +75,25 @@ const size_t kHeapLimit = (size_t)512 << 20, kThreshold = (size_t)16 << 20, kSta
 // Each instance has a heap: kThreshold, not the default 128 MiB, cut a session's resident set
 // from 119 to 43 MiB at the same speed (docs/dev/realtime.md, "Pacer").
 const char* const kStep = "step buf ctl nctl a b = p.writeEventsWith (plusPtr nullPtr buf) 4096 pat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 a b";
-const char* const kStepOnce = "stepOnce buf ctl nctl a b = p.writeEventsWith (plusPtr nullPtr buf) 4096 once (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 a b";
+const char* const kStepOnce = "stepOnce buf ctl nctl a b = p.writeEventsWith (plusPtr nullPtr buf) 4096 clipPat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 a b";
 // for a control pattern: three Ints a MIDI message, its time, bytes and note length (control.fk)
 const char* const kStepControls = "step buf ctl nctl a b = writeControlsWith (plusPtr nullPtr buf) 4096 pat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
-const char* const kStepOnceControls = "stepOnce buf ctl nctl a b = writeControlsWith (plusPtr nullPtr buf) 4096 once (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
+const char* const kStepOnceControls = "stepOnce buf ctl nctl a b = writeControlsWith (plusPtr nullPtr buf) 4096 clipPat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
 // ... with audio: each event through d.prepare dirt, so a sound of `dirt` plays as an event of
 // its templates (docs/dev/dirt-sound.md); compiled again after dirt changes, so they name the new dirt
 const char* const kStepDirt = "step buf ctl nctl a b = writeControlsWithBy (d.prepare dirt) (plusPtr nullPtr buf) 4096 pat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
-const char* const kStepOnceDirt = "stepOnce buf ctl nctl a b = writeControlsWithBy (d.prepare dirt) (plusPtr nullPtr buf) 4096 once (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
+const char* const kStepOnceDirt = "stepOnce buf ctl nctl a b = writeControlsWithBy (d.prepare dirt) (plusPtr nullPtr buf) 4096 clipPat (p.readControls (plusPtr nullPtr ctl) nctl) 2000000 1000000 a b";
+// The slots, d1 and the rest (lib/stream.fk), each window: as kStepControls or kStepDirt, of
+// playStack's onsets with their controls resolved (setF)
+const char* const kSlots = "slots buf ctl nctl a b = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (playStack ()) 2000000 a b) of\n  es -> writeControlEvents (plusPtr nullPtr buf) 4096 es 2000000 1000000";
+const char* const kSlotsDirt = "slots buf ctl nctl a b = case p.readControls (plusPtr nullPtr ctl) nctl of\n cl -> case resolveWindow cl (p.windowOnsets cl (playStack ()) 2000000 a b) of\n  es -> writeControlEventsBy (d.prepare dirt) (plusPtr nullPtr buf) 4096 es 2000000 1000000";
+// after a window fails: each slot plays its previous pattern, as Tidal's
+const char* const kRevertSlots = "revertSlots :: Int ->> Int\nrevertSlots x = do\n  setPreviousPatternOrSilence ()\n  x";
 // dirt's templates, from a pool of this many stages
 const char* const kPlayDirt = "playdirt :: Int ->> Int\nplaydirt u = do { d.playDirt audioPlayer 256 dirt ; 0 }";
 // control.fk, every name unqualified, as Tidal's are
 const char* const kControlImport = "import control (..)";
+const char* const kStreamImport = "import stream (..)";
 
 const int kVoices = 8;
 const uint32_t kChannels = 2;
@@ -91,6 +102,7 @@ const char* const kDefaultCode =
 	"-- Ctrl+Return (Cmd+Return on macOS) evaluates the paragraph around the caret, Ctrl+. stops.\n"
 	"-- To hear it, evaluate `sig` first, the instrument, then a pattern, its notes.\n"
 	"-- With Live on, `pat` loops; an expression of type Pattern Int plays once.\n"
+	"-- `d1 $ note \"0 7\"` plays in a slot, as Tidal's; `hush ()` silences the slots.\n"
 	"-- A cycle is one bar. Values: note + 128 * velocity + 16384 * (channel - 1).\n"
 	"-- `sig` plays on the plugin's output; `voices f` plays each note it sends.\n"
 	"\n"
@@ -142,6 +154,15 @@ std::string LibDir()
 	return dir;
 }
 
+// What lib/stream.fk's host functions read and set: one per instance, reached from funk's
+// thread, the only one that calls them (stream.h), through tSlotHost.
+struct SlotHost {
+	double nextMs = 0.;              // script ms of the next window, set before each funk call
+	funk_controls* controls = nullptr; // the instance's
+	bool tempoAsked = false;         // setcps, setCycle and the like were called: the DAW's tempo stays
+};
+thread_local SlotHost* tSlotHost = nullptr;
+
 class Session {
 public:
 	Session()
@@ -180,6 +201,7 @@ public:
 	bool ok() const { return ok_; }
 	funk* handle() const { return funk_; }
 	bool graphs() const { return graphs_; } // graph.fk's imports compiled: audio is possible
+	void setSlotHost(SlotHost* host) { slotHost_ = host; } // before any call
 
 	// Runs fn on funk's thread, with what funk writes meanwhile appended to out. A Stop
 	// (midi_clock_cancelled, on the evaluator thread) interrupts it; returns whether one did.
@@ -187,6 +209,7 @@ public:
 	bool call(const std::function<void()>& fn, std::string* out, bool stoppable = true)
 	{
 		std::packaged_task<void()> task([this, &fn, out] {
+			tSlotHost = slotHost_;
 			out_ = out;
 			fn();
 			out_ = nullptr;
@@ -237,18 +260,27 @@ private:
 		PROVIDE(funk_graph_bus) PROVIDE(funk_graph_in) PROVIDE(funk_templates_new) PROVIDE(funk_templates_add)
 		PROVIDE(funk_templates_free) PROVIDE(funk_player_templates) PROVIDE(funk_player_seed) PROVIDE(funk_player_event_begin)
 		PROVIDE(funk_player_event_param) PROVIDE(funk_player_event_end) PROVIDE(funk_player_event_counts)
+		// stream.fk's (stream.h): the slots, in funkgraph's stream.c; the clock and controls, below
+		PROVIDE(funk_stream_replace) PROVIDE(funk_stream_get) PROVIDE(funk_stream_count) PROVIDE(funk_stream_key)
+		PROVIDE(funk_stream_at) PROVIDE(funk_stream_first) PROVIDE(funk_stream_firsts) PROVIDE(funk_stream_first_at)
+		PROVIDE(funk_stream_expired) PROVIDE(funk_stream_set_global) PROVIDE(funk_stream_global) PROVIDE(funk_stream_now)
+		PROVIDE(funk_stream_random) PROVIDE(funk_stream_cps) PROVIDE(funk_stream_set_cps) PROVIDE(funk_stream_cycle_now)
+		PROVIDE(funk_stream_set_cycle) PROVIDE(funk_stream_nudge) PROVIDE(funk_stream_set_nudge) PROVIDE(funk_stream_set_state)
+		PROVIDE(funk_stream_control) PROVIDE(funk_stream_controls) PROVIDE(funk_stream_ncontrols)
 #undef PROVIDE
 		funk_glue(f, funk_glue_table, funk_glue_count); // graph.fk's imports: no C compiler needed
 		funk_module_dir(f, s.dir_.c_str());
 		funk_output(f, &Session::Output, &s);
 		bool ok = funk_eval(f, "import pattern as p", "<setup>", &shown) && funk_eval(f, "import pattern (..)", "<setup>", &shown)
 		          && funk_eval(f, "import midi as m", "<setup>", &shown)
-		          && funk_eval(f, kControlImport, "<setup>", &shown);
+		          && funk_eval(f, kControlImport, "<setup>", &shown) && funk_eval(f, kStreamImport, "<setup>", &shown)
+		          && funk_eval(f, kRevertSlots, "<setup>", &shown);
 		// If the linked glue does not match and no C compiler runs, graph.fk's imports fail:
 		// MIDI still plays, the output is silent.
 		s.graphs_ = ok && funk_eval(f, "import graph as g", "<setup>", &shown) && funk_eval(f, "import dsp as d", "<setup>", &shown)
 		            && funk_eval(f, "dirt = d.noDirt", "<setup>", &shown);
 		if (ok && !s.graphs_) fputs("funk-live: no audio: graph.fk's foreign imports did not compile\n", stderr);
+		ok = ok && funk_eval(f, s.graphs_ ? kSlotsDirt : kSlots, "<setup>", &shown);
 		started->set_value(ok);
 		if (!ok) return 1;
 		for (;;) {
@@ -277,23 +309,13 @@ private:
 	funk* funk_ = nullptr;
 	bool ok_ = false, graphs_ = false;
 	std::string* out_ = nullptr; // funk's thread only
+	SlotHost* slotHost_ = nullptr;
 	std::mutex mutex_;
 	std::condition_variable cv_;
 	std::deque<std::packaged_task<void()>> jobs_;
 	bool quit_ = false;
 	std::thread thread_;
 };
-
-// A paragraph line that defines name.
-bool Defines(const std::string& code, const char* name)
-{
-	for (size_t at = 0; at < code.size(); at = code.find('\n', at) + 1) {
-		const size_t n = strlen(name);
-		if (code.compare(at, n, name) == 0 && at + n < code.size() && strchr(" =\t", code[at + n])) return true;
-		if (code.find('\n', at) == std::string::npos) break;
-	}
-	return false;
-}
 
 // A paragraph of kernels: a line starts with `foreign export`.
 bool IsKernels(const std::string& code)
@@ -392,10 +414,10 @@ bool IsControlsType(const char* type)
 	return IsPatternType(type) && std::string(type).find("Controls") != std::string::npos;
 }
 
-// code as the body of `once`, indented, so that its lines continue the definition
+// code as the body of `clipPat`, indented, so that its lines continue the definition
 std::string AsOnce(const std::string& code)
 {
-	std::string s = "once = (\n  ";
+	std::string s = "clipPat = (\n  ";
 	for (char c : code) {
 		s += c;
 		if (c == '\n') s += "  ";
@@ -409,8 +431,24 @@ std::string AsOnceControls(const std::string& code)
 	return s.substr(0, s.size() - 3) + "Controls";
 }
 
+// The slots' StablePtrs: each replace, mute or `once` gives a new one, so a change shows here.
+std::vector<void*> SlotSignature()
+{
+	std::vector<void*> sig;
+	for (long i = 0; i < funk_stream_count(); i++) sig.push_back(funk_stream_at(i));
+	sig.push_back(nullptr);
+	for (long i = 0; i < funk_stream_firsts(); i++) sig.push_back(funk_stream_first_at(i));
+	return sig;
+}
+
 class FunkLanguage : public Language {
 public:
+	FunkLanguage()
+	{
+		slotHost_.controls = &controls_;
+		session_.setSlotHost(&slotHost_);
+	}
+
 	~FunkLanguage() override
 	{
 		for (int i = 0; i < nOsc_; i++) funk_osc_close(oscFds_[i]);
@@ -444,20 +482,31 @@ public:
 			out += "stopped\n"; // a pattern whose evaluation does not end
 			return;
 		}
-		bool pat = false;
+		bool pat = false, slotsChanged = false;
 		if (!once) {
+			slotHost_.nextMs = looping_ ? grid_ : midi_clock_ms();
 			const bool interrupted = s.call([&] {
-				if (!s.eval(code, out)) return;
-				if (Defines(code, "sig")) playSig(out);
-				if (Defines(code, "dirt")) playDirt(out);
-				if (Defines(code, "controls")) bindControls(out);
-				if (!Defines(code, "pat")) return;
+				const std::vector<void*> before = SlotSignature();
+				const bool evaluated = s.eval(code, out);
+				slotsChanged = SlotSignature() != before;
+				haveSlots_ = funk_stream_count() > 0 || funk_stream_firsts() > 0;
+				if (slotHost_.tempoAsked) out += "funk-live: the DAW sets the tempo and the cycle; the plugin keeps them\n";
+				slotHost_.tempoAsked = false;
+				if (!evaluated) return;
+				// Read before any of them evaluates, which forgets what code defined.
+				funk* h = s.handle();
+				const bool defSig = funk_defined(h, "sig"), defDirt = funk_defined(h, "dirt");
+				const bool defControls = funk_defined(h, "controls"), defPat = funk_defined(h, "pat");
+				if (defSig) playSig(out);
+				if (defDirt) playDirt(out);
+				if (defControls) bindControls(out);
+				if (!defPat) return;
 				// Compiled again, so that it names the new pat; as a clip, pat plays once.
 				char* type = funk_type_of(s.handle(), "pat", "<eval>");
 				const bool controls = IsControlsType(type);
 				free(type);
 				pat = s.eval(controls ? stepControls() : kStep, out)
-				      && (live_ || (s.eval("once = pat", out) && s.eval(controls ? stepOnceControls() : kStepOnce, out)));
+				      && (live_ || (s.eval("clipPat = pat", out) && s.eval(controls ? stepOnceControls() : kStepOnce, out)));
 				if (pat) stepControls_ = onceControls_ = controls;
 				else out += "funk-live: pat is not playing: it must be a Pattern Int or of Controls\n";
 			}, &out);
@@ -466,16 +515,23 @@ public:
 		// Compiling may outlast the lookahead: the notes start where they still play on time.
 		midi_clock_catch_up();
 		const double start = midi_clock_ms();
-		if (pat && live_) {
+		// The slots loop in Live mode; as a clip, a change to them renders one cycle of them all.
+		const bool slotsClip = !live_ && slotsChanged && haveSlots_;
+		if (live_ && (pat || haveSlots_)) {
 			if (!looping_) grid_ = start;
 			looping_ = true;
-			patternCycle_ = grid_ / kCycleMs;
-		} else if (once || pat) {
+			if (pat) {
+				patLoops_ = true;
+				patternCycle_ = grid_ / kCycleMs;
+			}
+		}
+		if (once || (pat && !live_) || slotsClip) {
 			// Its cycle is queued now. While pat loops, messages before grid_ are sent: it starts there at the earliest.
 			const double from = looping_ ? std::max(start, grid_) : start;
 			double last = from;
 			for (double a = 0.; a < kCycleMs && !midi_clock_cancelled(); a += kWindowMs) {
-				if (!query("stepOnce", a, a + kWindowMs, from, &last, out)) break;
+				if ((once || pat) && !query("stepOnce", a, a + kWindowMs, from, &last, out)) break;
+				if (slotsClip && !query("slots", a, a + kWindowMs, from, &last, out)) break;
 			}
 			// Live, the evaluation returns once these are sent, as other languages' do.
 			double t;
@@ -499,7 +555,9 @@ public:
 	void resume(double ms, std::string& out) override
 	{
 		if (looping_ && grid_ <= ms) {
-			if (!query("step", grid_, grid_ + kWindowMs, 0., nullptr, out)) looping_ = false;
+			if (patLoops_ && !query("step", grid_, grid_ + kWindowMs, 0., nullptr, out)) patLoops_ = false;
+			if (haveSlots_) query("slots", grid_, grid_ + kWindowMs, 0., nullptr, out);
+			looping_ = patLoops_ || haveSlots_;
 			grid_ += kWindowMs;
 		}
 		// In time order: while pat loops, only what precedes its next window.
@@ -512,12 +570,16 @@ public:
 
 	void stopVoices() override
 	{
-		looping_ = false;
+		looping_ = patLoops_ = false;
 		pending_ = {};
 	}
 
 	void stopSound(std::string& out) override
 	{
+		if (haveSlots_) { // as Tidal's hush: each slot silent, until it is given a pattern again
+			session_.call([&] { session_.eval("hush ()", out); }, &out, false);
+			haveSlots_ = false;
+		}
 		if (!audio_.ready) return;
 		// dirt's events and tails too: without sig they play as the orbits are
 		if (audio_.player) funk_player_hush(audio_.player);
@@ -689,6 +751,7 @@ private:
 		audio_.haveDirt = true;
 		if (stepControls_) session_.eval(stepControls(), out);
 		if (onceControls_ && !live_) session_.eval(stepOnceControls(), out);
+		session_.eval(session_.graphs() ? kSlotsDirt : kSlots, out);
 		if (!audio_.ready) return;
 		long arg = 0, r = 0;
 		if (!session_.eval(kPlayDirt, out) || !funk_call(session_.handle(), "playdirt", 1, &arg, &r))
@@ -732,7 +795,18 @@ private:
 		funk_control_float(&controls_, "_t_pattern", strcmp(step, "step") ? 0. : patternCycle_);
 		long args[5] = {(long)buf_, (long)controls_.e, controls_.n, std::lround(a * 1000), std::lround(b * 1000)}, n = 0;
 		bool ok = false;
-		session_.call([&] { ok = funk_call(session_.handle(), step, 5, args, &n); }, &out);
+		const bool slots = !strcmp(step, "slots");
+		slotHost_.nextMs = looping_ ? grid_ : midi_clock_ms();
+		session_.call([&] {
+			ok = funk_call(session_.handle(), step, 5, args, &n);
+			long r = 0;
+			if (!ok && slots && !funk_call(session_.handle(), "revertSlots", 1, args, &r))
+				out += "funk-live: the slots could not return to their previous patterns\n";
+		}, &out);
+		if (!ok && slots) {
+			out += "funk-live: a window failed; each slot returns to its previous pattern\n";
+			return true;
+		}
 		if (!ok) {
 			out += "funk-live: the pattern failed; it stops until it is evaluated again\n";
 			return false;
@@ -741,7 +815,7 @@ private:
 		// A clip's note-offs end 1 ms before its bar: at the bar they would grow the clip by one,
 		// and within half a frame of it the clip player drops them as it loops.
 		const double end = origin + kCycleMs - 1.;
-		if (!strcmp(step, "step") ? stepControls_ : onceControls_) {
+		if (slots || (!strcmp(step, "step") ? stepControls_ : onceControls_)) {
 			std::string name; // a name's chunks so far
 			for (long i = 0; i < n && i < kCap; i++) {
 				const double at = origin + buf_[3 * i] / 1000.;
@@ -817,7 +891,11 @@ private:
 	void bindControls(std::string& out)
 	{
 		for (int i = 0; i < nOsc_; i++) funk_osc_close(oscFds_[i]);
-		nOsc_ = 0, ccOn_ = paramsOn_ = false, controls_.n = 0;
+		nOsc_ = 0, ccOn_ = paramsOn_ = false;
+		long kept = 0; // setF's values stay, as no source sets them
+		for (long i = 0; i < controls_.n; i++)
+			if (controls_.e[i].kind == 3) controls_.e[kept++] = controls_.e[i];
+		controls_.n = kept;
 		long ins[8], n = 0, arg = (long)ins;
 		if (!session_.eval("controlIns buf = p.writeControlIns (plusPtr nullPtr buf) controls", out) || !funk_call(session_.handle(), "controlIns", 1, &arg, &n)) {
 			out += "funk-live: controls is not used: it must be a [p.ControlIn]\n";
@@ -864,7 +942,9 @@ private:
 		bool haveSig = false; // sig is defined, and plays once ready
 		bool haveDirt = false; // dirt is defined, and its templates load once ready
 	} audio_;
-	bool live_ = false, looping_ = false;
+	bool live_ = false, looping_ = false; // looping_: pat or the slots, each window from grid_
+	bool patLoops_ = false, haveSlots_ = false; // haveSlots_: a slot or a `once` pattern exists
+	SlotHost slotHost_;
 	bool stepControls_ = false, onceControls_ = false; // step's or stepOnce's pattern is of Controls
 	double grid_ = 0.; // pat's next window, in script ms
 	uint64_t seq_ = 0;
@@ -873,6 +953,26 @@ private:
 };
 
 } // namespace
+
+// lib/stream.fk's host functions (stream.h), for the instance whose funk thread calls them. The
+// DAW owns the tempo and the transport: a cycle is kCycleMs of script time, a bar; setcps and
+// setCycle change nothing, and the evaluation says so.
+extern "C" {
+double funk_stream_now(void) { return tSlotHost ? tSlotHost->nextMs / kCycleMs : 0.; }
+double funk_stream_cycle_now(void) { return funk_stream_now(); }
+double funk_stream_cps(void) { return 1000. / kCycleMs; }
+void funk_stream_set_cps(double) { if (tSlotHost) tSlotHost->tempoAsked = true; }
+void funk_stream_set_cycle(double) { if (tSlotHost) tSlotHost->tempoAsked = true; }
+int funk_stream_control(const char* name, void* stable)
+{
+	funk_control* c = tSlotHost ? funk_control_at(tSlotHost->controls, name) : nullptr;
+	if (!c) return 0;
+	c->kind = 3, c->num.i = (int64_t)(intptr_t)stable;
+	return 1;
+}
+void* funk_stream_controls(void) { return tSlotHost ? tSlotHost->controls->e : nullptr; }
+long funk_stream_ncontrols(void) { return tSlotHost ? tSlotHost->controls->n : 0; }
+}
 
 const LanguageInfo kLanguage = {
 	"com.github.shakfu.funk.funk-live",

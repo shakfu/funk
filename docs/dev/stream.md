@@ -76,7 +76,9 @@ As Boot.hs's and `Transition.hs`'s: `xfade`, `xfadeIn`, `histpan`, `wait`, `wait
 
 ## Host side
 
-The slots are a C table of `StablePtr`s to `PlayState`s, by ID (`projects/funk-live/stream.c`), with the patterns played once and `streamAll`'s function. Commands replace a slot's `StablePtr` and free the old one. Each window, `slots`, compiled once at start-up, reads the table through `playStack`. The imports are linked in as glue (`projects/funk-live/glue.fk`), so no C compiler runs.
+The slots are a C table of `StablePtr`s to `PlayState`s, by ID (`projects/funkgraph/stream.c`), with the patterns played once and `streamAll`'s function. Commands replace a slot's `StablePtr` and free the old one. Each window, `slots`, compiled once at start-up, reads the table through `playStack`. The imports are linked in as glue (each host's `glue.fk`), so no C compiler runs.
+
+Each session's thread has its own table, so each plugin instance has its own slots. A host gives the clock and its controls: `funk_stream_now`, the six tempo functions and three for controls (`stream.h`).
 
 `setF`'s patterns are `StablePtr`s too: stream.c keeps them by name, and the host's controls hold them as their own kind, so an OSC `/ctrl` replaces one in place.
 
@@ -108,6 +110,10 @@ A value named `p` beside `import pattern as p` needed a change to module scope (
 
 - `hosts/transitions`: transitions past cycle 0, on a new slot, on a muted one, and `anticipateIn`.
 
-## Not done
+## In the plugin
 
-- Slots in the plugin.
+Done 2026-11-24. The plugin queries `slots` each window, beside `pat`. In Live mode the slots loop. As a clip, a change to them renders one cycle of every slot.
+
+The DAW owns the tempo and the transport (R7), and a cycle is a bar. `setbpm`, `setCycle` and `resetCycles` change nothing, and the evaluation says so. The plugin takes no OSC playback commands. An event's `cps`, and so `setcps`, is ignored without a message. The editor's Stop runs `hush`.
+
+Tests, in `hosts/clap`: `d1` and `d2` as one clip, `mute 1`, and `d1` looping in Live mode until `hush`.

@@ -4,6 +4,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `funk_defined(f, name)` in `libfunk.h`: whether the last `funk_eval` or `funk_load_file` bound a top-level name. Both hosts use it to find a new `pat`, `sig`, `dirt` or `controls`, instead of scanning the input's text for a line that starts with the name. The scan missed `(pat, sig) = ...`, and in funk-live it matched an expression such as `pat |+ n 1`.
+
+- Slots in the plugin: `d1 $ ...` to `d16`, `p "name"`, `hush`, `mute`, `solo`, `once` and the transitions run in `funk-live.clap` as in funk-live. They loop in Live mode; as a clip, a change to them renders one cycle of every slot. The DAW keeps the tempo, so `setbpm`, `setCycle` and `resetCycles` change nothing and say so. The slot table moved to funkgraph's `stream.c` and is per thread, so each instance's session has its own, rather than a second copy in the plugin.
+
 ### Changed
 
 - `funk-midi` is now `funk-live`, and its plugin `funk-live.clap`, in `projects/funk-live`. It plays MIDI, SuperDirt over OSC and internal audio, so "midi" no longer described it, and the two names now mark one program in two forms. The plugin's CLAP id is `com.github.shakfu.funk.funk-live`, which drops the `midi-langs` repository it came from; a DAW project saved with the old plugin no longer finds it. The simulator's variables are `FUNK_LIVE_CLAP_SIM`, `FUNK_LIVE_CLAP_SIM_INTERVAL`, `FUNK_LIVE_CLAP_SIM_LOG`, `FUNK_LIVE_CLAP_SIM_ORDER`, `FUNK_LIVE_CLAP_SIM_SEED` and `FUNK_LIVE_CLAP_UDP_PORT`.

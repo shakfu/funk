@@ -122,6 +122,10 @@ bool funk_load_file(funk *f, const char *path);
    declaration or `()`; the caller frees it. */
 bool funk_eval(funk *f, const char *src, const char *name, char **shown);
 
+/* True if the last funk_eval or funk_load_file succeeded and bound the
+   top-level name, as `sig = ...` binds sig; false after an expression. */
+bool funk_defined(funk *f, const char *name);
+
 /* From any thread: f's running funk_run_file, funk_load_file, funk_eval or
    funk_call stops with the runtime error "interrupted". Interpreted code
    checks at each call, so a loop stops; a long primitive, such as sorting,

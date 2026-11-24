@@ -138,9 +138,9 @@ if(TARGET funk_live_clap)
   # lookahead, which a loaded machine misses: under ctest -j 10, a note 3 ms late
   set_tests_properties(hosts/clap PROPERTIES LABELS "hosts;clap" TIMEOUT 120 RUN_SERIAL TRUE
     ENVIRONMENT "FUNK_LIVE_CLAP_UDP_PORT=57291;XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
-  # saved state does not turn UDP on without FUNK_LIVE_CLAP_UDP_PORT; 57170 is the plugin's
-  # default port (funk_clap.cpp, kLanguage), which the control instance binds
-  add_test(NAME hosts/clap/state-udp COMMAND test_clap_host $<TARGET_FILE:funk_live_clap> --state-udp 57170 FUNK_LIVE_CLAP_UDP_PORT)
+  # saved state does not turn UDP on without FUNK_LIVE_CLAP_UDP_PORT; the control instance
+  # binds 29170, below macOS's and Linux's ephemeral ranges, so no client socket takes it
+  add_test(NAME hosts/clap/state-udp COMMAND test_clap_host $<TARGET_FILE:funk_live_clap> --state-udp 29170 FUNK_LIVE_CLAP_UDP_PORT)
   set_tests_properties(hosts/clap/state-udp PROPERTIES LABELS "hosts;clap" TIMEOUT 60 SKIP_RETURN_CODE 77
     ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
   # ... with tests/noalloc.c inserted, which counts allocation and locking in process()
@@ -237,7 +237,7 @@ set(PKG ${CMAKE_CURRENT_BINARY_DIR}/package)
 add_test(NAME embed/package COMMAND sh -c "rm -rf \"$0\" && \"$1\" --install \"$2\" --prefix \"$0/inst\" >/dev/null && \"$1\" -S \"$3\" -B \"$0/b\" -DCMAKE_PREFIX_PATH=\"$0/inst\" -DFUNK_VERSION=$4 >/dev/null && \"$1\" --build \"$0/b\" >/dev/null && \"$0/b/host\""
   ${PKG} ${CMAKE_COMMAND} ${PROJECT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/embed/package ${PROJECT_VERSION})
 set_tests_properties(embed/package PROPERTIES LABELS embed TIMEOUT 300 PASS_REGULAR_EXPRESSION "^55\n$")
-foreach(n signals output interrupt memory overflow session sessions compile_limit kernels teardown specialize rollback inflight)
+foreach(n signals output interrupt memory overflow session sessions compile_limit kernels teardown specialize rollback inflight defined)
   add_executable(embed_${n} embed/${n}.c)
   target_link_libraries(embed_${n} PRIVATE libfunk)
   if(FUNK_SANITIZE)
@@ -260,6 +260,10 @@ add_test(NAME embed/compiler_bug COMMAND sh -c "\"$<TARGET_FILE:embed_compiler_b
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(embed/compiler_bug PROPERTIES LABELS embed TIMEOUT 120
   PASS_REGULAR_EXPRESSION "^ok   -\nfunk: internal compiler error at fuse.c:[0-9]+\nfail -\n<test>:1:1: error: variable not in scope: `fkTestBug`\nfail -\nok   10\nfunk: internal compiler error at cgen.c:[0-9]+\nemit-c: none\nok   6\n$")
+add_test(NAME embed/defined
+  COMMAND sh -c "\"$<TARGET_FILE:embed_defined>\" tests/embed/defined.fk 2>/dev/null | diff tests/embed/defined.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(embed/defined PROPERTIES LABELS embed TIMEOUT 120)
 add_test(NAME embed/inflight COMMAND embed_inflight)
 set_tests_properties(embed/inflight PROPERTIES LABELS embed TIMEOUT 60
   PASS_REGULAR_EXPRESSION "^written before funk_free returned: yes\nfunk_free waited: yes\na claim after funk_free: none\n$")

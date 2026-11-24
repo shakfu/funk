@@ -46,7 +46,7 @@ Generated C speed reached its target: geometric mean 1.18x C on the core suite, 
 
 - [x] R1: slots `d1`..`d16` and `p "name"`, in funk-live. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md)).
 
-- [ ] R1 in the plugin: slots for funk-clap. The 0.13 acceptance's REAPER set plays through `pat` until then ([docs/dev/dirt-acceptance.md](docs/dev/dirt-acceptance.md)).
+- [x] R1 in the plugin: slots for funk-live.clap. Done 2026-11-24 ([docs/dev/stream.md](docs/dev/stream.md#in-the-plugin)). The 0.13 acceptance's REAPER set, written for `pat`, is unchanged.
 
 - [x] R2: the slots' commands, and the listener's OSC ones. Done 2026-11-10 ([docs/dev/stream.md](docs/dev/stream.md#commands)).
 

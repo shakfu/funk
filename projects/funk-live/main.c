@@ -859,22 +859,6 @@ static void rebind_controls(void) {
   }
 }
 
-static bool defines(const char *s, const char *name) {
-  s += strspn(s, " \t");
-  size_t n = strlen(name);
-  return strncmp(s, name, n) == 0 && (s[n] == ' ' || s[n] == '=' || s[n] == '\t');
-}
-
-/* a line of file path defines name at the top level */
-static bool file_defines(const char *path, const char *name) {
-  FILE *f = fopen(path, "r");
-  char line[512];
-  bool found = false;
-  while (f && !found && fgets(line, sizeof line, f)) found = line[0] != ' ' && line[0] != '\t' && defines(line, name);
-  if (f) fclose(f);
-  return found;
-}
-
 /* After sig may have changed. */
 static void rebind_sig(void) {
   if (!audio) return;
@@ -899,17 +883,26 @@ static void rebind_dirt(void) {
     fputs("funk-live: dirt failed; the last one plays on until dirt is defined again\n", stderr);
 }
 
+/* After an input or a loaded file: what it defined plays. A file's pat
+   and sig are bound again even if it does not define them. Each rebind
+   evaluates, so the names are read first. */
+static void rebind_defined(bool file) {
+  bool pat = file || funk_defined(session, "pat"), sig = file || funk_defined(session, "sig");
+  bool d = funk_defined(session, "dirt"), c = funk_defined(session, "controls");
+  if (pat) rebind();
+  if (sig) rebind_sig();
+  if (d) rebind_dirt();
+  if (c) rebind_controls();
+}
+
 /* One line of input; false to quit. */
 static bool handle(char *line) {
   line[strcspn(line, "\n")] = 0;
   char *s = line + strspn(line, " \t");
   if (!*s || !strncmp(s, "--", 2)) return true;
   if (*s != ':') {
-    bool ok = eval(s);
-    if (ok && defines(s, "pat")) rebind();
-    if (ok && defines(s, "sig")) rebind_sig();
-    if (ok && defines(s, "dirt")) rebind_dirt();
-    if (ok && defines(s, "controls")) rebind_controls();
+    eval(s);
+    rebind_defined(false);
     return true;
   }
   /* :cc CHANNEL NUM VALUE, a CC as if it came in, channel 1 to 16 */
@@ -963,11 +956,7 @@ static bool handle(char *line) {
   switch (s[1]) {
   case 'q': return false;
   case 'l':
-    if (funk_load_file(session, arg)) {
-      rebind();
-      rebind_sig();
-      if (file_defines(arg, "controls")) rebind_controls();
-    }
+    if (funk_load_file(session, arg)) rebind_defined(true);
     return true;
   case 'w': advance_until(now_us() + (int64_t)(atof(arg) * 1000)); return true;
   case 's':
@@ -1077,12 +1066,7 @@ static int run(funk *f, void *arg) {
     if (pthread_create(&hs_th, NULL, handshake, NULL)) { perror("funk-live: pthread_create"); return 1; }
     pthread_detach(hs_th); /* it may sit in poll at exit */
   }
-  if (o->file && funk_load_file(f, o->file)) {
-    rebind();
-    rebind_sig();
-    if (file_defines(o->file, "dirt")) rebind_dirt();
-    if (file_defines(o->file, "controls")) rebind_controls();
-  }
+  if (o->file && funk_load_file(f, o->file)) rebind_defined(true);
 
   if (o->script) {
     FILE *f = fopen(o->script, "r");

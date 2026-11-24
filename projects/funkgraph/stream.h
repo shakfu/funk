@@ -1,7 +1,9 @@
 /* stream.h -- a host's pattern slots, for lib/stream.fk (docs/dev/stream.md):
    Tidal's PlayMap, of StablePtrs to each slot's PlayState, plus the
    patterns `first` plays once and `streamAll`'s function. Only funk's
-   thread calls these. */
+   thread calls these, and each thread has its own table (stream.c). The
+   host defines funk_stream_now, the clock's six functions and the three
+   of its controls; stream.c the rest. */
 #ifndef FUNK_STREAM_H
 #define FUNK_STREAM_H
 

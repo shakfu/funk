@@ -3,7 +3,7 @@
 // Usage: test_clap_host <plugin binary> <cases file> <udp port>
 //        test_clap_host <plugin binary> --sim <log>: simulator mode (CheckSim)
 //        test_clap_host <plugin binary> --sim-dirt <log> <seconds> budget|any: a dirt script (CheckSimDirt)
-//        test_clap_host <plugin binary> --state-udp <default port> <variable>: saved state does not
+//        test_clap_host <plugin binary> --state-udp <port> <variable>: saved state does not
 //        turn UDP on without the port's variable (CheckStateUdp); run without the variable set
 // The plugin's UDP port variable must be set to <udp port>, which turns UDP on at init.
 //
@@ -634,6 +634,25 @@ void CheckClip(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 	          && Is(ev.list[1], kBeatFrames * 499 / 500, 0x80, 60),
 	      "a control pattern plays its CC, program and note:" + Describe(ev) + " and " + std::to_string(ev.others.size()) + " others");
 
+	// Slots (lib/stream.fk): as a clip, each change renders one cycle of every slot.
+	if (cases.count("slot") && cases.count("slot2") && cases.count("slot_mute")) {
+		reply = Eval(cases["slot"]);
+		ev = Play(plugin, 0., (int)(3 * kBeatFrames / kBlock)); // past d2's note-off, before the loop
+		check(reply.find("clip: ") != std::string::npos && !ev.list.empty() && Is(ev.list[0], 0, 0x90, 60),
+		      "d1 becomes a clip: " + reply + Describe(ev));
+		reply = Eval(cases["slot2"]);
+		ev = Play(plugin, 0., (int)(3 * kBeatFrames / kBlock)); // past d2's note-off, before the loop
+		check(ev.list.size() == 4 && Is(ev.list[0], 0, 0x90, 60) && Is(ev.list[2], kBeatFrames, 0x90, 67),
+		      "d2 plays beside d1: " + reply + Describe(ev));
+		reply = Eval(cases["slot_mute"]);
+		ev = Play(plugin, 0., (int)(3 * kBeatFrames / kBlock)); // past d2's note-off, before the loop
+		check(ev.list.size() == 2 && Is(ev.list[0], kBeatFrames, 0x90, 67), "mute 1 leaves d2: " + reply + Describe(ev));
+		Eval("unmuteAll ()");
+		Eval("hush ()");
+	} else {
+		printf("SKIP: slots (no [slot], [slot2] and [slot_mute] cases)\n");
+	}
+
 	// the plugin's controls (docs/dev/controls-in.md): _cps is 0.5, a 2 s cycle, so 1 s is half a cycle
 	if (!cases.count("sec")) return;
 	reply = Eval(cases["sec"]);
@@ -821,6 +840,26 @@ void CheckLive(const clap_plugin_t* plugin, std::map<std::string, std::string>& 
 	for (int b = 0; b < 100; ++b) Process(plugin, after, -1., false);
 	check(after.list.size() == (held ? 1u : 0u) && (!held || after.list[0].data[0] == 0x80),
 	      "stop ends the voice and releases its note:" + Describe(after));
+
+	// A slot loops in Live mode until hush silences it (lib/stream.fk).
+	if (cases.count("live_slot")) {
+		Udp slot;
+		slot.send(cases["live_slot"]);
+		Events looped;
+		const auto slot_give_up = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+		while (looped.list.empty() && std::chrono::steady_clock::now() < slot_give_up) Process(plugin, looped, -1., false);
+		for (int b = 0; b < 200; ++b) Process(plugin, looped, -1., false);
+		check(looped.list.size() >= 6, "d1 loops in Live mode:" + Describe(looped));
+		const std::string hushed = Eval("hush ()");
+		Events tail, quiet;
+		for (int b = 0; b < 100; ++b) Process(plugin, tail, -1., false); // what was queued before the hush
+		for (int b = 0; b < 200; ++b) Process(plugin, quiet, -1., false);
+		check(hushed == "ok\n" && quiet.list.empty(), "hush silences the slots: " + hushed + Describe(quiet));
+		plugin->reset(plugin);
+		Process(plugin, tail, -1., false);
+	} else {
+		printf("SKIP: a slot in Live mode (no [live_slot] case)\n");
+	}
 	SetOffline(plugin, false);
 
 	// In real time the evaluator runs ahead by the lookahead, so events still land on their frames.
@@ -943,9 +982,11 @@ bool PortFree(int port)
 	return free;
 }
 
-// Saved state with the UDP flag does not open the port when the port's variable is unset:
-// a project file must not expose an evaluator to every local process. As a control, an
-// instance made with the variable set does hold the port. 77, a skip, if it is taken already.
+// Saved state with the UDP flag does not turn UDP on when the port's variable is unset: a
+// project file must not expose an evaluator to every local process. The plugin's own state
+// says whether UDP is on, so no other process's port can pass or fail the check. As a
+// control, an instance made with the variable set, to port, has it on and holds port. 77, a
+// skip, if port is taken already.
 int CheckStateUdp(const char* pluginPath, int port, const char* variable)
 {
 	if (getenv(variable)) {
@@ -956,15 +997,19 @@ int CheckStateUdp(const char* pluginPath, int port, const char* variable)
 		printf("skipped: port %d is in use\n", port);
 		return 77;
 	}
+	auto udpOn = [](const clap_plugin_t* p) {
+		std::string state;
+		return SaveState(p, state) && state.size() > 1 && (state[1] & 1);
+	};
 	const clap_plugin_entry_t* entry = LoadEntry(pluginPath);
 	if (!entry || !entry->init(pluginPath)) return 1;
 	auto* factory = (const clap_plugin_factory_t*)entry->get_factory(CLAP_PLUGIN_FACTORY_ID);
 	const char* id = factory->get_plugin_descriptor(factory, 0)->id;
 	const clap_plugin_t* plugin = factory->create_plugin(factory, &kHost, id);
 	check(plugin && plugin->init(plugin), "plugin init");
-	check(PortFree(port), "UDP is off at init without the variable");
+	check(!udpOn(plugin), "UDP is off at init without the variable");
 	check(LoadState(plugin, EmptyState(1)), "load state with the UDP flag");
-	check(PortFree(port), "the saved UDP flag does not open the port");
+	check(!udpOn(plugin), "the saved UDP flag does not turn UDP on");
 	plugin->destroy(plugin);
 #ifdef _WIN32
 	_putenv_s(variable, std::to_string(port).c_str());
@@ -973,7 +1018,7 @@ int CheckStateUdp(const char* pluginPath, int port, const char* variable)
 #endif
 	const clap_plugin_t* control = factory->create_plugin(factory, &kHost, id);
 	check(control && control->init(control), "plugin init with the variable");
-	check(!PortFree(port), "with the variable, the plugin holds the port");
+	check(udpOn(control) && !PortFree(port), "with the variable, UDP is on and holds the port");
 	if (control) control->destroy(control);
 	entry->deinit();
 	printf("%d failure(s)\n", gFailures);

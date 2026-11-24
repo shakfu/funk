@@ -3,7 +3,7 @@
 # thirdparty/libremidi. With --audio it plays a graph of kernels too:
 # through the vendored thirdparty/miniaudio with FUNK_MINIAUDIO, else only
 # on the virtual clock.
-add_executable(funk-live main.c dirt.c stream.c)
+add_executable(funk-live main.c dirt.c)
 # glue.fk's foreign imports, linked in (funk_glue): no C compiler for them
 set(MIDI_GLUE_C ${CMAKE_CURRENT_BINARY_DIR}/glue.c)
 add_custom_command(OUTPUT ${MIDI_GLUE_C}

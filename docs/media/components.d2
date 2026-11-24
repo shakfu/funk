@@ -18,14 +18,14 @@ language: "Language (the product)" {
   style.fill: "#eaf3ea"
   libs: "lib/*.fk\npattern, control, stream, midi,\ngraph, dsp, scsynth, synthdefs, ugen" {shape: page}
   kernels_fk: "lib/kernels.fk" {shape: page}
-  libfunk: "libfunk\ncompiler + runtime\nstatic library, libfunk.h (22 functions)"
+  libfunk: "libfunk\ncompiler + runtime\nstatic library, libfunk.h (23 functions)"
   cli: "funk (cli/main.c)\nrun, repl, emit-c, build"
   cli -> libfunk: links {class: link}
 }
 
 audio: "Audio (standalone C, no libfunk)" {
   style.fill: "#eaf0f8"
-  funkgraph: "funkgraph\ngraph.h: graphs, templates,\nevents, voices, tables"
+  funkgraph: "funkgraph\ngraph.h: graphs, templates,\nevents, voices, tables\nstream.h: slots, one table per thread"
   funkdsp: "funkdsp.so\ngenerated kernels" {shape: stored_data}
 }
 
@@ -33,16 +33,14 @@ hosts: "Hosts (demonstrations)" {
   style.fill: "#f8f0e6"
   midi: "funk-live (executable)" {
     main: "main.c\nREPL, windows, MIDI, --audio"
-    stream: "stream.c\nslots d1..d16, transitions, tempo"
     dirt: "dirt.c\n/dirt/play over OSC"
     glue: "glue.c\nlinked foreign imports"
-    main -> stream: calls {class: link}
     main -> dirt: calls {class: link}
   }
   clap: "funk-live.clap (plugin)" {
     shell: "projects/clap\nshell: editor, simulator,\nUDP evaluator, timeline"
-    bind: "projects/funk-clap\nfunk_clap.cpp: windows over pat"
-    embedded: "embedded lib/*.fk + graph.h\n(no stream.fk: no slots)" {shape: page}
+    bind: "projects/funk-clap\nfunk_clap.cpp: windows over pat and slots"
+    embedded: "embedded lib/*.fk + graph.h" {shape: page}
     glue: "glue.c\nlinked foreign imports"
     shell -> bind: calls {class: link}
   }
@@ -62,6 +60,7 @@ hosts.midi.main -> language.libfunk: links {class: link}
 hosts.midi.main -> audio.funkgraph: links {class: link}
 hosts.clap.bind -> language.libfunk: links {class: link}
 hosts.clap.bind -> audio.funkgraph: links {class: link}
+language.libs -> audio.funkgraph: "23 foreign imports\n(lib/stream.fk)" {class: run}
 hosts.midi.main -> ext.libremidi: links {class: link}
 hosts.clap.shell -> ext.libremidi: links (midi_open) {class: link}
 

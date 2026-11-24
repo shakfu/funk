@@ -8,7 +8,7 @@ add_custom_command(OUTPUT ${MDAPIANO_C}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
   DEPENDS ${funk_SOURCE_DIR}/thirdparty/mdapiano/mdapiano.wav ${CMAKE_CURRENT_SOURCE_DIR}/embed.cmake
   VERBATIM)
-add_library(funkgraph STATIC graph.c events.c voices.c table.c controls.c ${MDAPIANO_C})
+add_library(funkgraph STATIC graph.c events.c voices.c table.c controls.c stream.c ${MDAPIANO_C})
 target_link_libraries(funkgraph PUBLIC Threads::Threads)
 set_target_properties(funkgraph PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(funkgraph PRIVATE -Wall -Wextra)

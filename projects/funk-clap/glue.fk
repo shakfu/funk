@@ -4,3 +4,4 @@ import pattern as p
 import midi as m
 import graph as g
 import dsp as d
+import stream

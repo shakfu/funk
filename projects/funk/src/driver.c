@@ -29,6 +29,7 @@ typedef struct {
   VEC(ImportInfo) repl_imps; /* in scope at the prompt: `import` inputs and :l files' imports */
   Exports prepare_none;
   int funk_call_checked, funk_call_checked_n; /* type_str allocates: check a global once */
+  int bound_from, bound_to; /* globals the last funk_eval or funk_load_file bound */
 } DriverState;
 static const DriverState driver_init = {.funk_call_checked = -1};
 #define ST ((DriverState *)fk_here()->cc[CC_DRIVER])
@@ -440,7 +441,7 @@ static void install_modules(void) {
   for (; ST->mods_installed < ST->mod_chunks.n; ST->mods_installed++) interp_install(&ST->mod_chunks.a[ST->mods_installed]);
 }
 
-static bool compile_file(const char *path, Chunk *out) {
+static bool compile_file(const char *path, Chunk *out, int *first) {
   size_t len;
   char *src = read_file(path, &len);
   if (!src) {
@@ -449,13 +450,15 @@ static bool compile_file(const char *path, Chunk *out) {
   }
   CS->cur_file = path;
   Module *m = begin_caught(src, len);
-  return m && prepare_caught(m, path) && compile_chunk(m, out);
+  if (!m || !prepare_caught(m, path)) return false;
+  if (first) *first = CS->globals.n;
+  return compile_chunk(m, out);
 }
 
 /* Compile path, which must define `main`. */
 static bool compile_program(const char *path, Chunk *out) {
   int first = CS->globals.n;
-  if (!compile_file(path, out)) return false;
+  if (!compile_file(path, out, NULL)) return false;
   if (global_lookup(intern("main")) >= first) return true;
   report("%s: no `main` defined", path);
   return false;
@@ -479,7 +482,7 @@ static char *cgen_caught(Chunk *all, int n, const char **err) {
 bool funk_check_file(funk *f, const char *path) {
   ON_THREAD(f, false);
   Chunk c;
-  return compile_file(path, &c);
+  return compile_file(path, &c, NULL);
 }
 
 /* Runtime errors in fn return here, after fk_error reports them. */
@@ -541,7 +544,7 @@ char *funk_opt_report(funk *f, const char *path) {
 char *funk_emit_kernels(funk *f, const char *path) {
   ON_THREAD(f, NULL);
   Chunk c;
-  if (!compile_file(path, &c)) return NULL;
+  if (!compile_file(path, &c, NULL)) return NULL;
   int n = ST->mod_chunks.n + 2;
   Chunk *all = xmalloc((size_t)n * sizeof *all);
   all[0] = ST->prelude;
@@ -556,7 +559,7 @@ char *funk_emit_kernels(funk *f, const char *path) {
 char *funk_compile_kernels(funk *f, const char *path) {
   ON_THREAD(f, NULL);
   Chunk c;
-  if (!compile_file(path, &c)) return NULL;
+  if (!compile_file(path, &c, NULL)) return NULL;
   int n = ST->mod_chunks.n + 2;
   Chunk *all = xmalloc((size_t)n * sizeof *all);
   all[0] = ST->prelude;
@@ -572,7 +575,7 @@ char *funk_compile_kernels(funk *f, const char *path) {
 char *funk_emit_glue(funk *f, const char *path) {
   ON_THREAD(f, NULL);
   Chunk c;
-  if (!compile_file(path, &c)) return NULL;
+  if (!compile_file(path, &c, NULL)) return NULL;
   VEC(ForeignDecl *) fs = {0};
   for (int i = 0; i < CS->globals.n; i++)
     if (CS->globals.a[i].ffi) VPUSH(fs, CS->globals.a[i].ffi);
@@ -622,23 +625,32 @@ int funk_build(funk *f, const char *path, const char *exe, const char *opt) {
 bool funk_load_file(funk *f, const char *path) {
   ON_THREAD(f, false);
   atomic_store(&fk_interrupt, 0);
+  ST->bound_from = ST->bound_to = 0;
   Chunk c;
   int mark = undo_mark(); /* fixities installed by the parser */
   const char *file = CS->cur_file;
   bool ok = false;
   CATCH_RUNTIME(CS->cur_file = file; return false);
   install_prelude();
-  if (compile_file(path, &c)) {
+  int first = -1; /* after its imports' globals */
+  if (compile_file(path, &c, &first)) {
     install_modules();
     interp_install(&c);
     adopt_imports();
     ok = true;
+    ST->bound_from = first, ST->bound_to = CS->globals.n;
   } else {
     undo_to(mark);
   }
   fk_error_jmp = NULL;
   CS->cur_file = file;
   return ok;
+}
+
+bool funk_defined(funk *f, const char *name) {
+  ON_THREAD(f, false);
+  int g = global_lookup(intern(name));
+  return g >= ST->bound_from && g < ST->bound_to;
 }
 
 /* A value shown with its Show instance. Without one, shown structurally;
@@ -703,6 +715,7 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
   const char *file = CS->cur_file;
   *shown = NULL;
   CS->cur_file = name;
+  ST->bound_from = ST->bound_to = 0;
   CATCH_RUNTIME(CS->cur_file = file; return false);
   install_prelude();
   bool ok = false;
@@ -728,12 +741,14 @@ bool funk_eval(funk *f, const char *src, const char *name, char **shown) {
       m->nimports = ST->repl_imps.n;
     }
     if (m && !finish_caught(m)) m = NULL;
+    int first = CS->globals.n;
     CS->interactive = true;
     bool compiled = m && compile_chunk(m, &c);
     CS->interactive = false;
     if (compiled) {
       interp_install(&c);
       ok = true;
+      ST->bound_from = first, ST->bound_to = CS->globals.n;
     } else {
       undo_to(mark);
     }

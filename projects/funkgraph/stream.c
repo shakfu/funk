@@ -1,5 +1,7 @@
 /* stream.c -- the slot table behind lib/stream.fk (stream.h). Only funk's
-   thread uses it: replaces run in input, queries in step. */
+   thread uses it: replaces run in input, queries in step. Each table is
+   that thread's, so each session of a process, such as each plugin
+   instance, has its own. */
 #define _DEFAULT_SOURCE /* random, srandom */
 #include "stream.h"
 
@@ -8,13 +10,13 @@
 #include <time.h>
 
 typedef struct { char *id; void *stable; } Slot;
-static Slot *slots, *states;
-static long nslots, capslots, nstates, capstates;
+static _Thread_local Slot *slots, *states;
+static _Thread_local long nslots, capslots, nstates, capstates;
 
 typedef struct { void *stable; double until; } First;
-static First *firsts;
-static long nfirsts, capfirsts;
-static void *global;
+static _Thread_local First *firsts;
+static _Thread_local long nfirsts, capfirsts;
+static _Thread_local void *global;
 
 static void *grow(void *a, long *cap, size_t size) {
   *cap = *cap ? 2 * *cap : 16;
@@ -81,7 +83,7 @@ void *funk_stream_set_global(void *stable) {
 
 void *funk_stream_global(void) { return global; }
 
-static double nudge;
+static _Thread_local double nudge;
 double funk_stream_nudge(void) { return nudge; }
 void funk_stream_set_nudge(double seconds) { nudge = seconds; }
 

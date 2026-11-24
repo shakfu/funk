@@ -8,6 +8,12 @@ nosuch 1
 p.fastcat [p.atom 60, p.silence, p.silence, p.silence]
 [controls]
 note "0 ~ ~ ~" # ccn "74" # ccv "64" # progNum "3"
+[slot]
+d1 $ note "0 ~ ~ ~"
+[slot2]
+d2 $ note "~ 7 ~ ~"
+[slot_mute]
+mute 1
 [sec]
 p.mapP (\x -> round (x * 100.0)) (p.sec (p.atom 1.0))
 [controls_in]
@@ -43,6 +49,8 @@ p.fast 120000 (p.atom 60)
 let loop n = loop (n + 1) in loop 0
 [live_voice]
 pat = p.fast 4 (p.fastcat [p.atom 72, p.silence])
+[live_slot]
+d1 $ note "0*4"
 [audio]
 -- every voice's gate, so a note sounds exactly while it is held
 sig = voices (\gate freq -> gate)
