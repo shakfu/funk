@@ -29,6 +29,7 @@ d6 $ every 2 rev $ s "superfm*8" # note "<[a5 c6 e6 c6]*2 [f5 a5 c6 a5]*2 [c6 e6
 d3 $ s "superhat*16" # gain "0.7 0.45 0.55 0.45"
 :wait 8000
 mute 4
+:wait 2000
 solo 1
 solo 5
 :wait 4000
