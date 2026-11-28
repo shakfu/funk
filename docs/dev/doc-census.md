@@ -2,6 +2,8 @@
 
 2026-11-10. The `d1 $` examples in tidal-core 1.10.2's and tidal 1.10.3's doc comments, typed into funk-live unchanged, to rank the remaining 0.12 gaps of [tidal-comparison.md](tidal-comparison.md). It follows [patch-census.md](patch-census.md), whose 2014 patches could not rank them.
 
+funk-live was named funk-midi until 2026-11-23.
+
 ## Method
 
 - 264 examples, each joined into one line: UI.hs 147, Core.hs 44, Control.hs 40, Params.hs 18, Pattern.hs 9, Transition.hs 4, Boot.hs 3, Scales.hs 1.

@@ -2,6 +2,8 @@
 
 Status: scope, 2026-10-27, of funk 0.6.0; phase 2 designed 2026-10-30. Hosts: Max, Pure Data, VST3/AU/CLAP plugins, Eurorack, [psnd](https://github.com/shakfu/psnd) ([261027-lang-review.md](261027-lang-review.md#addendum-target-users-and-hosts)). It asks what a host needs to run several funk programs in one process.
 
+funk-live was named funk-midi until 2026-11-23.
+
 **Recommendation**, revised 2026-10-30. Phase 0 is done. Do phase 2 next: a session per instance, its state passed as an explicit pointer ([261030-session-measurements.md](261030-session-measurements.md)). Defer phase 1, namespaces in one runtime, to hosts with hundreds of small instances. Phase 1 was first because phase 2 seemed to slow compiled code; compiled programs keep a static struct, so it does not. Phase 1 also shares one heap limit and one collector across instances, and its main unknown, an undo log per instance, is still open.
 
 ## What is global today

@@ -2,6 +2,8 @@
 
 Status: research, 2026-11-11. It compares funk with [rustel](https://github.com/tzfm/rustel) at commit `88156f8`, a native port of [Strudel](https://strudel.cc) in Rust. It records what funk could adopt for roadmap 0.13 ([roadmap.md](roadmap.md)) and for the open items T3, R6 and L7 ([tidal-comparison.md](tidal-comparison.md)). The tasks are in [TODO.md](../../TODO.md), under "From rustel".
 
+funk-live was named funk-midi until 2026-11-23.
+
 ## Where they stand
 
 - **Language.** rustel runs Strudel's JavaScript in QuickJS. funk runs Tidal's Haskell syntax in its own interpreter and compiler.

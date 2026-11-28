@@ -2,6 +2,8 @@
 
 Status: option C implemented 2026-11-11; SuperDirt's core modules, and its orbits' global effects, 2026-11-12 (see Implementation). For roadmap 0.13 ([roadmap.md](roadmap.md#013----superdirt-sound-in-the-plugin)). It covers S1-S8 and S10 of [tidal-comparison.md](tidal-comparison.md), and item 4 of [audio.md](audio.md#d-a-graph-of-compiled-unit-generators-built-at-run-time). The decisions taken so far are at the end.
 
+funk-live was named funk-midi until 2026-11-23.
+
 The question: how an event plays SuperDirt's chain of per-event effects, inside a graph that funk swaps only when code is edited, with no allocation on the audio thread. User modules, synths and global effects must be addable, as in SuperDirt (decided 2026-11-11).
 
 Sources:

@@ -2,6 +2,8 @@
 
 Every known difference between funk and Tidal, and every gap. Written 2026-11-09.
 
+funk-live was named funk-midi until 2026-11-23.
+
 Rule: funk matches Tidal and SuperDirt. A difference stays only for a stated reason: a better design, a fix of a Tidal defect, or a constraint of real-time hosts. Otherwise it is a gap to close.
 
 References, checked from source, not documentation:

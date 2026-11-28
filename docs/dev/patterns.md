@@ -1,6 +1,8 @@
 # Patterns: design note
 
-Status: implemented, 2026-10-28: `lib/pattern.fk`, tested by `tests/lib/patterns.fk`, `tests/ffi/sched.fk` and `bench/reload.c`. All three thresholds pass outside `psnd`. `funk-live` (`projects/funk-live/main.c`) plays patterns to a MIDI port, live. The CLAP plugin is in `midi-langs` (`projects/funk-live`); `psnd` not started. Context: [261027-lang-review.md](261027-lang-review.md).
+Status: implemented, 2026-10-28: `lib/pattern.fk`, tested by `tests/lib/patterns.fk`, `tests/ffi/sched.fk` and `bench/reload.c`. All three thresholds pass outside `psnd`. `funk-live` (`projects/funk-live/main.c`) plays patterns to a MIDI port, live. The CLAP plugin is in `midi-langs` (`projects/funk-midi`); `psnd` not started. Context: [261027-lang-review.md](261027-lang-review.md).
+
+funk-live was named funk-midi until 2026-11-23.
 
 funk gets its own pattern engine. Tidal ([Tidal](https://github.com/tidalcycles/Tidal)) and Strudel are reference designs, not specifications. A pattern here means a description of events over musical time, such as notes or control changes, that a program can combine and transform.
 
@@ -89,6 +91,8 @@ Status:
 - **Reload.** A definition binds the names it uses when it is compiled, so a `step` defined before a reload keeps the old `pat`. The host redefines `step` after each load: one compiled chunk per reload. Per window it calls `step buf w` through `funk_call`, which compiles nothing, and `writeEvents` fills `buf`, a C array the host owns. The new pattern takes over at the next window, not at a cycle boundary: queries use absolute time, so the switch cannot shift the beat.
 
 - Names avoid `pure`, `fmap` and `seq`, which a prelude with `Functor` and `Applicative` would reserve.
+
+<a id="funk-midi"></a>
 
 ## funk-live
 

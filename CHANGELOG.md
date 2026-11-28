@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `make demo` plays `examples/demo.txt` through funk-live to the default audio output: signal graphs, then a set of Tidal slots on SuperDirt's synths, then live changes to the slots. It uses synths only, so it needs no Dirt-Samples. The test `hosts/demo` runs it on the virtual clock.
+
 - `funk_defined(f, name)` in `libfunk.h`: whether the last `funk_eval` or `funk_load_file` bound a top-level name. Both hosts use it to find a new `pat`, `sig`, `dirt` or `controls`, instead of scanning the input's text for a line that starts with the name. The scan missed `(pat, sig) = ...`, and in funk-live it matched an expression such as `pat |+ n 1`.
 
 - Slots in the plugin: `d1 $ ...` to `d16`, `p "name"`, `hush`, `mute`, `solo`, `once` and the transitions run in `funk-live.clap` as in funk-live. They loop in Live mode; as a clip, a change to them renders one cycle of every slot. The DAW keeps the tempo, so `setbpm`, `setCycle` and `resetCycles` change nothing and say so. The slot table moved to funkgraph's `stream.c` and is per thread, so each instance's session has its own, rather than a second copy in the plugin.
@@ -72,7 +74,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- funk-live loads a file that imports `dsp` without `--audio`. It gave cc `graph.h`'s directory and `graph.fk` its functions only with `--audio`, so `--dirt` with such a file failed to compile its foreign imports.
+- funk-midi loads a file that imports `dsp` without `--audio`. It gave cc `graph.h`'s directory and `graph.fk` its functions only with `--audio`, so `--dirt` with such a file failed to compile its foreign imports.
 
 - The plugin editor's Stop ends `dirt`'s events. It replaced `sig` with silence, but a player whose graph reads no orbit mixes them straight to the output, so queued events and effect tails played on; without a `sig`, Stop did nothing. `funk_player_hush` drops queued events, ends playing ones, and makes each orbit's effect new, one a block: all at once would clear 38 MB in one block for `d.superDirt`.
 
@@ -82,7 +84,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Events as SuperDirt plays them, in funk-live `--audio` and the plugin. A top-level `dirt` lists sounds and modules, with SuperDirt's names. Each event of one of its sounds plays on its own chain: the sound, then each module whose test passes, in order, on its orbit. A chain is made from templates in a fixed pool on the audio thread, so events of one name overlap without `d.kit`'s 4 voices (S10). An event starts in its 64-frame block, its output delayed to its frame, as scsynth's `OffsetOut`. Templates over per-voice copies of every module: a voice of each sound with every module would render while silent, and still limit a name's overlaps. Graphs are unchanged; `d.orbit` reads an orbit into one ([docs/dev/dirt-sound.md](docs/dev/dirt-sound.md)).
+- Events as SuperDirt plays them, in funk-midi `--audio` and the plugin. A top-level `dirt` lists sounds and modules, with SuperDirt's names. Each event of one of its sounds plays on its own chain: the sound, then each module whose test passes, in order, on its orbit. A chain is made from templates in a fixed pool on the audio thread, so events of one name overlap without `d.kit`'s 4 voices (S10). An event starts in its 64-frame block, its output delayed to its frame, as scsynth's `OffsetOut`. Templates over per-voice copies of every module: a voice of each sound with every module would render while silent, and still limit a name's overlaps. Graphs are unchanged; `d.orbit` reads an orbit into one ([docs/dev/dirt-sound.md](docs/dev/dirt-sound.md)).
 
   ```haskell
   dirt = d.addModule "half" (\param x -> x * d.dc 0.5) (d.has "cutoff")
@@ -148,7 +150,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Names built on the audio thread, a voice's, a cut group's and an orbit's `oN.NAME`, no longer use `snprintf`. Its `%d` and `%s` allocate nothing on macOS today, but libc does not promise it; `%g` locks and allocates on a thread's first call.
 
-- A synth event's records carry what `DirtEvent` sends a synth: `pan` from -1 to 1, `n`, `speed` times `cps` for `unit "c"`, and `accelerate` only if given. They also carry `cycle`, the start of the event's whole in cycles, as Tidal adds it; an event's own `cycle` wins, as in Tidal's `Map.union`. `cyclo` reads it. `writeControlEventsAt` takes the ticks a host shifted the pattern by, which funk-live's `--audio` slots do.
+- A synth event's records carry what `DirtEvent` sends a synth: `pan` from -1 to 1, `n`, `speed` times `cps` for `unit "c"`, and `accelerate` only if given. They also carry `cycle`, the start of the event's whole in cycles, as Tidal adds it; an event's own `cycle` wins, as in Tidal's `Map.union`. `cyclo` reads it. `writeControlEventsAt` takes the ticks a host shifted the pattern by, which funk-midi's `--audio` slots do.
 
 - `dirt` events play at SuperDirt's level, `amp` 0.4 times `(min gain 2 + overgain)^4`, computed in floats as `dirt_gate`'s SynthDef does: 8 dB below `d.kit`'s level 1. The monitor's limiter and softclip and its silence threshold act on absolute levels, so only that level matches SuperDirt.
 
@@ -187,7 +189,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   main = print [Red .. Blue]
   ```
 
-- Tidal's stateful controls in funk-live: the generated `xTake`, `xCount` and `xCountTo` families, `pStateF` and `pStateList`, as Tidal's `Params.hs` has them. A counter keeps its value across windows and slots, in one map with the controls `setF` sets, as Tidal's does. `pB`, `pR`, `pX` and `array` make Bools, ratios and byte blobs, sent to SuperDirt as Tidal sends them.
+- Tidal's stateful controls in funk-midi: the generated `xTake`, `xCount` and `xCountTo` families, `pStateF` and `pStateList`, as Tidal's `Params.hs` has them. A counter keeps its value across windows and slots, in one map with the controls `setF` sets, as Tidal's does. `pB`, `pR`, `pX` and `array` make Bools, ratios and byte blobs, sent to SuperDirt as Tidal sends them.
 
   ```haskell
   d1 $ s "drum*8" # nCount "c"            -- n 0, 1, 2, ... across cycles
@@ -236,7 +238,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   d2 $ mask "1 0 1 1" $ s "hh*8"
   ```
 
-- The test `lib/tidal-docs` plays the 248 `d1 $` examples of Tidal's doc comments that Tidal runs through `funk-live --dirt` and Tidal's `toOSC`. 234 send what Tidal sends, and 13 are rejected ([docs/dev/doc-census.md](docs/dev/doc-census.md)).
+- The test `lib/tidal-docs` plays the 248 `d1 $` examples of Tidal's doc comments that Tidal runs through `funk-midi --dirt` and Tidal's `toOSC`. 234 send what Tidal sends, and 13 are rejected ([docs/dev/doc-census.md](docs/dev/doc-census.md)).
 
 - Speed factors are `Float`s, as Tidal's are `Rational`s: `fast`, `slow`, `ply`, `segment`, `hurry`, `loopAt`, `smash`, `fastGap`, `fastSqueeze` and the rest, and `_fast`, `_slow`, `_ply` and `_segment`. Each factor is its nearest ratio with a denominator up to 65536, so `slow "<1.5 0.75>"` is exact in ticks. A `Pattern Int` factor needs `toFloat <$>`, as Tidal's needs `fromIntegral <$>`. A negative `slow` now reverses, as Tidal's does, where it raised an error. `lib/tidal` checks 17 cases against Tidal ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) T2).
 
@@ -246,29 +248,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Tidal's `fmap`, `<$>`, `<$`, `pure`, `<*>`, `<*`, `*>`, `<<*`, `liftA2`, `return` and `>>=` in `lib/pattern.fk`, for patterns only, as funk has no higher-kinded classes. `lib/tidal` checks 12 cases against Tidal ([docs/dev/tidal-comparison.md](docs/dev/tidal-comparison.md) L3).
 
-- `funk-live` and the plugin import `lib/pattern.fk` unqualified as well as `p`, so Tidal's names work as written: `every 3 (fast 2) $ s "bd sn"`. A REPL or host input may define a value an import has, which then shadows it, as GHCi's prompt does; a file keeps the error. funk-live's `sig` is also `pattern`'s, so the hosts need the shadowing ([docs/dev/modules.md](docs/dev/modules.md)).
+- `funk-midi` and the plugin import `lib/pattern.fk` unqualified as well as `p`, so Tidal's names work as written: `every 3 (fast 2) $ s "bd sn"`. A REPL or host input may define a value an import has, which then shadows it, as GHCi's prompt does; a file keeps the error. funk-midi's `sig` is also `pattern`'s, so the hosts need the shadowing ([docs/dev/modules.md](docs/dev/modules.md)).
 
-- Tidal's `setF`, `setI`, `setS`, `setR`, `setB` and `getState` in `funk-live`. `cF` and the rest read a pattern set by name, as Tidal's `VPattern`, until an OSC `/ctrl` sets that name. `setR` takes `Float`s. The test `lib/tidal` checks 9 cases against Tidal ([docs/dev/stream.md](docs/dev/stream.md#state)).
+- Tidal's `setF`, `setI`, `setS`, `setR`, `setB` and `getState` in `funk-midi`. `cF` and the rest read a pattern set by name, as Tidal's `VPattern`, until an OSC `/ctrl` sets that name. `setR` takes `Float`s. The test `lib/tidal` checks 9 cases against Tidal ([docs/dev/stream.md](docs/dev/stream.md#state)).
 
   ```haskell
   setF "lpf" "<500 2000>"
   d1 $ s "bd*4" # cutoff (cF 1000 "lpf")
   ```
 
-- Tidal's transitions in `funk-live`: `xfade`, `xfadeIn`, `jump`, `jumpIn`, `jumpIn'`, `jumpMod`, `jumpMod'`, `wait`, `waitT`, `mortal`, `interpolate`, `interpolateIn`, `clutch`, `clutchIn`, `anticipate`, `anticipateIn`, `histpan` and `forId`, with `Transition.hs`'s mappers for `waitT`. The test `lib/tidal-dirt` runs 12 through Tidal's own mappers, a window at a time; all 229 messages match ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
+- Tidal's transitions in `funk-midi`: `xfade`, `xfadeIn`, `jump`, `jumpIn`, `jumpIn'`, `jumpMod`, `jumpMod'`, `wait`, `waitT`, `mortal`, `interpolate`, `interpolateIn`, `clutch`, `clutchIn`, `anticipate`, `anticipateIn`, `histpan` and `forId`, with `Transition.hs`'s mappers for `waitT`. The test `lib/tidal-dirt` runs 12 through Tidal's own mappers, a window at a time; all 229 messages match ([docs/dev/stream.md](docs/dev/stream.md#transitions)).
 
   ```haskell
   d1 $ s "bd*2 sn"
   xfadeIn 1 8 $ s "hh*8"
   ```
 
-- Tidal's tempo in `funk-live`: `setcps`, `setbpm`, `getcps`, `getbpm`, `getnow`, `setCycle`, `resetCycles` and `nudgeAll`, and their OSC forms on the `controls` ports. An event's `cps` sets the tempo at its onset, as Tidal's `processCps` does, so `setcps` is Boot's `once . cps`. Tempos are clamped to Link's 20 to 999 bpm. The default is Tidal's clock's, 0.575 cycles a second, where it was 0.5; `--cycle 2000` keeps the old one. The getters return `Float`s, as funk has no `Rational` ([docs/dev/stream.md](docs/dev/stream.md#tempo)).
+- Tidal's tempo in `funk-midi`: `setcps`, `setbpm`, `getcps`, `getbpm`, `getnow`, `setCycle`, `resetCycles` and `nudgeAll`, and their OSC forms on the `controls` ports. An event's `cps` sets the tempo at its onset, as Tidal's `processCps` does, so `setcps` is Boot's `once . cps`. Tempos are clamped to Link's 20 to 999 bpm. The default is Tidal's clock's, 0.575 cycles a second, where it was 0.5; `--cycle 2000` keeps the old one. The getters return `Float`s, as funk has no `Rational` ([docs/dev/stream.md](docs/dev/stream.md#tempo)).
 
-- Tidal's slot commands in `funk-live`: `hush`, `mute`, `unmute`, `solo`, `unsolo`, `unmuteAll`, `unsoloAll`, `list`, `once`, `asap`, `first`, `panic` and `only`, as Boot.hs's, and `streamAll` for Tidal's `all`, whose name is the prelude's. Tidal's OSC playback commands, `/mute` to `/hush`, arrive on the `controls` ports. A window that fails returns each slot to its previous pattern, as Tidal's `doTick` does, where slots stopped until one was given. `only` takes `\_ -> action`, as funk is strict ([docs/dev/stream.md](docs/dev/stream.md#commands)).
+- Tidal's slot commands in `funk-midi`: `hush`, `mute`, `unmute`, `solo`, `unsolo`, `unmuteAll`, `unsoloAll`, `list`, `once`, `asap`, `first`, `panic` and `only`, as Boot.hs's, and `streamAll` for Tidal's `all`, whose name is the prelude's. Tidal's OSC playback commands, `/mute` to `/hush`, arrive on the `controls` ports. A window that fails returns each slot to its previous pattern, as Tidal's `doTick` does, where slots stopped until one was given. `only` takes `\_ -> action`, as funk is strict ([docs/dev/stream.md](docs/dev/stream.md#commands)).
 
 - A REPL or host input that is an action, a function with an effect from `()`, is run, as GHCi runs an `IO` input, so `hush` alone hushes.
 
-- Tidal's slots in `funk-live`: `d1` to `d16` and `p "name"` each play a pattern, all at once, and replace it alone, as Tidal's `streamReplace` does. `_d1`, `d1_` and `_p` silence one. `d1` to `d12` add `orbit 0` to `11`, as `Boot.hs` does, so `pat` of controls, now `d1`'s, sends `orbit 0` to SuperDirt. The test `lib/tidal-dirt` plays 5 slots through Tidal's own `playStack`; all 40 messages match ([docs/dev/stream.md](docs/dev/stream.md)).
+- Tidal's slots in `funk-midi`: `d1` to `d16` and `p "name"` each play a pattern, all at once, and replace it alone, as Tidal's `streamReplace` does. `_d1`, `d1_` and `_p` silence one. `d1` to `d12` add `orbit 0` to `11`, as `Boot.hs` does, so `pat` of controls, now `d1`'s, sends `orbit 0` to SuperDirt. The test `lib/tidal-dirt` plays 5 slots through Tidal's own `playStack`; all 40 messages match ([docs/dev/stream.md](docs/dev/stream.md)).
 
   ```haskell
   d1 $ s "bd*2 sn"
@@ -277,10 +279,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A top-level value may share an import's qualifier, so Tidal's `p` sits beside `import pattern as p`. `p.x` with no spaces stays qualified ([docs/dev/modules.md](docs/dev/modules.md)).
 
-- `funk-live --dirt [HOST:]PORT` sends `pat`, a control pattern, to SuperDirt as Tidal's `superdirtTarget` does: a `/dirt/play` bundle per onset with an `s`, its controls and Tidal's `cps`, `cycle`, `delta` and `_id_`, stamped at the onset plus its `nudge`. The test `lib/tidal-dirt` builds Tidal's own messages for 12 patterns through its `toOSC`; all 122 match funk's, float bits included. Bundles leave 0.1 s ahead, Tidal's margin, so `--dirt` raises the lookahead from 50 ms. It shakes hands as Tidal does, so it prints "Waiting for SuperDirt" until SuperDirt replies ([docs/dev/dirt.md](docs/dev/dirt.md)).
+- `funk-midi --dirt [HOST:]PORT` sends `pat`, a control pattern, to SuperDirt as Tidal's `superdirtTarget` does: a `/dirt/play` bundle per onset with an `s`, its controls and Tidal's `cps`, `cycle`, `delta` and `_id_`, stamped at the onset plus its `nudge`. The test `lib/tidal-dirt` builds Tidal's own messages for 12 patterns through its `toOSC`; all 122 match funk's, float bits included. Bundles leave 0.1 s ahead, Tidal's margin, so `--dirt` raises the lookahead from 50 ms. It shakes hands as Tidal does, so it prints "Waiting for SuperDirt" until SuperDirt replies ([docs/dev/dirt.md](docs/dev/dirt.md)).
 
   ```sh
-  funk-live --dirt 57120
+  funk-midi --dirt 57120
   pat = s "bd*2 [sn cp]" # n "<0 3>" # speed 2
   ```
 
@@ -302,7 +304,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Continuous patterns, as Tidal's: `sine`, `saw`, `tri`, `square`, the `env` shapes, `rand`, `irand`, `perlin` and `normal`. An event's `whole` is now a `Maybe Span`, `Nothing` for a continuous event, which never has an onset. A separate signal type was the alternative; Tidal's `fast 2 sine` and `0.25 ~> rand` would not then port as written. A float literal is an atom, as a number literal is.
 
-- A query carries controls from outside the pattern, as Tidal's `State` does, so Tidal's `cF`, `cI`, `cS` and the rest, `in0`..`in127`, `sec`, `msec` and the `trigger` family port. `p.query pat span` queries with none, and `p.queryState` with some. The hosts give `_cps` and `_t_pattern`, the cycle `pat` last changed at, so `trigger` and `sec` play in them, and the sources a top-level `controls` lists: Tidal's OSC `/ctrl`, MIDI CC as `"cc74"` and `"1:cc74"`, and the plugin's 16 CLAP parameters, `"p1"` to `"p16"`. `funk-live` takes MIDI in with `--in` and `:cc` ([docs/music.md](docs/music.md#controls-from-outside), design in [docs/dev/controls-in.md](docs/dev/controls-in.md)). Queries cost about 12% more in the interpreter.
+- A query carries controls from outside the pattern, as Tidal's `State` does, so Tidal's `cF`, `cI`, `cS` and the rest, `in0`..`in127`, `sec`, `msec` and the `trigger` family port. `p.query pat span` queries with none, and `p.queryState` with some. The hosts give `_cps` and `_t_pattern`, the cycle `pat` last changed at, so `trigger` and `sec` play in them, and the sources a top-level `controls` lists: Tidal's OSC `/ctrl`, MIDI CC as `"cc74"` and `"1:cc74"`, and the plugin's 16 CLAP parameters, `"p1"` to `"p16"`. `funk-midi` takes MIDI in with `--in` and `:cc` ([docs/music.md](docs/music.md#controls-from-outside), design in [docs/dev/controls-in.md](docs/dev/controls-in.md)). Queries cost about 12% more in the interpreter.
 
 - The test `lib/tidal-patches` ports the 22 patches of Tidal's `old/examples/cycles.tidal` and matches them against Tidal 1.10.2. All 6456 events match exactly. In the interpreter, the slowest 10 ms query took 2.0 ms ([docs/dev/patch-port.md](docs/dev/patch-port.md)). `examples/tidal` has 18 of them to play on `d.kit`. `scripts/dirt-samples.py` fetches Dirt-Samples at a pinned commit, since it has no license file to ship it under.
 
@@ -344,7 +346,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - A function whose signature has `->>` could not call a pure parameter inside an effectful lambda: `g f = mapM_ (\x -> print (f x)) xs` was rejected. The call through `f`'s signature `->` bound the lambda's still unknown effect to it, so the later `print` failed; it is now checked once the lambda's effect is known.
 
-- `FUNK_GCSTRESS=1` failed funk-live's check of marks, on HEAD before Tidal's slots and on every slot script after. The collector was correct: Clang's `___chkstk_darwin`, called before an interpreter VLA, saved a scratch register holding `fill_closure`'s one-past-the-end pointer into the new frame, and the check read it as a root of the next object. Under stress the VLAs start zeroed, as the dead stack already does ([docs/dev/261110-gcstress-chkstk.md](docs/dev/261110-gcstress-chkstk.md)).
+- `FUNK_GCSTRESS=1` failed funk-midi's check of marks, on HEAD before Tidal's slots and on every slot script after. The collector was correct: Clang's `___chkstk_darwin`, called before an interpreter VLA, saved a scratch register holding `fill_closure`'s one-past-the-end pointer into the new frame, and the check read it as a root of the next object. Under stress the VLAs start zeroed, as the dead stack already does ([docs/dev/261110-gcstress-chkstk.md](docs/dev/261110-gcstress-chkstk.md)).
 
 - In the REPL and hosts, redefining a name could keep the old definition, or reach code defined before it, depending on the copies the compiler had made:
   - After `f x = x + 1`, `f 2`, `f x = x + 10`, `f 2` gave 3. The copy `f@Int` was found by name, and the name outlived the definition. A copy of a function applied to `(+ root)`, as in `map (+ root) xs`, and element reuse's copies had the same fault.
@@ -361,7 +363,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `import m (..)` brings in every name `m` exports, unqualified, each type and class with its members. The names meet an import list's checks: another import of the same name, or a top-level definition of it, is an error naming the module, and a local binding shadows it. For a module written to be opened, such as `control`; others stay qualified, so that a name added to them cannot fail an importer's compile ([docs/dev/modules.md](docs/dev/modules.md#imports)).
 
-- `lib/control.fk` builds Tidal's control patterns: events of named parameters, with Tidal's 257 controls, generated from its `Params.hs`, and its operators, `#` and the `|+|`, `|+`, `+|` and `||+` forms of `+ - * / % ** ++ < >`. Values and arithmetic follow Tidal's, quirks included; note names do too, `c5` being middle C, so ported patches keep their pitch. `pat` may be one: `funk-live` and the plugin play it as SuperDirt's MIDI target does, as notes, CC, NRPN, program change, bend, aftertouch and clock, and on the voices. `voicesWith` gives a voice its event's other parameters, such as `cutoff`, and an event with a sample's `s` plays `d.kit`'s sample with its `speed`, `pan` and `gain` ([docs/music.md](docs/music.md#control-patterns), design in [docs/dev/delivery.md](docs/dev/delivery.md)).
+- `lib/control.fk` builds Tidal's control patterns: events of named parameters, with Tidal's 257 controls, generated from its `Params.hs`, and its operators, `#` and the `|+|`, `|+`, `+|` and `||+` forms of `+ - * / % ** ++ < >`. Values and arithmetic follow Tidal's, quirks included; note names do too, `c5` being middle C, so ported patches keep their pitch. `pat` may be one: `funk-midi` and the plugin play it as SuperDirt's MIDI target does, as notes, CC, NRPN, program change, bend, aftertouch and clock, and on the voices. `voicesWith` gives a voice its event's other parameters, such as `cutoff`, and an event with a sample's `s` plays `d.kit`'s sample with its `speed`, `pan` and `gain` ([docs/music.md](docs/music.md#control-patterns), design in [docs/dev/delivery.md](docs/dev/delivery.md)).
 
   ```haskell
   import control (..)
@@ -386,7 +388,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `lib/pattern.fk` applies and joins patterns, as Tidal does: `apP`, `apLeft` and `apRight` for `<*>`, `<*` and `*>`, and `joinP`, `innerJoin`, `outerJoin` and `squeezeJoin`. They are functions, not operators, so `<*` and `*>` stay free for a later `Applicative` ([docs/dev/patterns.md](docs/dev/patterns.md#implementation)).
 
-- The CLAP plugin has a simulator mode, for the 0.10 acceptance test. With `FUNK_LIVE_CLAP_SIM` naming a script, each instance evaluates the script's steps live, in turn or at random, one per interval. It appends each step, the plugin's output and `process()`'s time against each block's duration to a log ([docs/dev/simulator.md](docs/dev/simulator.md)). Driving the plugin from inside, over UDP from a script outside, keeps the run in one process and lets the log place block timings beside the step that caused them.
+- The CLAP plugin has a simulator mode, for the 0.10 acceptance test. With `FUNK_MIDI_CLAP_SIM` naming a script, each instance evaluates the script's steps live, in turn or at random, one per interval. It appends each step, the plugin's output and `process()`'s time against each block's duration to a log ([docs/dev/simulator.md](docs/dev/simulator.md)). Driving the plugin from inside, over UDP from a script outside, keeps the run in one process and lets the log place block timings beside the step that caused them.
 
 - `funk emit-c --opt-report FILE`, and `funk_opt_report` in `libfunk.h`, list which optimizations applied to FILE's functions. Each pipeline fusion took is listed, as is each it refused, with the rule that refused it. Each emitted worker is listed with its parameter and result representations, and whether it loops, uses TRMC (tail recursion modulo cons) or reuses cells. A small change elsewhere can lose any of these with no other sign: `queens` lost 18.7% during 0.5 and 0.6. Diff the report across a change to see it.
 
@@ -512,9 +514,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- The `funk-live` CLAP plugin moved here from `midi-langs`, with a copy of `midi-langs`' plugin framework (`projects/clap`, `projects/funk-clap`). `-DFUNK_CLAP=ON`, or `make clap`, builds it from the vendored `thirdparty/{clap,pugl,imgui,libremidi}`; `tests/hosts/clap` tests it. The plugin will gain audio ports (gh:3), which `midi-langs`' note effects do not need; the copy keeps that change out of their framework ([docs/dev/plugin.md](docs/dev/plugin.md#decision)).
+- The `funk-midi` CLAP plugin moved here from `midi-langs`, with a copy of `midi-langs`' plugin framework (`projects/clap`, `projects/funk-clap`). `-DFUNK_CLAP=ON`, or `make clap`, builds it from the vendored `thirdparty/{clap,pugl,imgui,libremidi}`; `tests/hosts/clap` tests it. The plugin will gain audio ports (gh:3), which `midi-langs`' note effects do not need; the copy keeps that change out of their framework ([docs/dev/plugin.md](docs/dev/plugin.md#decision)).
 
-- `funk_provide(name, addr)` in `libfunk.h`: foreign imports of the C name `name` use the host's function or variable at `addr`. They found a host's functions as symbols of the process, which a plugin does not export. `funk-live` provides `funkgraph`'s functions this way, and no longer exports its symbols.
+- `funk_provide(name, addr)` in `libfunk.h`: foreign imports of the C name `name` use the host's function or variable at `addr`. They found a host's functions as symbols of the process, which a plugin does not export. `funk-midi` provides `funkgraph`'s functions this way, and no longer exports its symbols.
 
 - `make install` installs `libfunk.a`, `libfunk.h` and a CMake package: `find_package(funk)` gives `funk::libfunk`. The version must match exactly, since `libfunk.h` has no stability promise between releases.
 
@@ -522,7 +524,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `funk_call` in `libfunk.h`: calls a global from `Int`s to `Int` without compiling. A host that called `funk_eval` once per audio window grew by about 16 KB per call, since every REPL input stays compiled; `funk_call` allocates nothing in the compiler.
 
-- `funk-live` (`projects/funk-live/main.c`): a REPL that plays `pat`, a `Pattern Int`, to a MIDI port, and replaces it live when it is redefined ([docs/dev/patterns.md](docs/dev/patterns.md#funk-live)). MIDI output needs `-DFUNK_LIBREMIDI=ON`, which builds the vendored `thirdparty/libremidi`; without it, it prints. `lib/midi.fk` gives velocity and channel. On macOS its sender is a time-constraint thread: as a default thread, messages went out up to 8 ms late.
+- `funk-midi` (`projects/funk-midi/main.c`): a REPL that plays `pat`, a `Pattern Int`, to a MIDI port, and replaces it live when it is redefined ([docs/dev/patterns.md](docs/dev/patterns.md#funk-midi)). MIDI output needs `-DFUNK_LIBREMIDI=ON`, which builds the vendored `thirdparty/libremidi`; without it, it prints. `lib/midi.fk` gives velocity and channel. On macOS its sender is a time-constraint thread: as a default thread, messages went out up to 8 ms late.
 
 - `funk_output` in `libfunk.h`: program output and messages (compile and runtime errors, warnings, `trace`) go to a host's function, one call per message, instead of stdout and stderr. A host with its own console, such as a terminal editor or a plugin, needs it.
 
@@ -540,11 +542,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `lib/dsp.fk`: oscillators (sine, saw, square, pulse), one-pole and state-variable filters, an ADSR envelope and arithmetic, as signals for `lib/graph.fk`; `Sig` is a `Num`, so `lowpass 2000 (dc 0.7) (saw 220) * adsr ...` is a graph. The kernels are `lib/kernels.fk`, compiled with `funk emit-c --kernels`; a separate module, since an interpreted program cannot import a file with exports.
 
-- `funk-live --audio`: input that defines `sig`, a signal of `lib/dsp.fk`, plays it from the next audio block, beside `pat`'s MIDI. The host owns the player; funk only builds graphs, so its collector and compiler never run on the audio thread. The device is miniaudio's, vendored in `thirdparty/miniaudio` (0.11.25) and on by default; with `-DFUNK_MINIAUDIO=OFF`, `--audio` runs only on the virtual clock (`--no-sleep`), printing the output's peak. CMake compiles `lib/kernels.fk` into `funkdsp.so` with the new `tools/kernels.sh`.
+- `funk-midi --audio`: input that defines `sig`, a signal of `lib/dsp.fk`, plays it from the next audio block, beside `pat`'s MIDI. The host owns the player; funk only builds graphs, so its collector and compiler never run on the audio thread. The device is miniaudio's, vendored in `thirdparty/miniaudio` (0.11.25) and on by default; with `-DFUNK_MINIAUDIO=OFF`, `--audio` runs only on the virtual clock (`--no-sleep`), printing the output's peak. CMake compiles `lib/kernels.fk` into `funkdsp.so` with the new `tools/kernels.sh`.
 
 - The CLAP plugin has a stereo output: `sig` plays there, and every note it sends also plays its voices (`voices f`, 8 of them), at the note's frame. Notes are taken where the plugin emits them, so clips, the host's transport, offline render and Stop reach the voices as they reach the MIDI output. Without a C compiler for graph.fk's imports, MIDI still plays and the output is silent ([docs/dev/plugin.md](docs/dev/plugin.md#the-plugins-audio)). The plugin keeps its modules in `$XDG_CACHE_HOME/funk/plugin/<hash>`: in a new temporary directory per load, which the glue's compiler arguments name, every load compiled the glue again.
 
-- `d.polyOn c n f` in `lib/dsp.fk`: `d.poly` for MIDI channel `c`, whose notes then play it instead of the shared voices; the plugin and `funk-live --audio` define `voicesOn c f`. A note-off now also matches its channel: an off on channel 2 ended the oldest held note of that pitch, which could be channel 1's. Routing is by whether the playing graph has channel `c`'s first control, so `voices f` needs no list of channels it leaves out.
+- `d.polyOn c n f` in `lib/dsp.fk`: `d.poly` for MIDI channel `c`, whose notes then play it instead of the shared voices; the plugin and `funk-midi --audio` define `voicesOn c f`. A note-off now also matches its channel: an off on channel 2 ended the oldest held note of that pitch, which could be channel 1's. Routing is by whether the playing graph has channel `c`'s first control, so `voices f` needs no list of channels it leaves out.
 
 - The CLAP plugin takes notes from the DAW, as CLAP note events or MIDI, and plays them on its voices with its own notes. A block's notes are sorted by frame before they reach the voices, which take events in time order: a clip's note at frame 0 handled after a host's at frame 300 started at 300.
 
@@ -552,17 +554,17 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `funk emit-c --glue FILE` and `funk_glue` in `libfunk.h`: the glue of FILE's foreign imports, as C a host links in, so the interpreter runs no C compiler for them. Each import is found by a key over its conversions, C name and header, not by its slot in the runtime's globals, which depends on what was loaded before; an import whose key is missing is compiled with `$CC` as before. The CLAP plugin links graph.fk's glue: before, it needed a compiler in the DAW's process, which may have none or forbid running one ([docs/dev/plugin.md](docs/dev/plugin.md#linked-glue)).
 
-- `funk_voices` in `projects/funkgraph/graph.h`: notes on `d.poly`'s voices, moved from `funk-live` so that the plugin shares it. A note's off is given with it or by a later note-off, as MIDI sends it.
+- `funk_voices` in `projects/funkgraph/graph.h`: notes on `d.poly`'s voices, moved from `funk-midi` so that the plugin shares it. A note's off is given with it or by a later note-off, as MIDI sends it.
 
 - `funk_player_send_audio` in `projects/funkgraph/graph.h`: events made on the audio thread, such as a plugin's notes, in a queue of their own. `funk_player_send`'s queue allows one producer, and `g.send` already uses it from the host's thread. Rendering merges the two queues by frame, since an event sets its control to the end of the block.
 
 - Controls in `projects/funkgraph` and `lib/graph.fk`: a node without a kernel whose value events change at a given frame (`funk_player_send`, `g.send`), so a note's gate or frequency changes at its sample rather than at a block's start. Events go through a queue of C structs in the player, a 64-bit frame, a name and a `float` each, rather than funk's `Ring Int`, whose values have 16 bits: the runner, not a funk export, reads them.
 
-- Voices: `d.poly n f` sums `n` voices of `f gate freq`, each reading its own controls, and `funk-live --audio` sends `pat`'s notes to them (`voices f`, sized by `--voices N`, default 8). A note takes the free voice released longest ago, else steals the oldest; a reused voice's gate drops for one frame so its envelope restarts. A fixed pool in one graph, rather than nodes added per note, so a note never swaps the graph. Notes are timed in the player's frames, which the host tracks against its clock in real time.
+- Voices: `d.poly n f` sums `n` voices of `f gate freq`, each reading its own controls, and `funk-midi --audio` sends `pat`'s notes to them (`voices f`, sized by `--voices N`, default 8). A note takes the free voice released longest ago, else steals the oldest; a reused voice's gate drops for one frame so its envelope restarts. A fixed pool in one graph, rather than nodes added per note, so a note never swaps the graph. Notes are timed in the player's frames, which the host tracks against its clock in real time.
 
 - `bench/dsp.c` (`build/dspbench`): the cost of each kernel, of the graph per node, and of a voice in funk kernels, the same kernels in C, and one fused C loop ([docs/dev/261029-dsp-measurements.md](docs/dev/261029-dsp-measurements.md)). On an M1 at 64 frames, a voice costs 792 ns in funk, 816 in C kernels and 292 fused.
 
-- Channels in `lib/graph.fk`: `g.Channels [Sig]`, or `d.stereo l r`, is a signal of several channels, and a node with such an input becomes one node per channel, as in SuperCollider. A mono input is added once and shared by the channels' nodes, rather than copied per channel, so `d.pan pos voice` does not build the voice twice. `funk_graph_output` and `funk_player_render_channels` in `projects/funkgraph`; a mono graph plays on every channel. `funk-live --audio` plays stereo.
+- Channels in `lib/graph.fk`: `g.Channels [Sig]`, or `d.stereo l r`, is a signal of several channels, and a node with such an input becomes one node per channel, as in SuperCollider. A mono input is added once and shared by the channels' nodes, rather than copied per channel, so `d.pan pos voice` does not build the voice twice. `funk_graph_output` and `funk_player_render_channels` in `projects/funkgraph`; a mono graph plays on every channel. `funk-midi --audio` plays stereo.
 
 ### Changed
 

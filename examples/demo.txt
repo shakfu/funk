@@ -1,0 +1,37 @@
+-- make demo: funk-live --audio --script, about 65 s. One bar a cycle at
+-- cps 0.5 (120 BPM, 4/4), a straight grid, A minor (Am F C G, a bar each).
+-- SuperDirt's synths only, so no Dirt-Samples. Ctrl-C stops it.
+putStrLn "1/3 signal graphs: lib/dsp.fk's oscillators, filters and effects, compiled C"
+sig = d.sine 220 * 0.2
+:wait 2000
+sig = d.lowpass1 (d.sine 0.25 * 700 + 900) (d.saw 55 + d.saw 55.3) * 0.15
+:wait 4000
+sig = d.reverb .{ mix = 0.4 } (d.chorus .{ mix = 0.5 } ((d.saw 220 + d.saw 261.63 + d.saw 329.63) * 0.06))
+:wait 4000
+putStrLn "2/3 Tidal patterns, played as SuperDirt plays them, in-process"
+dirt = d.superDirt
+sig = d.orbits 4
+d1 $ s "superkick*4" # gain "0.9"
+:wait 4000
+d2 $ s "[~ superclap]*2" # gain "0.8" # room "0.2" # size "0.4" # orbit "1"
+d3 $ s "superhat*8" # gain "0.7 0.55"
+:wait 4000
+d4 $ s "supersaw*8" # note "<a1 f1 c2 g1>" # lpf "500" # sustain "0.2" # gain "0.75"
+:wait 8000
+d5 $ s "superpiano" # note "<[a4,c5,e5] [f4,a4,c5] [c5,e5,g5] [g4,b4,d5]>" # sustain "1.8" # gain "0.7" # room "0.4" # size "0.7" # orbit "2"
+:wait 8000
+d6 $ s "superfm*8" # note "<[a5 c6 e6 c6]*2 [f5 a5 c6 a5]*2 [c6 e6 g6 e6]*2 [g5 b5 d6 b5]*2>" # sustain "0.15" # gain "0.65" # delay "0.3" # delaytime "0.375" # delayfeedback "0.4" # orbit "3"
+:wait 8000
+putStrLn "3/3 transforming and replacing slots live"
+d6 $ every 2 rev $ s "superfm*8" # note "<[a5 c6 e6 c6]*2 [f5 a5 c6 a5]*2 [c6 e6 g6 e6]*2 [g5 b5 d6 b5]*2>" # sustain "0.15" # gain "0.65" # delay "0.3" # delaytime "0.375" # delayfeedback "0.4" # orbit "3"
+d3 $ s "superhat*16" # gain "0.7 0.45 0.55 0.45"
+:wait 8000
+mute 4
+solo 5
+:wait 4000
+unsolo 5
+unmute 4
+xfadeIn 1 4 $ s "superkick*2 [superkick superkick]" # gain "0.9"
+:wait 8000
+hush
+:wait 3000

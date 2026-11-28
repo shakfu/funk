@@ -2,6 +2,8 @@
 
 Status: implemented, 2026-10-30: B, on a copy of `midi-langs`' framework ([Decision](#decision)); the plugin has a stereo output. gh:3. The question in [audio.md](audio.md#open-questions): does `midi-langs`' CLAP framework grow audio ports, or does funk get a plugin of its own?
 
+funk-live was named funk-midi until 2026-11-23.
+
 Line counts below are measured; costs are estimates from reading the code, not from doing the work.
 
 ## What exists
@@ -19,7 +21,7 @@ Line counts below are measured; costs are estimates from reading the code, not f
 
   - Neither `dev_host.cpp` nor `test_clap_host.cpp` passes audio buffers.
 
-- **funk's adapter**, `midi-langs/projects/funk-live/funk_clap.cpp` (352 lines): runs `libfunk` on its own thread and queues every call to it.
+- **funk's adapter**, `midi-langs/projects/funk-midi/funk_clap.cpp` (352 lines): runs `libfunk` on its own thread and queues every call to it.
 
 - **What `funk-live --audio` already does** (`projects/funk-live/main.c`, 787 lines): owns a `funkgraph` player, loads `funkdsp.so`, has funk build graphs with `g.play`, renders on the audio thread through `funk_player_render_channels` alone, and turns `pat`'s notes into voice controls (`voice_*`, about 80 lines).
 
@@ -93,7 +95,7 @@ Risks:
 
 ### C. Two plugins: the note effect, plus an instrument
 
-Keep `midi-langs`' `funk-live` as a note effect. Add an instrument that renders graphs and takes MIDI in; the DAW routes the effect's MIDI to it.
+Keep `midi-langs`' `funk-midi` as a note effect. Add an instrument that renders graphs and takes MIDI in; the DAW routes the effect's MIDI to it.
 
 - The instrument embeds its own `libfunk` session (allowed since gh:1) to build graphs, or none, if it plays a fixed graph chosen by name.
 
@@ -138,7 +140,7 @@ Done:
 
 - `projects/clap`: the framework, copied, with `midi_clock` and `midi_open` from `midi-langs`' `projects/common`. CLAP, pugl and imgui are vendored in `thirdparty/`.
 
-- `projects/funk-clap`: the adapter, moved from `midi-langs/projects/funk-live`. The plugin's id is unchanged.
+- `projects/funk-clap`: the adapter, moved from `midi-langs/projects/funk-midi`. The plugin's id is unchanged.
 
 - `-DFUNK_CLAP=ON` (`make clap`) builds `build/clap/funk-live.clap`; `tests/hosts/clap` runs `test_clap_host` on it.
 

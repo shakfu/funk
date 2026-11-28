@@ -34,6 +34,7 @@ make                          # builds build/funk and links ./funk to it
 make test                     # interpreter, compiled, error, REPL and command-line tests
 make test ARGS="-R gcdeep"     # the tests whose names match; ARGS go to ctest (-L ffi for a label)
 make SANITIZE=undefined test  # the same, with funk built under UBSan; build/ is rebuilt
+make demo                     # about 65 s of funk-live playing graphs and Tidal patterns
 make bench                    # time funk against C; see bench/README.md
 make install                  # install funk into ~/.local/bin
 ```

@@ -2,6 +2,8 @@
 
 2026-11-10. Under `FUNK_GCSTRESS=1`, funk-live failed the check of marks: "reachable object ... is unmarked at the end of a cycle, in the stack ... in a frame from before the cycle's start". HEAD cbd9992 failed too, given a module `data ID = ID String deriving (Eq, Ord, Show)` and one more definition. R1 made every slot script fail.
 
+funk-live was named funk-midi until 2026-11-23.
+
 ## Cause
 
 The collector was correct. The check read a word that the program never used as a value.

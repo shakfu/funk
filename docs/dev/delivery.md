@@ -2,6 +2,8 @@
 
 Status: decided 2026-11-07, for 0.11's control patterns ([roadmap.md](roadmap.md#011----tidal-expressive-patterns)); step 1 of the plan is done. The decisions are at the end.
 
+funk-live was named funk-midi until 2026-11-23.
+
 The question: how an event with named parameters, such as Tidal's `s "bd*2" # speed "<1 2>" # pan 0.3`, reaches MIDI output, the plugin's voices and `d.kit`.
 
 Sources: Tidal's `tidal-core/src/Sound/Tidal/{Core,Pattern,Params}.hs` on `main`, downloaded 2026-11-07, cited by file and line. funk at the 0.11 work in progress.

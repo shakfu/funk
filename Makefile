@@ -9,6 +9,8 @@
 #   make SANITIZE=address test     under ASan; set ASAN_OPTIONS=detect_leaks=0 on Linux
 #   make bench | bench-report      time funk against C; see bench/README.md
 #   make install                   install funk into ~/.local/bin
+#   make demo                      play examples/demo.txt through funk-live to the
+#                                  default audio output, about 65 s
 #   make clap                      build build/clap/funk-live.clap (FUNK_CLAP)
 #   make clap-dev                  run the plugin's editor in a minimal host,
 #                                  MIDI to the first port, its audio's peak each second
@@ -47,6 +49,10 @@ bench: funk
 bench-report:
 	python3 bench/bench.py report
 
+# --print: no MIDI port, which a build without libremidi cannot open
+demo: funk
+	./$(BUILD)/funk-live --audio --print --cycle 2000 --script examples/demo.txt
+
 clap: $(BUILD)/CMakeCache.txt
 	$(CMAKE) -S . -B $(BUILD) -DFUNK_CLAP=ON >/dev/null
 	$(CMAKE) --build $(BUILD)
@@ -78,4 +84,4 @@ install: funk
 clean:
 	rm -rf build funk
 
-.PHONY: all funk test bench bench-report clap clap-dev tree-sitter diagrams install clean
+.PHONY: all funk test bench bench-report demo clap clap-dev tree-sitter diagrams install clean

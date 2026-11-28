@@ -2,6 +2,8 @@
 
 Status: implemented, 2026-11-04, for the 0.10 acceptance test ([roadmap.md](roadmap.md#010----stabilization)).
 
+funk-live was named funk-midi until 2026-11-23.
+
 The simulator evaluates steps from a script, one every interval, as a performer would. It logs each step and the plugin's output. It also logs how long `process()` took against the block's duration. Code: `projects/clap/simulator.{hpp,cpp}`. Test: `hosts/clap/sim`.
 
 ## Variables

@@ -127,6 +127,11 @@ add_test(NAME hosts/kit
   COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --audio --no-sleep --cycle 2000 --script tests/hosts/kit.txt 2>&1 | diff tests/hosts/kit.expected -"
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 set_tests_properties(hosts/kit PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
+# ... make demo's script: it evaluates without an error (examples/demo.txt)
+add_test(NAME hosts/demo
+  COMMAND sh -c "\"$<TARGET_FILE:funk-live>\" --audio --no-sleep --cycle 2000 --script examples/demo.txt 2>&1 | grep -v 'audio peak' | diff examples/demo.expected -"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+set_tests_properties(hosts/demo PROPERTIES LABELS hosts TIMEOUT 300 ENVIRONMENT "XDG_CACHE_HOME=${CMAKE_CURRENT_BINARY_DIR}/cache")
 # the CLAP plugin in a headless host: evaluation, clips, Stop, state, Live
 # (projects/clap/test_clap_host.cpp; cases in tests/hosts/clap.txt)
 if(TARGET funk_live_clap)

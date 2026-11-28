@@ -2,6 +2,8 @@
 
 Status: sketch, 2026-10-28. No code in the repo. funk's music library plays MIDI only ([../music.md](../music.md)); the sound comes from a synth outside funk. This note sketches four ways to make sound: A, a compiled synth driven by live patterns; B, A with the synth recompiled on edit; C, MIDI to external synths, as today; D, a graph of compiled unit generators built at run time, as sapf does. D is recommended (2026-10-29).
 
+funk-live was named funk-midi until 2026-11-23.
+
 ## What exists
 
 - **Allocation-free exports** ([realtime.md](realtime.md), R4). A `foreign export` runs on an audio thread. The compiler proves it allocates nothing, so the collector never pauses it.

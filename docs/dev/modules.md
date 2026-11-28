@@ -2,6 +2,8 @@
 
 Status: implemented, released in 0.6.0; see "Phase 1 result", "Phase 2 result" and "Phase 3 result". It builds on the syntax [records.md](records.md#modules) reserves.
 
+funk-live was named funk-midi until 2026-11-23.
+
 ## Problem
 
 A funk program is one file plus the prelude. Code cannot be shared between programs except by copying it: `fixed9` is copied between `bench/game/nbody.fk` and `spectralnorm.fk`. A program cannot be split into files. Every Haskell program with `module` or `import` fails to parse ([haskell-compat.md](haskell-compat.md)).
