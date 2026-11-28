@@ -1,18 +1,20 @@
 -- make demo: funk-live --audio --script, about 65 s. One bar a cycle at
 -- cps 0.5 (120 BPM, 4/4), a straight grid, A minor (Am F C G, a bar each).
 -- SuperDirt's synths only, so no Dirt-Samples. Ctrl-C stops it.
+-- about +8 dB of gain into a limiter at -1 dB, which only peaks reach
+out x = d.limit (-1) 0.1 (x * 2.5)
 putStrLn "1/3 signal graphs: lib/dsp.fk's oscillators, filters and effects, compiled C"
-sig = d.sine 220 * 0.2
+sig = out (d.sine 220 * 0.2)
 :wait 2000
-sig = d.lowpass1 (d.sine 0.25 * 700 + 900) (d.saw 55 + d.saw 55.3) * 0.15
+sig = out (d.lowpass1 (d.sine 0.25 * 700 + 900) (d.saw 55 + d.saw 55.3) * 0.15)
 :wait 4000
-sig = d.reverb .{ mix = 0.4 } (d.chorus .{ mix = 0.5 } ((d.saw 220 + d.saw 261.63 + d.saw 329.63) * 0.06))
+sig = out (d.reverb .{ mix = 0.4 } (d.chorus .{ mix = 0.5 } ((d.saw 220 + d.saw 261.63 + d.saw 329.63) * 0.16)))
 :wait 4000
 putStrLn "2/3 Tidal patterns, played as SuperDirt plays them, in-process"
 dirt = d.superDirt
-sig = d.orbits 4
-d1 $ s "superkick*4" # gain "0.9"
-:wait 4000
+sig = out (d.orbits 4)
+d1 $ s "superkick*4" # gain "0.95"
+:wait 2000
 d2 $ s "[~ superclap]*2" # gain "0.8" # room "0.2" # size "0.4" # orbit "1"
 d3 $ s "superhat*8" # gain "0.7 0.55"
 :wait 4000
@@ -27,11 +29,13 @@ d6 $ every 2 rev $ s "superfm*8" # note "<[a5 c6 e6 c6]*2 [f5 a5 c6 a5]*2 [c6 e6
 d3 $ s "superhat*16" # gain "0.7 0.45 0.55 0.45"
 :wait 8000
 mute 4
+solo 1
 solo 5
 :wait 4000
+unsolo 1
 unsolo 5
 unmute 4
-xfadeIn 1 4 $ s "superkick*2 [superkick superkick]" # gain "0.9"
+xfadeIn 1 4 $ s "superkick*2 [superkick superkick]" # gain "0.95"
 :wait 8000
 hush
 :wait 3000
